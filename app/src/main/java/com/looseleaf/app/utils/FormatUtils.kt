@@ -39,8 +39,9 @@ object FormatUtils {
         val absCents = kotlin.math.abs(cents)
         val yuan = absCents / 100
         val remainder = absCents % 100
-        val formatted = String.format(Locale.US, "%s%d.%02d", if (cents < 0) "-" else "", yuan, remainder)
-        return if (includeSymbol) "¥ $formatted" else formatted
+        val sign = if (cents < 0) "-" else ""
+        val formatted = String.format(Locale.US, "%d.%02d", yuan, remainder)
+        return if (includeSymbol) "${sign}¥ $formatted" else "$sign$formatted"
     }
 
     /**
