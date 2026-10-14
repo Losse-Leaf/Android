@@ -31,7 +31,7 @@ jobs:
       - name: Package Artifact
         run: |
           mkdir -p release-artifacts
-          cp app/build/outputs/apk/release/*.apk "release-artifacts/LooseLeaf-${{ github.ref_name }}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "release-artifacts/LooseLeaf-${{ github.ref_name }}.apk" 2>/dev/null || cp app/build/outputs/apk/release/*.apk "release-artifacts/LooseLeaf-${{ github.ref_name }}.apk"
           ls -la release-artifacts/
 
       - name: Upload Artifact
@@ -46,5 +46,5 @@ jobs:
         with:
           files: release-artifacts/*.apk
           body: |
-            散页 (Loose Leaf) Android 原生移动端正式发布产物。
+            散页 (Loose Leaf) Android 原生移动端正式发布产物（已签名）。
             支持端侧随行暗房 4K 压制直传、极速触觉记账大键盘、离线优先发件箱、KeyStore/生物识别与桌面小组件。
