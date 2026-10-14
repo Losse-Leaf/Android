@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.google.zxing.*
-import com.google.zxing.client.android.Intents
 import com.google.zxing.common.GlobalHistogramBinarizer
 import com.google.zxing.common.HybridBinarizer
 import com.journeyapps.barcodescanner.ScanContract
@@ -331,8 +330,6 @@ fun SquareQrScannerView(
                         setOrientationLocked(false)
                         setPrompt("请对准配对二维码")
                         setBeepEnabled(true)
-                        addExtra(Intents.Scan.WIDTH, 260)
-                        addExtra(Intents.Scan.HEIGHT, 260)
                     }
                     fullscreenScanLauncher.launch(options)
                 },

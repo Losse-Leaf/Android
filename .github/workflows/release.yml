@@ -26,7 +26,20 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease --no-daemon
+        run: |
+          set +e
+          ./gradlew assembleRelease --no-daemon --stacktrace > gradle_release.log 2>&1
+          EXIT_CODE=$?
+          cat gradle_release.log
+          if [ $EXIT_CODE -ne 0 ]; then
+            ERR_SUMMARY=$(grep -E "^e: " gradle_release.log | head -n 20)
+            if [ -z "$ERR_SUMMARY" ]; then
+              ERR_SUMMARY=$(grep -C 3 -i "error" gradle_release.log | head -n 30)
+            fi
+            ENCODED_ERR=$(echo "$ERR_SUMMARY" | sed 's/%/%25/g' | sed 's/\r/%0D/g' | sed 's/\n/%0A/g')
+            echo "::error title=Kotlin Compile Error::$ENCODED_ERR"
+            exit $EXIT_CODE
+          fi
 
       - name: Package Artifact
         run: |
