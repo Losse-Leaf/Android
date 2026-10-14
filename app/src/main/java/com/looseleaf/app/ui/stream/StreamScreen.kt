@@ -30,6 +30,9 @@ import com.looseleaf.app.model.LifeEntry
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
+import com.looseleaf.app.updater.ReleaseInfo
+import com.looseleaf.app.updater.UpdateCheckResult
+import com.looseleaf.app.updater.UpdateChecker
 import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.launch
 
@@ -54,6 +57,14 @@ fun StreamScreen(
 
     var selectedFilter by remember { mutableStateOf("all") }
     var isRefreshing by remember { mutableStateOf(false) }
+    var cloudUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
+
+    LaunchedEffect(Unit) {
+        when (val res = UpdateChecker.checkForUpdates()) {
+            is UpdateCheckResult.HasUpdate -> cloudUpdate = res.release
+            else -> {}
+        }
+    }
 
     val filteredEntries = remember(entries, selectedFilter) {
         if (selectedFilter == "all") entries
@@ -121,6 +132,46 @@ fun StreamScreen(
                             tint = if (isRefreshing) colors.accentWarm else colors.inkSecondary,
                             modifier = Modifier.size(20.dp)
                         )
+                    }
+                }
+            }
+
+            // 新版本可用提示卡片
+            cloudUpdate?.let { update ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(colors.accentWarm.copy(alpha = 0.08f))
+                        .border(0.5.dp, colors.accentWarm, RoundedCornerShape(3.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "🎉 发现新版本 ${update.tagName}（当前 v${UpdateChecker.currentVersionName}）",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 12.sp,
+                            color = colors.accentWarm
+                        )
+                        if (update.body.isNotBlank()) {
+                            Text(
+                                text = update.body.lines().firstOrNull() ?: "",
+                                fontFamily = ArchiveFontFamilies.BodySans,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                color = colors.inkSecondary
+                            )
+                        }
+                    }
+                    TextButton(
+                        onClick = { UpdateChecker.openDownloadPage(context, update.apkUrl) },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Text("立即升级", color = colors.accentWarm, fontSize = 12.sp, fontFamily = ArchiveFontFamilies.EditorialSerif)
                     }
                 }
             }

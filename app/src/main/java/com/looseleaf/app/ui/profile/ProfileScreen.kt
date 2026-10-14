@@ -31,6 +31,9 @@ import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.NoiseBackground
 import com.looseleaf.app.ui.components.PaperCard
 import com.looseleaf.app.ui.components.PaperDivider
+import com.looseleaf.app.updater.ReleaseInfo
+import com.looseleaf.app.updater.UpdateCheckResult
+import com.looseleaf.app.updater.UpdateChecker
 import kotlinx.coroutines.launch
 
 /**
@@ -54,6 +57,8 @@ fun ProfileScreen(
     var isDarkroomMode by remember { mutableStateOf(credentialStore.isDarkroomMode) }
     var isBiometricsEnabled by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
     var showUnpairDialog by remember { mutableStateOf(false) }
+    var isCheckingUpdate by remember { mutableStateOf(false) }
+    var availableUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
 
     LaunchedEffect(Unit) {
         runCatching {
@@ -300,6 +305,84 @@ fun ProfileScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // 版本信息与检测更新卡片
+            PaperCard(modifier = Modifier.fillMaxWidth()) {
+                Column {
+                    Text(
+                        text = "版本与更新",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 15.sp,
+                        color = colors.inkPrimary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    ProfileInfoRow(label = "当前版本", value = "v${UpdateChecker.currentVersionName}")
+                    ProfileInfoRow(label = "分发渠道", value = "GitHub Releases")
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    PaperDivider()
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = if (isCheckingUpdate) "正在连接 GitHub 检索更新..." else "检测云端最新发布",
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 12.sp,
+                            color = colors.inkSecondary
+                        )
+
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    isCheckingUpdate = true
+                                    haptics.tapKey()
+                                    when (val result = UpdateChecker.checkForUpdates()) {
+                                        is UpdateCheckResult.HasUpdate -> {
+                                            availableUpdate = result.release
+                                        }
+                                        is UpdateCheckResult.AlreadyLatest -> {
+                                            Toast.makeText(
+                                                context,
+                                                "当前已是最新版本 (v${UpdateChecker.currentVersionName})",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                        is UpdateCheckResult.Error -> {
+                                            Toast.makeText(
+                                                context,
+                                                "检测更新失败: ${result.message}",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
+                                    isCheckingUpdate = false
+                                }
+                            },
+                            enabled = !isCheckingUpdate,
+                            shape = RoundedCornerShape(2.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = colors.accentWarm,
+                                contentColor = colors.archivePaper
+                            ),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = if (isCheckingUpdate) "检测中…" else "检测新版本",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
 
             // 吊销此设备按钮
@@ -315,6 +398,58 @@ fun ProfileScreen(
                 Icon(Icons.Outlined.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("解除此设备绑定 (UNPAIR)", fontFamily = ArchiveFontFamilies.EditorialSerif)
+            }
+
+            if (availableUpdate != null) {
+                val update = availableUpdate!!
+                AlertDialog(
+                    onDismissRequest = { availableUpdate = null },
+                    title = {
+                        Text(
+                            text = "🎉 发现新版本 ${update.tagName}",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.Medium
+                        )
+                    },
+                    text = {
+                        Column {
+                            Text(
+                                text = "发布时间: ${update.publishedAt.take(10)}",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 11.sp,
+                                color = colors.inkMuted
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = update.body.ifBlank { "包含功能迭代与性能稳定性增强。" },
+                                fontFamily = ArchiveFontFamilies.BodySans,
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp,
+                                color = colors.inkSecondary
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                UpdateChecker.openDownloadPage(context, update.apkUrl)
+                                availableUpdate = null
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = colors.accentWarm,
+                                contentColor = colors.archivePaper
+                            ),
+                            shape = RoundedCornerShape(2.dp)
+                        ) {
+                            Text("立即下载升级", fontFamily = ArchiveFontFamilies.EditorialSerif)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { availableUpdate = null }) {
+                            Text("稍后再说", color = colors.inkSecondary)
+                        }
+                    }
+                )
             }
 
             if (showUnpairDialog) {
