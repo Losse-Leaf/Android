@@ -37,6 +37,7 @@ data class LifeEntry(
     val location: String? = null,
     @SerialName("city_code") val cityCode: String? = null,
     @SerialName("city_name") val cityName: String? = null,
+    val camera: String? = null,
     @SerialName("project_id") val projectId: Long? = null,
     val project: Project? = null,
     @SerialName("wish_id") val wishId: Long? = null,

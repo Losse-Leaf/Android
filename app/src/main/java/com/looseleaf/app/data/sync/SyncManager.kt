@@ -343,6 +343,7 @@ fun CachedEntryEntity.toDomainModel(json: Json): LifeEntry {
         location = location,
         cityCode = cityCode,
         cityName = cityName,
+        camera = camera,
         attachments = atts,
         syncStatus = syncStatus,
         createdAt = createdAt
