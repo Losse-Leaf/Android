@@ -1,0 +1,196 @@
+package com.looseleaf.app
+
+import android.content.Intent
+import android.os.Bundle
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import androidx.fragment.app.FragmentActivity
+import com.looseleaf.app.audio.AudioEngine
+import com.looseleaf.app.data.security.BiometricHelper
+import com.looseleaf.app.data.security.CredentialStore
+import com.looseleaf.app.haptics.HapticsEngine
+import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.LooseLeafTheme
+import com.looseleaf.app.ui.darkroom.DarkroomScreen
+import com.looseleaf.app.ui.ledger.LedgerScreen
+import com.looseleaf.app.ui.pairing.PairingScreen
+import com.looseleaf.app.ui.profile.ProfileScreen
+import com.looseleaf.app.ui.projectswishes.ProjectsWishesScreen
+import com.looseleaf.app.ui.stream.StreamScreen
+
+class MainActivity : FragmentActivity() {
+
+    private lateinit var credentialStore: CredentialStore
+    private lateinit var haptics: HapticsEngine
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        credentialStore = CredentialStore.getInstance(this)
+        haptics = HapticsEngine.getInstance(this)
+
+        val shortcutRoute = intent?.getStringExtra("shortcut_route")
+
+        setContent {
+            var isDarkTheme by remember { mutableStateOf(credentialStore.isDarkroomMode) }
+
+            LooseLeafTheme(darkTheme = isDarkTheme) {
+                var isPaired by remember { mutableStateOf(credentialStore.isPaired()) }
+                var currentRoute by remember {
+                    mutableStateOf(shortcutRoute ?: "stream")
+                }
+
+                // 生物识别保护触发
+                var isUnlocked by remember {
+                    mutableStateOf(!credentialStore.isBiometricsEnabled)
+                }
+
+                LaunchedEffect(Unit) {
+                    if (credentialStore.isBiometricsEnabled && BiometricHelper.canAuthenticate(this@MainActivity)) {
+                        BiometricHelper.authenticate(
+                            activity = this@MainActivity,
+                            title = "散页身份验证",
+                            subtitle = "验证面容或指纹以解锁时光手账",
+                            onSuccess = { isUnlocked = true },
+                            onError = { /* fallback */ }
+                        )
+                    }
+                }
+
+                if (!isPaired) {
+                    PairingScreen(
+                        onPairingSuccess = {
+                            isPaired = true
+                            currentRoute = "stream"
+                        }
+                    )
+                } else {
+                    Scaffold(
+                        bottomBar = {
+                            LooseLeafBottomBar(
+                                currentRoute = currentRoute,
+                                onRouteSelected = { route ->
+                                    haptics.tapKey()
+                                    AudioEngine.playPaperFlip()
+                                    currentRoute = route
+                                }
+                            )
+                        }
+                    ) { innerPadding ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding)
+                        ) {
+                            when (currentRoute) {
+                                "stream" -> StreamScreen(
+                                    onNavigateToDarkroom = {
+                                        currentRoute = "darkroom"
+                                    }
+                                )
+                                "ledger" -> LedgerScreen()
+                                "darkroom" -> DarkroomScreen(
+                                    onEntrySaved = {
+                                        currentRoute = "stream"
+                                    }
+                                )
+                                "projects" -> ProjectsWishesScreen()
+                                "profile" -> ProfileScreen(
+                                    onUnpair = {
+                                        isPaired = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+}
+
+data class NavigationTabItem(
+    val route: String,
+    val label: String,
+    val icon: ImageVector
+)
+
+@Composable
+fun LooseLeafBottomBar(
+    currentRoute: String,
+    onRouteSelected: (String) -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    val tabs = listOf(
+        NavigationTabItem("stream", "时间流", Icons.Outlined.AutoStories),
+        NavigationTabItem("ledger", "账本", Icons.Outlined.Calculate),
+        NavigationTabItem("darkroom", "暗房", Icons.Outlined.PhotoCamera),
+        NavigationTabItem("projects", "造物", Icons.Outlined.AllInclusive),
+        NavigationTabItem("profile", "展台", Icons.Outlined.AccountCircle)
+    )
+
+    Surface(
+        color = colors.archivePaper,
+        tonalElevation = 3.dp,
+        border = androidx.compose.foundation.BorderStroke(0.5.dp, colors.borderDivider),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceAround,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            for (tab in tabs) {
+                val isSelected = tab.route == currentRoute
+                val contentColor = if (isSelected) colors.accentWarm else colors.inkMuted
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onRouteSelected(tab.route) }
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = tab.icon,
+                        contentDescription = tab.label,
+                        tint = contentColor,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = tab.label,
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Medium else androidx.compose.ui.text.font.FontWeight.Normal,
+                        color = contentColor
+                    )
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="archive_paper">#FFF9F8F5</color>
+    <color name="archive_subtle">#FFF2F0EB</color>
+    <color name="ink_primary">#FF181716</color>
+    <color name="accent_warm">#FFA24F2B</color>
+    <color name="accent_moss">#FF3F5A4A</color>
+</resources>
