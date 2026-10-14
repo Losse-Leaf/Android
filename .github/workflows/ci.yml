@@ -33,11 +33,15 @@ jobs:
 
       - name: Run Unit Tests
         run: |
-          ./gradlew testDebugUnitTest --no-daemon --stacktrace || {
-            echo "=== UNIT TEST FAILED - PRINTING TEST RESULTS ==="
-            find app/build/test-results -name "*.xml" -exec cat {} + 2>/dev/null || true
-            exit 1
-          }
+          set +e
+          ./gradlew testDebugUnitTest --no-daemon --stacktrace > gradle_test.log 2>&1
+          EXIT_CODE=$?
+          cat gradle_test.log
+          if [ $EXIT_CODE -ne 0 ]; then
+            ERR_SUMMARY=$(tail -n 35 gradle_test.log | sed 's/%/%25/g' | sed 's/\r/%0D/g' | sed 's/\n/%0A/g')
+            echo "::error title=Gradle Build Failure::$ERR_SUMMARY"
+            exit $EXIT_CODE
+          fi
 
       - name: Upload Test Report
         if: always()
