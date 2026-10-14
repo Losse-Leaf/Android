@@ -1,20 +1,21 @@
 package com.looseleaf.app.ui.pairing
 
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Build
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.QrCodeScanner
-import androidx.compose.material.icons.outlined.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,14 +23,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
+import com.looseleaf.app.audio.AudioEngine
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.security.CredentialStore
+import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.NoiseBackground
@@ -39,7 +38,10 @@ import com.looseleaf.app.ui.components.TerracottaStampButton
 import kotlinx.coroutines.launch
 
 /**
- * 免密设备配对与入网界面 (PairingScreen) - docs/mobile.md §3.4
+ * 散页免密设备配对与入网界面 (PairingScreen)
+ * 严格遵从两阶段入网模型：
+ * 阶段一：扫码或粘贴链接自动解析中枢与工单握手连接；
+ * 阶段二：连接成功后进入下一页设置设备名称并进入散页。
  */
 @Composable
 fun PairingScreen(
@@ -51,29 +53,61 @@ fun PairingScreen(
     val colors = LooseLeafTheme.colors
     val apiClient = remember { APIClient.getInstance(context) }
     val credentialStore = remember { CredentialStore.getInstance(context) }
+    val haptics = remember { HapticsEngine.getInstance(context) }
 
-    var hubUrl by remember { mutableStateOf(apiClient.baseUrl) }
-    var ticketText by remember { mutableStateOf("") }
-    var masterPasscode by remember { mutableStateOf("") }
-    var deviceName by remember { mutableStateOf(credentialStore.deviceName) }
-    var isLoading by remember { mutableStateOf(false) }
-    var statusMessage by remember { mutableStateOf<String?>(null) }
-    var isDirectPasscodeMode by remember { mutableStateOf(false) }
+    // 0: 连接配对阶段 (扫码/粘贴链接), 1: 配对成功设置设备名称阶段
+    var currentStep by remember { mutableStateOf(0) }
 
-    // 条码/二维码扫描启动器
-    val barcodeLauncher = rememberLauncherForActivityResult(
-        contract = ScanContract()
-    ) { result ->
-        val contents = result.contents
-        if (!contents.isNullOrBlank()) {
-            // 解析二维码内容：可能包含完整 URL 或工单号
-            val parsedTicket = if (contents.contains("ticket=")) {
-                contents.substringAfter("ticket=").substringBefore("&")
-            } else {
-                contents.trim()
+    // 方式切换: 0 为扫码, 1 为粘贴链接
+    var selectedMethodTab by remember { mutableStateOf(0) }
+    var pastedLinkInput by remember { mutableStateOf("") }
+    var isConnecting by remember { mutableStateOf(false) }
+
+    // 握手成功后的设备信息
+    var pairedDeviceId by remember { mutableStateOf("") }
+    var pairedHubUrl by remember { mutableStateOf("") }
+    var customDeviceName by remember {
+        mutableStateOf(Build.MODEL ?: "Android 随行设备")
+    }
+
+    fun executeHandshake(rawPayload: String) {
+        if (isConnecting) return
+        val parsed = PairingPayloadParser.parse(rawPayload)
+        if (parsed == null) {
+            Toast.makeText(context, "无法识别该配对链接，请确认是否包含中枢地址与工单号", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        scope.launch {
+            isConnecting = true
+            try {
+                haptics.tapKey()
+                apiClient.baseUrl = parsed.hubUrl
+
+                val defaultModel = Build.MODEL ?: "Android"
+                val resp = apiClient.confirmPairing(
+                    ticket = parsed.ticket,
+                    deviceName = defaultModel,
+                    deviceModel = defaultModel
+                )
+
+                // 暂存凭据
+                credentialStore.deviceToken = resp.deviceToken
+                credentialStore.deviceId = resp.deviceId
+                pairedDeviceId = resp.deviceId
+                pairedHubUrl = resp.hubUrl ?: parsed.hubUrl
+                customDeviceName = defaultModel
+
+                haptics.stampSave()
+                AudioEngine.playPaperFlip()
+                // 进入下一页面：设备展示名称定制页
+                currentStep = 1
+            } catch (e: Exception) {
+                haptics.tearDelete()
+                Toast.makeText(context, "连接数据中枢失败: ${e.message}", Toast.LENGTH_LONG).show()
+            } finally {
+                isConnecting = false
             }
-            ticketText = parsedTicket
-            Toast.makeText(context, "已识别配对工单: $parsedTicket", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -84,305 +118,296 @@ fun PairingScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
+                .padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // 标题
-            Text(
-                text = "散页 · 设备入网",
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontWeight = FontWeight.Medium,
-                fontSize = 28.sp,
-                letterSpacing = 2.sp,
-                color = colors.inkPrimary
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "第一现场随行暗房与口袋触觉账本",
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = 14.sp,
-                letterSpacing = 1.sp,
-                color = colors.inkSecondary
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // 1. 中枢网络地址配置卡片
-            PaperCard {
-                Column {
-                    Text(
-                        text = "数据中枢地址 (Hub URL)",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 15.sp,
-                        color = colors.inkPrimary
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = hubUrl,
-                        onValueChange = {
-                            hubUrl = it
-                            apiClient.baseUrl = it
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = colors.accentWarm,
-                            unfocusedBorderColor = colors.borderDivider,
-                            focusedTextColor = colors.inkPrimary,
-                            unfocusedTextColor = colors.inkPrimary
-                        )
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "本地调试: 模拟器用 10.0.2.2:8088，真机局域网填写电脑 IP",
-                        fontSize = 11.sp,
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        color = colors.inkMuted
-                    )
-                }
-            }
-
             Spacer(modifier = Modifier.height(20.dp))
 
-            // 2. 配对模式切换
-            if (!isDirectPasscodeMode) {
-                // 扫码/工单配对模式
-                PaperCard {
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.QrCodeScanner,
-                                contentDescription = null,
-                                tint = colors.accentWarm
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "扫码握手配对",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 16.sp,
-                                color = colors.inkPrimary
-                            )
-                        }
+            if (currentStep == 0) {
+                // ==========================================
+                // 阶段一：扫码或粘贴链接连接中枢
+                // ==========================================
 
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "在 Web 展厅管理后台点击「信任新设备」，扫描屏幕展示的动态配对二维码，即可免密接入。",
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp,
-                            color = colors.inkSecondary
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Button(
-                            onClick = {
-                                val options = ScanOptions().apply {
-                                    setPrompt("请对准 Web 展厅端展示的配对二维码")
-                                    setBeepEnabled(true)
-                                    setOrientationLocked(false)
-                                }
-                                barcodeLauncher.launch(options)
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = colors.archivePaper,
-                                contentColor = colors.inkPrimary
-                            ),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(
-                                width = 1.dp,
-                                brush = androidx.compose.ui.graphics.SolidColor(colors.borderDivider)
-                            ),
-                            shape = RoundedCornerShape(2.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Outlined.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("开启相机扫描二维码", fontFamily = ArchiveFontFamilies.EditorialSerif)
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-                        PaperDivider()
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text(
-                            text = "或手动输入 6 位工单号 / 配对码",
-                            fontSize = 13.sp,
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            color = colors.inkSecondary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = ticketText,
-                            onValueChange = { ticketText = it },
-                            placeholder = { Text("例如: llpt_7a9c82...", color = colors.inkMuted) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = colors.accentWarm,
-                                unfocusedBorderColor = colors.borderDivider,
-                                focusedTextColor = colors.inkPrimary,
-                                unfocusedTextColor = colors.inkPrimary
-                            )
-                        )
-                    }
-                }
-            } else {
-                // 管理员母密钥直接登入
-                PaperCard {
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Key,
-                                contentDescription = null,
-                                tint = colors.accentWarm
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "管理员母密钥登入",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 16.sp,
-                                color = colors.inkPrimary
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "首次装帧设定的主人密钥，验证通过后将为本机签发专属子钥匙 (Device Token)。",
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp,
-                            color = colors.inkSecondary
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        OutlinedTextField(
-                            value = masterPasscode,
-                            onValueChange = { masterPasscode = it },
-                            placeholder = { Text("输入母密钥", color = colors.inkMuted) },
-                            visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = colors.accentWarm,
-                                unfocusedBorderColor = colors.borderDivider,
-                                focusedTextColor = colors.inkPrimary,
-                                unfocusedTextColor = colors.inkPrimary
-                            )
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // 设备名称配置
-            PaperCard {
-                Column {
-                    Text(
-                        text = "本设备在管理台展示的名称",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 13.sp,
-                        color = colors.inkSecondary
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = deviceName,
-                        onValueChange = {
-                            deviceName = it
-                            credentialStore.deviceName = it
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = colors.accentWarm,
-                            unfocusedBorderColor = colors.borderDivider,
-                            focusedTextColor = colors.inkPrimary,
-                            unfocusedTextColor = colors.inkPrimary
-                        )
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 提交按钮
-            TerracottaStampButton(
-                text = if (isLoading) "正在握手配对..." else "确认接入中枢 (CONNECT)",
-                enabled = !isLoading && (ticketText.isNotBlank() || masterPasscode.isNotBlank()),
-                onClick = {
-                    scope.launch {
-                        isLoading = true
-                        statusMessage = null
-                        try {
-                            if (!isDirectPasscodeMode) {
-                                val resp = apiClient.confirmPairing(
-                                    ticket = ticketText.trim(),
-                                    deviceName = deviceName.trim(),
-                                    deviceModel = Build.MODEL ?: "Android"
-                                )
-                                credentialStore.deviceToken = resp.deviceToken
-                                credentialStore.deviceId = resp.deviceId
-                                credentialStore.deviceName = resp.deviceName
-                                if (!resp.hubUrl.isNullOrBlank()) {
-                                    apiClient.baseUrl = resp.hubUrl
-                                }
-                                statusMessage = "配对成功！设备编号: ${resp.deviceId}"
-                                onPairingSuccess()
-                            } else {
-                                val resp = apiClient.verifyMasterPasscode(
-                                    passcode = masterPasscode.trim(),
-                                    deviceName = deviceName.trim()
-                                )
-                                credentialStore.deviceToken = resp.token
-                                credentialStore.deviceId = resp.deviceId
-                                credentialStore.deviceName = resp.deviceName
-                                statusMessage = "验证成功！设备编号: ${resp.deviceId}"
-                                onPairingSuccess()
-                            }
-                        } catch (e: Exception) {
-                            statusMessage = "连接失败: ${e.message}"
-                            Toast.makeText(context, statusMessage, Toast.LENGTH_LONG).show()
-                        } finally {
-                            isLoading = false
-                        }
-                    }
-                }
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // 切换按钮
-            TextButton(
-                onClick = { isDirectPasscodeMode = !isDirectPasscodeMode }
-            ) {
                 Text(
-                    text = if (isDirectPasscodeMode) "切换为 扫码工单配对" else "切换为 母密钥直接登入",
+                    text = "散页 · 随行入网",
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 26.sp,
+                    letterSpacing = 2.sp,
+                    color = colors.inkPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "扫描 Web 展厅管理台的配对二维码，或直接粘贴配对链接",
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontSize = 13.sp,
-                    color = colors.inkMuted
+                    color = colors.inkSecondary
                 )
-            }
 
-            if (statusMessage != null) {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // 两种连接方式切换 Tab (仅支持扫码与链接)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(colors.archiveSubtle)
+                        .border(0.5.dp, colors.borderDivider, RoundedCornerShape(18.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    val tabs = listOf("扫码连接", "粘贴链接")
+                    tabs.forEachIndexed { index, title ->
+                        val isSelected = selectedMethodTab == index
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (isSelected) colors.archivePaper else androidx.compose.ui.graphics.Color.Transparent)
+                                .clickable {
+                                    haptics.tapKey()
+                                    selectedMethodTab = index
+                                }
+                                .padding(vertical = 8.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (index == 0) Icons.Outlined.QrCodeScanner else Icons.Outlined.Link,
+                                    contentDescription = null,
+                                    tint = if (isSelected) colors.accentWarm else colors.inkMuted,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = title,
+                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                                    color = if (isSelected) colors.inkPrimary else colors.inkSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                if (selectedMethodTab == 0) {
+                    // 方式 1：正方形 1:1 经典取景扫码器
+                    SquareQrScannerView(
+                        onQrCodeScanned = { scannedText ->
+                            executeHandshake(scannedText)
+                        }
+                    )
+                } else {
+                    // 方式 2：粘贴配对链接
+                    PaperCard(modifier = Modifier.fillMaxWidth()) {
+                        Column {
+                            Text(
+                                text = "粘贴配对链接",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 15.sp,
+                                color = colors.inkPrimary
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "在 Web 展厅管理台点击「复制配对链接」，粘贴至下方框内自动解析中枢与工单：",
+                                fontFamily = ArchiveFontFamilies.BodySans,
+                                fontSize = 12.sp,
+                                lineHeight = 18.sp,
+                                color = colors.inkSecondary
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            OutlinedTextField(
+                                value = pastedLinkInput,
+                                onValueChange = { pastedLinkInput = it },
+                                placeholder = {
+                                    Text(
+                                        text = "例如 looseleaf://pair?hub=http://...&ticket=pair_tk_...",
+                                        fontSize = 12.sp,
+                                        color = colors.inkMuted
+                                    )
+                                },
+                                minLines = 3,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = colors.accentWarm,
+                                    unfocusedBorderColor = colors.borderDivider,
+                                    focusedTextColor = colors.inkPrimary,
+                                    unfocusedTextColor = colors.inkPrimary
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // 从剪贴板粘贴按钮
+                            OutlinedButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                    val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
+                                    if (clipText.isNotBlank()) {
+                                        pastedLinkInput = clipText.trim()
+                                        Toast.makeText(context, "已粘贴剪贴板内容", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "剪贴板为空", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                shape = RoundedCornerShape(2.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Outlined.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("一键读取剪贴板链接", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp)
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            TerracottaStampButton(
+                                text = if (isConnecting) "正在解析并连接中枢..." else "确认连接中枢 (CONNECT)",
+                                enabled = !isConnecting && pastedLinkInput.isNotBlank(),
+                                onClick = {
+                                    executeHandshake(pastedLinkInput)
+                                }
+                            )
+                        }
+                    }
+                }
+
+                if (isConnecting) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            color = colors.accentWarm,
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "正在握手接入数据中枢，请稍候...",
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 13.sp,
+                            color = colors.accentWarm
+                        )
+                    }
+                }
+
+            } else {
+                // ==========================================
+                // 阶段二：连接成功，跳转下一页定制展示名称
+                // ==========================================
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.CheckCircle,
+                        contentDescription = null,
+                        tint = colors.accentMoss,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "中枢握手成功！",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 24.sp,
+                        color = colors.inkPrimary
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = statusMessage!!,
-                    fontFamily = ArchiveFontFamilies.MonoScale,
-                    fontSize = 12.sp,
-                    color = if (statusMessage!!.contains("成功")) colors.accentMoss else colors.accentWarm
+                    text = "本设备已获得专属子钥匙授权，现可自定义展示名称",
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontSize = 13.sp,
+                    color = colors.inkSecondary
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // 已配对节点与设备详情卡片
+                PaperCard(modifier = Modifier.fillMaxWidth()) {
+                    Column {
+                        Text(
+                            text = "授权凭证信息",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 15.sp,
+                            color = colors.inkPrimary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("中枢节点", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
+                            Text(pairedHubUrl, fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 12.sp, color = colors.inkPrimary)
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("设备编号", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
+                            Text(pairedDeviceId, fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 12.sp, color = colors.accentWarm)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 自定义本设备名称卡片
+                PaperCard(modifier = Modifier.fillMaxWidth()) {
+                    Column {
+                        Text(
+                            text = "本设备展示名称",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 15.sp,
+                            color = colors.inkPrimary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "此名称将展示在 Web 展厅的「受信任设备」列表中，方便您识别与管理",
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 12.sp,
+                            color = colors.inkSecondary
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        OutlinedTextField(
+                            value = customDeviceName,
+                            onValueChange = { customDeviceName = it },
+                            placeholder = { Text("例如: 迟暮的随行手机、vivo X100", color = colors.inkMuted) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = colors.accentWarm,
+                                unfocusedBorderColor = colors.borderDivider,
+                                focusedTextColor = colors.inkPrimary,
+                                unfocusedTextColor = colors.inkPrimary
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // 完成进入按钮
+                TerracottaStampButton(
+                    text = "【 完成设置，进入散页 (ENTER) 】",
+                    enabled = customDeviceName.isNotBlank(),
+                    onClick = {
+                        haptics.stampSave()
+                        AudioEngine.playPaperFlip()
+                        credentialStore.deviceName = customDeviceName.trim()
+                        Toast.makeText(context, "入网就绪，欢迎归来", Toast.LENGTH_SHORT).show()
+                        onPairingSuccess()
+                    }
                 )
             }
 
