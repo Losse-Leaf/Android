@@ -9,6 +9,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.*
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -95,7 +96,7 @@ class APIClient private constructor(private val context: Context) {
     ): Pair<Request, String> {
         val normPath = if (path.startsWith("/")) path else "/$path"
         val httpUrlBuilder = (baseUrl + normPath).let { url ->
-            val builder = HttpUrl.parse(url)?.newBuilder()
+            val builder = url.toHttpUrlOrNull()?.newBuilder()
                 ?: throw IllegalArgumentException("Invalid URL: $url")
             queryParams?.forEach { (k, v) ->
                 builder.addQueryParameter(k, v)
