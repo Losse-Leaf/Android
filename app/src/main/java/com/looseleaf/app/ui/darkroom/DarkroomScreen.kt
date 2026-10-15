@@ -80,6 +80,7 @@ fun DarkroomScreen(
     var titleText by remember { mutableStateOf("") }
     var contentText by remember { mutableStateOf("") }
     var locationText by remember { mutableStateOf("") }
+    var selectedType by remember { mutableStateOf("life") }
 
     // 1. 现场快门直拍启动器 (TakePicturePreview)
     val cameraLauncher = rememberLauncherForActivityResult(
@@ -370,7 +371,7 @@ fun DarkroomScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "标头随笔",
+                            text = "手账手记与分类",
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontSize = 13.sp,
                             color = colors.inkSecondary
@@ -379,7 +380,28 @@ fun DarkroomScreen(
                             PaperBadge(text = "已装入 ${photoSlots.size} 张相纸")
                         }
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("life" to "日常随笔", "travel" to "山川游历", "project" to "造物日志", "wish" to "心愿印记").forEach { (k, label) ->
+                            FilterChip(
+                                selected = selectedType == k,
+                                onClick = {
+                                    haptics.tapKey()
+                                    selectedType = k
+                                },
+                                label = { Text(label, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = titleText,
                         onValueChange = { titleText = it },
@@ -420,7 +442,7 @@ fun DarkroomScreen(
                     Spacer(modifier = Modifier.height(14.dp))
 
                     Text(
-                        text = "所处地点 (自动提取 EXIF GPS 城市或智能匹配代码)",
+                        text = "所处地点 (自动提取 EXIF 城市坐标)",
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontSize = 13.sp,
                         color = colors.inkSecondary
@@ -459,7 +481,7 @@ fun DarkroomScreen(
                                 ?: primaryExif?.inferredCityName
                             val finalTitle = titleText.ifBlank { "现场随笔" }
                             val finalContent = contentText.ifBlank { "无文字记录" }
-                            val entryType = if (locationText.isNotBlank() || !cityCode.isNullOrBlank()) "travel" else "life"
+                            val entryType = selectedType
                             val cameraMeta = primaryExif?.toFilmMetadataString()
                             val occurredIso = FormatUtils.beijingNowIsoString()
 

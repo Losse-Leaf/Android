@@ -492,6 +492,21 @@ data class CategoryOption(
 )
 
 @Serializable
+data class CreateCategoryRequest(
+    val scope: String,
+    val name: String
+)
+
+@Serializable
+data class GlobalSearchResponse(
+    val query: String = "",
+    val entries: List<LifeEntry> = emptyList(),
+    val footprints: List<Footprint> = emptyList(),
+    val wishes: List<Wish> = emptyList(),
+    val projects: List<Project> = emptyList()
+)
+
+@Serializable
 data class EntriesListResponse(
     val entries: List<LifeEntry> = emptyList(),
     val page: Int = 1,

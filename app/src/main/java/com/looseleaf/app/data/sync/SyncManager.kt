@@ -417,6 +417,64 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     /**
+     * 乐观更新记账流水 (0ms 本地修改 + 队列同步)
+     */
+    suspend fun updateTransactionOptimistic(
+        txId: Long,
+        req: CreateTransactionRequest
+    ) {
+        val entity = if (txId < 0) {
+            database.transactionDao().getTransactionByLocalId(-txId)
+        } else {
+            database.transactionDao().getTransactionByServerId(txId)
+                ?: database.transactionDao().getTransactionByLocalId(txId)
+        } ?: return
+
+        val newSyncStatus = if (entity.serverId != null && entity.serverId > 0) {
+            "PENDING_UPDATE"
+        } else {
+            "PENDING_CREATE"
+        }
+
+        val updatedEntity = entity.copy(
+            amount = req.amount,
+            type = req.type,
+            category = req.category,
+            title = req.title,
+            note = req.note,
+            paymentMethod = req.paymentMethod,
+            occurredAt = req.occurredAt,
+            cityCode = req.cityCode,
+            syncStatus = newSyncStatus
+        )
+        database.transactionDao().update(updatedEntity)
+
+        if (entity.serverId != null && entity.serverId > 0) {
+            val event = OutboxEventEntity(
+                eventId = UUID.randomUUID().toString(),
+                entityType = "transaction",
+                action = "UPDATE",
+                payload = json.encodeToString(req),
+                localTargetId = entity.localId,
+                serverTargetId = entity.serverId
+            )
+            database.outboxDao().insert(event)
+        } else {
+            val pending = database.outboxDao().getAllPendingEvents()
+            val createEvent = pending.firstOrNull {
+                it.entityType == "transaction" && it.localTargetId == entity.localId && it.action == "CREATE"
+            }
+            if (createEvent != null) {
+                database.outboxDao().insert(
+                    createEvent.copy(payload = json.encodeToString(req))
+                )
+            }
+        }
+
+        scheduleSync()
+    }
+
+    /**
      * 删除单条生活记录 (支持已同步正数 serverId 与未同步负数 -localId)
      */
     suspend fun deleteEntry(idOrLocalId: Long) {
@@ -790,6 +848,15 @@ class SyncManager private constructor(private val context: Context) {
                         val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
                         val serverTx = apiClient.createTransaction(req)
                         database.transactionDao().markSynced(event.localTargetId, serverTx.id)
+                        database.outboxDao().delete(event)
+                    }
+                    "UPDATE" -> {
+                        val targetServerId = event.serverTargetId
+                        if (targetServerId != null && targetServerId > 0) {
+                            val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
+                            apiClient.updateTransaction(targetServerId, req)
+                            database.transactionDao().markSynced(event.localTargetId, targetServerId)
+                        }
                         database.outboxDao().delete(event)
                     }
                     "DELETE" -> {

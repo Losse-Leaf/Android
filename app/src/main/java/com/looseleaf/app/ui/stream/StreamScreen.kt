@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -79,6 +80,11 @@ fun StreamScreen(
 
     // 年度年鉴弹窗状态
     var showAlmanacDialog by remember { mutableStateOf(false) }
+
+    // 全局检索与速记随笔状态
+    var showSearchDialog by remember { mutableStateOf(false) }
+    var showQuickNoteDialog by remember { mutableStateOf(false) }
+    var entryToDelete by remember { mutableStateOf<LifeEntry?>(null) }
 
     // 单条档案详情与编辑弹窗状态
     var selectedEntryForDetail by remember { mutableStateOf<LifeEntry?>(null) }
@@ -158,6 +164,37 @@ fun StreamScreen(
                             text = "$pendingCount 待同步",
                             isPendingSync = true,
                             modifier = Modifier.padding(end = 6.dp)
+                        )
+                    }
+
+                    // 全局检索按钮
+                    IconButton(
+                        onClick = {
+                            haptics.tapKey()
+                            showSearchDialog = true
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Search,
+                            contentDescription = "检索",
+                            tint = colors.inkPrimary,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+
+                    // + 记随笔入口
+                    TextButton(
+                        onClick = {
+                            haptics.tapKey()
+                            showQuickNoteDialog = true
+                        },
+                        contentPadding = PaddingValues(horizontal = 6.dp)
+                    ) {
+                        Text(
+                            text = "+ 记随笔",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 12.sp,
+                            color = colors.accentWarm
                         )
                     }
 
@@ -350,11 +387,7 @@ fun StreamScreen(
                                 selectedEntryForDetail = entry
                             },
                             onDelete = {
-                                scope.launch {
-                                    haptics.tearDelete()
-                                    syncManager.deleteEntry(entry.id)
-                                    Toast.makeText(context, "已撕除记录", Toast.LENGTH_SHORT).show()
-                                }
+                                entryToDelete = entry
                             },
                             modifier = Modifier.padding(vertical = 6.dp)
                         )
@@ -378,11 +411,72 @@ fun StreamScreen(
                     }
                 },
                 onDelete = {
+                    entryToDelete = activeEntry
+                }
+            )
+        }
+
+        // 撕除确认弹窗
+        entryToDelete?.let { entry ->
+            AlertDialog(
+                onDismissRequest = { entryToDelete = null },
+                title = { Text("撕除手记？", fontFamily = ArchiveFontFamilies.EditorialSerif) },
+                text = { Text("确认从生活时间流中彻底移除《${entry.title.ifBlank { "无题随笔" }}》？", fontFamily = ArchiveFontFamilies.BodySans) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                haptics.tearDelete()
+                                syncManager.deleteEntry(entry.id)
+                                Toast.makeText(context, "已撕除记录", Toast.LENGTH_SHORT).show()
+                                entryToDelete = null
+                                if (selectedEntryForDetail?.id == entry.id) {
+                                    selectedEntryForDetail = null
+                                }
+                            }
+                        }
+                    ) {
+                        Text("确认撕除", color = colors.accentWarm)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { entryToDelete = null }) {
+                        Text("取消", color = colors.inkSecondary)
+                    }
+                }
+            )
+        }
+
+        // 全局检索对话框
+        if (showSearchDialog) {
+            GlobalSearchDialog(
+                apiClient = apiClient,
+                onDismiss = { showSearchDialog = false },
+                onSelectEntry = { selectedEntryForDetail = it }
+            )
+        }
+
+        // 速记随笔对话框
+        if (showQuickNoteDialog) {
+            QuickNoteDialog(
+                onDismiss = { showQuickNoteDialog = false },
+                onSave = { type, title, content, loc ->
                     scope.launch {
-                        haptics.tearDelete()
-                        syncManager.deleteEntry(activeEntry.id)
-                        Toast.makeText(context, "已撕除记录", Toast.LENGTH_SHORT).show()
-                        selectedEntryForDetail = null
+                        haptics.stampSave()
+                        AudioEngine.playShutter()
+                        val code = CityDictionary.codeForLocation(loc)
+                        val cityName = code?.let { CityDictionary.cityNameForCode(it) }
+                        syncManager.createEntryOptimistic(
+                            type = type,
+                            title = title.ifBlank { "无题随笔" },
+                            content = content,
+                            occurredAt = FormatUtils.beijingNowIsoString(),
+                            location = loc.takeIf { it.isNotBlank() },
+                            cityCode = code,
+                            cityName = cityName
+                        )
+                        Toast.makeText(context, "随笔已归册", Toast.LENGTH_SHORT).show()
+                        showQuickNoteDialog = false
                     }
                 }
             )
@@ -675,7 +769,8 @@ private fun EntryDetailSheetDialog(
                         )
                     }
 
-                    if (!entry.location.isNullOrBlank()) {
+                    val detailPlace = listOfNotNull(entry.cityName, entry.location).distinct().filter { it.isNotBlank() }.joinToString(" · ")
+                    if (detailPlace.isNotBlank()) {
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
@@ -686,7 +781,7 @@ private fun EntryDetailSheetDialog(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = listOfNotNull(entry.location, entry.cityCode).joinToString(" · "),
+                                text = detailPlace,
                                 fontFamily = ArchiveFontFamilies.BodySans,
                                 fontSize = 12.sp,
                                 color = colors.inkSecondary
@@ -1106,7 +1201,8 @@ private fun StreamEntryCard(
                         color = colors.inkMuted
                     )
 
-                    if (!entry.location.isNullOrBlank()) {
+                    val placeString = listOfNotNull(entry.cityName, entry.location).distinct().filter { it.isNotBlank() }.joinToString(" · ")
+                    if (placeString.isNotBlank()) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
@@ -1116,7 +1212,7 @@ private fun StreamEntryCard(
                                 modifier = Modifier.size(13.dp)
                             )
                             Text(
-                                text = entry.location,
+                                text = placeString,
                                 fontFamily = ArchiveFontFamilies.BodySans,
                                 fontSize = 11.sp,
                                 color = colors.inkSecondary
@@ -1184,4 +1280,254 @@ private fun StreamEntryCard(
             }
         }
     }
+}
+
+@Composable
+private fun GlobalSearchDialog(
+    apiClient: APIClient,
+    onDismiss: () -> Unit,
+    onSelectEntry: (LifeEntry) -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    var searchQuery by remember { mutableStateOf("") }
+    var searchResult by remember { mutableStateOf<com.looseleaf.app.model.GlobalSearchResponse?>(null) }
+    var isSearching by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        PaperCard(
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .heightIn(max = 680.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "全库检索生活记忆",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 18.sp,
+                        color = colors.inkPrimary
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Outlined.Close, contentDescription = "关闭", tint = colors.inkMuted)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { q ->
+                        searchQuery = q
+                        if (q.trim().length >= 2) {
+                            scope.launch {
+                                isSearching = true
+                                runCatching {
+                                    searchResult = apiClient.searchGlobalArchive(q)
+                                }
+                                isSearching = false
+                            }
+                        } else {
+                            searchResult = null
+                        }
+                    },
+                    placeholder = { Text("搜索生活印记、山川足迹、心愿或造物…", fontSize = 12.sp, color = colors.inkMuted) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        if (isSearching) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = colors.accentWarm)
+                        }
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val res = searchResult
+                if (res == null || (res.entries.isEmpty() && res.footprints.isEmpty() && res.wishes.isEmpty() && res.projects.isEmpty())) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxWidth().height(160.dp)
+                    ) {
+                        Text(
+                            text = if (searchQuery.isBlank()) "输入关键词检索所有归册记忆" else "未找到匹配的生活碎片",
+                            fontSize = 12.sp,
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            color = colors.inkMuted
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (res.entries.isNotEmpty()) {
+                            item {
+                                Text("生活印记 (${res.entries.size})", fontSize = 11.sp, color = colors.inkMuted)
+                            }
+                            items(res.entries, key = { "e_${it.id}" }) { entry ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(colors.archiveSubtle)
+                                        .clickable {
+                                            onSelectEntry(entry)
+                                            onDismiss()
+                                        }
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(entry.title.ifBlank { "无题随笔" }, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = colors.inkPrimary)
+                                        if (entry.content.isNotBlank()) {
+                                            Text(entry.content, fontSize = 11.sp, color = colors.inkSecondary, maxLines = 1)
+                                        }
+                                    }
+                                    Text(FormatUtils.formatDisplayDate(entry.occurredAt), fontSize = 10.sp, color = colors.inkMuted)
+                                }
+                            }
+                        }
+
+                        if (res.footprints.isNotEmpty()) {
+                            item {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text("山川足迹 (${res.footprints.size})", fontSize = 11.sp, color = colors.inkMuted)
+                            }
+                            items(res.footprints, key = { "f_${it.id}" }) { foot ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(colors.archiveSubtle)
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("${foot.cityName} · ${foot.title ?: "足迹"}", fontSize = 12.sp, color = colors.inkPrimary)
+                                    Text(foot.visitedAt?.take(10) ?: "", fontSize = 10.sp, color = colors.inkMuted)
+                                }
+                            }
+                        }
+
+                        if (res.wishes.isNotEmpty()) {
+                            item {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text("心愿清单 (${res.wishes.size})", fontSize = 11.sp, color = colors.inkMuted)
+                            }
+                            items(res.wishes, key = { "w_${it.id}" }) { wish ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(colors.archiveSubtle)
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(wish.title, fontSize = 12.sp, color = colors.inkPrimary)
+                                    if (wish.budget > 0) {
+                                        Text(FormatUtils.centsToYuanString(wish.budget), fontSize = 11.sp, color = colors.accentWarm)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (res.projects.isNotEmpty()) {
+                            item {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text("造物项目 (${res.projects.size})", fontSize = 11.sp, color = colors.inkMuted)
+                            }
+                            items(res.projects, key = { "p_${it.id}" }) { proj ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(colors.archiveSubtle)
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(proj.title, fontSize = 12.sp, color = colors.inkPrimary)
+                                    Text(proj.status ?: "", fontSize = 10.sp, color = colors.inkMuted)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickNoteDialog(
+    onDismiss: () -> Unit,
+    onSave: (type: String, title: String, content: String, location: String) -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    var noteType by remember { mutableStateOf("life") }
+    var noteTitle by remember { mutableStateOf("") }
+    var noteContent by remember { mutableStateOf("") }
+    var noteLocation by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("速记随笔 · 生活印记", fontFamily = ArchiveFontFamilies.EditorialSerif) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("life" to "日常", "travel" to "游历", "project" to "造物", "wish" to "心愿").forEach { (k, label) ->
+                        FilterChip(
+                            selected = noteType == k,
+                            onClick = { noteType = k },
+                            label = { Text(label, fontSize = 11.sp) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = noteTitle,
+                    onValueChange = { noteTitle = it },
+                    label = { Text("记录命名 (可选)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = noteContent,
+                    onValueChange = { noteContent = it },
+                    label = { Text("当下心绪手记 *") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = noteLocation,
+                    onValueChange = { noteLocation = it },
+                    label = { Text("地点/城市 (可选)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = noteTitle.isNotBlank() || noteContent.isNotBlank(),
+                onClick = {
+                    onSave(noteType, noteTitle.trim(), noteContent.trim(), noteLocation.trim())
+                }
+            ) {
+                Text("盖印归册", color = colors.accentWarm)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = colors.inkSecondary)
+            }
+        }
+    )
 }

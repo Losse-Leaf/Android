@@ -7,10 +7,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material3.*
@@ -65,6 +69,8 @@ fun ProjectsWishesScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var resolvingWish by remember { mutableStateOf<Wish?>(null) }
     var selectedDrawerFootprint by remember { mutableStateOf<Footprint?>(null) }
+    var editingProject by remember { mutableStateOf<Project?>(null) }
+    var wishToDelete by remember { mutableStateOf<Wish?>(null) }
 
     suspend fun reloadAll() {
         isLoading = true
@@ -179,10 +185,15 @@ fun ProjectsWishesScreen(
                 }
             } else {
                 when (selectedTab) {
-                    0 -> ProjectsList(projects = projects, modifier = Modifier.weight(1f))
+                    0 -> ProjectsList(
+                        projects = projects,
+                        onProjectClick = { editingProject = it },
+                        modifier = Modifier.weight(1f)
+                    )
                     1 -> WishesList(
                         wishes = wishes,
                         onResolveClick = { resolvingWish = it },
+                        onDeleteClick = { wishToDelete = it },
                         modifier = Modifier.weight(1f)
                     )
                     2 -> FootprintsList(
@@ -446,6 +457,145 @@ fun ProjectsWishesScreen(
                     TextButton(onClick = { selectedDrawerFootprint = null }) {
                         Text("合上抽屉", color = colors.accentWarm)
                     }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                runCatching {
+                                    apiClient.deleteFootprint(foot.id)
+                                    Toast.makeText(context, "足迹已移除", Toast.LENGTH_SHORT).show()
+                                }
+                                selectedDrawerFootprint = null
+                                reloadAll()
+                            }
+                        }
+                    ) {
+                        Text("移除足迹", color = colors.accentWarm)
+                    }
+                }
+            )
+        }
+
+        // 编辑/删除造物项目对话框
+        editingProject?.let { proj ->
+            var editTitle by remember(proj.id) { mutableStateOf(proj.title) }
+            var editDesc by remember(proj.id) { mutableStateOf(proj.description ?: "") }
+            var editStatus by remember(proj.id) { mutableStateOf(proj.status ?: "进行中") }
+            var editGithub by remember(proj.id) { mutableStateOf(proj.githubUrl ?: "") }
+
+            AlertDialog(
+                onDismissRequest = { editingProject = null },
+                title = { Text("修订造物 · ${proj.title}", fontFamily = ArchiveFontFamilies.EditorialSerif) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("进行中", "已完成", "维护中", "已搁置").forEach { s ->
+                                FilterChip(
+                                    selected = editStatus == s,
+                                    onClick = { editStatus = s },
+                                    label = { Text(s, fontSize = 11.sp) }
+                                )
+                            }
+                        }
+                        OutlinedTextField(
+                            value = editTitle,
+                            onValueChange = { editTitle = it },
+                            label = { Text("造物名称") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = editDesc,
+                            onValueChange = { editDesc = it },
+                            label = { Text("项目概述与故事") },
+                            minLines = 3,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = editGithub,
+                            onValueChange = { editGithub = it },
+                            label = { Text("仓库/发布链接 (可选)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = editTitle.isNotBlank(),
+                        onClick = {
+                            scope.launch {
+                                runCatching {
+                                    apiClient.updateProject(
+                                        id = proj.id,
+                                        req = CreateProjectRequest(
+                                            title = editTitle.trim(),
+                                            description = editDesc.trim(),
+                                            status = editStatus,
+                                            githubUrl = editGithub.trim().takeIf { it.isNotBlank() }
+                                        )
+                                    )
+                                    Toast.makeText(context, "造物项目已更新", Toast.LENGTH_SHORT).show()
+                                }
+                                editingProject = null
+                                reloadAll()
+                            }
+                        }
+                    ) {
+                        Text("保存更新", color = colors.accentWarm)
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    runCatching {
+                                        apiClient.deleteProject(proj.id)
+                                        Toast.makeText(context, "造物项目已删除", Toast.LENGTH_SHORT).show()
+                                    }
+                                    editingProject = null
+                                    reloadAll()
+                                }
+                            }
+                        ) {
+                            Text("删除项目", color = colors.accentWarm)
+                        }
+                        TextButton(onClick = { editingProject = null }) {
+                            Text("取消", color = colors.inkSecondary)
+                        }
+                    }
+                }
+            )
+        }
+
+        // 删除心愿确认对话框
+        wishToDelete?.let { wish ->
+            AlertDialog(
+                onDismissRequest = { wishToDelete = null },
+                title = { Text("移除心愿？", fontFamily = ArchiveFontFamilies.EditorialSerif) },
+                text = { Text("确认从心愿清单中移除《${wish.title}》？此操作不可逆。", fontFamily = ArchiveFontFamilies.BodySans) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                runCatching {
+                                    apiClient.deleteWish(wish.id)
+                                    Toast.makeText(context, "心愿已移除", Toast.LENGTH_SHORT).show()
+                                }
+                                wishToDelete = null
+                                reloadAll()
+                            }
+                        }
+                    ) {
+                        Text("确认移除", color = colors.accentWarm)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { wishToDelete = null }) {
+                        Text("取消", color = colors.inkSecondary)
+                    }
                 }
             )
         }
@@ -453,7 +603,11 @@ fun ProjectsWishesScreen(
 }
 
 @Composable
-private fun ProjectsList(projects: List<Project>, modifier: Modifier = Modifier) {
+private fun ProjectsList(
+    projects: List<Project>,
+    onProjectClick: (Project) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val colors = LooseLeafTheme.colors
 
     if (projects.isEmpty()) {
@@ -469,7 +623,11 @@ private fun ProjectsList(projects: List<Project>, modifier: Modifier = Modifier)
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
         items(projects, key = { it.id }) { proj ->
-            PaperCard {
+            PaperCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onProjectClick(proj) }
+            ) {
                 Column {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -483,7 +641,16 @@ private fun ProjectsList(projects: List<Project>, modifier: Modifier = Modifier)
                             fontSize = 17.sp,
                             color = colors.inkPrimary
                         )
-                        PaperBadge(text = proj.status ?: "进行中")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            PaperBadge(text = proj.status ?: "进行中")
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Outlined.Edit,
+                                contentDescription = "编辑",
+                                tint = colors.inkMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
 
                     if (!proj.description.isNullOrBlank()) {
@@ -519,79 +686,129 @@ private fun ProjectsList(projects: List<Project>, modifier: Modifier = Modifier)
 private fun WishesList(
     wishes: List<Wish>,
     onResolveClick: (Wish) -> Unit,
+    onDeleteClick: (Wish) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
+    var statusFilter by remember { mutableStateOf("all") }
 
-    if (wishes.isEmpty()) {
-        Box(contentAlignment = Alignment.Center, modifier = modifier.fillMaxSize()) {
-            Text("暂无心愿记录", fontFamily = ArchiveFontFamilies.EditorialSerif, color = colors.inkMuted)
-        }
-        return
+    val filteredWishes = remember(wishes, statusFilter) {
+        if (statusFilter == "all") wishes
+        else wishes.filter { it.status == statusFilter }
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(vertical = 12.dp)
-    ) {
-        items(wishes, key = { it.id }) { wish ->
-            val isFulfilled = wish.status == "fulfilled" || wish.status == "relinquished"
-            PaperCard {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Icon(
-                                imageVector = if (isFulfilled) Icons.Outlined.CheckCircle else Icons.Outlined.Lightbulb,
-                                contentDescription = null,
-                                tint = if (isFulfilled) colors.accentMoss else colors.accentWarm,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = wish.title,
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 16.sp,
-                                color = colors.inkPrimary
-                            )
-                        }
-                        if (!isFulfilled) {
-                            TextButton(onClick = { onResolveClick(wish) }) {
-                                Text("达成归册", fontSize = 12.sp, color = colors.accentMoss)
+    Column(modifier = modifier.fillMaxSize()) {
+        // 状态筛选条
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            val statusFilters = listOf(
+                "all" to "全部 (${wishes.size})",
+                "wanting" to "向往中 (${wishes.count { it.status == "wanting" }})",
+                "fulfilled" to "已圆满 (${wishes.count { it.status == "fulfilled" }})",
+                "relinquished" to "已拔草 (${wishes.count { it.status == "relinquished" }})"
+            )
+            statusFilters.forEach { (k, label) ->
+                val isSelected = statusFilter == k
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { statusFilter = k },
+                    label = { Text(label, fontSize = 11.sp) }
+                )
+            }
+        }
+
+        if (filteredWishes.isEmpty()) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().weight(1f)) {
+                Text("暂无匹配的心愿记录", fontFamily = ArchiveFontFamilies.EditorialSerif, color = colors.inkMuted)
+            }
+            return
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .weight(1f)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(vertical = 8.dp)
+        ) {
+            items(filteredWishes, key = { it.id }) { wish ->
+                val isFulfilled = wish.status == "fulfilled" || wish.status == "relinquished"
+                PaperCard {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(
+                                    imageVector = if (isFulfilled) Icons.Outlined.CheckCircle else Icons.Outlined.Lightbulb,
+                                    contentDescription = null,
+                                    tint = if (isFulfilled) colors.accentMoss else colors.accentWarm,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = wish.title,
+                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 16.sp,
+                                    color = colors.inkPrimary
+                                )
                             }
-                        } else {
-                            PaperBadge(text = if (wish.status == "relinquished") "已拔草" else "已圆满")
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (!isFulfilled) {
+                                    TextButton(onClick = { onResolveClick(wish) }) {
+                                        Text("达成归册", fontSize = 12.sp, color = colors.accentMoss)
+                                    }
+                                } else {
+                                    PaperBadge(text = if (wish.status == "relinquished") "已拔草" else "已圆满")
+                                }
+                                IconButton(
+                                    onClick = { onDeleteClick(wish) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Delete,
+                                        contentDescription = "删除心愿",
+                                        tint = colors.inkMuted,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
                         }
-                    }
 
-                    if (!wish.note.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = wish.note,
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 13.sp,
-                            color = colors.inkSecondary
-                        )
-                    }
+                        if (!wish.note.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = wish.note,
+                                fontFamily = ArchiveFontFamilies.BodySans,
+                                fontSize = 13.sp,
+                                color = colors.inkSecondary
+                            )
+                        }
 
-                    if (wish.budget > 0 || wish.actualCost > 0) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "预算: ${FormatUtils.centsToYuanString(wish.budget)} · 实际: ${FormatUtils.centsToYuanString(wish.actualCost)}",
-                            fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontSize = 12.sp,
-                            color = colors.inkMuted
-                        )
+                        if (wish.budget > 0 || wish.actualCost > 0) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "预算: ${FormatUtils.centsToYuanString(wish.budget)} · 实际: ${FormatUtils.centsToYuanString(wish.actualCost)}",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 12.sp,
+                                color = colors.inkMuted
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
 }
 
 @Composable

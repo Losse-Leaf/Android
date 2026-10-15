@@ -253,6 +253,21 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/categories", "GET", queryParams = params)
     }
 
+    suspend fun addCategoryOption(scope: String, name: String): CategoryOption {
+        val req = CreateCategoryRequest(scope = scope, name = name)
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/categories", "POST", body = body)
+    }
+
+    suspend fun deleteCategoryOption(id: Long) {
+        executeEnvelopeRequest<DeleteResponse>("/api/v1/categories/$id", "DELETE")
+    }
+
+    suspend fun searchGlobalArchive(query: String, limit: Int = 20): GlobalSearchResponse {
+        val params = mapOf("q" to query.trim(), "limit" to limit.toString())
+        return executeEnvelopeRequest("/api/v1/search", "GET", queryParams = params)
+    }
+
     // MARK: - 4. 生活档案 (Entries) & 那年今日 & 年度年鉴
 
     suspend fun fetchEntries(
@@ -375,6 +390,11 @@ class APIClient private constructor(private val context: Context) {
     suspend fun createProject(req: CreateProjectRequest): Project {
         val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
         return executeEnvelopeRequest("/api/v1/projects", "POST", body = body)
+    }
+
+    suspend fun updateProject(id: Long, req: CreateProjectRequest): Project {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/projects/$id", "PUT", body = body)
     }
 
     suspend fun deleteProject(id: Long, purge: Boolean = false) {
