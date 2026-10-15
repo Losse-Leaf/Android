@@ -4,6 +4,8 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,9 +33,7 @@ import com.looseleaf.app.model.UpdateProfileRequest
 import com.looseleaf.app.model.CategoryOption
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
-import com.looseleaf.app.ui.components.NoiseBackground
-import com.looseleaf.app.ui.components.PaperCard
-import com.looseleaf.app.ui.components.PaperDivider
+import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.updater.ReleaseInfo
 import com.looseleaf.app.updater.UpdateCheckResult
 import com.looseleaf.app.updater.UpdateChecker
