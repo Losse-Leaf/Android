@@ -809,7 +809,6 @@ private fun WishesList(
         }
     }
 }
-}
 
 @Composable
 private fun FootprintsList(
