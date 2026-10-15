@@ -21,6 +21,50 @@ object AudioEngine {
     private val scope = CoroutineScope(Dispatchers.Default)
     var isSoundEnabled: Boolean = true
 
+    // 预合成并进程内复用 PCM 波形缓冲区，避免每次按键重复执行数千次三角函数与指数运算
+    private val shutterBuffer: ShortArray by lazy {
+        val durationMs = 80
+        val totalSamples = (SAMPLE_RATE * durationMs) / 1000
+        ShortArray(totalSamples) { i ->
+            val t = i.toDouble() / SAMPLE_RATE
+            var sample = 0.0
+            if (t in 0.0..0.02) {
+                val env = exp(-t * 200.0)
+                sample += sin(2.0 * PI * 1200.0 * t) * env * 0.4
+            }
+            if (t in 0.035..0.06) {
+                val t2 = t - 0.035
+                val env = exp(-t2 * 180.0)
+                sample += sin(2.0 * PI * 800.0 * t2) * env * 0.35
+            }
+            (sample * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+        }
+    }
+
+    private val paperFlipBuffer: ShortArray by lazy {
+        val durationMs = 70
+        val totalSamples = (SAMPLE_RATE * durationMs) / 1000
+        ShortArray(totalSamples) { i ->
+            val t = i.toDouble() / SAMPLE_RATE
+            val progress = i.toDouble() / totalSamples
+            val freq = 140.0 - (progress * 95.0)
+            val env = (1.0 - progress) * (1.0 - progress) * 0.3
+            val sample = sin(2.0 * PI * freq * t) * env
+            (sample * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+        }
+    }
+
+    private val tinkBuffer: ShortArray by lazy {
+        val durationMs = 30
+        val totalSamples = (SAMPLE_RATE * durationMs) / 1000
+        ShortArray(totalSamples) { i ->
+            val t = i.toDouble() / SAMPLE_RATE
+            val env = exp(-t * 300.0) * 0.25
+            val sample = sin(2.0 * PI * 2200.0 * t) * env
+            (sample * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+        }
+    }
+
     /**
      * 机械快门收放声 (Mechanical Shutter Click)
      * 双正弦闭合复音：1200Hz 释放咔哒声 + 35ms 后 800Hz 帘幕闭合声
@@ -28,31 +72,7 @@ object AudioEngine {
     fun playShutter() {
         if (!isSoundEnabled) return
         scope.launch {
-            val durationMs = 80
-            val totalSamples = (SAMPLE_RATE * durationMs) / 1000
-            val buffer = ShortArray(totalSamples)
-
-            for (i in 0 until totalSamples) {
-                val t = i.toDouble() / SAMPLE_RATE
-                var sample = 0.0
-
-                // 第 1 声：0ms 处 1200Hz
-                if (t in 0.0..0.02) {
-                    val env = exp(-t * 200.0)
-                    sample += sin(2.0 * PI * 1200.0 * t) * env * 0.4
-                }
-
-                // 第 2 声：35ms 处 800Hz
-                if (t >= 0.035 && t <= 0.06) {
-                    val t2 = t - 0.035
-                    val env = exp(-t2 * 180.0)
-                    sample += sin(2.0 * PI * 800.0 * t2) * env * 0.35
-                }
-
-                buffer[i] = (sample * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
-            }
-
-            playPcm(buffer)
+            playPcm(shutterBuffer)
         }
     }
 
@@ -63,20 +83,7 @@ object AudioEngine {
     fun playPaperFlip() {
         if (!isSoundEnabled) return
         scope.launch {
-            val durationMs = 70
-            val totalSamples = (SAMPLE_RATE * durationMs) / 1000
-            val buffer = ShortArray(totalSamples)
-
-            for (i in 0 until totalSamples) {
-                val t = i.toDouble() / SAMPLE_RATE
-                val progress = i.toDouble() / totalSamples
-                val freq = 140.0 - (progress * 95.0) // 140 -> 45 Hz
-                val env = (1.0 - progress) * (1.0 - progress) * 0.3
-                val sample = sin(2.0 * PI * freq * t) * env
-                buffer[i] = (sample * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
-            }
-
-            playPcm(buffer)
+            playPcm(paperFlipBuffer)
         }
     }
 
@@ -86,18 +93,7 @@ object AudioEngine {
     fun playTink() {
         if (!isSoundEnabled) return
         scope.launch {
-            val durationMs = 30
-            val totalSamples = (SAMPLE_RATE * durationMs) / 1000
-            val buffer = ShortArray(totalSamples)
-
-            for (i in 0 until totalSamples) {
-                val t = i.toDouble() / SAMPLE_RATE
-                val env = exp(-t * 300.0) * 0.25
-                val sample = sin(2.0 * PI * 2200.0 * t) * env
-                buffer[i] = (sample * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
-            }
-
-            playPcm(buffer)
+            playPcm(tinkBuffer)
         }
     }
 

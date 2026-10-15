@@ -24,6 +24,25 @@ object FormatUtils {
     private val DisplayDateTimeFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm")
     private val DisplayTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
+    // 预编译时间解析器与自然语言正则，避免在列表高频渲染时重复分配对象
+    private val OffsetFormatters = listOf(
+        DateTimeFormatter.ISO_OFFSET_DATE_TIME,
+        DateTimeFormatter.ISO_INSTANT
+    )
+    private val DateTimePatterns = listOf(
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"),
+        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"),
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"),
+        DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm:ss"),
+        DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm")
+    )
+    private val DateOnlyPatterns = listOf(
+        DateTimeFormatter.ofPattern("yyyy.MM.dd"),
+        DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    )
+    private val NaturalInputRegex = Regex("""^([+-]?\s*\d+(?:\.\d+)?)\s*(.*)$""")
+
     /**
      * 当前北京时间 ISO8601 字符串
      */
@@ -74,11 +93,7 @@ object FormatUtils {
         if (trimmed.isEmpty()) return Instant.now()
 
         // 1. 优先尝试带时区偏移的标准 ISO 格式
-        val offsetFormatters = listOf(
-            DateTimeFormatter.ISO_OFFSET_DATE_TIME,
-            DateTimeFormatter.ISO_INSTANT
-        )
-        for (p in offsetFormatters) {
+        for (p in OffsetFormatters) {
             try {
                 return Instant.from(p.parse(trimmed))
             } catch (_: Exception) {
@@ -87,15 +102,7 @@ object FormatUtils {
         }
 
         // 2. 无时区后缀的日期+时间串，一律按北京时间 (UTC+8) 解释
-        val dateTimePatterns = listOf(
-            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"),
-            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"),
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"),
-            DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm:ss"),
-            DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm")
-        )
-        for (p in dateTimePatterns) {
+        for (p in DateTimePatterns) {
             try {
                 val ldt = LocalDateTime.parse(trimmed, p)
                 return ldt.atZone(BeijingZone).toInstant()
@@ -105,11 +112,7 @@ object FormatUtils {
         }
 
         // 3. 纯日期串 (YYYY.MM.DD / YYYY-MM-DD)，按北京时间当日零点解释
-        val dateOnlyPatterns = listOf(
-            DateTimeFormatter.ofPattern("yyyy.MM.dd"),
-            DateTimeFormatter.ofPattern("yyyy-MM-dd")
-        )
-        for (p in dateOnlyPatterns) {
+        for (p in DateOnlyPatterns) {
             try {
                 val ld = LocalDate.parse(trimmed, p)
                 return ld.atStartOfDay(BeijingZone).toInstant()
@@ -182,8 +185,7 @@ object FormatUtils {
      */
     fun parseNaturalTransactionInput(input: String): ParsedQuickTransaction {
         val trimmed = input.trim()
-        val regex = Regex("""^([+-]?\s*\d+(?:\.\d+)?)\s*(.*)$""")
-        val match = regex.find(trimmed)
+        val match = NaturalInputRegex.find(trimmed)
 
         if (match != null) {
             val numStr = match.groupValues[1].replace(" ", "")

@@ -616,51 +616,82 @@ private fun FootprintsList(
     ) {
         items(footprints, key = { it.id }) { foot ->
             PaperCard(
-                modifier = Modifier.clickable { onFootprintClick(foot) }
+                modifier = Modifier.clickable { onFootprintClick(foot) },
+                contentPadding = PaddingValues(0.dp)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Explore, contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(15.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = foot.title?.takeIf { it.isNotBlank() }?.let { "${foot.cityName} · $it" } ?: foot.cityName,
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 16.sp,
-                                color = colors.inkPrimary
-                            )
-                        }
-                        if (!foot.visitedAt.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = FormatUtils.formatDisplayDate(foot.visitedAt),
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 11.sp,
-                                color = colors.inkMuted
-                            )
-                        }
-                        if (!foot.note.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = foot.note,
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontSize = 12.sp,
-                                color = colors.inkSecondary
-                            )
-                        }
+                    // 左联：副券存根 (目的地中文名 + 到访日期)
+                    Column(
+                        modifier = Modifier
+                            .width(108.dp)
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = foot.cityName,
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp,
+                            color = colors.inkPrimary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = foot.visitedAt?.takeIf { it.isNotBlank() }?.let { FormatUtils.formatDisplayDate(it) } ?: "行迹存根",
+                            fontFamily = ArchiveFontFamilies.MonoScale,
+                            fontSize = 10.sp,
+                            color = colors.inkMuted
+                        )
                     }
 
-                    Text(
-                        text = foot.cityCode,
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 12.sp,
-                        color = colors.inkMuted
+                    // 齿孔撕票分割线
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(1.dp)
+                            .padding(vertical = 8.dp)
+                            .background(colors.borderDivider)
                     )
+
+                    // 右联：正券手记 + 邮戳印记
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = foot.title?.takeIf { it.isNotBlank() } ?: "${foot.cityName} · 行旅手记",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp,
+                                color = colors.inkPrimary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "NO.${foot.cityCode}",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 10.sp,
+                                color = colors.accentWarm
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = foot.note?.takeIf { it.isNotBlank() } ?: "行至此处，留下一纸驻足印记。",
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 12.sp,
+                            color = colors.inkSecondary,
+                            maxLines = 2
+                        )
+                    }
                 }
             }
         }
