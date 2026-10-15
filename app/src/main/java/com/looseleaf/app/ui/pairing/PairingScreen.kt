@@ -58,7 +58,7 @@ fun PairingScreen(
     // 0: 连接配对阶段 (扫码/粘贴链接), 1: 配对成功设置设备名称阶段
     var currentStep by remember { mutableStateOf(0) }
 
-    // 方式切换: 0 为扫码, 1 为粘贴链接
+    // 方式切换: 0 为扫码, 1 为粘贴配对链接 (严格只保留二维码+链接双通道)
     var selectedMethodTab by remember { mutableStateOf(0) }
     var pastedLinkInput by remember { mutableStateOf("") }
     var isConnecting by remember { mutableStateOf(false) }
@@ -85,18 +85,20 @@ fun PairingScreen(
                 apiClient.baseUrl = parsed.hubUrl
 
                 val defaultModel = Build.MODEL ?: "Android"
+                val chosenName = customDeviceName.trim().ifBlank { defaultModel }
                 val resp = apiClient.confirmPairing(
                     ticket = parsed.ticket,
-                    deviceName = defaultModel,
+                    deviceName = chosenName,
                     deviceModel = defaultModel
                 )
 
                 // 暂存凭据
                 credentialStore.deviceToken = resp.deviceToken
                 credentialStore.deviceId = resp.deviceId
+                credentialStore.deviceName = resp.deviceName.ifBlank { chosenName }
                 pairedDeviceId = resp.deviceId
                 pairedHubUrl = resp.hubUrl ?: parsed.hubUrl
-                customDeviceName = defaultModel
+                customDeviceName = resp.deviceName.ifBlank { chosenName }
 
                 haptics.stampSave()
                 AudioEngine.playPaperFlip()
@@ -146,7 +148,7 @@ fun PairingScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // 两种连接方式切换 Tab (仅支持扫码与链接)
+                // 两种连接方式切换 Tab (严格只保留扫码与配对链接)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -397,16 +399,22 @@ fun PairingScreen(
 
                 Spacer(modifier = Modifier.height(28.dp))
 
-                // 完成进入按钮
+                // 完成进入按钮 (同时调用后端 PUT /api/v1/auth/devices/:id 同步自定义设备名称)
                 TerracottaStampButton(
                     text = "【 完成设置，进入散页 (ENTER) 】",
                     enabled = customDeviceName.isNotBlank(),
                     onClick = {
+                        val finalName = customDeviceName.trim()
                         haptics.stampSave()
                         AudioEngine.playPaperFlip()
-                        credentialStore.deviceName = customDeviceName.trim()
-                        Toast.makeText(context, "入网就绪，欢迎归来", Toast.LENGTH_SHORT).show()
-                        onPairingSuccess()
+                        credentialStore.deviceName = finalName
+                        scope.launch {
+                            if (pairedDeviceId.isNotBlank()) {
+                                runCatching { apiClient.updateDeviceName(pairedDeviceId, finalName) }
+                            }
+                            Toast.makeText(context, "入网就绪，欢迎归来", Toast.LENGTH_SHORT).show()
+                            onPairingSuccess()
+                        }
                     }
                 )
             }

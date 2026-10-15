@@ -10,8 +10,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoStories
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.*
@@ -19,13 +26,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.haptics.HapticsEngine
+import com.looseleaf.app.model.AlmanacSummaryResponse
+import com.looseleaf.app.model.CreateEntryRequest
 import com.looseleaf.app.model.LifeEntry
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
@@ -33,12 +45,14 @@ import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.updater.ReleaseInfo
 import com.looseleaf.app.updater.UpdateCheckResult
 import com.looseleaf.app.updater.UpdateChecker
+import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 /**
  * 生活时间流主展厅 (StreamScreen) - docs/mobile.md §3 & docs/ecosystem.md §4.1
- * 承载生命之流母体记录，支持相纸画廊、岁月留白切线与离线乐观呈现
+ * 承载生命之流母体记录，支持相纸画廊、那年今日回响、年度生活年鉴、详情查阅与行内修订、岁月留白切线
  */
 @Composable
 fun StreamScreen(
@@ -59,10 +73,45 @@ fun StreamScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     var cloudUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
 
+    // 那年今日状态
+    var remoteOnThisDay by remember { mutableStateOf<List<LifeEntry>>(emptyList()) }
+    var isOnThisDayExpanded by remember { mutableStateOf(true) }
+
+    // 年度年鉴弹窗状态
+    var showAlmanacDialog by remember { mutableStateOf(false) }
+
+    // 单条档案详情与编辑弹窗状态
+    var selectedEntryForDetail by remember { mutableStateOf<LifeEntry?>(null) }
+
     LaunchedEffect(Unit) {
-        when (val res = UpdateChecker.checkForUpdates()) {
-            is UpdateCheckResult.HasUpdate -> cloudUpdate = res.release
-            else -> {}
+        launch {
+            when (val res = UpdateChecker.checkForUpdates()) {
+                is UpdateCheckResult.HasUpdate -> cloudUpdate = res.release
+                else -> {}
+            }
+        }
+        launch {
+            runCatching {
+                val resp = apiClient.fetchOnThisDay()
+                remoteOnThisDay = resp.entries
+            }
+        }
+    }
+
+    // 合并云端那年今日与本地往年同月同日条目
+    val onThisDayEntries = remember(entries, remoteOnThisDay) {
+        if (remoteOnThisDay.isNotEmpty()) {
+            remoteOnThisDay
+        } else {
+            val today = LocalDate.now(FormatUtils.BeijingZone)
+            val todayMonthDay = String.format("%02d.%02d", today.monthValue, today.dayOfMonth)
+            val thisYearPrefix = "${today.year}."
+            entries.filter { entry ->
+                val formatted = FormatUtils.formatDisplayDate(entry.occurredAt)
+                formatted.length >= 10 &&
+                    !formatted.startsWith(thisYearPrefix) &&
+                    formatted.substring(5, 10) == todayMonthDay
+            }
         }
     }
 
@@ -78,7 +127,7 @@ fun StreamScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            // 顶栏：标尺与同步指示
+            // 顶栏：标尺、年度年鉴与同步指示
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -108,18 +157,52 @@ fun StreamScreen(
                         PaperBadge(
                             text = "$pendingCount 待同步",
                             isPendingSync = true,
-                            modifier = Modifier.padding(end = 8.dp)
+                            modifier = Modifier.padding(end = 6.dp)
                         )
                     }
+
+                    // 年度年鉴入口按钮
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(colors.archiveSubtle)
+                            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
+                            .clickable {
+                                haptics.tapKey()
+                                showAlmanacDialog = true
+                            }
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Outlined.AutoStories,
+                                contentDescription = "年度年鉴",
+                                tint = colors.accentWarm,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "年度年鉴",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 12.sp,
+                                color = colors.inkPrimary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
 
                     IconButton(
                         onClick = {
                             scope.launch {
                                 isRefreshing = true
                                 val res = syncManager.pullRemoteData()
+                                runCatching {
+                                    remoteOnThisDay = apiClient.fetchOnThisDay().entries
+                                }
                                 isRefreshing = false
                                 if (res.isSuccess) {
-                                    Toast.makeText(context, "档案已更新", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "档案已增量同步", Toast.LENGTH_SHORT).show()
                                 } else {
                                     Toast.makeText(context, "同步提示: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                                 }
@@ -188,7 +271,7 @@ fun StreamScreen(
             Spacer(modifier = Modifier.height(4.dp))
 
             // 时间流列表
-            if (filteredEntries.isEmpty()) {
+            if (filteredEntries.isEmpty() && onThisDayEntries.isEmpty()) {
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
@@ -212,7 +295,7 @@ fun StreamScreen(
                                 contentColor = colors.inkPrimary
                             ),
                             border = ButtonDefaults.outlinedButtonBorder.copy(
-                                brush = androidx.compose.ui.graphics.SolidColor(colors.borderDivider)
+                                brush = SolidColor(colors.borderDivider)
                             )
                         ) {
                             Text("开启随行暗房捕捉", fontFamily = ArchiveFontFamilies.EditorialSerif)
@@ -227,6 +310,25 @@ fun StreamScreen(
                         .padding(horizontal = 16.dp),
                     contentPadding = PaddingValues(vertical = 12.dp)
                 ) {
+                    // 那年今日 · 岁月回响 折叠卡片
+                    if (onThisDayEntries.isNotEmpty()) {
+                        item(key = "on_this_day_banner") {
+                            OnThisDayCard(
+                                entries = onThisDayEntries,
+                                isExpanded = isOnThisDayExpanded,
+                                onToggleExpand = {
+                                    haptics.tapKey()
+                                    isOnThisDayExpanded = !isOnThisDayExpanded
+                                },
+                                onSelectEntry = { entry ->
+                                    haptics.tapKey()
+                                    selectedEntryForDetail = entry
+                                },
+                                modifier = Modifier.padding(bottom = 10.dp)
+                            )
+                        }
+                    }
+
                     itemsIndexed(
                         items = filteredEntries,
                         key = { _, entry -> entry.id }
@@ -243,6 +345,10 @@ fun StreamScreen(
                         StreamEntryCard(
                             entry = entry,
                             apiClient = apiClient,
+                            onClick = {
+                                haptics.tapKey()
+                                selectedEntryForDetail = entry
+                            },
                             onDelete = {
                                 scope.launch {
                                     haptics.tearDelete()
@@ -256,6 +362,664 @@ fun StreamScreen(
                 }
             }
         }
+
+        // 单条记录详情与编辑 Sheet/Dialog
+        selectedEntryForDetail?.let { activeEntry ->
+            EntryDetailSheetDialog(
+                entry = activeEntry,
+                apiClient = apiClient,
+                onDismiss = { selectedEntryForDetail = null },
+                onSaveEdit = { req ->
+                    scope.launch {
+                        haptics.stampSave()
+                        syncManager.updateEntryOptimistic(activeEntry.id, req)
+                        Toast.makeText(context, "已修订归册", Toast.LENGTH_SHORT).show()
+                        selectedEntryForDetail = null
+                    }
+                },
+                onDelete = {
+                    scope.launch {
+                        haptics.tearDelete()
+                        syncManager.deleteEntry(activeEntry.id)
+                        Toast.makeText(context, "已撕除记录", Toast.LENGTH_SHORT).show()
+                        selectedEntryForDetail = null
+                    }
+                }
+            )
+        }
+
+        // 年度生活年鉴五幕弹窗
+        if (showAlmanacDialog) {
+            AlmanacDialog(
+                apiClient = apiClient,
+                onDismiss = { showAlmanacDialog = false }
+            )
+        }
+    }
+}
+
+@Composable
+private fun OnThisDayCard(
+    entries: List<LifeEntry>,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onSelectEntry: (LifeEntry) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LooseLeafTheme.colors
+
+    PaperCard(
+        modifier = modifier.fillMaxWidth(),
+        backgroundColor = colors.accentWarm.copy(alpha = 0.06f),
+        borderColor = colors.accentWarm.copy(alpha = 0.4f)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggleExpand() },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.History,
+                        contentDescription = null,
+                        tint = colors.accentWarm,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "那年今日 · 岁月回响 (${entries.size})",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 14.sp,
+                        color = colors.accentWarm
+                    )
+                }
+                Icon(
+                    imageVector = if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = "展开或收起",
+                    tint = colors.accentWarm,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(8.dp))
+                PaperDivider(color = colors.accentWarm.copy(alpha = 0.2f))
+                Spacer(modifier = Modifier.height(8.dp))
+
+                entries.forEachIndexed { idx, item ->
+                    if (idx > 0) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(3.dp))
+                            .clickable { onSelectEntry(item) }
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = item.title,
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp,
+                                color = colors.inkPrimary
+                            )
+                            if (item.content.isNotBlank()) {
+                                Text(
+                                    text = item.content,
+                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    color = colors.inkSecondary
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = FormatUtils.formatDisplayDate(item.occurredAt),
+                            fontFamily = ArchiveFontFamilies.MonoScale,
+                            fontSize = 11.sp,
+                            color = colors.inkMuted
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EntryDetailSheetDialog(
+    entry: LifeEntry,
+    apiClient: APIClient,
+    onDismiss: () -> Unit,
+    onSaveEdit: (CreateEntryRequest) -> Unit,
+    onDelete: () -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    var isEditing by remember { mutableStateOf(false) }
+    var editType by remember(entry) { mutableStateOf(entry.type) }
+    var editTitle by remember(entry) { mutableStateOf(entry.title) }
+    var editContent by remember(entry) { mutableStateOf(entry.content) }
+    var editLocation by remember(entry) { mutableStateOf(entry.location ?: "") }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        PaperCard(
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .heightIn(max = 680.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                // 弹窗顶部操作栏
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (isEditing) "修订散页档案" else "散页档案阅览",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 18.sp,
+                        color = colors.inkPrimary
+                    )
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { isEditing = !isEditing }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Edit,
+                                contentDescription = "编辑",
+                                tint = if (isEditing) colors.accentWarm else colors.inkSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(onClick = onDelete) {
+                            Icon(
+                                imageVector = Icons.Outlined.Delete,
+                                contentDescription = "删除",
+                                tint = colors.accentWarm,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "关闭",
+                                tint = colors.inkMuted,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
+                PaperDivider()
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (isEditing) {
+                    // 类型切换
+                    val typeOptions = listOf(
+                        "life" to "日常随笔",
+                        "travel" to "山川游历",
+                        "project" to "造物日志",
+                        "wish" to "心愿印记"
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for ((k, label) in typeOptions) {
+                            val selected = editType == k
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (selected) colors.accentWarm else colors.archivePaper)
+                                    .border(0.5.dp, colors.borderDivider, RoundedCornerShape(12.dp))
+                                    .clickable { editType = k }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                    fontSize = 11.sp,
+                                    color = if (selected) colors.archivePaper else colors.inkSecondary
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = editTitle,
+                        onValueChange = { editTitle = it },
+                        label = { Text("标题") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = editContent,
+                        onValueChange = { editContent = it },
+                        label = { Text("正文手记") },
+                        minLines = 4,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = editLocation,
+                        onValueChange = { editLocation = it },
+                        label = { Text("所处地点") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    TerracottaStampButton(
+                        text = "保存修订 (UPDATE)",
+                        enabled = editTitle.isNotBlank() || editContent.isNotBlank(),
+                        onClick = {
+                            val code = CityDictionary.codeForLocation(editLocation) ?: entry.cityCode
+                            val cityName = code?.let { CityDictionary.cityNameForCode(it) } ?: entry.cityName
+                            val req = CreateEntryRequest(
+                                type = editType,
+                                title = editTitle.ifBlank { "无题随笔" },
+                                content = editContent.ifBlank { "无文字记录" },
+                                occurredAt = entry.occurredAt,
+                                location = editLocation.takeIf { it.isNotBlank() },
+                                cityCode = code,
+                                cityName = cityName,
+                                projectId = entry.projectId,
+                                wishId = entry.wishId,
+                                footprintId = entry.footprintId,
+                                featured = entry.featured ?: false,
+                                attachmentIds = entry.attachments.mapNotNull { it.id.takeIf { id -> id > 0 } }
+                            )
+                            onSaveEdit(req)
+                        }
+                    )
+                } else {
+                    // 阅览模式
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val typeLabel = when (entry.type) {
+                            "travel" -> "山川游历"
+                            "project" -> "造物日志"
+                            "wish" -> "心愿印记"
+                            else -> "日常随笔"
+                        }
+                        PaperBadge(text = typeLabel)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = FormatUtils.formatDisplayDateTime(entry.occurredAt),
+                            fontFamily = ArchiveFontFamilies.MonoScale,
+                            fontSize = 12.sp,
+                            color = colors.inkMuted
+                        )
+                    }
+
+                    if (!entry.location.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Outlined.LocationOn,
+                                contentDescription = null,
+                                tint = colors.accentWarm,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = listOfNotNull(entry.location, entry.cityCode).joinToString(" · "),
+                                fontFamily = ArchiveFontFamilies.BodySans,
+                                fontSize = 12.sp,
+                                color = colors.inkSecondary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = entry.title,
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 20.sp,
+                        color = colors.inkPrimary
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = entry.content,
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 15.sp,
+                        lineHeight = 24.sp,
+                        color = colors.inkSecondary
+                    )
+
+                    if (!entry.camera.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "器材底款: ${entry.camera}",
+                            fontFamily = ArchiveFontFamilies.MonoScale,
+                            fontSize = 11.sp,
+                            color = colors.inkMuted
+                        )
+                    }
+
+                    if (entry.attachments.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        for (att in entry.attachments) {
+                            val fullUrl = apiClient.resolveMediaUrl(att.url)
+                            val meta = entry.camera ?: att.originalFilename
+                            FilmFrame(
+                                imageUrl = fullUrl,
+                                metadataText = meta,
+                                modifier = Modifier.padding(vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlmanacDialog(
+    apiClient: APIClient,
+    onDismiss: () -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    val currentYear = remember { LocalDate.now(FormatUtils.BeijingZone).year }
+    var selectedYear by remember { mutableStateOf(currentYear) }
+    var summary by remember { mutableStateOf<AlmanacSummaryResponse?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(selectedYear) {
+        isLoading = true
+        errorMsg = null
+        try {
+            summary = apiClient.fetchAlmanacSummary(selectedYear)
+        } catch (e: Exception) {
+            errorMsg = e.message
+        } finally {
+            isLoading = false
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        PaperCard(
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .heightIn(max = 700.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(
+                            text = "$selectedYear 年度生活年鉴",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 20.sp,
+                            color = colors.inkPrimary
+                        )
+                        Text(
+                            text = "五幕生命叙事 · 岁月卷首至柴米油盐",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 11.sp,
+                            color = colors.inkMuted
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Outlined.Close, contentDescription = "关闭", tint = colors.inkMuted)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 年份切换胶囊
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (yr in listOf(currentYear, currentYear - 1, currentYear - 2)) {
+                        val isSelected = yr == selectedYear
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isSelected) colors.inkPrimary else colors.archivePaper)
+                                .border(0.5.dp, colors.borderDivider, RoundedCornerShape(12.dp))
+                                .clickable { selectedYear = yr }
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "$yr 年",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 12.sp,
+                                color = if (isSelected) colors.archivePaper else colors.inkSecondary
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                PaperDivider()
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (isLoading) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxWidth().height(180.dp)
+                    ) {
+                        CircularProgressIndicator(color = colors.accentWarm, modifier = Modifier.size(24.dp))
+                    }
+                } else if (errorMsg != null) {
+                    Text(
+                        text = "获取年鉴失败: $errorMsg",
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 13.sp,
+                        color = colors.accentWarm
+                    )
+                } else if (summary != null) {
+                    val data = summary!!
+
+                    // 第一幕：岁月卷首
+                    AlmanacChapterSection(
+                        chapterNumber = "第一幕",
+                        title = "岁月卷首 · 书写刻度"
+                    ) {
+                        Text(
+                            text = "全年共落笔 ${data.prologue.totalEntries} 篇散页，累计 ${data.prologue.totalWords} 字，点亮 ${data.prologue.activeDays} 个真实日子。",
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp,
+                            color = colors.inkSecondary
+                        )
+                        if (data.prologue.firstDate.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "起止刻度: ${data.prologue.firstDate} — ${data.prologue.lastDate}",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 11.sp,
+                                color = colors.inkMuted
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // 第二幕：山川行迹
+                    AlmanacChapterSection(
+                        chapterNumber = "第二幕",
+                        title = "山川行迹 · 步履所至 (${data.atlas.totalCities} 城)"
+                    ) {
+                        if (data.atlas.cities.isEmpty()) {
+                            Text("本年度暂无远行足迹记录", fontSize = 12.sp, color = colors.inkMuted)
+                        } else {
+                            Text(
+                                text = data.atlas.cities.joinToString(" · ") { it.cityName },
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 13.sp,
+                                color = colors.inkPrimary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // 第三幕：心愿圆满
+                    AlmanacChapterSection(
+                        chapterNumber = "第三幕",
+                        title = "心愿圆满 · 念念回响"
+                    ) {
+                        Text(
+                            text = "圆满达成 ${data.wishes.fulfilledCount} 项心愿 · 仍有 ${data.wishes.wantingCount} 项向往中",
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 13.sp,
+                            color = colors.inkSecondary
+                        )
+                        if (data.wishes.totalActual > 0) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "心愿兑现投入: ${FormatUtils.centsToYuanString(data.wishes.totalActual)}",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 12.sp,
+                                color = colors.accentWarm
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // 第四幕：浮光掠影
+                    AlmanacChapterSection(
+                        chapterNumber = "第四幕",
+                        title = "浮光掠影 · 四季相纸 (${data.highlights.photos.size} 帧)"
+                    ) {
+                        val seasonItems = listOfNotNull(
+                            data.highlights.spring?.let { "春 · ${it.title}" },
+                            data.highlights.summer?.let { "夏 · ${it.title}" },
+                            data.highlights.autumn?.let { "秋 · ${it.title}" },
+                            data.highlights.winter?.let { "冬 · ${it.title}" }
+                        )
+                        if (seasonItems.isEmpty()) {
+                            Text("四季流转，静待更多影像沉淀", fontSize = 12.sp, color = colors.inkMuted)
+                        } else {
+                            seasonItems.forEach { line ->
+                                Text(
+                                    text = line,
+                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                    fontSize = 13.sp,
+                                    color = colors.inkPrimary,
+                                    modifier = Modifier.padding(vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // 第五幕：柴米油盐
+                    AlmanacChapterSection(
+                        chapterNumber = "第五幕",
+                        title = "柴米油盐 · 生活光谱"
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "年度总支出: ${FormatUtils.centsToYuanString(data.finances.totalExpense)}",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 12.sp,
+                                color = colors.accentWarm
+                            )
+                            Text(
+                                text = "年度总收入: ${FormatUtils.centsToYuanString(data.finances.totalIncome)}",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 12.sp,
+                                color = colors.accentMoss
+                            )
+                        }
+                        if (data.finances.categories.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            data.finances.categories.take(4).forEach { cat ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(cat.name, fontSize = 12.sp, color = colors.inkSecondary)
+                                    Text(
+                                        FormatUtils.centsToYuanString(cat.amount),
+                                        fontFamily = ArchiveFontFamilies.MonoScale,
+                                        fontSize = 12.sp,
+                                        color = colors.inkPrimary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlmanacChapterSection(
+    chapterNumber: String,
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .background(colors.archivePaper)
+            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
+            .padding(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PaperBadge(text = chapterNumber)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = title,
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontWeight = FontWeight.Medium,
+                fontSize = 14.sp,
+                color = colors.inkPrimary
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        content()
     }
 }
 
@@ -307,12 +1071,17 @@ private fun StreamFilterBar(
 private fun StreamEntryCard(
     entry: LifeEntry,
     apiClient: APIClient,
+    onClick: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
 
-    PaperCard(modifier = modifier.fillMaxWidth()) {
+    PaperCard(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
         Column {
             // 头部：类型标签、时间戳、地点与同步标记
             Row(
@@ -408,7 +1177,8 @@ private fun StreamEntryCard(
                     FilmFrame(
                         imageUrl = fullUrl,
                         metadataText = meta,
-                        modifier = Modifier.padding(vertical = 4.dp)
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        onClick = onClick
                     )
                 }
             }

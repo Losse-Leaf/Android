@@ -37,6 +37,7 @@ class MainActivity : FragmentActivity() {
 
     private lateinit var credentialStore: CredentialStore
     private lateinit var haptics: HapticsEngine
+    private var requestedRouteState = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,7 +46,7 @@ class MainActivity : FragmentActivity() {
         credentialStore = CredentialStore.getInstance(this)
         haptics = HapticsEngine.getInstance(this)
 
-        val shortcutRoute = intent?.getStringExtra("shortcut_route")
+        requestedRouteState.value = intent?.getStringExtra("shortcut_route")
 
         setContent {
             var isDarkTheme by remember { mutableStateOf(credentialStore.isDarkroomMode) }
@@ -53,23 +54,41 @@ class MainActivity : FragmentActivity() {
             LooseLeafTheme(darkTheme = isDarkTheme) {
                 var isPaired by remember { mutableStateOf(credentialStore.isPaired()) }
                 var currentRoute by remember {
-                    mutableStateOf(shortcutRoute ?: "stream")
+                    mutableStateOf(requestedRouteState.value ?: "stream")
+                }
+
+                val pendingShortcut by requestedRouteState
+                LaunchedEffect(pendingShortcut) {
+                    val target = pendingShortcut
+                    if (!target.isNullOrBlank()) {
+                        currentRoute = target
+                        requestedRouteState.value = null
+                    }
                 }
 
                 // 生物识别保护触发
+                val canAuth = remember { BiometricHelper.canAuthenticate(this@MainActivity) }
                 var isUnlocked by remember {
-                    mutableStateOf(!credentialStore.isBiometricsEnabled)
+                    mutableStateOf(!credentialStore.isBiometricsEnabled || !canAuth)
                 }
 
-                LaunchedEffect(Unit) {
+                fun requestBiometricUnlock() {
                     if (credentialStore.isBiometricsEnabled && BiometricHelper.canAuthenticate(this@MainActivity)) {
                         BiometricHelper.authenticate(
                             activity = this@MainActivity,
                             title = "散页身份验证",
                             subtitle = "验证面容或指纹以解锁时光手账",
                             onSuccess = { isUnlocked = true },
-                            onError = { /* fallback */ }
+                            onError = { /* 保持锁屏门禁态 */ }
                         )
+                    } else {
+                        isUnlocked = true
+                    }
+                }
+
+                LaunchedEffect(isPaired) {
+                    if (isPaired && !isUnlocked) {
+                        requestBiometricUnlock()
                     }
                 }
 
@@ -77,9 +96,53 @@ class MainActivity : FragmentActivity() {
                     PairingScreen(
                         onPairingSuccess = {
                             isPaired = true
+                            isUnlocked = true
                             currentRoute = "stream"
                         }
                     )
+                } else if (!isUnlocked) {
+                    val colors = LooseLeafTheme.colors
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(colors.archivePaper)
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Outlined.Lock,
+                                contentDescription = "已加锁",
+                                tint = colors.accentWarm,
+                                modifier = Modifier.size(40.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "散页 · 隐私守护中",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 20.sp,
+                                color = colors.inkPrimary
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "请通过生物识别验证以翻阅私人档案与账本",
+                                fontFamily = ArchiveFontFamilies.BodySans,
+                                fontSize = 13.sp,
+                                color = colors.inkSecondary
+                            )
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Button(
+                                onClick = { requestBiometricUnlock() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.accentWarm,
+                                    contentColor = colors.archivePaper
+                                ),
+                                shape = RoundedCornerShape(2.dp)
+                            ) {
+                                Text("验证指纹 / 面容解锁", fontFamily = ArchiveFontFamilies.EditorialSerif)
+                            }
+                        }
+                    }
                 } else {
                     Scaffold(
                         bottomBar = {
@@ -114,6 +177,9 @@ class MainActivity : FragmentActivity() {
                                 "profile" -> ProfileScreen(
                                     onUnpair = {
                                         isPaired = false
+                                    },
+                                    onDarkroomModeChanged = { enabled ->
+                                        isDarkTheme = enabled
                                     }
                                 )
                             }
@@ -127,6 +193,9 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        intent.getStringExtra("shortcut_route")?.takeIf { it.isNotBlank() }?.let {
+            requestedRouteState.value = it
+        }
     }
 }
 

@@ -1,8 +1,9 @@
 package com.looseleaf.app.ui.ledger
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -82,6 +83,7 @@ fun TactileKeypad(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TactileKeyButton(
     label: String,
@@ -100,10 +102,11 @@ private fun TactileKeyButton(
             .clip(shape)
             .background(colors.archiveSubtle, shape)
             .border(0.5.dp, colors.borderDivider, shape)
-            .clickable(
+            .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(color = colors.accentWarm.copy(alpha = 0.2f)),
-                onClick = onClick
+                onClick = onClick,
+                onLongClick = onLongClick
             )
     ) {
         if (label == "⌫") {

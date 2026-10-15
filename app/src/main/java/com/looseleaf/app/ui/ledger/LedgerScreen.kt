@@ -23,9 +23,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.fragment.app.FragmentActivity
+import com.looseleaf.app.audio.AudioEngine
+import com.looseleaf.app.data.api.APIClient
+import com.looseleaf.app.data.security.BiometricHelper
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.haptics.HapticsEngine
+import com.looseleaf.app.model.AssetsOverview
 import com.looseleaf.app.model.Transaction
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
@@ -53,15 +58,43 @@ fun LedgerScreen(
     val haptics = remember { HapticsEngine.getInstance(context) }
     val syncManager = remember { SyncManager.getInstance(context) }
     val credentialStore = remember { CredentialStore.getInstance(context) }
+    val apiClient = remember { APIClient.getInstance(context) }
 
     val transactions by syncManager.transactionsFlow.collectAsState(initial = emptyList())
+
+    var expenseCategories by remember { mutableStateOf(DefaultExpenseCategories) }
+    var incomeCategories by remember { mutableStateOf(DefaultIncomeCategories) }
+    var paymentMethods by remember { mutableStateOf(listOf("微信支付", "支付宝", "银行卡", "现金")) }
 
     var inputAmountString by remember { mutableStateOf("0") }
     var selectedType by remember { mutableStateOf("expense") } // "expense" | "income"
     var selectedCategory by remember { mutableStateOf(inferRecommendedCategory()) }
+    var selectedPaymentMethod by remember { mutableStateOf("微信支付") }
     var noteText by remember { mutableStateOf("") }
     var showRecentList by remember { mutableStateOf(false) }
+    var showAssetsDialog by remember { mutableStateOf(false) }
+    var assetsOverview by remember { mutableStateOf<AssetsOverview?>(null) }
     var isPrivacyMasked by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
+
+    LaunchedEffect(Unit) {
+        runCatching {
+            val allCats = apiClient.fetchCategories()
+            val exp = allCats.filter { it.scope == "expense" }.map { it.name }
+            if (exp.isNotEmpty()) expenseCategories = exp
+            val inc = allCats.filter { it.scope == "income" }.map { it.name }
+            if (inc.isNotEmpty()) incomeCategories = inc
+            val pay = allCats.filter { it.scope == "payment" }.map { it.name }
+            if (pay.isNotEmpty()) {
+                paymentMethods = pay
+                if (selectedPaymentMethod !in pay) selectedPaymentMethod = pay.first()
+            }
+        }
+        runCatching {
+            assetsOverview = apiClient.fetchAssetsOverview()
+        }
+    }
+
+    val activeCategories = if (selectedType == "income") incomeCategories else expenseCategories
 
     fun appendDigit(digit: String) {
         if (inputAmountString == "0") {
@@ -140,7 +173,24 @@ fun LedgerScreen(
                     IconButton(
                         onClick = {
                             haptics.tapKey()
-                            isPrivacyMasked = !isPrivacyMasked
+                            if (isPrivacyMasked && credentialStore.isBiometricsEnabled) {
+                                val act = context as? FragmentActivity
+                                if (act != null && BiometricHelper.canAuthenticate(act)) {
+                                    BiometricHelper.authenticate(
+                                        activity = act,
+                                        title = "验证以查看账目金额",
+                                        subtitle = "使用生物识别解锁敏感收支数字",
+                                        onSuccess = { isPrivacyMasked = false },
+                                        onError = { msg ->
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+                                } else {
+                                    isPrivacyMasked = false
+                                }
+                            } else {
+                                isPrivacyMasked = true
+                            }
                         }
                     ) {
                         Icon(
@@ -148,6 +198,20 @@ fun LedgerScreen(
                             contentDescription = "隐蔽敏感金额",
                             tint = colors.inkSecondary,
                             modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    TextButton(
+                        onClick = {
+                            haptics.tapKey()
+                            showAssetsDialog = true
+                        }
+                    ) {
+                        Text(
+                            text = "资产大盘",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 13.sp,
+                            color = colors.inkSecondary
                         )
                     }
 
@@ -208,6 +272,9 @@ fun LedgerScreen(
                                     onClick = {
                                         haptics.tapKey()
                                         selectedType = "expense"
+                                        if (selectedCategory !in expenseCategories) {
+                                            selectedCategory = expenseCategories.firstOrNull() ?: "餐饮"
+                                        }
                                     }
                                 )
                                 TypeToggleButton(
@@ -216,6 +283,9 @@ fun LedgerScreen(
                                     onClick = {
                                         haptics.tapKey()
                                         selectedType = "income"
+                                        if (selectedCategory !in incomeCategories) {
+                                            selectedCategory = incomeCategories.firstOrNull() ?: "薪资"
+                                        }
                                     }
                                 )
                             }
@@ -248,16 +318,34 @@ fun LedgerScreen(
 
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // 备注快速输入
+                            // 备注快速输入 + 自然语言语义拆解按钮
                             OutlinedTextField(
                                 value = noteText,
                                 onValueChange = { noteText = it },
                                 placeholder = {
                                     Text(
-                                        text = "添加明细备注 (如: 麦当劳早餐、手冲咖啡)",
+                                        text = "备注或输入“42.5 手冲咖啡”点右侧拆解",
                                         fontSize = 12.sp,
                                         color = colors.inkMuted
                                     )
+                                },
+                                trailingIcon = {
+                                    if (noteText.isNotBlank()) {
+                                        TextButton(
+                                            onClick = {
+                                                val parsed = FormatUtils.parseNaturalTransactionInput(noteText)
+                                                if (parsed.amountCents > 0) {
+                                                    haptics.tapKey()
+                                                    inputAmountString = FormatUtils.centsToYuanString(parsed.amountCents, includeSymbol = false)
+                                                    selectedType = parsed.type
+                                                    selectedCategory = parsed.category
+                                                    noteText = parsed.title
+                                                }
+                                            }
+                                        ) {
+                                            Text("语义拆解", fontSize = 11.sp, color = colors.accentWarm)
+                                        }
+                                    }
                                 },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
@@ -274,6 +362,7 @@ fun LedgerScreen(
                     // 分类胶囊滑动栏
                     CategoryPills(
                         selectedCategory = selectedCategory,
+                        categories = activeCategories,
                         onCategorySelect = { cat ->
                             haptics.tapKey()
                             selectedCategory = cat
@@ -299,6 +388,7 @@ fun LedgerScreen(
                             if (amountCents <= 0) return@TerracottaStampButton
 
                             haptics.stampSave()
+                            AudioEngine.playShutter()
                             val title = if (noteText.isNotBlank()) noteText.trim() else selectedCategory
 
                             scope.launch {
@@ -307,7 +397,8 @@ fun LedgerScreen(
                                     type = selectedType,
                                     category = selectedCategory,
                                     title = title,
-                                    note = noteText.takeIf { it.isNotBlank() }
+                                    note = noteText.takeIf { it.isNotBlank() },
+                                    paymentMethod = selectedPaymentMethod
                                 )
                                 Toast.makeText(context, "已盖印入账: ¥ $inputAmountString", Toast.LENGTH_SHORT).show()
                                 clearAll()
@@ -317,6 +408,58 @@ fun LedgerScreen(
                     )
                 }
             }
+        }
+
+        if (showAssetsDialog) {
+            AlertDialog(
+                onDismissRequest = { showAssetsDialog = false },
+                title = {
+                    Text(
+                        text = "个人资产管理中枢",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Medium
+                    )
+                },
+                text = {
+                    val ov = assetsOverview
+                    if (ov == null) {
+                        Text("正在同步资产大盘数据…", fontSize = 13.sp, color = colors.inkSecondary)
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "净资产: ${if (isPrivacyMasked) "****" else FormatUtils.centsToYuanString(ov.netWorth)}",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 16.sp,
+                                color = colors.inkPrimary
+                            )
+                            Text(
+                                text = "流动可用资金: ${if (isPrivacyMasked) "****" else FormatUtils.centsToYuanString(ov.liquidBalance)}",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 13.sp,
+                                color = colors.accentMoss
+                            )
+                            Text(
+                                text = "在役固资沉淀 (${ov.gearSummary.activeCount} 件): ${if (isPrivacyMasked) "****" else FormatUtils.centsToYuanString(ov.fixedAssets)}",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 13.sp,
+                                color = colors.inkSecondary
+                            )
+                            Text(
+                                text = "待还信贷负债: ${if (isPrivacyMasked) "****" else FormatUtils.centsToYuanString(ov.totalLiabilities)} (月供 ${FormatUtils.centsToYuanString(ov.monthlyLiabilities)})",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 13.sp,
+                                color = colors.accentWarm
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showAssetsDialog = false }) {
+                        Text("关闭", color = colors.accentWarm)
+                    }
+                }
+            )
         }
     }
 }

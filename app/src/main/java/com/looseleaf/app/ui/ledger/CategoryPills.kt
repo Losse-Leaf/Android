@@ -19,20 +19,23 @@ import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.theme.SpectrumColors
+import com.looseleaf.app.utils.FormatUtils
 import java.time.LocalTime
 
+val DefaultExpenseCategories = listOf("餐饮", "交通", "购物", "娱乐", "住房", "学习", "医疗", "其他")
+val DefaultIncomeCategories = listOf("薪资", "奖金", "二手回血", "稿费与创作", "投资收益", "其他收入")
+
 /**
- * 支出分类胶囊横滑栏 (Category Pills Bar) - docs/mobile.md §3.1
- * 严格遵从 docs/web.md §2.3 Earthy Spectrum 光谱色
+ * 分类胶囊横滑栏 (Category Pills Bar) - docs/mobile.md §3.1
+ * 严格遵从 docs/web.md §2.3 Earthy Spectrum 光谱色与动态分类字典 (RC-129)
  */
 @Composable
 fun CategoryPills(
     selectedCategory: String,
     onCategorySelect: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    categories: List<String> = DefaultExpenseCategories
 ) {
-    val categories = listOf("餐饮", "交通", "购物", "娱乐", "住房", "学习", "医疗", "其他")
-
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -109,10 +112,10 @@ private fun CategoryPillItem(
 }
 
 /**
- * 根据当前北京时间推断推荐的常用分类 (docs/mobile.md §3.1)
+ * 根据当前北京时间推断推荐的常用分类 (docs/mobile.md §3.1, RC-134)
  */
 fun inferRecommendedCategory(): String {
-    val hour = LocalTime.now().hour
+    val hour = LocalTime.now(FormatUtils.BeijingZone).hour
     return when (hour) {
         in 6..10 -> "餐饮"
         in 11..13 -> "餐饮"

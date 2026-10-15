@@ -148,6 +148,15 @@ fun SquareQrScannerView(
     )
 
     var cameraControlRef by remember { mutableStateOf<CameraControl?>(null) }
+    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    var cameraProviderRef by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching { cameraProviderRef?.unbindAll() }
+            runCatching { cameraExecutor.shutdown() }
+        }
+    }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
@@ -179,6 +188,7 @@ fun SquareQrScannerView(
                     val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                     cameraProviderFuture.addListener({
                         val cameraProvider = cameraProviderFuture.get()
+                        cameraProviderRef = cameraProvider
                         val preview = Preview.Builder().build().also {
                             it.setSurfaceProvider(previewView.surfaceProvider)
                         }
@@ -188,7 +198,6 @@ fun SquareQrScannerView(
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .build()
 
-                        val cameraExecutor = Executors.newSingleThreadExecutor()
                         val multiFormatReader = MultiFormatReader().apply {
                             setHints(
                                 mapOf(
@@ -199,17 +208,18 @@ fun SquareQrScannerView(
                             )
                         }
 
-                        var isCaptured = false
+                        var lastScannedTime = 0L
 
                         imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                            if (isCaptured) {
+                            val now = System.currentTimeMillis()
+                            if (now - lastScannedTime < 2500L) {
                                 imageProxy.close()
                                 return@setAnalyzer
                             }
 
                             val result = decodeQrFromImage(imageProxy, multiFormatReader)
                             if (!result.isNullOrBlank()) {
-                                isCaptured = true
+                                lastScannedTime = now
                                 imageProxy.close()
                                 previewView.post {
                                     onQrCodeScanned(result)
@@ -430,8 +440,9 @@ private fun decodeQrFromImage(image: ImageProxy, reader: MultiFormatReader): Str
  */
 private fun decodeQrFromUri(context: Context, uri: Uri): String? {
     return try {
-        val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
-        val bitmap = BitmapFactory.decodeStream(inputStream) ?: return null
+        val bitmap = context.contentResolver.openInputStream(uri)?.use { inputStream ->
+            BitmapFactory.decodeStream(inputStream)
+        } ?: return null
         val width = bitmap.width
         val height = bitmap.height
         val pixels = IntArray(width * height)

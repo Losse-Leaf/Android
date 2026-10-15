@@ -19,7 +19,6 @@ data class EmptyPayload(val empty: String? = null)
 
 @Serializable
 data class DeleteResponse(
-    val id: String? = null,
     val deleted: Boolean? = null,
     val purged: Boolean? = null
 )
@@ -38,6 +37,7 @@ data class LifeEntry(
     @SerialName("city_code") val cityCode: String? = null,
     @SerialName("city_name") val cityName: String? = null,
     val camera: String? = null,
+    val featured: Boolean? = null,
     @SerialName("project_id") val projectId: Long? = null,
     val project: Project? = null,
     @SerialName("wish_id") val wishId: Long? = null,
@@ -46,6 +46,7 @@ data class LifeEntry(
     val attachments: List<Attachment> = emptyList(),
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
+    @SerialName("deleted_at") val deletedAt: String? = null,
     @SerialName("sync_status") val syncStatus: String? = "SYNCED" // "SYNCED", "PENDING_CREATE", "PENDING_UPDATE"
 )
 
@@ -93,16 +94,18 @@ data class Transaction(
     @SerialName("repayment_day") val repaymentDay: Int? = null,
     @SerialName("sync_status") val syncStatus: String? = "SYNCED",
     @SerialName("created_at") val createdAt: String? = null,
-    @SerialName("updated_at") val updatedAt: String? = null
+    @SerialName("updated_at") val updatedAt: String? = null,
+    @SerialName("deleted_at") val deletedAt: String? = null
 )
 
 @Serializable
 data class TransactionSummary(
+    val year: Int = 0,
+    val month: Int = 0,
     @SerialName("total_expense") val totalExpense: Long = 0,
     @SerialName("total_income") val totalIncome: Long = 0,
     val balance: Long = 0,
-    @SerialName("expense_count") val expenseCount: Int = 0,
-    @SerialName("income_count") val incomeCount: Int = 0,
+    val count: Int = 0,
     @SerialName("category_breakdown") val categoryBreakdown: Map<String, Long>? = null
 )
 
@@ -134,7 +137,10 @@ data class GearItem(
     val spec: String = "",
     val category: String = "数码器材",
     val status: String = "active",
+    @SerialName("price_cents") val priceCents: Long? = null,
     @SerialName("purchase_date") val purchaseDate: String? = null,
+    @SerialName("sold_price_cents") val soldPriceCents: Long? = null,
+    @SerialName("sold_date") val soldDate: String? = null,
     val note: String? = null
 )
 
@@ -146,6 +152,8 @@ data class SiteConfig(
     val id: Long? = null,
     @SerialName("site_name") val siteName: String = "散页",
     @SerialName("site_subtitle") val siteSubtitle: String = "",
+    @SerialName("curator_name") val curatorName: String = "",
+    @SerialName("default_location") val defaultLocation: String = "",
     @SerialName("site_desc") val siteDesc: String = "",
     val initialized: Boolean = false,
     @SerialName("initial_liquid_balance") val initialLiquidBalance: Long = 0
@@ -158,12 +166,29 @@ data class SiteConfig(
 data class Project(
     val id: Long,
     val title: String,
+    val subtitle: String? = null,
     val description: String? = null,
+    val story: String? = null,
     val category: String? = null,
     @SerialName("github_url") val githubUrl: String? = null,
-    val status: String? = "Maintained",
+    val status: String? = "Active",
+    val featured: Boolean? = null,
+    val order: Int? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null
+)
+
+@Serializable
+data class CreateProjectRequest(
+    val title: String,
+    val subtitle: String? = null,
+    val description: String? = null,
+    val story: String? = null,
+    val category: String? = null,
+    val status: String? = "进行中",
+    @SerialName("github_url") val githubUrl: String? = null,
+    val featured: Boolean = false,
+    val order: Int = 0
 )
 
 /**
@@ -175,27 +200,295 @@ data class Wish(
     val title: String,
     val kind: String? = "item", // "item", "travel", "milestone"
     val note: String? = null,
+    val spec: String? = null,
+    @SerialName("city_code") val cityCode: String? = null,
+    @SerialName("city_name") val cityName: String? = null,
     val budget: Long = 0,
     @SerialName("actual_cost") val actualCost: Long = 0,
-    val status: String = "wanting", // "wanting", "fulfilled"
+    @SerialName("resolution_type") val resolutionType: String? = null,
+    @SerialName("actual_title") val actualTitle: String? = null,
+    val status: String = "wanting", // "wanting", "fulfilled", "relinquished", "shelved"
     @SerialName("target_date") val targetDate: String? = null,
     @SerialName("fulfilled_at") val fulfilledAt: String? = null,
+    @SerialName("transaction_id") val transactionId: Long? = null,
     @SerialName("life_entry_id") val lifeEntryId: Long? = null,
-    @SerialName("created_at") val createdAt: String? = null
+    @SerialName("footprint_id") val footprintId: Long? = null,
+    @SerialName("gear_id") val gearId: String? = null,
+    val attachments: List<Attachment> = emptyList(),
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null
+)
+
+@Serializable
+data class WishesListResponse(
+    val total: Int = 0,
+    val page: Int = 1,
+    @SerialName("page_size") val pageSize: Int = 50,
+    val wishes: List<Wish> = emptyList()
+)
+
+@Serializable
+data class CreateWishRequest(
+    val title: String,
+    val kind: String = "item", // "item" | "travel" | "milestone"
+    val note: String? = null,
+    val spec: String? = null,
+    @SerialName("city_code") val cityCode: String? = null,
+    @SerialName("city_name") val cityName: String? = null,
+    val budget: Long = 0,
+    @SerialName("target_date") val targetDate: String? = null,
+    @SerialName("attachment_ids") val attachmentIds: List<Long>? = null
+)
+
+@Serializable
+data class ResolveWishRequest(
+    @SerialName("fulfilled_at") val fulfilledAt: String = FormatUtils.beijingNowIsoString(),
+    @SerialName("actual_cost") val actualCost: Long = 0,
+    @SerialName("resolution_type") val resolutionType: String = "exact", // "exact" | "altered" | "relinquished"
+    @SerialName("actual_title") val actualTitle: String? = null,
+    @SerialName("create_transaction") val createTransaction: Boolean = false,
+    @SerialName("create_gear_asset") val createGearAsset: Boolean = false,
+    @SerialName("create_life_entry") val createLifeEntry: Boolean = false,
+    @SerialName("create_footprint") val createFootprint: Boolean = false,
+    @SerialName("entry_content") val entryContent: String? = null,
+    @SerialName("attachment_ids") val attachmentIds: List<Long>? = null,
+    @SerialName("is_installment") val isInstallment: Boolean = false,
+    @SerialName("installment_channel_code") val installmentChannelCode: String? = null,
+    @SerialName("installment_months") val installmentMonths: Int? = null,
+    @SerialName("repayment_day") val repaymentDay: Int? = null
 )
 
 /**
- * 足迹 (Footprint)
+ * 足迹 (Footprint) - 严格对齐 backend/internal/models/models.go
  */
 @Serializable
 data class Footprint(
     val id: Long,
     @SerialName("city_code") val cityCode: String,
     @SerialName("city_name") val cityName: String,
-    @SerialName("province_adcode") val provinceAdcode: String? = null,
-    @SerialName("province_name") val provinceName: String? = null,
-    val year: Int? = null,
-    val notes: String? = null
+    val title: String? = null,
+    @SerialName("visited_at") val visitedAt: String? = null,
+    @SerialName("departed_at") val departedAt: String? = null,
+    val note: String? = null,
+    @SerialName("life_entry_id") val lifeEntryId: Long? = null,
+    @SerialName("wish_id") val wishId: Long? = null,
+    val attachments: List<Attachment> = emptyList(),
+    @SerialName("entries_count") val entriesCount: Int? = null,
+    @SerialName("total_spent") val totalSpent: Long? = null,
+    @SerialName("transaction_count") val transactionCount: Int? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null
+)
+
+@Serializable
+data class CreateFootprintRequest(
+    @SerialName("city_code") val cityCode: String,
+    @SerialName("city_name") val cityName: String,
+    val title: String? = null,
+    @SerialName("visited_at") val visitedAt: String,
+    @SerialName("departed_at") val departedAt: String? = null,
+    val note: String? = null,
+    @SerialName("attachment_ids") val attachmentIds: List<Long>? = null
+)
+
+/**
+ * 城市记忆抽屉 (GET /api/v1/footprints/cities/:city_code/drawer)
+ */
+@Serializable
+data class CityVisitStats(
+    @SerialName("total_visits") val totalVisits: Int = 0,
+    @SerialName("first_visited_at") val firstVisitedAt: String = "",
+    @SerialName("latest_visited_at") val latestVisitedAt: String = ""
+)
+
+@Serializable
+data class CityDrawerCategoryStat(
+    val name: String = "",
+    val amount: Long = 0
+)
+
+@Serializable
+data class CityDrawerLedgerSummary(
+    @SerialName("total_spent") val totalSpent: Long = 0,
+    @SerialName("transaction_count") val transactionCount: Int = 0,
+    val categories: List<CityDrawerCategoryStat> = emptyList()
+)
+
+@Serializable
+data class CityMemoryDrawerResponse(
+    @SerialName("city_code") val cityCode: String = "",
+    @SerialName("city_name") val cityName: String = "",
+    @SerialName("visit_stats") val visitStats: CityVisitStats = CityVisitStats(),
+    val footprints: List<Footprint> = emptyList(),
+    val entries: List<LifeEntry> = emptyList(),
+    @SerialName("ledger_summary") val ledgerSummary: CityDrawerLedgerSummary = CityDrawerLedgerSummary()
+)
+
+/**
+ * 资产大盘与设备库 (GET /api/v1/assets/overview)
+ */
+@Serializable
+data class CreditChannel(
+    val id: Long = 0,
+    val code: String = "",
+    val name: String = "",
+    @SerialName("repayment_day") val repaymentDay: Int = 10,
+    @SerialName("is_builtin") val isBuiltin: Boolean = false,
+    val color: String? = null
+)
+
+@Serializable
+data class ChannelLiability(
+    @SerialName("channel_code") val channelCode: String = "",
+    @SerialName("channel_name") val channelName: String = "",
+    @SerialName("repayment_day") val repaymentDay: Int = 10,
+    val color: String = "",
+    @SerialName("total_debt") val totalDebt: Long = 0,
+    @SerialName("monthly_pay") val monthlyPay: Long = 0,
+    @SerialName("days_until_repayment") val daysUntilRepayment: Int = 0,
+    @SerialName("active_count") val activeCount: Int = 0,
+    val installments: List<Transaction> = emptyList()
+)
+
+@Serializable
+data class GearSummary(
+    @SerialName("total_count") val totalCount: Int = 0,
+    @SerialName("active_count") val activeCount: Int = 0,
+    @SerialName("active_value") val activeValue: Long = 0,
+    @SerialName("sold_count") val soldCount: Int = 0,
+    @SerialName("sold_recovered_value") val soldRecoveredValue: Long = 0,
+    val items: List<GearItem> = emptyList()
+)
+
+@Serializable
+data class AssetsOverview(
+    @SerialName("net_worth") val netWorth: Long = 0,
+    @SerialName("liquid_balance") val liquidBalance: Long = 0,
+    @SerialName("initial_liquid_balance") val initialLiquidBalance: Long = 0,
+    @SerialName("fixed_assets") val fixedAssets: Long = 0,
+    @SerialName("total_liabilities") val totalLiabilities: Long = 0,
+    @SerialName("monthly_liabilities") val monthlyLiabilities: Long = 0,
+    @SerialName("gear_summary") val gearSummary: GearSummary = GearSummary(),
+    @SerialName("channel_liabilities") val channelLiabilities: List<ChannelLiability> = emptyList()
+)
+
+@Serializable
+data class SetLiquidBalanceRequest(
+    @SerialName("initial_liquid_balance") val initialLiquidBalance: Long
+)
+
+@Serializable
+data class LiquidBalanceResponse(
+    @SerialName("initial_liquid_balance") val initialLiquidBalance: Long = 0
+)
+
+@Serializable
+data class AddGearAssetRequest(
+    val name: String,
+    val category: String = "数码器材",
+    val spec: String = "",
+    @SerialName("price_cents") val priceCents: Long = 0,
+    @SerialName("purchase_date") val purchaseDate: String? = null,
+    @SerialName("payment_method") val paymentMethod: String? = null,
+    val note: String? = null,
+    @SerialName("create_transaction") val createTransaction: Boolean = true,
+    @SerialName("is_installment") val isInstallment: Boolean = false,
+    @SerialName("installment_channel_code") val installmentChannelCode: String? = null,
+    @SerialName("installment_total_amount") val installmentTotalAmount: Long? = null,
+    @SerialName("installment_months") val installmentMonths: Int? = null,
+    @SerialName("repayment_day") val repaymentDay: Int? = null
+)
+
+@Serializable
+data class SellGearRequest(
+    @SerialName("sold_price_cents") val soldPriceCents: Long,
+    @SerialName("sold_date") val soldDate: String? = null,
+    val note: String? = null
+)
+
+/**
+ * 年度生活年鉴 (GET /api/v1/almanac/summary?year=...)
+ */
+@Serializable
+data class AlmanacPrologue(
+    @SerialName("total_entries") val totalEntries: Int = 0,
+    @SerialName("total_words") val totalWords: Int = 0,
+    @SerialName("active_days") val activeDays: Int = 0,
+    @SerialName("first_date") val firstDate: String = "",
+    @SerialName("last_date") val lastDate: String = "",
+    @SerialName("wishes_fulfilled") val wishesFulfilled: Int = 0,
+    @SerialName("cities_visited") val citiesVisited: Int = 0,
+    @SerialName("tx_count") val txCount: Int = 0
+)
+
+@Serializable
+data class AlmanacCityItem(
+    @SerialName("city_code") val cityCode: String = "",
+    @SerialName("city_name") val cityName: String = ""
+)
+
+@Serializable
+data class AlmanacAtlas(
+    @SerialName("total_cities") val totalCities: Int = 0,
+    val cities: List<AlmanacCityItem> = emptyList(),
+    val footprints: List<Footprint> = emptyList()
+)
+
+@Serializable
+data class AlmanacWishes(
+    val wishes: List<Wish> = emptyList(),
+    @SerialName("fulfilled_count") val fulfilledCount: Int = 0,
+    @SerialName("wanting_count") val wantingCount: Int = 0,
+    @SerialName("total_budget") val totalBudget: Long = 0,
+    @SerialName("total_actual") val totalActual: Long = 0
+)
+
+@Serializable
+data class AlmanacHighlights(
+    val spring: LifeEntry? = null,
+    val summer: LifeEntry? = null,
+    val autumn: LifeEntry? = null,
+    val winter: LifeEntry? = null,
+    val photos: List<Attachment> = emptyList()
+)
+
+@Serializable
+data class AlmanacFinances(
+    @SerialName("total_income") val totalIncome: Long = 0,
+    @SerialName("total_expense") val totalExpense: Long = 0,
+    val balance: Long = 0,
+    @SerialName("wish_expenses") val wishExpenses: Long = 0,
+    @SerialName("wish_spending_ratio") val wishSpendingRatio: Double = 0.0,
+    val categories: List<CityDrawerCategoryStat> = emptyList()
+)
+
+@Serializable
+data class AlmanacSummaryResponse(
+    val year: Int = 0,
+    val prologue: AlmanacPrologue = AlmanacPrologue(),
+    val atlas: AlmanacAtlas = AlmanacAtlas(),
+    val wishes: AlmanacWishes = AlmanacWishes(),
+    val highlights: AlmanacHighlights = AlmanacHighlights(),
+    val finances: AlmanacFinances = AlmanacFinances()
+)
+
+/**
+ * 那年今日 (GET /api/v1/entries/on-this-day)
+ */
+@Serializable
+data class OnThisDayResponse(
+    val month: Int = 1,
+    val day: Int = 1,
+    val entries: List<LifeEntry> = emptyList()
+)
+
+@Serializable
+data class CategoryOption(
+    val id: Long = 0,
+    val scope: String,
+    val name: String,
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    @SerialName("is_builtin") val isBuiltin: Boolean = false
 )
 
 @Serializable
@@ -215,6 +508,11 @@ data class CreateEntryRequest(
     @SerialName("occurred_at") val occurredAt: String,
     val location: String? = null,
     @SerialName("city_code") val cityCode: String? = null,
+    @SerialName("city_name") val cityName: String? = null,
+    @SerialName("project_id") val projectId: Long? = null,
+    @SerialName("wish_id") val wishId: Long? = null,
+    @SerialName("footprint_id") val footprintId: Long? = null,
+    val featured: Boolean = false,
     @SerialName("attachment_ids") val attachmentIds: List<Long>? = null
 )
 
@@ -227,7 +525,16 @@ data class CreateTransactionRequest(
     val note: String? = null,
     @SerialName("payment_method") val paymentMethod: String? = null,
     @SerialName("occurred_at") val occurredAt: String,
-    @SerialName("city_code") val cityCode: String? = null
+    @SerialName("city_code") val cityCode: String? = null,
+    @SerialName("wish_id") val wishId: Long? = null,
+    @SerialName("footprint_id") val footprintId: Long? = null,
+    @SerialName("is_installment") val isInstallment: Boolean = false,
+    @SerialName("installment_channel_code") val installmentChannelCode: String? = null,
+    @SerialName("installment_total_amount") val installmentTotalAmount: Long? = null,
+    @SerialName("installment_months") val installmentMonths: Int? = null,
+    @SerialName("installment_monthly_pay") val installmentMonthlyPay: Long? = null,
+    @SerialName("installment_remain_months") val installmentRemainMonths: Int? = null,
+    @SerialName("repayment_day") val repaymentDay: Int? = null
 )
 
 @Serializable
@@ -248,6 +555,18 @@ data class ConfirmPairingResponse(
 )
 
 @Serializable
+data class UpdateDeviceNameRequest(
+    val name: String
+)
+
+@Serializable
+data class DeviceInfo(
+    @SerialName("device_id") val deviceId: String = "",
+    val name: String = "",
+    val platform: String = "android"
+)
+
+@Serializable
 data class VerifyPasscodeRequest(
     val passcode: String,
     @SerialName("device_name") val deviceName: String,
@@ -265,15 +584,13 @@ data class VerifyPasscodeResponse(
 @Serializable
 data class PresignUploadRequest(
     val filename: String,
-    @SerialName("mime_type") val mimeType: String,
-    val size: Long,
-    val folder: String = "entries",
-    val width: Int? = null,
-    val height: Int? = null
+    @SerialName("content_type") val contentType: String,
+    val size: Long
 )
 
 @Serializable
 data class PresignUploadResponse(
+    @SerialName("upload_id") val uploadId: String = "",
     @SerialName("upload_url") val uploadUrl: String,
     @SerialName("object_key") val objectKey: String,
     @SerialName("expires_in") val expiresIn: Long
@@ -281,12 +598,27 @@ data class PresignUploadResponse(
 
 @Serializable
 data class CompleteUploadRequest(
+    @SerialName("upload_id") val uploadId: String = "",
     @SerialName("object_key") val objectKey: String,
-    val filename: String,
+    @SerialName("original_filename") val originalFilename: String,
     @SerialName("mime_type") val mimeType: String,
     val size: Long,
     val width: Int? = null,
     val height: Int? = null
+)
+
+@Serializable
+data class UpdateProfileRequest(
+    val name: String? = null,
+    val title: String? = null,
+    val bio: String? = null,
+    val location: String? = null,
+    @SerialName("current_city") val currentCity: String? = null,
+    @SerialName("avatar_key") val avatarKey: String? = null,
+    val motto: String? = null,
+    val manifesto: String? = null,
+    val email: String? = null,
+    val github: String? = null
 )
 
 @Serializable

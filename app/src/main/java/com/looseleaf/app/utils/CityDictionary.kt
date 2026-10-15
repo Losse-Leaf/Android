@@ -772,4 +772,83 @@ object CityDictionary {
         return nameToCode.entries.firstOrNull { it.value == code && it.key.endsWith("市") }?.key
             ?: nameToCode.entries.firstOrNull { it.value == code }?.key
     }
+
+    private data class CityCoord(val code: String, val name: String, val lat: Double, val lng: Double)
+
+    private val majorCityCoords: List<CityCoord> = listOf(
+        CityCoord("110100", "北京市", 39.9042, 116.4074),
+        CityCoord("310100", "上海市", 31.2304, 121.4737),
+        CityCoord("440100", "广州市", 23.1291, 113.2644),
+        CityCoord("440300", "深圳市", 22.5431, 114.0579),
+        CityCoord("330100", "杭州市", 30.2741, 120.1551),
+        CityCoord("510100", "成都市", 30.5728, 104.0668),
+        CityCoord("532900", "大理白族自治州", 25.6065, 100.2676),
+        CityCoord("530700", "丽江市", 26.8721, 100.2299),
+        CityCoord("530100", "昆明市", 25.0389, 102.7183),
+        CityCoord("500100", "重庆市", 29.5630, 106.5516),
+        CityCoord("420100", "武汉市", 30.5928, 114.3055),
+        CityCoord("610100", "西安市", 34.3416, 108.9398),
+        CityCoord("320100", "南京市", 32.0603, 118.7969),
+        CityCoord("320500", "苏州市", 31.2989, 120.5853),
+        CityCoord("350200", "厦门市", 24.4798, 118.0894),
+        CityCoord("370200", "青岛市", 36.0671, 120.3826),
+        CityCoord("430100", "长沙市", 28.2282, 112.9388),
+        CityCoord("410100", "郑州市", 34.7466, 113.6253),
+        CityCoord("120100", "天津市", 39.3434, 117.3616),
+        CityCoord("210100", "沈阳市", 41.8057, 123.4315),
+        CityCoord("210200", "大连市", 38.9140, 121.6147),
+        CityCoord("230100", "哈尔滨市", 45.8038, 126.5349),
+        CityCoord("460200", "三亚市", 18.2528, 109.5119),
+        CityCoord("460100", "海口市", 20.0440, 110.1999),
+        CityCoord("540100", "拉萨市", 29.6525, 91.1721),
+        CityCoord("650100", "乌鲁木齐市", 43.8256, 87.6168),
+        CityCoord("620100", "兰州市", 36.0611, 103.8343),
+        CityCoord("520100", "贵阳市", 26.6470, 106.6302),
+        CityCoord("450100", "南宁市", 22.8170, 108.3665),
+        CityCoord("450300", "桂林市", 25.2736, 110.2900),
+        CityCoord("350100", "福州市", 26.0745, 119.2965),
+        CityCoord("340100", "合肥市", 31.8206, 117.2272),
+        CityCoord("360100", "南昌市", 28.6820, 115.8579),
+        CityCoord("140100", "太原市", 37.8706, 112.5489),
+        CityCoord("130100", "石家庄市", 38.0428, 114.5149),
+        CityCoord("370100", "济南市", 36.6512, 117.1201),
+        CityCoord("330200", "宁波市", 29.8683, 121.5440),
+        CityCoord("320200", "无锡市", 31.4912, 120.3119),
+        CityCoord("440400", "珠海市", 22.2710, 113.5767),
+        CityCoord("630100", "西宁市", 36.6171, 101.7782),
+        CityCoord("640100", "银川市", 38.4872, 106.2309),
+        CityCoord("150100", "呼和浩特市", 40.8426, 111.7492),
+        CityCoord("220100", "长春市", 43.8171, 125.3235),
+        CityCoord("810000", "香港特别行政区", 22.3193, 114.1694),
+        CityCoord("820000", "澳门特别行政区", 22.1987, 113.5439),
+        CityCoord("710000", "台北市", 25.0330, 121.5654)
+    )
+
+    /**
+     * 根据 EXIF GPS 经纬度匹配最近的中国城市 (返回 Pair<cityCode, cityName>)
+     */
+    fun nearestCityForCoordinates(lat: Double, lng: Double): Pair<String, String>? {
+        if (lat.isNaN() || lng.isNaN() || (lat == 0.0 && lng == 0.0)) return null
+        var best: CityCoord? = null
+        var minDistSq = Double.MAX_VALUE
+        for (c in majorCityCoords) {
+            val dLat = lat - c.lat
+            val dLng = lng - c.lng
+            val distSq = dLat * dLat + dLng * dLng
+            if (distSq < minDistSq) {
+                minDistSq = distSq
+                best = c
+            }
+        }
+        // 阈值约 ~3.0 度 (~300km) 以内匹配
+        return if (best != null && minDistSq <= 9.0) {
+            best.code to best.name
+        } else {
+            null
+        }
+    }
+
+    fun nearestCityCodeForCoordinates(lat: Double, lng: Double): String? {
+        return nearestCityForCoordinates(lat, lng)?.first
+    }
 }

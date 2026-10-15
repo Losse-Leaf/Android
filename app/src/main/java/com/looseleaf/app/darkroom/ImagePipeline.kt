@@ -30,7 +30,8 @@ data class ExtractedExif(
     val dateTimeOriginal: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
-    val inferredCityCode: String? = null
+    val inferredCityCode: String? = null,
+    val inferredCityName: String? = null
 ) {
     /**
      * 生成经典胶片机身与底片元数据底款
@@ -87,6 +88,9 @@ object ImagePipeline {
                 val latLong = ex.latLong
                 val lat = latLong?.get(0)
                 val lng = latLong?.get(1)
+                val nearestCity = if (lat != null && lng != null) {
+                    CityDictionary.nearestCityForCoordinates(lat, lng)
+                } else null
 
                 ExtractedExif(
                     make = make,
@@ -98,7 +102,9 @@ object ImagePipeline {
                     iso = iso,
                     dateTimeOriginal = date,
                     latitude = lat,
-                    longitude = lng
+                    longitude = lng,
+                    inferredCityCode = nearestCity?.first,
+                    inferredCityName = nearestCity?.second
                 )
             } ?: ExtractedExif()
         } catch (e: Exception) {
@@ -167,6 +173,14 @@ object ImagePipeline {
             ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
             ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
             ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.postRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.postRotate(270f)
+                matrix.postScale(-1f, 1f)
+            }
         }
 
         // 缩放至最大边 3840
@@ -177,7 +191,9 @@ object ImagePipeline {
         }
 
         val rotatedBitmap = if (!matrix.isIdentity) {
-            Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
+            Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true).also {
+                if (it !== rawBitmap) rawBitmap.recycle()
+            }
         } else {
             rawBitmap
         }
@@ -197,6 +213,28 @@ object ImagePipeline {
     }
 
     /**
+     * 处理现场相机快门直拍 Bitmap
+     */
+    suspend fun processCapturedBitmap(
+        bitmap: Bitmap,
+        deviceModel: String? = android.os.Build.MODEL
+    ): ProcessedImageResult = withContext(Dispatchers.IO) {
+        val outStream = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 88, outStream)
+        val bytes = outStream.toByteArray()
+        ProcessedImageResult(
+            compressedBytes = bytes,
+            width = bitmap.width,
+            height = bitmap.height,
+            mimeType = "image/jpeg",
+            exif = ExtractedExif(
+                make = android.os.Build.MANUFACTURER?.uppercase(),
+                model = deviceModel ?: "现场快门直拍"
+            )
+        )
+    }
+
+    /**
      * 执行直传 R2 链路，降级时走统一中转
      */
     suspend fun uploadImage(
@@ -208,11 +246,8 @@ object ImagePipeline {
             // 1. 请求预签名凭证
             val presignReq = PresignUploadRequest(
                 filename = filename,
-                mimeType = processed.mimeType,
-                size = processed.compressedBytes.size.toLong(),
-                folder = "entries",
-                width = processed.width,
-                height = processed.height
+                contentType = processed.mimeType,
+                size = processed.compressedBytes.size.toLong()
             )
             val presignResp = apiClient.presignUpload(presignReq)
 
@@ -225,8 +260,9 @@ object ImagePipeline {
 
             // 3. 确认上传入库
             val completeReq = CompleteUploadRequest(
+                uploadId = presignResp.uploadId,
                 objectKey = presignResp.objectKey,
-                filename = filename,
+                originalFilename = filename,
                 mimeType = processed.mimeType,
                 size = processed.compressedBytes.size.toLong(),
                 width = processed.width,

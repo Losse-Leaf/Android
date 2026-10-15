@@ -38,9 +38,14 @@ class FormatUtilsTest {
 
     @Test
     fun testCalculateDaysBetween() {
-        val iso1 = "2026-10-01T12:00:00+08:00"
-        val iso2 = "2026-10-16T12:00:00+08:00"
+        val iso1 = "2026-10-01T23:00:00+08:00"
+        val iso2 = "2026-10-16T08:00:00+08:00"
         val days = FormatUtils.calculateDaysBetween(iso1, iso2)
         assertEquals(15L, days)
+
+        // 纯日期格式解析与格式化测试
+        assertEquals("2026.10.09", FormatUtils.formatDisplayDate("2026-10-09"))
+        assertEquals("2026.10.09", FormatUtils.formatDisplayDate("2026.10.09"))
+        assertEquals("2026.10.09 14:30", FormatUtils.formatDisplayDateTime("2026-10-09 14:30:00"))
     }
 }

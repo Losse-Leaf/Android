@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.security.CredentialStore
+import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.model.CuratorProfile
 import com.looseleaf.app.model.SiteConfig
@@ -43,13 +44,15 @@ import kotlinx.coroutines.launch
 @Composable
 fun ProfileScreen(
     onUnpair: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onDarkroomModeChanged: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val colors = LooseLeafTheme.colors
     val apiClient = remember { APIClient.getInstance(context) }
     val credentialStore = remember { CredentialStore.getInstance(context) }
+    val syncManager = remember { SyncManager.getInstance(context) }
     val haptics = remember { HapticsEngine.getInstance(context) }
 
     var profile by remember { mutableStateOf(CuratorProfile()) }
@@ -274,6 +277,7 @@ fun ProfileScreen(
                                 haptics.tapKey()
                                 isDarkroomMode = it
                                 credentialStore.isDarkroomMode = it
+                                onDarkroomModeChanged(it)
                             },
                             colors = SwitchDefaults.colors(checkedThumbColor = colors.accentWarm, checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f))
                         )
@@ -461,9 +465,16 @@ fun ProfileScreen(
                         TextButton(
                             onClick = {
                                 haptics.tearDelete()
-                                credentialStore.clearCredentials()
+                                val currentDeviceId = credentialStore.deviceId
                                 showUnpairDialog = false
-                                onUnpair()
+                                scope.launch {
+                                    if (!currentDeviceId.isNullOrBlank()) {
+                                        runCatching { apiClient.revokeDevice(currentDeviceId) }
+                                    }
+                                    runCatching { syncManager.clearAllLocalData() }
+                                    credentialStore.clearCredentials()
+                                    onUnpair()
+                                }
                             }
                         ) {
                             Text("确认解除", color = colors.accentWarm)

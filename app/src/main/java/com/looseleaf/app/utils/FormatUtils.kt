@@ -1,6 +1,7 @@
 package com.looseleaf.app.utils
 
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -59,35 +60,64 @@ object FormatUtils {
     }
 
     /**
-     * 弹性时间解析器 (FlexTime)：支持 ISO8601、RFC3339、HTML5、纸本点号格式
+     * 当前北京时间日期字符串 (YYYY.MM.DD)
+     */
+    fun beijingTodayDateString(): String {
+        return LocalDate.now(BeijingZone).format(DisplayDateFormatter)
+    }
+
+    /**
+     * 弹性时间解析器 (FlexTime)：支持 ISO8601、RFC3339、HTML5、纸本点号格式与纯日期格式
      */
     fun parseOccurredInstant(raw: String): Instant {
         val trimmed = raw.trim()
         if (trimmed.isEmpty()) return Instant.now()
 
-        // 尝试以多种可能格式解析
-        val patterns = listOf(
+        // 1. 优先尝试带时区偏移的标准 ISO 格式
+        val offsetFormatters = listOf(
             DateTimeFormatter.ISO_OFFSET_DATE_TIME,
-            DateTimeFormatter.ISO_INSTANT,
+            DateTimeFormatter.ISO_INSTANT
+        )
+        for (p in offsetFormatters) {
+            try {
+                return Instant.from(p.parse(trimmed))
+            } catch (_: Exception) {
+                // continue
+            }
+        }
+
+        // 2. 无时区后缀的日期+时间串，一律按北京时间 (UTC+8) 解释
+        val dateTimePatterns = listOf(
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"),
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"),
-            DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"),
+            DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm:ss"),
+            DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm")
+        )
+        for (p in dateTimePatterns) {
+            try {
+                val ldt = LocalDateTime.parse(trimmed, p)
+                return ldt.atZone(BeijingZone).toInstant()
+            } catch (_: Exception) {
+                // continue
+            }
+        }
+
+        // 3. 纯日期串 (YYYY.MM.DD / YYYY-MM-DD)，按北京时间当日零点解释
+        val dateOnlyPatterns = listOf(
             DateTimeFormatter.ofPattern("yyyy.MM.dd"),
             DateTimeFormatter.ofPattern("yyyy-MM-dd")
         )
-
-        for (p in patterns) {
+        for (p in dateOnlyPatterns) {
             try {
-                return if (p == DateTimeFormatter.ISO_OFFSET_DATE_TIME || p == DateTimeFormatter.ISO_INSTANT) {
-                    Instant.from(p.parse(trimmed))
-                } else {
-                    val ldt = LocalDateTime.parse(trimmed, p)
-                    ldt.atZone(BeijingZone).toInstant()
-                }
+                val ld = LocalDate.parse(trimmed, p)
+                return ld.atStartOfDay(BeijingZone).toInstant()
             } catch (_: Exception) {
-                // continue next
+                // continue
             }
         }
+
         return Instant.now()
     }
 
@@ -128,13 +158,13 @@ object FormatUtils {
     }
 
     /**
-     * 计算两条记录相隔天数 (用于岁月留白刻度 14 天判定)
+     * 计算两条记录在北京时间下的自然日相隔天数 (用于岁月留白刻度 14 天判定)
      */
     fun calculateDaysBetween(earlierIso: String, laterIso: String): Long {
         return try {
-            val i1 = parseOccurredInstant(earlierIso)
-            val i2 = parseOccurredInstant(laterIso)
-            kotlin.math.abs(ChronoUnit.DAYS.between(i1, i2))
+            val d1 = parseOccurredInstant(earlierIso).atZone(BeijingZone).toLocalDate()
+            val d2 = parseOccurredInstant(laterIso).atZone(BeijingZone).toLocalDate()
+            kotlin.math.abs(ChronoUnit.DAYS.between(d1, d2))
         } catch (_: Exception) {
             0L
         }

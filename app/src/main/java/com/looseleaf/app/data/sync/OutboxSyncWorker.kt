@@ -4,16 +4,14 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.looseleaf.app.data.api.APIClient
+import com.looseleaf.app.data.api.APIException
 import com.looseleaf.app.data.local.AppDatabase
-import com.looseleaf.app.model.CreateEntryRequest
-import com.looseleaf.app.model.CreateTransactionRequest
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
+import kotlinx.coroutines.sync.withLock
 
 /**
  * 离线优先发件箱后台同步工作器 (OutboxSyncWorker)
- * 严格遵从 docs/mobile.md §3.3 与 docs/ecosystem.md §7 离线优先规范
+ * 严格遵从 docs/mobile.md §3.3 与 docs/ecosystem.md §7 离线优先规范，
+ * 支持 entry (CREATE / UPDATE / DELETE)、media_entry (离线相纸上传与归档) 与 transaction
  */
 class OutboxSyncWorker(
     appContext: Context,
@@ -25,77 +23,38 @@ class OutboxSyncWorker(
         const val WORK_NAME = "com.looseleaf.outbox_sync"
     }
 
-    private val json = Json { ignoreUnknownKeys = true }
-
     override suspend fun doWork(): Result {
-        val database = AppDatabase.getInstance(applicationContext)
-        val apiClient = APIClient.getInstance(applicationContext)
-        val outboxDao = database.outboxDao()
-        val entryDao = database.entryDao()
-        val txDao = database.transactionDao()
+        val syncManager = SyncManager.getInstance(applicationContext)
+        return syncManager.outboxMutex.withLock {
+            val database = AppDatabase.getInstance(applicationContext)
+            val outboxDao = database.outboxDao()
 
-        val pendingEvents = outboxDao.getAllPendingEvents()
-        if (pendingEvents.isEmpty()) {
-            return Result.success()
-        }
+            val pendingEvents = outboxDao.getAllPendingEvents()
+            if (pendingEvents.isEmpty()) {
+                return@withLock Result.success()
+            }
 
-        Log.d(TAG, "Starting outbox flush for ${pendingEvents.size} pending events")
+            Log.d(TAG, "Starting outbox flush for ${pendingEvents.size} pending events")
 
-        for (event in pendingEvents) {
-            try {
-                when (event.entityType) {
-                    "entry" -> {
-                        when (event.action) {
-                            "CREATE" -> {
-                                val req = json.decodeFromString<CreateEntryRequest>(event.payload)
-                                val serverEntry = apiClient.createEntry(req)
-                                entryDao.markSynced(event.localTargetId, serverEntry.id)
-                                outboxDao.delete(event)
-                            }
-                            "DELETE" -> {
-                                val targetServerId = event.serverTargetId
-                                if (targetServerId != null && targetServerId > 0) {
-                                    apiClient.deleteEntry(targetServerId)
-                                }
-                                entryDao.deleteByLocalId(event.localTargetId)
-                                outboxDao.delete(event)
-                            }
-                        }
+            for (event in pendingEvents) {
+                try {
+                    syncManager.processOutboxEvent(event)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed syncing event ${event.eventId} (${event.entityType}/${event.action}): ${e.message}")
+                    if (e is APIException && e.code == 401) {
+                        return@withLock Result.failure()
                     }
-                    "transaction" -> {
-                        when (event.action) {
-                            "CREATE" -> {
-                                val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
-                                val serverTx = apiClient.createTransaction(req)
-                                txDao.markSynced(event.localTargetId, serverTx.id)
-                                outboxDao.delete(event)
-                            }
-                            "DELETE" -> {
-                                val targetServerId = event.serverTargetId
-                                if (targetServerId != null && targetServerId > 0) {
-                                    apiClient.deleteTransaction(targetServerId)
-                                }
-                                txDao.deleteByLocalId(event.localTargetId)
-                                outboxDao.delete(event)
-                            }
-                        }
-                    }
-                    else -> {
+                    outboxDao.incrementRetry(event.eventId)
+                    if (event.retryCount > 10) {
+                        // 超过最大重试次数，避免死循环阻塞后续队列
                         outboxDao.delete(event)
+                    } else {
+                        return@withLock Result.retry()
                     }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed syncing event ${event.eventId}: ${e.message}")
-                outboxDao.incrementRetry(event.eventId)
-                if (event.retryCount > 10) {
-                    // 超过最大重试次数，避免死循环阻塞后续队列
-                    outboxDao.delete(event)
-                } else {
-                    return Result.retry()
                 }
             }
-        }
 
-        return Result.success()
+            Result.success()
+        }
     }
 }

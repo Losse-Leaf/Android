@@ -79,7 +79,12 @@ class APIClient private constructor(private val context: Context) {
     fun resolveMediaUrl(rawUrl: String): String {
         val trimmed = rawUrl.trim()
         if (trimmed.isEmpty()) return ""
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        if (
+            trimmed.startsWith("http://") ||
+            trimmed.startsWith("https://") ||
+            trimmed.startsWith("file://") ||
+            trimmed.startsWith("content://")
+        ) {
             return trimmed
         }
         val prefix = baseUrl
@@ -106,8 +111,6 @@ class APIClient private constructor(private val context: Context) {
 
         val requestBuilder = Request.Builder()
             .url(httpUrlBuilder)
-            .header("X-Client-Platform", "android")
-            .header("X-Client-Version", "1.1.0")
 
         val token = tokenProvider?.invoke()
         if (!token.isNullOrBlank()) {
@@ -220,6 +223,16 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/auth/verify", "POST", body = body)
     }
 
+    suspend fun updateDeviceName(deviceId: String, name: String): DeviceInfo {
+        val req = UpdateDeviceNameRequest(name = name)
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/auth/devices/$deviceId", "PUT", body = body)
+    }
+
+    suspend fun revokeDevice(deviceId: String) {
+        executeEnvelopeRequest<DeleteResponse>("/api/v1/auth/devices/$deviceId", "DELETE")
+    }
+
     // MARK: - 3. 站点配置与主理人档案
 
     suspend fun fetchSiteConfig(): SiteConfig {
@@ -230,12 +243,17 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/profile", "GET")
     }
 
-    suspend fun updateCuratorProfile(profile: CuratorProfile): CuratorProfile {
-        val body = json.encodeToString(profile).toRequestBody("application/json".toMediaType())
+    suspend fun updateCuratorProfile(req: UpdateProfileRequest): CuratorProfile {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
         return executeEnvelopeRequest("/api/v1/profile", "PUT", body = body)
     }
 
-    // MARK: - 4. 生活档案 (Entries)
+    suspend fun fetchCategories(scope: String? = null): List<CategoryOption> {
+        val params = if (!scope.isNullOrBlank()) mapOf("scope" to scope) else null
+        return executeEnvelopeRequest("/api/v1/categories", "GET", queryParams = params)
+    }
+
+    // MARK: - 4. 生活档案 (Entries) & 那年今日 & 年度年鉴
 
     suspend fun fetchEntries(
         page: Int = 1,
@@ -254,6 +272,18 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/entries", "GET", queryParams = params)
     }
 
+    suspend fun fetchOnThisDay(month: Int? = null, day: Int? = null): OnThisDayResponse {
+        val params = mutableMapOf<String, String>()
+        if (month != null) params["month"] = month.toString()
+        if (day != null) params["day"] = day.toString()
+        return executeEnvelopeRequest("/api/v1/entries/on-this-day", "GET", queryParams = params.ifEmpty { null })
+    }
+
+    suspend fun fetchAlmanacSummary(year: Int): AlmanacSummaryResponse {
+        val params = mapOf("year" to year.toString())
+        return executeEnvelopeRequest("/api/v1/almanac/summary", "GET", queryParams = params)
+    }
+
     suspend fun createEntry(req: CreateEntryRequest): LifeEntry {
         val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
         return executeEnvelopeRequest("/api/v1/entries", "POST", body = body)
@@ -269,7 +299,7 @@ class APIClient private constructor(private val context: Context) {
         executeEnvelopeRequest<DeleteResponse>("/api/v1/entries/$id", "DELETE", queryParams = params)
     }
 
-    // MARK: - 5. 记账 (Transactions)
+    // MARK: - 5. 记账 (Transactions) & 资产大盘 (Assets) & 分期渠道
 
     suspend fun fetchTransactions(
         year: Int? = null,
@@ -308,19 +338,98 @@ class APIClient private constructor(private val context: Context) {
         executeEnvelopeRequest<DeleteResponse>("/api/v1/transactions/$id", "DELETE", queryParams = params)
     }
 
-    // MARK: - 6. 造物与心愿 (Projects & Wishes)
+    suspend fun fetchAssetsOverview(): AssetsOverview {
+        return executeEnvelopeRequest("/api/v1/assets/overview", "GET")
+    }
+
+    suspend fun updateLiquidBalance(cents: Long): LiquidBalanceResponse {
+        val req = SetLiquidBalanceRequest(initialLiquidBalance = cents)
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/assets/liquid-balance", "PUT", body = body)
+    }
+
+    suspend fun addGearAsset(req: AddGearAssetRequest): GearItem {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/assets/gear", "POST", body = body)
+    }
+
+    suspend fun sellGearAsset(id: String, req: SellGearRequest): GearItem {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/assets/gear/$id/sell", "POST", body = body)
+    }
+
+    suspend fun deleteGearAsset(id: String) {
+        executeEnvelopeRequest<DeleteResponse>("/api/v1/assets/gear/$id", "DELETE")
+    }
+
+    suspend fun fetchCreditChannels(): List<CreditChannel> {
+        return executeEnvelopeRequest("/api/v1/credit-channels", "GET")
+    }
+
+    // MARK: - 6. 造物、心愿与山川足迹 (Projects, Wishes & Footprints)
 
     suspend fun fetchProjects(): List<Project> {
         return executeEnvelopeRequest("/api/v1/projects", "GET")
     }
 
-    suspend fun fetchWishes(): List<Wish> {
-        return executeEnvelopeRequest("/api/v1/wishes", "GET")
+    suspend fun createProject(req: CreateProjectRequest): Project {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/projects", "POST", body = body)
+    }
+
+    suspend fun deleteProject(id: Long, purge: Boolean = false) {
+        val params = if (purge) mapOf("purge" to "true") else null
+        executeEnvelopeRequest<DeleteResponse>("/api/v1/projects/$id", "DELETE", queryParams = params)
+    }
+
+    suspend fun fetchWishes(
+        page: Int = 1,
+        pageSize: Int = 100,
+        kind: String? = null,
+        status: String? = null
+    ): List<Wish> {
+        val params = mutableMapOf(
+            "page" to page.toString(),
+            "page_size" to pageSize.toString()
+        )
+        if (!kind.isNullOrBlank() && kind != "all") params["kind"] = kind
+        if (!status.isNullOrBlank() && status != "all") params["status"] = status
+        val resp: WishesListResponse = executeEnvelopeRequest("/api/v1/wishes", "GET", queryParams = params)
+        return resp.wishes
+    }
+
+    suspend fun createWish(req: CreateWishRequest): Wish {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/wishes", "POST", body = body)
+    }
+
+    suspend fun resolveWish(id: Long, req: ResolveWishRequest): Wish {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/wishes/$id/resolve", "POST", body = body)
+    }
+
+    suspend fun deleteWish(id: Long, purge: Boolean = false) {
+        val params = if (purge) mapOf("purge" to "true") else null
+        executeEnvelopeRequest<DeleteResponse>("/api/v1/wishes/$id", "DELETE", queryParams = params)
     }
 
     suspend fun fetchFootprints(year: Int? = null): List<Footprint> {
         val params = if (year != null) mapOf("year" to year.toString()) else null
         return executeEnvelopeRequest("/api/v1/footprints", "GET", queryParams = params)
+    }
+
+    suspend fun createFootprint(req: CreateFootprintRequest): Footprint {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/footprints", "POST", body = body)
+    }
+
+    suspend fun deleteFootprint(id: Long, purge: Boolean = false) {
+        val params = if (purge) mapOf("purge" to "true") else null
+        executeEnvelopeRequest<DeleteResponse>("/api/v1/footprints/$id", "DELETE", queryParams = params)
+    }
+
+    suspend fun fetchCityMemoryDrawer(cityCode: String): CityMemoryDrawerResponse {
+        return executeEnvelopeRequest("/api/v1/footprints/cities/$cityCode/drawer", "GET")
     }
 
     // MARK: - 7. 媒体直传 (R2 Presign & Upload)
@@ -366,10 +475,18 @@ class APIClient private constructor(private val context: Context) {
             .build()
 
         val (request, _) = buildRequest("/api/v1/files/upload", "POST", body = multipartBody)
-        val response = okHttpClient.newCall(request).execute()
+        val response = try {
+            okHttpClient.newCall(request).execute()
+        } catch (e: IOException) {
+            throw APIException(-1, "网络连接异常: ${e.message}")
+        }
         response.use { resp ->
             val bodyString = resp.body?.string() ?: ""
-            val envelope = json.decodeFromString<APIEnvelope<UnifiedUploadResponse>>(bodyString)
+            val envelope = try {
+                json.decodeFromString<APIEnvelope<UnifiedUploadResponse>>(bodyString)
+            } catch (e: Exception) {
+                throw APIException(resp.code, "文件上传响应解析失败: ${e.message}")
+            }
             if (!resp.isSuccessful || envelope.code !in 200..299 || envelope.data == null) {
                 throw APIException(envelope.code, envelope.message)
             }

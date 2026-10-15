@@ -24,15 +24,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.haptics.HapticsEngine
+import com.looseleaf.app.model.CityMemoryDrawerResponse
+import com.looseleaf.app.model.CreateFootprintRequest
+import com.looseleaf.app.model.CreateProjectRequest
+import com.looseleaf.app.model.CreateWishRequest
 import com.looseleaf.app.model.Footprint
 import com.looseleaf.app.model.Project
+import com.looseleaf.app.model.ResolveWishRequest
 import com.looseleaf.app.model.Wish
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.NoiseBackground
 import com.looseleaf.app.ui.components.PaperBadge
 import com.looseleaf.app.ui.components.PaperCard
+import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
+import kotlinx.coroutines.launch
 
 /**
  * 造物、心愿与山川足迹视界 (ProjectsWishesScreen)
@@ -43,6 +50,7 @@ fun ProjectsWishesScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val colors = LooseLeafTheme.colors
     val apiClient = remember { APIClient.getInstance(context) }
     val haptics = remember { HapticsEngine.getInstance(context) }
@@ -52,18 +60,28 @@ fun ProjectsWishesScreen(
     var wishes by remember { mutableStateOf<List<Wish>>(emptyList()) }
     var footprints by remember { mutableStateOf<List<Footprint>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var resolvingWish by remember { mutableStateOf<Wish?>(null) }
+    var selectedDrawerFootprint by remember { mutableStateOf<Footprint?>(null) }
+
+    suspend fun reloadAll() {
         isLoading = true
+        loadError = null
         try {
-            projects = runCatching { apiClient.fetchProjects() }.getOrDefault(emptyList())
-            wishes = runCatching { apiClient.fetchWishes() }.getOrDefault(emptyList())
-            footprints = runCatching { apiClient.fetchFootprints() }.getOrDefault(emptyList())
-        } catch (_: Exception) {
-            // keep graceful
+            projects = apiClient.fetchProjects()
+            wishes = apiClient.fetchWishes()
+            footprints = apiClient.fetchFootprints()
+        } catch (e: Exception) {
+            loadError = e.message
         } finally {
             isLoading = false
         }
+    }
+
+    LaunchedEffect(Unit) {
+        reloadAll()
     }
 
     NoiseBackground(modifier = modifier) {
@@ -74,25 +92,46 @@ fun ProjectsWishesScreen(
                 .navigationBarsPadding()
         ) {
             // 顶栏
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = "造物 · 心愿 · 山川",
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 22.sp,
-                    letterSpacing = 1.sp,
-                    color = colors.inkPrimary
-                )
-                Text(
-                    text = "生命之流的二级投影 · 真实心迹与行迹",
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 11.sp,
-                    color = colors.inkMuted
-                )
+                Column {
+                    Text(
+                        text = "造物 · 心愿 · 山川",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 22.sp,
+                        letterSpacing = 1.sp,
+                        color = colors.inkPrimary
+                    )
+                    Text(
+                        text = "生命之流的二级投影 · 真实心迹与行迹",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 11.sp,
+                        color = colors.inkMuted
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        haptics.tapKey()
+                        showCreateDialog = true
+                    }
+                ) {
+                    Text(
+                        text = when (selectedTab) {
+                            0 -> "+ 新建造物"
+                            1 -> "+ 许下心愿"
+                            else -> "+ 点亮足迹"
+                        },
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 13.sp,
+                        color = colors.accentWarm
+                    )
+                }
             }
 
             // Tab 切换器
@@ -141,10 +180,274 @@ fun ProjectsWishesScreen(
             } else {
                 when (selectedTab) {
                     0 -> ProjectsList(projects = projects, modifier = Modifier.weight(1f))
-                    1 -> WishesList(wishes = wishes, modifier = Modifier.weight(1f))
-                    2 -> FootprintsList(footprints = footprints, modifier = Modifier.weight(1f))
+                    1 -> WishesList(
+                        wishes = wishes,
+                        onResolveClick = { resolvingWish = it },
+                        modifier = Modifier.weight(1f)
+                    )
+                    2 -> FootprintsList(
+                        footprints = footprints,
+                        onFootprintClick = { selectedDrawerFootprint = it },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
+        }
+
+        if (showCreateDialog) {
+            var inputTitle by remember { mutableStateOf("") }
+            var inputNote by remember { mutableStateOf("") }
+            var inputThird by remember { mutableStateOf("") }
+            var wishKind by remember { mutableStateOf("item") }
+
+            AlertDialog(
+                onDismissRequest = { showCreateDialog = false },
+                title = {
+                    Text(
+                        text = when (selectedTab) {
+                            0 -> "新建造物项目"
+                            1 -> "许下新心愿"
+                            else -> "点亮山川足迹"
+                        },
+                        fontFamily = ArchiveFontFamilies.EditorialSerif
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (selectedTab == 1) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("item" to "好物", "travel" to "旅程", "milestone" to "里程碑").forEach { (k, label) ->
+                                    FilterChip(
+                                        selected = wishKind == k,
+                                        onClick = { wishKind = k },
+                                        label = { Text(label, fontSize = 12.sp) }
+                                    )
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = inputTitle,
+                            onValueChange = { inputTitle = it },
+                            label = {
+                                Text(
+                                    when (selectedTab) {
+                                        0 -> "造物名称"
+                                        1 -> "心愿标题"
+                                        else -> "城市名称 (如: 杭州市、大理市)"
+                                    },
+                                    fontSize = 12.sp
+                                )
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (selectedTab == 1) {
+                            OutlinedTextField(
+                                value = inputThird,
+                                onValueChange = { inputThird = it },
+                                label = { Text("预算金额 (元，可选)", fontSize = 12.sp) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else if (selectedTab == 2) {
+                            OutlinedTextField(
+                                value = inputThird,
+                                onValueChange = { inputThird = it },
+                                label = { Text("旅程标题 (可选)", fontSize = 12.sp) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        OutlinedTextField(
+                            value = inputNote,
+                            onValueChange = { inputNote = it },
+                            label = { Text("备注或随笔手记", fontSize = 12.sp) },
+                            minLines = 2,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = inputTitle.isNotBlank(),
+                        onClick = {
+                            scope.launch {
+                                try {
+                                    when (selectedTab) {
+                                        0 -> apiClient.createProject(
+                                            CreateProjectRequest(
+                                                title = inputTitle.trim(),
+                                                description = inputNote.trim()
+                                            )
+                                        )
+                                        1 -> apiClient.createWish(
+                                            CreateWishRequest(
+                                                title = inputTitle.trim(),
+                                                kind = wishKind,
+                                                note = inputNote.trim().takeIf { it.isNotBlank() },
+                                                budget = FormatUtils.yuanStringToCents(inputThird)
+                                            )
+                                        )
+                                        else -> {
+                                            val city = inputTitle.trim()
+                                            val code = CityDictionary.codeForLocation(city) ?: "330100"
+                                            apiClient.createFootprint(
+                                                CreateFootprintRequest(
+                                                    cityCode = code,
+                                                    cityName = city,
+                                                    title = inputThird.trim().takeIf { it.isNotBlank() },
+                                                    visitedAt = FormatUtils.beijingNowIsoString(),
+                                                    note = inputNote.trim().takeIf { it.isNotBlank() }
+                                                )
+                                            )
+                                        }
+                                    }
+                                    haptics.stampSave()
+                                    showCreateDialog = false
+                                    reloadAll()
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "创建失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    ) {
+                        Text("保存归册", color = colors.accentWarm)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCreateDialog = false }) {
+                        Text("取消", color = colors.inkSecondary)
+                    }
+                }
+            )
+        }
+
+        resolvingWish?.let { wish ->
+            var costInput by remember(wish.id) {
+                mutableStateOf(FormatUtils.centsToYuanString(wish.budget, includeSymbol = false))
+            }
+            var resType by remember(wish.id) { mutableStateOf("exact") }
+            var entryNote by remember(wish.id) { mutableStateOf("") }
+
+            AlertDialog(
+                onDismissRequest = { resolvingWish = null },
+                title = { Text("圆满心愿 · ${wish.title}", fontFamily = ArchiveFontFamilies.EditorialSerif) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("exact" to "如愿拿下", "altered" to "替代方案", "relinquished" to "理性拔草").forEach { (k, label) ->
+                                FilterChip(
+                                    selected = resType == k,
+                                    onClick = { resType = k },
+                                    label = { Text(label, fontSize = 11.sp) }
+                                )
+                            }
+                        }
+                        if (resType != "relinquished") {
+                            OutlinedTextField(
+                                value = costInput,
+                                onValueChange = { costInput = it },
+                                label = { Text("实付金额 (元)", fontSize = 12.sp) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        OutlinedTextField(
+                            value = entryNote,
+                            onValueChange = { entryNote = it },
+                            label = { Text("圆梦感言手记 (同步写入时间流)", fontSize = 12.sp) },
+                            minLines = 2,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                try {
+                                    val isRel = resType == "relinquished"
+                                    val cents = if (isRel) 0L else FormatUtils.yuanStringToCents(costInput)
+                                    apiClient.resolveWish(
+                                        id = wish.id,
+                                        req = ResolveWishRequest(
+                                            fulfilledAt = FormatUtils.beijingNowIsoString(),
+                                            actualCost = cents,
+                                            resolutionType = resType,
+                                            actualTitle = wish.title,
+                                            createTransaction = !isRel && cents > 0,
+                                            createGearAsset = !isRel && wish.kind == "item",
+                                            createLifeEntry = true,
+                                            createFootprint = !isRel && wish.kind == "travel",
+                                            entryContent = entryNote.takeIf { it.isNotBlank() }
+                                        )
+                                    )
+                                    haptics.stampSave()
+                                    resolvingWish = null
+                                    reloadAll()
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "归册失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    ) {
+                        Text("确认归册", color = colors.accentWarm)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { resolvingWish = null }) {
+                        Text("取消", color = colors.inkSecondary)
+                    }
+                }
+            )
+        }
+
+        selectedDrawerFootprint?.let { foot ->
+            var drawerData by remember(foot.cityCode) { mutableStateOf<CityMemoryDrawerResponse?>(null) }
+            LaunchedEffect(foot.cityCode) {
+                runCatching {
+                    drawerData = apiClient.fetchCityMemoryDrawer(foot.cityCode)
+                }
+            }
+            AlertDialog(
+                onDismissRequest = { selectedDrawerFootprint = null },
+                title = { Text("${foot.cityName} · 城市回忆抽屉", fontFamily = ArchiveFontFamilies.EditorialSerif) },
+                text = {
+                    val d = drawerData
+                    if (d == null) {
+                        Text("正在检索属地散页与旅途消费…", fontSize = 12.sp, color = colors.inkMuted)
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "累计到访 ${d.visitStats.totalVisits} 次 · 散页 ${d.entries.size} 篇",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 12.sp,
+                                color = colors.accentWarm
+                            )
+                            if (d.ledgerSummary.totalSpent > 0) {
+                                Text(
+                                    text = "属地累计花销: ${FormatUtils.centsToYuanString(d.ledgerSummary.totalSpent)}",
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    fontSize = 12.sp,
+                                    color = colors.accentMoss
+                                )
+                            }
+                            d.entries.take(4).forEach { entry ->
+                                Text(
+                                    text = "• ${entry.title.ifBlank { "散页手记" }} (${FormatUtils.formatDisplayDate(entry.occurredAt)})",
+                                    fontSize = 12.sp,
+                                    color = colors.inkPrimary
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { selectedDrawerFootprint = null }) {
+                        Text("合上抽屉", color = colors.accentWarm)
+                    }
+                }
+            )
         }
     }
 }
@@ -213,7 +516,11 @@ private fun ProjectsList(projects: List<Project>, modifier: Modifier = Modifier)
 }
 
 @Composable
-private fun WishesList(wishes: List<Wish>, modifier: Modifier = Modifier) {
+private fun WishesList(
+    wishes: List<Wish>,
+    onResolveClick: (Wish) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val colors = LooseLeafTheme.colors
 
     if (wishes.isEmpty()) {
@@ -229,7 +536,7 @@ private fun WishesList(wishes: List<Wish>, modifier: Modifier = Modifier) {
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
         items(wishes, key = { it.id }) { wish ->
-            val isFulfilled = wish.status == "fulfilled"
+            val isFulfilled = wish.status == "fulfilled" || wish.status == "relinquished"
             PaperCard {
                 Column {
                     Row(
@@ -237,7 +544,7 @@ private fun WishesList(wishes: List<Wish>, modifier: Modifier = Modifier) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                             Icon(
                                 imageVector = if (isFulfilled) Icons.Outlined.CheckCircle else Icons.Outlined.Lightbulb,
                                 contentDescription = null,
@@ -253,7 +560,13 @@ private fun WishesList(wishes: List<Wish>, modifier: Modifier = Modifier) {
                                 color = colors.inkPrimary
                             )
                         }
-                        PaperBadge(text = if (isFulfilled) "已圆满" else "向往中")
+                        if (!isFulfilled) {
+                            TextButton(onClick = { onResolveClick(wish) }) {
+                                Text("达成归册", fontSize = 12.sp, color = colors.accentMoss)
+                            }
+                        } else {
+                            PaperBadge(text = if (wish.status == "relinquished") "已拔草" else "已圆满")
+                        }
                     }
 
                     if (!wish.note.isNullOrBlank()) {
@@ -282,7 +595,11 @@ private fun WishesList(wishes: List<Wish>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun FootprintsList(footprints: List<Footprint>, modifier: Modifier = Modifier) {
+private fun FootprintsList(
+    footprints: List<Footprint>,
+    onFootprintClick: (Footprint) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val colors = LooseLeafTheme.colors
 
     if (footprints.isEmpty()) {
@@ -298,28 +615,39 @@ private fun FootprintsList(footprints: List<Footprint>, modifier: Modifier = Mod
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
         items(footprints, key = { it.id }) { foot ->
-            PaperCard {
+            PaperCard(
+                modifier = Modifier.clickable { onFootprintClick(foot) }
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Outlined.Explore, contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = foot.cityName,
+                                text = foot.title?.takeIf { it.isNotBlank() }?.let { "${foot.cityName} · $it" } ?: foot.cityName,
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                                 fontWeight = FontWeight.Medium,
                                 fontSize = 16.sp,
                                 color = colors.inkPrimary
                             )
                         }
-                        if (!foot.notes.isNullOrBlank()) {
+                        if (!foot.visitedAt.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = FormatUtils.formatDisplayDate(foot.visitedAt),
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 11.sp,
+                                color = colors.inkMuted
+                            )
+                        }
+                        if (!foot.note.isNullOrBlank()) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = foot.notes,
+                                text = foot.note,
                                 fontFamily = ArchiveFontFamilies.BodySans,
                                 fontSize = 12.sp,
                                 color = colors.inkSecondary

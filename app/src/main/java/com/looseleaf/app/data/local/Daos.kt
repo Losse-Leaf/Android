@@ -50,6 +50,9 @@ interface TransactionDao {
     @Query("SELECT * FROM cached_transactions WHERE local_id = :localId LIMIT 1")
     suspend fun getTransactionByLocalId(localId: Long): CachedTransactionEntity?
 
+    @Query("SELECT * FROM cached_transactions WHERE server_id = :serverId LIMIT 1")
+    suspend fun getTransactionByServerId(serverId: Long): CachedTransactionEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(transaction: CachedTransactionEntity): Long
 
@@ -88,6 +91,12 @@ interface OutboxDao {
 
     @Query("DELETE FROM outbox_events WHERE event_id = :eventId")
     suspend fun deleteById(eventId: String)
+
+    @Query("DELETE FROM outbox_events WHERE entity_type = :entityType AND local_target_id = :localTargetId")
+    suspend fun deleteByLocalTarget(entityType: String, localTargetId: Long)
+
+    @Query("DELETE FROM outbox_events")
+    suspend fun clearAll()
 
     @Query("UPDATE outbox_events SET retry_count = retry_count + 1 WHERE event_id = :eventId")
     suspend fun incrementRetry(eventId: String)

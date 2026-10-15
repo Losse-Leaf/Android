@@ -26,33 +26,41 @@ class CityStatusWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
+        val pendingResult = goAsync()
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch {
-            val apiClient = APIClient.getInstance(context)
-            val database = AppDatabase.getInstance(context)
+            try {
+                val apiClient = APIClient.getInstance(context)
+                val database = AppDatabase.getInstance(context)
 
-            val profile = runCatching { apiClient.fetchCuratorProfile() }.getOrNull()
-            val txs = database.transactionDao().getAllTransactions()
-            val todayCents = txs.filter { it.type == "expense" }.sumOf { it.amount }
+                val profile = runCatching { apiClient.fetchCuratorProfile() }.getOrNull()
+                val txs = database.transactionDao().getAllTransactions()
+                val todayKey = FormatUtils.beijingTodayDateString()
+                val todayCents = txs
+                    .filter { it.type == "expense" && FormatUtils.formatDisplayDate(it.occurredAt) == todayKey }
+                    .sumOf { it.amount }
 
-            for (widgetId in appWidgetIds) {
-                val views = RemoteViews(context.packageName, R.layout.widget_city_status)
+                for (widgetId in appWidgetIds) {
+                    val views = RemoteViews(context.packageName, R.layout.widget_city_status)
 
-                val cityName = profile?.currentCity?.ifBlank { profile.location }?.ifBlank { "旅居漫步中" } ?: "散页手账"
-                val motto = profile?.motto?.ifBlank { "真实记录生活自留地" } ?: "真实记录生活自留地"
+                    val cityName = profile?.currentCity?.ifBlank { profile.location } ?: ""
+                    val motto = profile?.motto ?: ""
 
-                views.setTextViewText(R.id.widget_city, cityName)
-                views.setTextViewText(R.id.widget_motto, "“ $motto ”")
-                views.setTextViewText(R.id.widget_today_expense, "累计记账: ${FormatUtils.centsToYuanString(todayCents)}")
+                    views.setTextViewText(R.id.widget_city, cityName.ifBlank { "—" })
+                    views.setTextViewText(R.id.widget_motto, if (motto.isNotBlank()) "“ $motto ”" else "")
+                    views.setTextViewText(R.id.widget_today_expense, "今日刻度: ${FormatUtils.centsToYuanString(todayCents)}")
 
-                val intent = Intent(context, MainActivity::class.java)
-                val pendingIntent = PendingIntent.getActivity(
-                    context, 0, intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-                views.setOnClickPendingIntent(R.id.widget_root, pendingIntent)
+                    val intent = Intent(context, MainActivity::class.java)
+                    val pendingIntent = PendingIntent.getActivity(
+                        context, 0, intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    views.setOnClickPendingIntent(R.id.widget_root, pendingIntent)
 
-                appWidgetManager.updateAppWidget(widgetId, views)
+                    appWidgetManager.updateAppWidget(widgetId, views)
+                }
+            } finally {
+                pendingResult.finish()
             }
         }
     }
