@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.looseleaf.app.audio.AudioEngine
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.haptics.HapticsEngine
