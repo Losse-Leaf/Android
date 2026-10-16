@@ -66,7 +66,6 @@ fun ProfileScreen(
     var availableUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showRenameDeviceDialog by remember { mutableStateOf(false) }
-    var showCategoryManagerDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         runCatching {
@@ -250,12 +249,6 @@ fun ProfileScreen(
                                         )
                                     }
                                 }
-                                Text(
-                                    text = gear.category,
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 11.sp,
-                                    color = colors.inkSecondary
-                                )
                             }
                         }
                     }
@@ -267,20 +260,13 @@ fun ProfileScreen(
             // 本机入网受信任凭据卡片
             PaperCard(modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "受信任设备凭据",
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 15.sp,
-                            color = colors.inkPrimary
-                        )
-                        PaperBadge(text = if (credentialStore.isPaired()) "已授权接入" else "未连接")
-                    }
+                    Text(
+                        text = "受信任设备凭据",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 15.sp,
+                        color = colors.inkPrimary
+                    )
 
                     Spacer(modifier = Modifier.height(10.dp))
 
@@ -302,25 +288,6 @@ fun ProfileScreen(
                                 Text("重命名", fontSize = 11.sp, color = colors.accentWarm)
                             }
                         }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // 分类标签字典管理
-            PaperCard(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text("分类标签字典", fontFamily = ArchiveFontFamilies.EditorialSerif, fontWeight = FontWeight.Medium, fontSize = 15.sp, color = colors.inkPrimary)
-                        Text("管理收支、装备与造物标签", fontSize = 11.sp, color = colors.inkMuted)
-                    }
-                    TextButton(onClick = { showCategoryManagerDialog = true }) {
-                        Text("管理分类", fontSize = 12.sp, color = colors.accentWarm)
                     }
                 }
             }
@@ -659,13 +626,6 @@ fun ProfileScreen(
                 )
             }
 
-            if (showCategoryManagerDialog) {
-                CategoryManagerDialog(
-                    apiClient = apiClient,
-                    onDismiss = { showCategoryManagerDialog = false }
-                )
-            }
-
             Spacer(modifier = Modifier.height(96.dp))
         }
     }
@@ -705,7 +665,7 @@ private fun EditProfileDialog(
                 PaperTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = "头衔/身份标签",
+                    label = "头衔/身份说明",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -796,160 +756,6 @@ private fun RenameDeviceDialog(
             }
         }
     )
-}
-
-@Composable
-private fun CategoryManagerDialog(
-    apiClient: APIClient,
-    onDismiss: () -> Unit
-) {
-    val colors = LooseLeafTheme.colors
-    val scope = rememberCoroutineScope()
-    var selectedScope by remember { mutableStateOf("expense") }
-    var allCategories by remember { mutableStateOf<List<CategoryOption>>(emptyList()) }
-    var newCategoryInput by remember { mutableStateOf("") }
-
-    suspend fun loadCats() {
-        runCatching {
-            allCategories = apiClient.fetchCategories()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        loadCats()
-    }
-
-    val currentScopeCats = remember(allCategories, selectedScope) {
-        allCategories.filter { it.scope == selectedScope }
-    }
-
-    androidx.compose.ui.window.Dialog(
-        onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        PaperCard(
-            modifier = Modifier
-                .fillMaxWidth(0.94f)
-                .heightIn(max = 620.dp)
-        ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("分类标签字典管理", fontFamily = ArchiveFontFamilies.EditorialSerif, fontWeight = FontWeight.Medium, fontSize = 18.sp, color = colors.inkPrimary)
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Outlined.Close, contentDescription = "关闭", tint = colors.inkMuted)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Scope 切换 (0ms 纯本地过滤，零紫光，零等待转圈)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf("expense" to "支出", "income" to "收入", "gear" to "装备", "project" to "造物").forEach { (k, label) ->
-                        PaperFilterPill(
-                            selected = selectedScope == k,
-                            onClick = { selectedScope = k },
-                            label = label
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // 添加新分类行
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    PaperTextField(
-                        value = newCategoryInput,
-                        onValueChange = { newCategoryInput = it },
-                        placeholder = "输入新分类标签…",
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        enabled = newCategoryInput.isNotBlank(),
-                        onClick = {
-                            val name = newCategoryInput.trim()
-                            scope.launch {
-                                runCatching {
-                                    apiClient.addCategoryOption(selectedScope, name)
-                                    newCategoryInput = ""
-                                    loadCats()
-                                }
-                            }
-                        },
-                        shape = RoundedCornerShape(2.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
-                    ) {
-                        Text("+ 添加", fontSize = 12.sp)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // 分类芯片列表
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    if (currentScopeCats.isEmpty()) {
-                        item {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.fillMaxWidth().height(100.dp)
-                            ) {
-                                Text("此分类下暂无标签", fontSize = 12.sp, color = colors.inkMuted)
-                            }
-                        }
-                    } else {
-                        items(currentScopeCats, key = { it.id }) { cat ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(colors.archiveSubtle)
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(cat.name, fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp, color = colors.inkPrimary)
-                                    if (cat.isBuiltin) {
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        PaperBadge(text = "系统预置")
-                                    }
-                                }
-                                if (!cat.isBuiltin) {
-                                    IconButton(
-                                        onClick = {
-                                            scope.launch {
-                                                runCatching {
-                                                    apiClient.deleteCategoryOption(cat.id)
-                                                    loadCats()
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(Icons.Outlined.Delete, contentDescription = "删除分类", tint = colors.inkMuted, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable

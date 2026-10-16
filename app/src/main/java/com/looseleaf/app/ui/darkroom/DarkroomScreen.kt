@@ -332,37 +332,22 @@ fun DarkroomScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "手账手记与分类",
+                            text = "现场手记",
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontSize = 13.sp,
                             color = colors.inkSecondary
                         )
                         if (photoSlots.isNotEmpty()) {
-                            PaperBadge(text = "已装入 ${photoSlots.size} 张相纸")
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf("life" to "日常随笔", "travel" to "山川游历", "project" to "造物日志", "wish" to "心愿印记").forEach { (k, label) ->
-                            PaperFilterPill(
-                                selected = selectedType == k,
-                                onClick = {
-                                    haptics.tapKey()
-                                    selectedType = k
-                                },
-                                label = label
+                            Text(
+                                text = "已装入 ${photoSlots.size} 张相纸",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 11.sp,
+                                color = colors.accentWarm
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     PaperTextField(
                         value = titleText,
                         onValueChange = { titleText = it },

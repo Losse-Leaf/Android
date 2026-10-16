@@ -640,8 +640,6 @@ private fun ProjectsList(
                             color = colors.inkPrimary
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            PaperBadge(text = proj.status ?: "进行中")
-                            Spacer(modifier = Modifier.width(4.dp))
                             Icon(
                                 imageVector = Icons.Outlined.Edit,
                                 contentDescription = "编辑",
@@ -775,7 +773,12 @@ private fun WishesList(
                                         Text("达成归册", fontSize = 12.sp, color = colors.accentMoss)
                                     }
                                 } else {
-                                    PaperBadge(text = if (wish.status == "relinquished") "已拔草" else "已圆满")
+                                    Text(
+                                        text = if (wish.status == "relinquished") "已拔草" else "已圆满",
+                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                        fontSize = 12.sp,
+                                        color = if (wish.status == "relinquished") colors.inkMuted else colors.accentMoss
+                                    )
                                 }
                                 IconButton(
                                     onClick = { onDeleteClick(wish) },

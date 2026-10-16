@@ -168,11 +168,13 @@ fun StreamScreen(
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     if (pendingCount > 0) {
-                        PaperBadge(
-                            text = "$pendingCount 待发",
-                            isPendingSync = true,
-                            modifier = Modifier.padding(end = 4.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(colors.accentWarm)
                         )
+                        Spacer(modifier = Modifier.width(4.dp))
                     }
 
                     // 全局检索按钮
@@ -814,14 +816,6 @@ private fun EntryDetailSheetDialog(
                 } else {
                     // 阅览模式
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        val typeLabel = when (entry.type) {
-                            "travel" -> "山川游历"
-                            "project" -> "造物日志"
-                            "wish" -> "心愿印记"
-                            else -> "日常随笔"
-                        }
-                        PaperBadge(text = typeLabel)
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = FormatUtils.formatDisplayDateTime(entry.occurredAt),
                             fontFamily = ArchiveFontFamilies.MonoScale,
@@ -1164,7 +1158,12 @@ private fun AlmanacChapterSection(
             .padding(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            PaperBadge(text = chapterNumber)
+            Text(
+                text = chapterNumber,
+                fontFamily = ArchiveFontFamilies.MonoScale,
+                fontSize = 12.sp,
+                color = colors.accentWarm
+            )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = title,
@@ -1254,41 +1253,13 @@ private fun StreamEntryCard(
         borderColor = cardBorder
     ) {
         Column {
-            // 头部：类型个性化标签、时间戳、地点与同步标记
+            // 头部：时间戳、地点与操作
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    when (entry.type) {
-                        "travel" -> {
-                            PaperBadge(
-                                text = "山川游历 · 行程存根",
-                                containerColor = colors.accentWarm.copy(alpha = 0.12f),
-                                textColor = colors.accentWarm
-                            )
-                        }
-                        "project" -> {
-                            PaperBadge(
-                                text = "造物日志",
-                                containerColor = colors.accentMoss.copy(alpha = 0.12f),
-                                textColor = colors.accentMoss
-                            )
-                        }
-                        "wish" -> {
-                            PaperBadge(
-                                text = "心愿印记",
-                                containerColor = colors.accentWarm.copy(alpha = 0.12f),
-                                textColor = colors.accentWarm
-                            )
-                        }
-                        else -> {
-                            PaperBadge(text = "日常随笔")
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = FormatUtils.formatDisplayDateTime(entry.occurredAt),
                         fontFamily = ArchiveFontFamilies.MonoScale,
@@ -1318,7 +1289,13 @@ private fun StreamEntryCard(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (entry.syncStatus != "SYNCED") {
-                        PaperBadge(text = "待同步", isPendingSync = true)
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(colors.accentWarm)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
                     }
 
                     IconButton(

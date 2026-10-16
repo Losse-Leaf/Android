@@ -1118,13 +1118,14 @@ private fun TransactionsLedgerTab(
                                     fontSize = 15.sp,
                                     color = colors.inkPrimary
                                 )
-                                if (tx.isInstallment == true) {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    PaperBadge(text = "分期")
-                                }
                                 if (tx.syncStatus != "SYNCED") {
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    PaperBadge(text = "待同步", isPendingSync = true)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(colors.accentWarm)
+                                    )
                                 }
                             }
 
