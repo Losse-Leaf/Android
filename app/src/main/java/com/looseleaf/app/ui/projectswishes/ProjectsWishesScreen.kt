@@ -1,6 +1,5 @@
 package com.looseleaf.app.ui.projectswishes
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -293,7 +292,7 @@ fun ProjectsWishesScreen(
                                         showCreateDialog = false
                                         reloadAll()
                                     } catch (e: Exception) {
-                                        Toast.makeText(context, "创建失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        ArchiveToastManager.show("创建失败: ${e.message}", isError = true)
                                     }
                                 }
                             },
@@ -427,77 +426,66 @@ fun ProjectsWishesScreen(
             var resType by remember(wish.id) { mutableStateOf("exact") }
             var entryNote by remember(wish.id) { mutableStateOf("") }
 
-            AlertDialog(
+            ArchiveBottomSheet(
                 onDismissRequest = { resolvingWish = null },
-                title = { Text("圆满心愿 · ${wish.title}", fontFamily = ArchiveFontFamilies.EditorialSerif) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("exact" to "如愿拿下", "altered" to "替代方案", "relinquished" to "理性拔草").forEach { (k, label) ->
-                                PaperFilterPill(
-                                    selected = resType == k,
-                                    onClick = { resType = k },
-                                    label = label
+                title = "圆满心愿 · ${wish.title}",
+                actionButtonText = "确认归册",
+                onActionClick = {
+                    scope.launch {
+                        try {
+                            val isRel = resType == "relinquished"
+                            val cents = if (isRel) 0L else FormatUtils.yuanStringToCents(costInput)
+                            apiClient.resolveWish(
+                                id = wish.id,
+                                req = ResolveWishRequest(
+                                    fulfilledAt = FormatUtils.beijingNowIsoString(),
+                                    actualCost = cents,
+                                    resolutionType = resType,
+                                    actualTitle = wish.title,
+                                    createTransaction = !isRel && cents > 0,
+                                    createGearAsset = !isRel && wish.kind == "item",
+                                    createLifeEntry = true,
+                                    createFootprint = !isRel && wish.kind == "travel",
+                                    entryContent = entryNote.takeIf { it.isNotBlank() }
                                 )
-                            }
+                            )
+                            haptics.stampSave()
+                            resolvingWish = null
+                            reloadAll()
+                        } catch (e: Exception) {
+                            ArchiveToastManager.show("归册失败: ${e.message}", isError = true)
                         }
-                        if (resType != "relinquished") {
-                            PaperTextField(
-                                value = costInput,
-                                onValueChange = { costInput = it },
-                                label = "实付金额 (元)",
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
+                    }
+                }
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("exact" to "如愿拿下", "altered" to "替代方案", "relinquished" to "理性拔草").forEach { (k, label) ->
+                            PaperFilterPill(
+                                selected = resType == k,
+                                onClick = { resType = k },
+                                label = label
                             )
                         }
-                        PaperTextEditor(
-                            value = entryNote,
-                            onValueChange = { entryNote = it },
-                            label = "圆梦感言手记 (同步写入时间流)",
-                            minHeight = 80.dp,
+                    }
+                    if (resType != "relinquished") {
+                        PaperTextField(
+                            value = costInput,
+                            onValueChange = { costInput = it },
+                            label = "实付金额 (元)",
+                            singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                try {
-                                    val isRel = resType == "relinquished"
-                                    val cents = if (isRel) 0L else FormatUtils.yuanStringToCents(costInput)
-                                    apiClient.resolveWish(
-                                        id = wish.id,
-                                        req = ResolveWishRequest(
-                                            fulfilledAt = FormatUtils.beijingNowIsoString(),
-                                            actualCost = cents,
-                                            resolutionType = resType,
-                                            actualTitle = wish.title,
-                                            createTransaction = !isRel && cents > 0,
-                                            createGearAsset = !isRel && wish.kind == "item",
-                                            createLifeEntry = true,
-                                            createFootprint = !isRel && wish.kind == "travel",
-                                            entryContent = entryNote.takeIf { it.isNotBlank() }
-                                        )
-                                    )
-                                    haptics.stampSave()
-                                    resolvingWish = null
-                                    reloadAll()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "归册失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
-                    ) {
-                        Text("确认归册", color = colors.accentWarm)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { resolvingWish = null }) {
-                        Text("取消", color = colors.inkSecondary)
-                    }
+                    PaperTextEditor(
+                        value = entryNote,
+                        onValueChange = { entryNote = it },
+                        label = "圆梦感言手记 (同步写入时间流)",
+                        minHeight = 80.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
-            )
+            }
         }
 
         selectedDrawerFootprint?.let { foot ->
@@ -507,15 +495,27 @@ fun ProjectsWishesScreen(
                     drawerData = apiClient.fetchCityMemoryDrawer(foot.cityCode)
                 }
             }
-            AlertDialog(
+            ArchiveBottomSheet(
                 onDismissRequest = { selectedDrawerFootprint = null },
-                title = { Text("${foot.cityName} · 城市回忆抽屉", fontFamily = ArchiveFontFamilies.EditorialSerif) },
-                text = {
-                    val d = drawerData
-                    if (d == null) {
-                        Text("正在检索属地散页与旅途消费…", fontSize = 12.sp, color = colors.inkMuted)
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                title = "${foot.cityName} · 城市回忆抽屉",
+                actionButtonText = "合上",
+                onActionClick = { selectedDrawerFootprint = null }
+            ) {
+                val d = drawerData
+                if (d == null) {
+                    Text(
+                        text = "正在检索属地散页与旅途消费…",
+                        fontSize = 12.sp,
+                        color = colors.inkMuted,
+                        modifier = Modifier.padding(vertical = 16.dp)
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
                                 text = "累计到访 ${d.visitStats.totalVisits} 次 · 散页 ${d.entries.size} 篇",
                                 fontFamily = ArchiveFontFamilies.MonoScale,
@@ -524,166 +524,169 @@ fun ProjectsWishesScreen(
                             )
                             if (d.ledgerSummary.totalSpent > 0) {
                                 Text(
-                                    text = "属地累计花销: ${FormatUtils.centsToYuanString(d.ledgerSummary.totalSpent)}",
+                                    text = "属地花销: ${FormatUtils.centsToYuanString(d.ledgerSummary.totalSpent)}",
                                     fontFamily = ArchiveFontFamilies.MonoScale,
                                     fontSize = 12.sp,
                                     color = colors.accentMoss
                                 )
                             }
-                            d.entries.take(4).forEach { entry ->
-                                Text(
-                                    text = "• ${entry.title.ifBlank { "散页手记" }} (${FormatUtils.formatDisplayDate(entry.occurredAt)})",
-                                    fontSize = 12.sp,
-                                    color = colors.inkPrimary
-                                )
-                            }
                         }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { selectedDrawerFootprint = null }) {
-                        Text("合上抽屉", color = colors.accentWarm)
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                runCatching {
-                                    apiClient.deleteFootprint(foot.id)
-                                    Toast.makeText(context, "足迹已移除", Toast.LENGTH_SHORT).show()
+
+                        if (d.entries.isNotEmpty()) {
+                            Text(
+                                text = "属地散页手记",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 13.sp,
+                                color = colors.inkSecondary
+                            )
+                            d.entries.take(5).forEach { entry ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(colors.archiveSubtle)
+                                        .padding(8.dp)
+                                ) {
+                                    Text(
+                                        text = entry.title.ifBlank { "散页手记" },
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = colors.inkPrimary
+                                    )
+                                    Text(
+                                        text = FormatUtils.formatDisplayDate(entry.occurredAt),
+                                        fontSize = 11.sp,
+                                        fontFamily = ArchiveFontFamilies.MonoScale,
+                                        color = colors.inkMuted
+                                    )
                                 }
-                                selectedDrawerFootprint = null
-                                reloadAll()
                             }
                         }
-                    ) {
-                        Text("移除足迹", color = colors.accentWarm)
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    runCatching {
+                                        apiClient.deleteFootprint(foot.id)
+                                        ArchiveToastManager.show("足迹已移除")
+                                    }
+                                    selectedDrawerFootprint = null
+                                    reloadAll()
+                                }
+                            },
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("移除此足迹", fontSize = 12.sp, color = colors.accentWarm)
+                        }
                     }
                 }
-            )
+            }
         }
 
-        // 编辑/删除造物项目对话框
+        // 编辑/删除造物项目抽屉
         editingProject?.let { proj ->
             var editTitle by remember(proj.id) { mutableStateOf(proj.title) }
             var editDesc by remember(proj.id) { mutableStateOf(proj.description ?: "") }
             var editStatus by remember(proj.id) { mutableStateOf(proj.status ?: "进行中") }
             var editGithub by remember(proj.id) { mutableStateOf(proj.githubUrl ?: "") }
 
-            AlertDialog(
+            ArchiveBottomSheet(
                 onDismissRequest = { editingProject = null },
-                title = { Text("修订造物 · ${proj.title}", fontFamily = ArchiveFontFamilies.EditorialSerif) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("进行中", "已完成", "维护中", "已搁置").forEach { s ->
-                                PaperFilterPill(
-                                    selected = editStatus == s,
-                                    onClick = { editStatus = s },
-                                    label = s
+                title = "修订造物 · ${proj.title}",
+                actionButtonText = "保存更新",
+                isActionEnabled = editTitle.isNotBlank(),
+                onActionClick = {
+                    scope.launch {
+                        runCatching {
+                            apiClient.updateProject(
+                                id = proj.id,
+                                req = CreateProjectRequest(
+                                    title = editTitle.trim(),
+                                    description = editDesc.trim(),
+                                    status = editStatus,
+                                    githubUrl = editGithub.trim().takeIf { it.isNotBlank() }
                                 )
-                            }
+                            )
+                            ArchiveToastManager.show("造物项目已更新")
                         }
-                        PaperTextField(
-                            value = editTitle,
-                            onValueChange = { editTitle = it },
-                            label = "造物名称",
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        PaperTextEditor(
-                            value = editDesc,
-                            onValueChange = { editDesc = it },
-                            label = "项目概述与故事",
-                            minHeight = 88.dp,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        PaperTextField(
-                            value = editGithub,
-                            onValueChange = { editGithub = it },
-                            label = "仓库/发布链接 (可选)",
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        editingProject = null
+                        reloadAll()
                     }
-                },
-                confirmButton = {
+                }
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("进行中", "已完成", "维护中", "已搁置").forEach { s ->
+                            PaperFilterPill(
+                                selected = editStatus == s,
+                                onClick = { editStatus = s },
+                                label = s
+                            )
+                        }
+                    }
+                    PaperTextField(
+                        value = editTitle,
+                        onValueChange = { editTitle = it },
+                        label = "造物名称",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    PaperTextEditor(
+                        value = editDesc,
+                        onValueChange = { editDesc = it },
+                        label = "项目概述与故事",
+                        minHeight = 88.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    PaperTextField(
+                        value = editGithub,
+                        onValueChange = { editGithub = it },
+                        label = "仓库/发布链接 (可选)",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     TextButton(
-                        enabled = editTitle.isNotBlank(),
                         onClick = {
                             scope.launch {
                                 runCatching {
-                                    apiClient.updateProject(
-                                        id = proj.id,
-                                        req = CreateProjectRequest(
-                                            title = editTitle.trim(),
-                                            description = editDesc.trim(),
-                                            status = editStatus,
-                                            githubUrl = editGithub.trim().takeIf { it.isNotBlank() }
-                                        )
-                                    )
-                                    Toast.makeText(context, "造物项目已更新", Toast.LENGTH_SHORT).show()
+                                    apiClient.deleteProject(proj.id)
+                                    ArchiveToastManager.show("造物项目已删除")
                                 }
                                 editingProject = null
                                 reloadAll()
                             }
-                        }
+                        },
+                        modifier = Modifier.align(Alignment.End)
                     ) {
-                        Text("保存更新", color = colors.accentWarm)
-                    }
-                },
-                dismissButton = {
-                    Row {
-                        TextButton(
-                            onClick = {
-                                scope.launch {
-                                    runCatching {
-                                        apiClient.deleteProject(proj.id)
-                                        Toast.makeText(context, "造物项目已删除", Toast.LENGTH_SHORT).show()
-                                    }
-                                    editingProject = null
-                                    reloadAll()
-                                }
-                            }
-                        ) {
-                            Text("删除项目", color = colors.accentWarm)
-                        }
-                        TextButton(onClick = { editingProject = null }) {
-                            Text("取消", color = colors.inkSecondary)
-                        }
+                        Text("删除此造物项目", fontSize = 12.sp, color = colors.accentWarm)
                     }
                 }
-            )
+            }
         }
 
         // 删除心愿确认对话框
         wishToDelete?.let { wish ->
-            AlertDialog(
-                onDismissRequest = { wishToDelete = null },
-                title = { Text("移除心愿？", fontFamily = ArchiveFontFamilies.EditorialSerif) },
-                text = { Text("确认从心愿清单中移除《${wish.title}》？此操作不可逆。", fontFamily = ArchiveFontFamilies.BodySans) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                runCatching {
-                                    apiClient.deleteWish(wish.id)
-                                    Toast.makeText(context, "心愿已移除", Toast.LENGTH_SHORT).show()
-                                }
-                                wishToDelete = null
-                                reloadAll()
-                            }
+            ArchiveConfirmDialog(
+                title = "移除心愿？",
+                content = "确认从心愿清单中移除《${wish.title}》？此操作不可逆。",
+                confirmText = "确认移除",
+                isDestructive = true,
+                onConfirm = {
+                    scope.launch {
+                        runCatching {
+                            apiClient.deleteWish(wish.id)
+                            ArchiveToastManager.show("心愿已移除")
                         }
-                    ) {
-                        Text("确认移除", color = colors.accentWarm)
+                        wishToDelete = null
+                        reloadAll()
                     }
                 },
-                dismissButton = {
-                    TextButton(onClick = { wishToDelete = null }) {
-                        Text("取消", color = colors.inkSecondary)
-                    }
-                }
+                onDismiss = { wishToDelete = null }
             )
         }
     }

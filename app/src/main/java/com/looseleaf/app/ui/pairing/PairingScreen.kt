@@ -3,7 +3,6 @@ package com.looseleaf.app.ui.pairing
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -72,7 +71,7 @@ fun PairingScreen(
         if (isConnecting) return
         val parsed = PairingPayloadParser.parse(rawPayload)
         if (parsed == null) {
-            Toast.makeText(context, "无法识别该配对链接，请确认是否包含中枢地址与工单号", Toast.LENGTH_LONG).show()
+            ArchiveToastManager.show("无法识别该配对链接，请确认是否包含中枢地址与工单号", isError = true)
             return
         }
 
@@ -104,7 +103,7 @@ fun PairingScreen(
                 currentStep = 1
             } catch (e: Exception) {
                 haptics.tearDelete()
-                Toast.makeText(context, "连接数据中枢失败: ${e.message}", Toast.LENGTH_LONG).show()
+                ArchiveToastManager.show("连接数据中枢失败: ${e.message}", isError = true)
             } finally {
                 isConnecting = false
             }
@@ -239,9 +238,9 @@ fun PairingScreen(
                                     val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
                                     if (clipText.isNotBlank()) {
                                         pastedLinkInput = clipText.trim()
-                                        Toast.makeText(context, "已粘贴剪贴板内容", Toast.LENGTH_SHORT).show()
+                                        ArchiveToastManager.show("已粘贴剪贴板内容")
                                     } else {
-                                        Toast.makeText(context, "剪贴板为空", Toast.LENGTH_SHORT).show()
+                                        ArchiveToastManager.show("剪贴板为空")
                                     }
                                 },
                                 shape = RoundedCornerShape(2.dp),
@@ -399,7 +398,7 @@ fun PairingScreen(
                             if (pairedDeviceId.isNotBlank()) {
                                 runCatching { apiClient.updateDeviceName(pairedDeviceId, finalName) }
                             }
-                            Toast.makeText(context, "入网就绪，欢迎归来", Toast.LENGTH_SHORT).show()
+                            ArchiveToastManager.show("入网就绪，欢迎归来")
                             onPairingSuccess()
                         }
                     }

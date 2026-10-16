@@ -2,7 +2,10 @@ package com.looseleaf.app
 
 import android.content.Intent
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import com.looseleaf.app.ui.components.ArchiveToastHost
+import com.looseleaf.app.ui.components.ArchiveToastManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -144,46 +147,69 @@ class MainActivity : FragmentActivity() {
                         }
                     }
                 } else {
-                    Scaffold(
-                        bottomBar = {
-                            LooseLeafBottomBar(
-                                currentRoute = currentRoute,
-                                onRouteSelected = { route ->
-                                    haptics.tapKey()
-                                    AudioEngine.playPaperFlip()
-                                    currentRoute = route
-                                }
-                            )
+                    var lastBackPressTime by remember { mutableLongStateOf(0L) }
+
+                    BackHandler {
+                        if (currentRoute != "stream") {
+                            haptics.tapKey()
+                            AudioEngine.playPaperFlip()
+                            currentRoute = "stream"
+                        } else {
+                            val now = System.currentTimeMillis()
+                            if (now - lastBackPressTime < 2000L) {
+                                finish()
+                            } else {
+                                lastBackPressTime = now
+                                ArchiveToastManager.show("再按一次退出散页")
+                            }
                         }
-                    ) { innerPadding ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(innerPadding)
-                        ) {
-                            when (currentRoute) {
-                                "stream" -> StreamScreen(
-                                    onNavigateToDarkroom = {
-                                        currentRoute = "darkroom"
-                                    }
-                                )
-                                "ledger" -> LedgerScreen()
-                                "darkroom" -> DarkroomScreen(
-                                    onEntrySaved = {
-                                        currentRoute = "stream"
-                                    }
-                                )
-                                "projects" -> ProjectsWishesScreen()
-                                "profile" -> ProfileScreen(
-                                    onUnpair = {
-                                        isPaired = false
-                                    },
-                                    onDarkroomModeChanged = { enabled ->
-                                        isDarkTheme = enabled
+                    }
+
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Scaffold(
+                            bottomBar = {
+                                LooseLeafBottomBar(
+                                    currentRoute = currentRoute,
+                                    onRouteSelected = { route ->
+                                        haptics.tapKey()
+                                        AudioEngine.playPaperFlip()
+                                        currentRoute = route
                                     }
                                 )
                             }
+                        ) { innerPadding ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding)
+                            ) {
+                                when (currentRoute) {
+                                    "stream" -> StreamScreen(
+                                        onNavigateToDarkroom = {
+                                            currentRoute = "darkroom"
+                                        }
+                                    )
+                                    "ledger" -> LedgerScreen()
+                                    "darkroom" -> DarkroomScreen(
+                                        onEntrySaved = {
+                                            currentRoute = "stream"
+                                        }
+                                    )
+                                    "projects" -> ProjectsWishesScreen()
+                                    "profile" -> ProfileScreen(
+                                        onUnpair = {
+                                            isPaired = false
+                                        },
+                                        onDarkroomModeChanged = { enabled ->
+                                            isDarkTheme = enabled
+                                        }
+                                    )
+                                }
+                            }
                         }
+
+                        // 顶层全局自研纸墨 Toast 通知覆盖层
+                        ArchiveToastHost()
                     }
                 }
             }

@@ -1,6 +1,5 @@
 package com.looseleaf.app.ui.ledger
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -219,7 +218,7 @@ fun LedgerScreen(
                                         subtitle = "使用生物识别解锁敏感收支数字",
                                         onSuccess = { isPrivacyMasked = false },
                                         onError = { msg ->
-                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                            ArchiveToastManager.show(msg, isError = true)
                                         }
                                     )
                                 } else {
@@ -244,7 +243,7 @@ fun LedgerScreen(
                                 haptics.tapKey()
                                 syncManager.pullRemoteData()
                                 reloadCategoriesAndAssets()
-                                Toast.makeText(context, "账簿与资产已对齐", Toast.LENGTH_SHORT).show()
+                                ArchiveToastManager.show("账簿与资产已对齐")
                             }
                         }
                     ) {
@@ -313,8 +312,10 @@ fun LedgerScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .imePadding()
+                                .verticalScroll(rememberScrollState())
                                 .padding(horizontal = 16.dp),
-                            verticalArrangement = Arrangement.SpaceBetween
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                         // 金额与属性装裱卡片
                         PaperCard(
@@ -433,7 +434,7 @@ fun LedgerScreen(
                                     placeholder = "备注，或输入“42.5 手冲咖啡”点拆解",
                                     isUnderline = true,
                                     singleLine = true,
-                                    modifier = Modifier.fillMaxWidth().imePadding(),
+                                    modifier = Modifier.fillMaxWidth(),
                                     trailingIcon = {
                                         if (noteText.isNotBlank()) {
                                             TextButton(
@@ -551,7 +552,7 @@ fun LedgerScreen(
                                         installmentRemainMonths = installmentMonths.takeIf { isInstallment },
                                         repaymentDay = repaymentDay.takeIf { isInstallment }
                                     )
-                                    Toast.makeText(context, "已盖印记下: ¥ $inputAmountString", Toast.LENGTH_SHORT).show()
+                                    ArchiveToastManager.show("已盖印记下: ¥ $inputAmountString")
                                     clearAll()
                                 }
                             },
@@ -574,7 +575,7 @@ fun LedgerScreen(
                             scope.launch {
                                 haptics.tearDelete()
                                 syncManager.deleteTransaction(tx.id)
-                                Toast.makeText(context, "已删除记账明细", Toast.LENGTH_SHORT).show()
+                                ArchiveToastManager.show("已删除记账明细")
                             }
                         },
                         modifier = Modifier.weight(1f)
@@ -597,7 +598,7 @@ fun LedgerScreen(
             }
         }
 
-        // 1. 编辑记账流水对话框
+        // 1. 编辑记账流水底部抽屉
         editingTransaction?.let { tx ->
             var editAmountYuan by remember(tx.id) {
                 mutableStateOf(FormatUtils.centsToYuanString(tx.amount, includeSymbol = false))
@@ -608,147 +609,126 @@ fun LedgerScreen(
             var editNote by remember(tx.id) { mutableStateOf(tx.note ?: "") }
             var editPaymentMethod by remember(tx.id) { mutableStateOf(tx.paymentMethod ?: "微信支付") }
 
-            AlertDialog(
+            ArchiveBottomSheet(
                 onDismissRequest = { editingTransaction = null },
-                title = { Text("修订记账明细", fontFamily = ArchiveFontFamilies.EditorialSerif) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("expense" to "支出", "income" to "收入").forEach { (k, label) ->
-                                PaperFilterPill(
-                                    selected = editType == k,
-                                    onClick = { editType = k },
-                                    label = label
-                                )
-                            }
+                title = "修订记账明细",
+                actionButtonText = "保存修订",
+                onActionClick = {
+                    val cents = FormatUtils.yuanStringToCents(editAmountYuan)
+                    if (cents > 0) {
+                        scope.launch {
+                            val req = CreateTransactionRequest(
+                                amount = cents,
+                                type = editType,
+                                category = editCategory.trim(),
+                                title = editTitle.trim().ifBlank { editCategory.trim() },
+                                note = editNote.trim().takeIf { it.isNotBlank() },
+                                paymentMethod = editPaymentMethod.trim(),
+                                occurredAt = tx.occurredAt
+                            )
+                            syncManager.updateTransactionOptimistic(tx.id, req)
+                            editingTransaction = null
+                            ArchiveToastManager.show("已保存账目修订")
                         }
-
-                        PaperTextField(
-                            value = editAmountYuan,
-                            onValueChange = { editAmountYuan = it },
-                            label = "金额 (元)",
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        PaperTextField(
-                            value = editTitle,
-                            onValueChange = { editTitle = it },
-                            label = "标题/简要",
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        PaperTextField(
-                            value = editCategory,
-                            onValueChange = { editCategory = it },
-                            label = "分类",
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        PaperTextField(
-                            value = editPaymentMethod,
-                            onValueChange = { editPaymentMethod = it },
-                            label = "支付方式",
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        PaperTextEditor(
-                            value = editNote,
-                            onValueChange = { editNote = it },
-                            label = "随附手记",
-                            minHeight = 70.dp,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            val cents = FormatUtils.yuanStringToCents(editAmountYuan)
-                            if (cents > 0) {
-                                scope.launch {
-                                    val req = CreateTransactionRequest(
-                                        amount = cents,
-                                        type = editType,
-                                        category = editCategory.trim(),
-                                        title = editTitle.trim().ifBlank { editCategory.trim() },
-                                        note = editNote.trim().takeIf { it.isNotBlank() },
-                                        paymentMethod = editPaymentMethod.trim(),
-                                        occurredAt = tx.occurredAt
-                                    )
-                                    syncManager.updateTransactionOptimistic(tx.id, req)
-                                    editingTransaction = null
-                                    Toast.makeText(context, "已保存账目修订", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
-                    ) {
-                        Text("保存修订", color = colors.accentWarm)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { editingTransaction = null }) {
-                        Text("取消", color = colors.inkSecondary)
                     }
                 }
-            )
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("expense" to "支出", "income" to "收入").forEach { (k, label) ->
+                            PaperFilterPill(
+                                selected = editType == k,
+                                onClick = { editType = k },
+                                label = label
+                            )
+                        }
+                    }
+
+                    PaperTextField(
+                        value = editAmountYuan,
+                        onValueChange = { editAmountYuan = it },
+                        label = "金额 (元)",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    PaperTextField(
+                        value = editTitle,
+                        onValueChange = { editTitle = it },
+                        label = "标题/简要",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    PaperTextField(
+                        value = editCategory,
+                        onValueChange = { editCategory = it },
+                        label = "分类",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    PaperTextField(
+                        value = editPaymentMethod,
+                        onValueChange = { editPaymentMethod = it },
+                        label = "支付方式",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    PaperTextEditor(
+                        value = editNote,
+                        onValueChange = { editNote = it },
+                        label = "随附手记",
+                        minHeight = 70.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
         }
 
-        // 2. 校准初始流动资金底数对话框
+        // 2. 校准初始流动资金底数抽屉
         if (showCalibrateBalanceDialog) {
             var inputLiquidYuan by remember {
                 mutableStateOf(
                     FormatUtils.centsToYuanString(assetsOverview?.initialLiquidBalance ?: 0L, includeSymbol = false)
                 )
             }
-            AlertDialog(
+            ArchiveBottomSheet(
                 onDismissRequest = { showCalibrateBalanceDialog = false },
-                title = { Text("校准初始流动资金底数", fontFamily = ArchiveFontFamilies.EditorialSerif) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = "设定初始底数后，系统将依据全量收支流水动态实时推算当前流动资产与净资产：",
-                            fontSize = 12.sp,
-                            color = colors.inkSecondary
-                        )
-                        PaperTextField(
-                            value = inputLiquidYuan,
-                            onValueChange = { inputLiquidYuan = it },
-                            label = "初始资金底数 (元)",
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            val cents = FormatUtils.yuanStringToCents(inputLiquidYuan)
-                            scope.launch {
-                                runCatching {
-                                    apiClient.updateLiquidBalance(cents)
-                                    assetsOverview = apiClient.fetchAssetsOverview()
-                                    Toast.makeText(context, "流动资金底数已校准", Toast.LENGTH_SHORT).show()
-                                }
-                                showCalibrateBalanceDialog = false
-                            }
+                title = "校准初始流动资金底数",
+                actionButtonText = "确认校准",
+                onActionClick = {
+                    val cents = FormatUtils.yuanStringToCents(inputLiquidYuan)
+                    scope.launch {
+                        runCatching {
+                            apiClient.updateLiquidBalance(cents)
+                            assetsOverview = apiClient.fetchAssetsOverview()
+                            ArchiveToastManager.show("流动资金底数已校准")
                         }
-                    ) {
-                        Text("确认校准", color = colors.accentWarm)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showCalibrateBalanceDialog = false }) {
-                        Text("取消", color = colors.inkSecondary)
+                        showCalibrateBalanceDialog = false
                     }
                 }
-            )
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "设定初始底数后，系统将依据全量收支流水动态实时推算当前流动资产与净资产：",
+                        fontSize = 13.sp,
+                        color = colors.inkSecondary,
+                        lineHeight = 18.sp
+                    )
+                    PaperTextField(
+                        value = inputLiquidYuan,
+                        onValueChange = { inputLiquidYuan = it },
+                        label = "初始资金底数 (元)",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
         }
 
-        // 3. 登记在役新装备对话框
+        // 3. 登记在役新装备抽屉
         if (showAddGearDialog) {
             var gearName by remember { mutableStateOf("") }
             var gearSpec by remember { mutableStateOf("") }
@@ -756,141 +736,119 @@ fun LedgerScreen(
             var gearCategory by remember { mutableStateOf("数码器材") }
             var isAutoTx by remember { mutableStateOf(true) }
 
-            AlertDialog(
+            ArchiveBottomSheet(
                 onDismissRequest = { showAddGearDialog = false },
-                title = { Text("登记在役装备", fontFamily = ArchiveFontFamilies.EditorialSerif) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PaperTextField(
-                            value = gearName,
-                            onValueChange = { gearName = it },
-                            label = "装备名称 (如: 索尼 A7M4)",
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        PaperTextField(
-                            value = gearSpec,
-                            onValueChange = { gearSpec = it },
-                            label = "规格参数 (可选)",
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        PaperTextField(
-                            value = gearPrice,
-                            onValueChange = { gearPrice = it },
-                            label = "购入总价 (元)",
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = isAutoTx,
-                                onCheckedChange = { isAutoTx = it },
-                                colors = CheckboxDefaults.colors(checkedColor = colors.accentWarm)
+                title = "登记在役装备",
+                actionButtonText = "录入装备",
+                isActionEnabled = gearName.isNotBlank(),
+                onActionClick = {
+                    val cents = FormatUtils.yuanStringToCents(gearPrice)
+                    scope.launch {
+                        runCatching {
+                            apiClient.addGearAsset(
+                                AddGearAssetRequest(
+                                    name = gearName.trim(),
+                                    spec = gearSpec.trim(),
+                                    priceCents = cents,
+                                    category = gearCategory,
+                                    createTransaction = isAutoTx && cents > 0
+                                )
                             )
-                            Text("同步生成一笔购置支出账目", fontSize = 12.sp, color = colors.inkPrimary)
+                            assetsOverview = apiClient.fetchAssetsOverview()
+                            syncManager.pullRemoteData()
+                            ArchiveToastManager.show("装备已入库")
                         }
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        enabled = gearName.isNotBlank(),
-                        onClick = {
-                            val cents = FormatUtils.yuanStringToCents(gearPrice)
-                            scope.launch {
-                                runCatching {
-                                    apiClient.addGearAsset(
-                                        AddGearAssetRequest(
-                                            name = gearName.trim(),
-                                            spec = gearSpec.trim(),
-                                            priceCents = cents,
-                                            category = gearCategory,
-                                            createTransaction = isAutoTx && cents > 0
-                                        )
-                                    )
-                                    assetsOverview = apiClient.fetchAssetsOverview()
-                                    syncManager.pullRemoteData()
-                                    Toast.makeText(context, "装备已入库", Toast.LENGTH_SHORT).show()
-                                }
-                                showAddGearDialog = false
-                            }
-                        }
-                    ) {
-                        Text("录入装备", color = colors.accentWarm)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showAddGearDialog = false }) {
-                        Text("取消", color = colors.inkSecondary)
+                        showAddGearDialog = false
                     }
                 }
-            )
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PaperTextField(
+                        value = gearName,
+                        onValueChange = { gearName = it },
+                        label = "装备名称 (如: 索尼 A7M4)",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    PaperTextField(
+                        value = gearSpec,
+                        onValueChange = { gearSpec = it },
+                        label = "规格参数 (可选)",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    PaperTextField(
+                        value = gearPrice,
+                        onValueChange = { gearPrice = it },
+                        label = "购入总价 (元)",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = isAutoTx,
+                            onCheckedChange = { isAutoTx = it },
+                            colors = CheckboxDefaults.colors(checkedColor = colors.accentWarm)
+                        )
+                        Text("同步生成一笔购置支出账目", fontSize = 12.sp, color = colors.inkPrimary)
+                    }
+                }
+            }
         }
 
-        // 4. 二手变卖与回血对话框
+        // 4. 二手变卖与回血抽屉
         sellingGearItem?.let { gear ->
             var soldPriceYuan by remember(gear.id) {
                 mutableStateOf(FormatUtils.centsToYuanString(gear.priceCents ?: 0L, includeSymbol = false))
             }
             var sellNote by remember(gear.id) { mutableStateOf("出清回血") }
 
-            AlertDialog(
+            ArchiveBottomSheet(
                 onDismissRequest = { sellingGearItem = null },
-                title = { Text("变卖出清 · ${gear.name}", fontFamily = ArchiveFontFamilies.EditorialSerif) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = "变卖后设备将标记为已退役，回血金额将自动生成一笔二手收入流水：",
-                            fontSize = 12.sp,
-                            color = colors.inkSecondary
-                        )
-                        PaperTextField(
-                            value = soldPriceYuan,
-                            onValueChange = { soldPriceYuan = it },
-                            label = "成交出清金额 (元)",
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        PaperTextField(
-                            value = sellNote,
-                            onValueChange = { sellNote = it },
-                            label = "退役备忘",
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            val cents = FormatUtils.yuanStringToCents(soldPriceYuan)
-                            scope.launch {
-                                runCatching {
-                                    apiClient.sellGearAsset(
-                                        id = gear.id,
-                                        req = SellGearRequest(
-                                            soldPriceCents = cents,
-                                            soldDate = FormatUtils.beijingNowIsoString().take(10),
-                                            note = sellNote.trim()
-                                        )
-                                    )
-                                    assetsOverview = apiClient.fetchAssetsOverview()
-                                    syncManager.pullRemoteData()
-                                    Toast.makeText(context, "已变卖归档并入账", Toast.LENGTH_SHORT).show()
-                                }
-                                sellingGearItem = null
-                            }
+                title = "变卖出清 · ${gear.name}",
+                actionButtonText = "确认回血",
+                onActionClick = {
+                    val cents = FormatUtils.yuanStringToCents(soldPriceYuan)
+                    scope.launch {
+                        runCatching {
+                            apiClient.sellGearAsset(
+                                id = gear.id,
+                                req = SellGearRequest(
+                                    soldPriceCents = cents,
+                                    soldDate = FormatUtils.beijingNowIsoString().take(10),
+                                    note = sellNote.trim()
+                                )
+                            )
+                            assetsOverview = apiClient.fetchAssetsOverview()
+                            syncManager.pullRemoteData()
+                            ArchiveToastManager.show("已变卖归档并入账")
                         }
-                    ) {
-                        Text("确认回血", color = colors.accentWarm)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { sellingGearItem = null }) {
-                        Text("取消", color = colors.inkSecondary)
+                        sellingGearItem = null
                     }
                 }
-            )
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "变卖后设备将标记为已退役，回血金额将自动生成一笔二手收入流水：",
+                        fontSize = 12.sp,
+                        color = colors.inkSecondary
+                    )
+                    PaperTextField(
+                        value = soldPriceYuan,
+                        onValueChange = { soldPriceYuan = it },
+                        label = "成交出清金额 (元)",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    PaperTextField(
+                        value = sellNote,
+                        onValueChange = { sellNote = it },
+                        label = "退役备忘",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
         }
     }
 }

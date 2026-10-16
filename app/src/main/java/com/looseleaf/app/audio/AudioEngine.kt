@@ -13,7 +13,7 @@ import kotlin.math.sin
 /**
  * 散页拟真拟物声学引擎 (AudioEngine)
  * 严格遵循 docs/ecosystem.md §4.4 与 web/src/utils/audio.ts 物理声学算法
- * 基于 AudioTrack 程序化实时合成 PCM 波形，零依赖、零体积
+ * 深度优化：采用预载入静态 AudioTrack 零延迟重放机制，杜绝频繁动态建构 AudioTrack 与 Thread.sleep 造成的线程饥饿与底层崩溃
  */
 object AudioEngine {
 
@@ -21,7 +21,7 @@ object AudioEngine {
     private val scope = CoroutineScope(Dispatchers.Default)
     var isSoundEnabled: Boolean = true
 
-    // 预合成并进程内复用 PCM 波形缓冲区，避免每次按键重复执行数千次三角函数与指数运算
+    // 1. 机械快门波形
     private val shutterBuffer: ShortArray by lazy {
         val durationMs = 80
         val totalSamples = (SAMPLE_RATE * durationMs) / 1000
@@ -41,6 +41,7 @@ object AudioEngine {
         }
     }
 
+    // 2. 纸张翻动波形
     private val paperFlipBuffer: ShortArray by lazy {
         val durationMs = 70
         val totalSamples = (SAMPLE_RATE * durationMs) / 1000
@@ -54,6 +55,7 @@ object AudioEngine {
         }
     }
 
+    // 3. 铅字打字机敲击波形
     private val tinkBuffer: ShortArray by lazy {
         val durationMs = 30
         val totalSamples = (SAMPLE_RATE * durationMs) / 1000
@@ -65,41 +67,13 @@ object AudioEngine {
         }
     }
 
-    /**
-     * 机械快门收放声 (Mechanical Shutter Click)
-     * 双正弦闭合复音：1200Hz 释放咔哒声 + 35ms 后 800Hz 帘幕闭合声
-     */
-    fun playShutter() {
-        if (!isSoundEnabled) return
-        scope.launch {
-            playPcm(shutterBuffer)
-        }
-    }
+    // 常驻静态重放轨道，进程生命周期复用
+    private val shutterTrack: AudioTrack? by lazy { createStaticTrack(shutterBuffer) }
+    private val paperFlipTrack: AudioTrack? by lazy { createStaticTrack(paperFlipBuffer) }
+    private val tinkTrack: AudioTrack? by lazy { createStaticTrack(tinkBuffer) }
 
-    /**
-     * 纸张翻动微扑通声 (Paper Flip)
-     * 140Hz 降至 45Hz 的低频柔和扑通声
-     */
-    fun playPaperFlip() {
-        if (!isSoundEnabled) return
-        scope.launch {
-            playPcm(paperFlipBuffer)
-        }
-    }
-
-    /**
-     * 铅字/打字机敲击声 (Tink Click)
-     */
-    fun playTink() {
-        if (!isSoundEnabled) return
-        scope.launch {
-            playPcm(tinkBuffer)
-        }
-    }
-
-    private fun playPcm(buffer: ShortArray) {
-        var track: AudioTrack? = null
-        try {
+    private fun createStaticTrack(buffer: ShortArray): AudioTrack? {
+        return try {
             val attributes = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -111,7 +85,7 @@ object AudioEngine {
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .build()
 
-            track = AudioTrack.Builder()
+            val track = AudioTrack.Builder()
                 .setAudioAttributes(attributes)
                 .setAudioFormat(format)
                 .setBufferSizeInBytes(buffer.size * 2)
@@ -119,12 +93,77 @@ object AudioEngine {
                 .build()
 
             track.write(buffer, 0, buffer.size)
-            track.play()
-            Thread.sleep(buffer.size * 1000L / SAMPLE_RATE + 20)
+            track
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * 机械快门收放声 (Mechanical Shutter Click)
+     */
+    fun playShutter() {
+        if (!isSoundEnabled) return
+        scope.launch {
+            playTrack(shutterTrack, shutterBuffer)
+        }
+    }
+
+    /**
+     * 纸张翻动微扑通声 (Paper Flip)
+     */
+    fun playPaperFlip() {
+        if (!isSoundEnabled) return
+        scope.launch {
+            playTrack(paperFlipTrack, paperFlipBuffer)
+        }
+    }
+
+    /**
+     * 铅字/打字机敲击声 (Tink Click)
+     */
+    fun playTink() {
+        if (!isSoundEnabled) return
+        scope.launch {
+            playTrack(tinkTrack, tinkBuffer)
+        }
+    }
+
+    private fun playTrack(track: AudioTrack?, fallbackBuffer: ShortArray) {
+        if (track != null) {
+            try {
+                synchronized(track) {
+                    track.pause()
+                    track.reloadStaticData()
+                    track.play()
+                }
+                return
+            } catch (_: Exception) {
+                // 异常时走一次性兜底
+            }
+        }
+
+        // 兜底降级：单次轻量级播放
+        try {
+            val attributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val format = AudioFormat.Builder()
+                .setSampleRate(SAMPLE_RATE)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .build()
+            val tempTrack = AudioTrack.Builder()
+                .setAudioAttributes(attributes)
+                .setAudioFormat(format)
+                .setBufferSizeInBytes(fallbackBuffer.size * 2)
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .build()
+            tempTrack.write(fallbackBuffer, 0, fallbackBuffer.size)
+            tempTrack.play()
         } catch (_: Exception) {
             // ignore
-        } finally {
-            track?.release()
         }
     }
 }

@@ -4,4 +4,7 @@
     <cache-path name="internal_apk" path="downloads" />
     <external-files-path name="apk_files" path="Download" />
     <files-path name="internal_files" path="downloads" />
+    <cache-path name="camera_photos" path="camera" />
+    <cache-path name="all_cache" path="." />
+    <files-path name="all_files" path="." />
 </paths>

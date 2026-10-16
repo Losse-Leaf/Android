@@ -44,11 +44,16 @@ class OutboxSyncWorker(
                     if (e is APIException && e.code == 401) {
                         return@withLock Result.failure()
                     }
+                    val isPermanentClientError = e is APIException && e.code in 400..499 && e.code != 401 && e.code != 429
+                    val newRetryCount = event.retryCount + 1
                     outboxDao.incrementRetry(event.eventId)
-                    if (event.retryCount > 10) {
-                        // 超过最大重试次数，避免死循环阻塞后续队列
+
+                    if (isPermanentClientError || newRetryCount >= 10) {
+                        Log.e(TAG, "Discarding poisoned or exhausted event ${event.eventId} (reason: ${if (isPermanentClientError) "permanent client error ${(e as APIException).code}" else "max retries exceeded"})")
                         outboxDao.delete(event)
+                        // 不中断后续其他正常事件的同步
                     } else {
+                        // 遇到可恢复的临时网络波动或服务端5xx，等待退避重试
                         return@withLock Result.retry()
                     }
                 }

@@ -7,7 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Size
-import android.widget.Toast
+import com.looseleaf.app.ui.components.ArchiveToastManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -86,7 +86,7 @@ fun SquareQrScannerView(
             if (!text.isNullOrBlank()) {
                 onQrCodeScanned(text)
             } else {
-                Toast.makeText(context, "未能在选中的图片中识别出有效二维码", Toast.LENGTH_SHORT).show()
+                ArchiveToastManager.show("未能在选中的图片中识别出有效二维码", isError = true)
             }
         }
     }

@@ -1,7 +1,6 @@
 package com.looseleaf.app.ui.darkroom
 
 import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +29,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.looseleaf.app.audio.AudioEngine
 import com.looseleaf.app.darkroom.ImagePipeline
@@ -47,6 +47,7 @@ import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.launch
+import java.io.File
 import java.io.IOException
 
 private data class DarkroomPhotoSlot(
@@ -56,7 +57,7 @@ private data class DarkroomPhotoSlot(
 
 /**
  * 随行暗房与现场拍照记录界面 (DarkroomScreen) - docs/mobile.md §3.2
- * 支持：现场快门直拍、相册多图装入 (最多 9 张)、EXIF 经纬度自动推断城市、弱网/飞行模式相纸发件箱自动兜底
+ * 支持：现场快门全高清直拍、相册多图装入 (最多 9 张)、EXIF 经纬度自动推断城市、0ms 乐观离线秒存与后台静默直传 R2
  */
 @Composable
 fun DarkroomScreen(
@@ -74,21 +75,29 @@ fun DarkroomScreen(
     var activeSlotIndex by remember { mutableStateOf(0) }
     var isProcessing by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
+    var lightboxPhotoUrl by remember { mutableStateOf<String?>(null) }
+    var lightboxMetadata by remember { mutableStateOf<String?>(null) }
 
     var titleText by remember { mutableStateOf("") }
     var contentText by remember { mutableStateOf("") }
     var locationText by remember { mutableStateOf("") }
     var selectedType by remember { mutableStateOf("life") }
 
-    // 1. 现场快门直拍启动器 (TakePicturePreview)
+    // 临时快门拍照文件引用
+    var pendingCaptureFile by remember { mutableStateOf<File?>(null) }
+    var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
+
+    // 1. 现场快门全像素直拍启动器 (TakePicture + FileProvider 4K 全高清原片)
     val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { bitmap ->
-        if (bitmap != null) {
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        val file = pendingCaptureFile
+        val uri = pendingCaptureUri
+        if (success && file != null && uri != null && file.exists() && file.length() > 0) {
             scope.launch {
                 isProcessing = true
                 try {
-                    val processed = ImagePipeline.processCapturedBitmap(bitmap)
+                    val processed = ImagePipeline.processImage(context, uri)
                     val savedFile = syncManager.saveCompressedImageToOutboxDir(processed.compressedBytes)
                     val fileUri = "file://${savedFile.absolutePath}"
                     val newSlot = DarkroomPhotoSlot(previewUri = fileUri, processed = processed)
@@ -98,14 +107,46 @@ fun DarkroomScreen(
                     if (titleText.isBlank()) {
                         titleText = "现场快门 · " + (processed.exif.model ?: "胶片相纸")
                     }
+                    if (locationText.isBlank()) {
+                        val inferredCity = processed.exif.inferredCityName
+                            ?: processed.exif.inferredCityCode?.let { CityDictionary.cityNameForCode(it) }
+                        if (!inferredCity.isNullOrBlank()) {
+                            locationText = inferredCity
+                        }
+                    }
                     haptics.shutterRelease()
                     AudioEngine.playShutter()
+                    ArchiveToastManager.show("胶片显影完成，已装入暗房")
                 } catch (e: Exception) {
-                    Toast.makeText(context, "快门相纸显影失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    ArchiveToastManager.show("快门相纸显影失败: ${e.message}", isError = true)
                 } finally {
                     isProcessing = false
+                    runCatching { file.delete() }
+                    pendingCaptureFile = null
+                    pendingCaptureUri = null
                 }
             }
+        } else {
+            runCatching { file?.delete() }
+            pendingCaptureFile = null
+            pendingCaptureUri = null
+        }
+    }
+
+    fun launchCameraCapture() {
+        try {
+            val cameraDir = File(context.cacheDir, "camera").apply { mkdirs() }
+            val tempFile = File(cameraDir, "shutter_${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                tempFile
+            )
+            pendingCaptureFile = tempFile
+            pendingCaptureUri = uri
+            cameraLauncher.launch(uri)
+        } catch (e: Exception) {
+            ArchiveToastManager.show("调起相机失败: ${e.message}", isError = true)
         }
     }
 
@@ -137,9 +178,10 @@ fun DarkroomScreen(
                         val merged = (photoSlots + added).take(9)
                         photoSlots = merged
                         activeSlotIndex = merged.lastIndex.coerceAtLeast(0)
+                        ArchiveToastManager.show("已装入 ${added.size} 张胶片底片")
                     }
                 } catch (e: Exception) {
-                    Toast.makeText(context, "图片压制失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    ArchiveToastManager.show("图片压制失败: ${e.message}", isError = true)
                 } finally {
                     isProcessing = false
                 }
@@ -186,7 +228,7 @@ fun DarkroomScreen(
             Button(
                 onClick = {
                     haptics.tapKey()
-                    cameraLauncher.launch(null)
+                    launchCameraCapture()
                 },
                 enabled = !isProcessing && photoSlots.size < 9,
                 shape = RoundedCornerShape(2.dp),
@@ -221,9 +263,8 @@ fun DarkroomScreen(
                         activeSlot.processed.width.toFloat() / activeSlot.processed.height.toFloat()
                     } else 4f / 3f,
                     onClick = {
-                        multiPhotoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
+                        lightboxPhotoUrl = activeSlot.previewUri
+                        lightboxMetadata = metadata
                     }
                 )
 
@@ -393,7 +434,7 @@ fun DarkroomScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 提交归册按钮
+            // 提交归册按钮：0ms 乐观入库与静默后台上传直传 R2
             TerracottaStampButton(
                 text = if (isSaving) "正在冲洗装裱..." else "完成记录",
                 enabled = !isSaving && !isProcessing && (titleText.isNotBlank() || contentText.isNotBlank() || photoSlots.isNotEmpty()),
@@ -413,70 +454,34 @@ fun DarkroomScreen(
                             val occurredIso = FormatUtils.beijingNowIsoString()
 
                             if (photoSlots.isNotEmpty()) {
-                                try {
-                                    val uploadedList = mutableListOf<Attachment>()
-                                    for (slot in photoSlots) {
-                                        val att = ImagePipeline.uploadImage(apiClient, slot.processed)
-                                        uploadedList.add(att)
-                                    }
-                                    syncManager.createEntryOptimistic(
-                                        type = entryType,
-                                        title = finalTitle,
-                                        content = finalContent,
-                                        occurredAt = occurredIso,
-                                        location = locationText.takeIf { it.isNotBlank() } ?: cityName,
-                                        cityCode = cityCode,
-                                        cityName = cityName,
-                                        attachmentIds = uploadedList.map { it.id },
-                                        attachments = uploadedList,
-                                        camera = cameraMeta
+                                val savedFiles = photoSlots.map { slot ->
+                                    val f = syncManager.saveCompressedImageToOutboxDir(slot.processed.compressedBytes)
+                                    OfflineMediaFileItem(
+                                        filePath = f.absolutePath,
+                                        mimeType = slot.processed.mimeType,
+                                        width = slot.processed.width,
+                                        height = slot.processed.height
                                     )
-                                    haptics.shutterRelease()
-                                    AudioEngine.playShutter()
-                                    Toast.makeText(context, "已装裱归入生活时间流", Toast.LENGTH_SHORT).show()
-                                    onEntrySaved()
-                                } catch (uploadErr: Exception) {
-                                    val isNetworkErr = uploadErr is IOException ||
-                                        (uploadErr is APIException && uploadErr.code == -1) ||
-                                        uploadErr.cause is IOException
-                                    if (isNetworkErr) {
-                                        // 自动离线降级：暂存相纸至本地 outbox_media 并创建离线图文记录
-                                        val savedFiles = photoSlots.map { slot ->
-                                            val f = syncManager.saveCompressedImageToOutboxDir(slot.processed.compressedBytes)
-                                            OfflineMediaFileItem(
-                                                filePath = f.absolutePath,
-                                                mimeType = slot.processed.mimeType,
-                                                width = slot.processed.width,
-                                                height = slot.processed.height
-                                            )
-                                        }
-                                        val firstMedia = savedFiles.first()
-                                        val offlineReq = CreateEntryRequest(
-                                            type = entryType,
-                                            title = finalTitle,
-                                            content = finalContent,
-                                            occurredAt = occurredIso,
-                                            location = locationText.takeIf { it.isNotBlank() } ?: cityName,
-                                            cityCode = cityCode,
-                                            cityName = cityName
-                                        )
-                                        syncManager.createMediaEntryOffline(
-                                            localImageFilePath = firstMedia.filePath,
-                                            mimeType = firstMedia.mimeType,
-                                            width = firstMedia.width,
-                                            height = firstMedia.height,
-                                            req = offlineReq,
-                                            camera = cameraMeta,
-                                            additionalMediaFiles = savedFiles.drop(1)
-                                        )
-                                        haptics.shutterRelease()
-                                        AudioEngine.playShutter()
-                                        Toast.makeText(context, "当前离线，相纸已暂存至本地发件箱", Toast.LENGTH_LONG).show()
-                                        onEntrySaved()
-                                    } else {
-                                        throw uploadErr
-                                    }
                                 }
+                                val firstMedia = savedFiles.first()
+                                val offlineReq = CreateEntryRequest(
+                                    type = entryType,
+                                    title = finalTitle,
+                                    content = finalContent,
+                                    occurredAt = occurredIso,
+                                    location = locationText.takeIf { it.isNotBlank() } ?: cityName,
+                                    cityCode = cityCode,
+                                    cityName = cityName
+                                )
+                                syncManager.createMediaEntryOffline(
+                                    localImageFilePath = firstMedia.filePath,
+                                    mimeType = firstMedia.mimeType,
+                                    width = firstMedia.width,
+                                    height = firstMedia.height,
+                                    req = offlineReq,
+                                    camera = cameraMeta,
+                                    additionalMediaFiles = savedFiles.drop(1)
+                                )
                             } else {
                                 syncManager.createEntryOptimistic(
                                     type = entryType,
@@ -487,13 +492,13 @@ fun DarkroomScreen(
                                     cityCode = cityCode,
                                     cityName = cityName
                                 )
-                                haptics.shutterRelease()
-                                AudioEngine.playShutter()
-                                Toast.makeText(context, "已装裱归入生活时间流", Toast.LENGTH_SHORT).show()
-                                onEntrySaved()
                             }
+                            haptics.shutterRelease()
+                            AudioEngine.playShutter()
+                            ArchiveToastManager.show("已装裱归入生活时间流")
+                            onEntrySaved()
                         } catch (e: Exception) {
-                            Toast.makeText(context, "归档异常: ${e.message}", Toast.LENGTH_LONG).show()
+                            ArchiveToastManager.show("归档异常: ${e.message}", isError = true)
                         } finally {
                             isSaving = false
                         }
@@ -503,6 +508,18 @@ fun DarkroomScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+
+    // 全屏底片灯箱查看器
+    lightboxPhotoUrl?.let { url ->
+        ArchiveLightboxViewer(
+            imageUrl = url,
+            metadataText = lightboxMetadata,
+            onDismiss = {
+                lightboxPhotoUrl = null
+                lightboxMetadata = null
+            }
+        )
     }
 }
 }

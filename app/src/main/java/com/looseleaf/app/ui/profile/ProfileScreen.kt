@@ -1,6 +1,7 @@
 package com.looseleaf.app.ui.profile
 
-import android.widget.Toast
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -84,7 +85,25 @@ fun ProfileScreen(
                 isUploadingAvatar = true
                 try {
                     val input = context.contentResolver.openInputStream(uri)
-                    val bytes = input?.use { it.readBytes() } ?: ByteArray(0)
+                    val rawBytes = input?.use { it.readBytes() } ?: ByteArray(0)
+                    val bytes = if (rawBytes.isNotEmpty()) {
+                        val original = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
+                        if (original != null) {
+                            val maxDim = 512
+                            val (newW, newH) = if (original.width > original.height) {
+                                val h = (original.height * maxDim.toFloat() / original.width).toInt().coerceAtLeast(1)
+                                maxDim to h
+                            } else {
+                                val w = (original.width * maxDim.toFloat() / original.height).toInt().coerceAtLeast(1)
+                                w to maxDim
+                            }
+                            val scaled = Bitmap.createScaledBitmap(original, newW, newH, true)
+                            val stream = java.io.ByteArrayOutputStream()
+                            scaled.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+                            stream.toByteArray()
+                        } else rawBytes
+                    } else ByteArray(0)
+
                     if (bytes.isNotEmpty()) {
                         val att = apiClient.uploadUnifiedFallback(
                             fileBytes = bytes,
@@ -96,10 +115,10 @@ fun ProfileScreen(
                             UpdateProfileRequest(avatarKey = att.objectKey)
                         )
                         profile = updated
-                        Toast.makeText(context, "肖像照片已更新", Toast.LENGTH_SHORT).show()
+                        ArchiveToastManager.show("肖像照片已更新")
                     }
                 } catch (e: Exception) {
-                    Toast.makeText(context, "头像上传失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    ArchiveToastManager.show("头像上传失败: ${e.message}", isError = true)
                 } finally {
                     isUploadingAvatar = false
                 }
@@ -536,18 +555,10 @@ fun ProfileScreen(
                                             availableUpdate = result.release
                                         }
                                         is UpdateCheckResult.AlreadyLatest -> {
-                                            Toast.makeText(
-                                                context,
-                                                "当前已是最新版本 (v${UpdateChecker.currentVersionName})",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
+                                            ArchiveToastManager.show("当前已是最新版本 (v${UpdateChecker.currentVersionName})")
                                         }
                                         is UpdateCheckResult.Error -> {
-                                            Toast.makeText(
-                                                context,
-                                                "检测更新失败: ${result.message}",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
+                                            ArchiveToastManager.show("检测更新失败: ${result.message}", isError = true)
                                         }
                                     }
                                     isCheckingUpdate = false
@@ -592,103 +603,29 @@ fun ProfileScreen(
                 val update = availableUpdate!!
                 var downloadProgress by remember { mutableStateOf(0f) }
                 var isDownloading by remember { mutableStateOf(false) }
-                var downloadedFile by remember { mutableStateOf<java.io.File?>(null) }
 
-                AlertDialog(
-                    onDismissRequest = {
+                ArchiveReleaseDialog(
+                    release = update,
+                    isDownloading = isDownloading,
+                    downloadProgress = if (isDownloading) downloadProgress else null,
+                    onDismiss = {
                         if (!isDownloading) availableUpdate = null
                     },
-                    title = {
-                        Text(
-                            text = "🎉 发现新版本 ${update.tagName}",
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium
-                        )
-                    },
-                    text = {
-                        Column {
-                            Text(
-                                text = "发布时间: ${update.publishedAt.take(10)}",
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 11.sp,
-                                color = colors.inkMuted
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = update.body.ifBlank { "包含功能迭代与性能稳定性增强。" },
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontSize = 13.sp,
-                                lineHeight = 18.sp,
-                                color = colors.inkSecondary
-                            )
-                            if (isDownloading) {
-                                Spacer(modifier = Modifier.height(12.dp))
-                                LinearProgressIndicator(
-                                    progress = { downloadProgress },
-                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                                    color = colors.accentWarm,
-                                    trackColor = colors.accentWarm.copy(alpha = 0.2f)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "应用内高速下载中: ${(downloadProgress * 100).toInt()}%",
-                                    fontSize = 11.sp,
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    color = colors.accentWarm
-                                )
+                    onDownloadAndInstall = {
+                        scope.launch {
+                            isDownloading = true
+                            val res = UpdateChecker.downloadApkStream(
+                                context = context,
+                                apkUrl = update.apkUrl,
+                                versionName = update.versionName
+                            ) { p, _, _ ->
+                                downloadProgress = p
                             }
-                        }
-                    },
-                    confirmButton = {
-                        if (downloadedFile != null) {
-                            Button(
-                                onClick = {
-                                    UpdateChecker.installApk(context, downloadedFile!!)
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = colors.accentWarm,
-                                    contentColor = colors.archivePaper
-                                ),
-                                shape = RoundedCornerShape(2.dp)
-                            ) {
-                                Text("立即安装", fontFamily = ArchiveFontFamilies.EditorialSerif)
-                            }
-                        } else {
-                            Button(
-                                enabled = !isDownloading,
-                                onClick = {
-                                    scope.launch {
-                                        isDownloading = true
-                                        val res = UpdateChecker.downloadApkStream(
-                                            context = context,
-                                            apkUrl = update.apkUrl,
-                                            versionName = update.versionName
-                                        ) { p, _, _ ->
-                                            downloadProgress = p
-                                        }
-                                        isDownloading = false
-                                        res.onSuccess { f ->
-                                            downloadedFile = f
-                                            UpdateChecker.installApk(context, f)
-                                        }.onFailure { err ->
-                                            Toast.makeText(context, "下载失败: ${err.message}", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = colors.accentWarm,
-                                    contentColor = colors.archivePaper
-                                ),
-                                shape = RoundedCornerShape(2.dp)
-                            ) {
-                                Text(if (isDownloading) "正在下载 ${(downloadProgress * 100).toInt()}%" else "应用内直接更新", fontFamily = ArchiveFontFamilies.EditorialSerif)
-                            }
-                        }
-                    },
-                    dismissButton = {
-                        if (!isDownloading) {
-                            TextButton(onClick = { availableUpdate = null }) {
-                                Text("稍后再说", color = colors.inkSecondary)
+                            isDownloading = false
+                            res.onSuccess { f ->
+                                UpdateChecker.installApk(context, f)
+                            }.onFailure { err ->
+                                ArchiveToastManager.show("下载失败: ${err.message}", isError = true)
                             }
                         }
                     }
@@ -696,34 +633,25 @@ fun ProfileScreen(
             }
 
             if (showUnpairDialog) {
-                AlertDialog(
-                    onDismissRequest = { showUnpairDialog = false },
-                    title = { Text("解除受信任设备？", fontFamily = ArchiveFontFamilies.EditorialSerif) },
-                    text = { Text("解除后将清除本机 KeyStore 中的 Device Token，本机将无法再向中枢提交任何记录，需重新扫码配对。", fontFamily = ArchiveFontFamilies.BodySans) },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                haptics.tearDelete()
-                                val currentDeviceId = credentialStore.deviceId
-                                showUnpairDialog = false
-                                scope.launch {
-                                    if (!currentDeviceId.isNullOrBlank()) {
-                                        runCatching { apiClient.revokeDevice(currentDeviceId) }
-                                    }
-                                    runCatching { syncManager.clearAllLocalData() }
-                                    credentialStore.clearCredentials()
-                                    onUnpair()
-                                }
+                ArchiveConfirmDialog(
+                    title = "解除受信任设备？",
+                    content = "解除后将清除本机 KeyStore 中的 Device Token，本机将无法再向中枢提交任何记录，需重新扫码配对。",
+                    confirmText = "确认解除",
+                    isDestructive = true,
+                    onConfirm = {
+                        haptics.tearDelete()
+                        val currentDeviceId = credentialStore.deviceId
+                        showUnpairDialog = false
+                        scope.launch {
+                            if (!currentDeviceId.isNullOrBlank()) {
+                                runCatching { apiClient.revokeDevice(currentDeviceId) }
                             }
-                        ) {
-                            Text("确认解除", color = colors.accentWarm)
+                            runCatching { syncManager.clearAllLocalData() }
+                            credentialStore.clearCredentials()
+                            onUnpair()
                         }
                     },
-                    dismissButton = {
-                        TextButton(onClick = { showUnpairDialog = false }) {
-                            Text("取消", color = colors.inkSecondary)
-                        }
-                    }
+                    onDismiss = { showUnpairDialog = false }
                 )
             }
 
@@ -735,7 +663,7 @@ fun ProfileScreen(
                         scope.launch {
                             runCatching {
                                 profile = apiClient.updateCuratorProfile(req)
-                                Toast.makeText(context, "主理人档案已保存", Toast.LENGTH_SHORT).show()
+                                ArchiveToastManager.show("主理人档案已保存")
                             }
                             showEditProfileDialog = false
                         }
@@ -744,8 +672,12 @@ fun ProfileScreen(
             }
 
             if (showRenameDeviceDialog) {
-                RenameDeviceDialog(
-                    currentName = credentialStore.deviceName,
+                ArchivePromptDialog(
+                    title = "重命名此设备",
+                    initialValue = credentialStore.deviceName,
+                    placeholder = "设备名称 (如: 主理人的随行手机)",
+                    label = "为当前随行设备设置识别别名：",
+                    confirmText = "确认更名",
                     onDismiss = { showRenameDeviceDialog = false },
                     onConfirm = { newName ->
                         val devId = credentialStore.deviceId
@@ -754,7 +686,7 @@ fun ProfileScreen(
                                 runCatching {
                                     apiClient.updateDeviceName(devId, newName)
                                     credentialStore.deviceName = newName
-                                    Toast.makeText(context, "设备名称已更新", Toast.LENGTH_SHORT).show()
+                                    ArchiveToastManager.show("设备名称已更新")
                                 }
                                 showRenameDeviceDialog = false
                             }
@@ -785,69 +717,23 @@ private fun EditProfileSheet(
     var currentCity by remember(profile) { mutableStateOf(profile.currentCity ?: "") }
     var motto by remember(profile) { mutableStateOf(profile.motto ?: "") }
     var manifesto by remember(profile) { mutableStateOf(profile.manifesto ?: "") }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    ModalBottomSheet(
+    ArchiveBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = colors.archivePaper,
-        dragHandle = null,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        modifier = Modifier.imePadding()
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            // 顶栏：取消 / 标题 / 保存
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                TextButton(
-                    onClick = onDismiss,
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                ) {
-                    Text("取消", color = colors.inkSecondary, fontSize = 14.sp)
-                }
-
-                Text(
-                    text = "《主理人手卷》",
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 16.sp,
-                    color = colors.inkPrimary
+        title = "《主理人手卷》",
+        actionButtonText = "保存档案",
+        isActionEnabled = name.isNotBlank(),
+        onActionClick = {
+            onSave(
+                UpdateProfileRequest(
+                    name = name.trim(),
+                    title = title.trim().takeIf { it.isNotBlank() },
+                    currentCity = currentCity.trim().takeIf { it.isNotBlank() },
+                    motto = motto.trim().takeIf { it.isNotBlank() },
+                    manifesto = manifesto.trim().takeIf { it.isNotBlank() }
                 )
-
-                TextButton(
-                    enabled = name.isNotBlank(),
-                    onClick = {
-                        onSave(
-                            UpdateProfileRequest(
-                                name = name.trim(),
-                                title = title.trim().takeIf { it.isNotBlank() },
-                                currentCity = currentCity.trim().takeIf { it.isNotBlank() },
-                                motto = motto.trim().takeIf { it.isNotBlank() },
-                                manifesto = manifesto.trim().takeIf { it.isNotBlank() }
-                            )
-                        )
-                    },
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                ) {
-                    Text(
-                        text = "保存档案",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp,
-                        color = if (name.isNotBlank()) colors.accentWarm else colors.inkMuted
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
+            )
+        }
+    ) {
 
             // 称谓大标题输入
             Text("称谓", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 11.sp, color = colors.inkMuted)
@@ -1002,50 +888,7 @@ private fun EditProfileSheet(
                 }
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
-        }
     }
-}
-
-@Composable
-private fun RenameDeviceDialog(
-    currentName: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
-) {
-    val colors = LooseLeafTheme.colors
-    var nameInput by remember { mutableStateOf(currentName) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("重命名此设备", fontFamily = ArchiveFontFamilies.EditorialSerif) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("为当前随行设备设置识别别名 (如: 主理人的随行手机)：", fontSize = 12.sp, color = colors.inkSecondary)
-                PaperTextField(
-                    value = nameInput,
-                    onValueChange = { nameInput = it },
-                    placeholder = "设备名称",
-                    isUnderline = true,
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = nameInput.isNotBlank(),
-                onClick = { onConfirm(nameInput.trim()) }
-            ) {
-                Text("确认更名", color = colors.accentWarm)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消", color = colors.inkSecondary)
-            }
-        }
-    )
 }
 
 @Composable

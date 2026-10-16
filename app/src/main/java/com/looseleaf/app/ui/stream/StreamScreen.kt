@@ -1,6 +1,5 @@
 package com.looseleaf.app.ui.stream
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -42,6 +41,7 @@ import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.model.AlmanacSummaryResponse
+import com.looseleaf.app.model.Attachment
 import com.looseleaf.app.model.CreateEntryRequest
 import com.looseleaf.app.model.LifeEntry
 import com.looseleaf.app.theme.ArchiveFontFamilies
@@ -93,6 +93,7 @@ fun StreamScreen(
 
     // 单条档案详情与编辑弹窗状态
     var selectedEntryForDetail by remember { mutableStateOf<LifeEntry?>(null) }
+    var lightboxPhoto by remember { mutableStateOf<Pair<String, String?>?>(null) }
 
     LaunchedEffect(Unit) {
         launch {
@@ -239,9 +240,9 @@ fun StreamScreen(
                                 }
                                 isRefreshing = false
                                 if (res.isSuccess) {
-                                    Toast.makeText(context, "档案已增量同步", Toast.LENGTH_SHORT).show()
+                                    ArchiveToastManager.show("档案已增量同步")
                                 } else {
-                                    Toast.makeText(context, "同步提示: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                                    ArchiveToastManager.show("同步提示: ${res.exceptionOrNull()?.message}", isError = true)
                                 }
                             }
                         },
@@ -347,7 +348,7 @@ fun StreamScreen(
                                         downloadedFile = f
                                         UpdateChecker.installApk(context, f)
                                     }.onFailure { err ->
-                                        Toast.makeText(context, "下载失败: ${err.message}", Toast.LENGTH_SHORT).show()
+                                        ArchiveToastManager.show("下载失败: ${err.message}", isError = true)
                                     }
                                 }
                             },
@@ -454,6 +455,9 @@ fun StreamScreen(
                             onDelete = {
                                 entryToDelete = entry
                             },
+                            onPhotoClick = { url, meta ->
+                                lightboxPhoto = url to meta
+                            },
                             modifier = Modifier.padding(vertical = 6.dp)
                         )
                     }
@@ -471,44 +475,47 @@ fun StreamScreen(
                     scope.launch {
                         haptics.stampSave()
                         syncManager.updateEntryOptimistic(activeEntry.id, req)
-                        Toast.makeText(context, "已修订归册", Toast.LENGTH_SHORT).show()
+                        ArchiveToastManager.show("已修订归册")
                         selectedEntryForDetail = null
                     }
                 },
                 onDelete = {
                     entryToDelete = activeEntry
+                },
+                onPhotoClick = { url, meta ->
+                    lightboxPhoto = url to meta
                 }
             )
         }
 
         // 撕除确认弹窗
         entryToDelete?.let { entry ->
-            AlertDialog(
-                onDismissRequest = { entryToDelete = null },
-                title = { Text("撕除手记？", fontFamily = ArchiveFontFamilies.EditorialSerif) },
-                text = { Text("确认从生活时间流中彻底移除《${entry.title.ifBlank { "无题随笔" }}》？", fontFamily = ArchiveFontFamilies.BodySans) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                haptics.tearDelete()
-                                syncManager.deleteEntry(entry.id)
-                                Toast.makeText(context, "已撕除记录", Toast.LENGTH_SHORT).show()
-                                entryToDelete = null
-                                if (selectedEntryForDetail?.id == entry.id) {
-                                    selectedEntryForDetail = null
-                                }
-                            }
+            ArchiveConfirmDialog(
+                title = "撕除手记？",
+                content = "确认从生活时间流中彻底移除《${entry.title.ifBlank { "无题随笔" }}》？",
+                confirmText = "确认撕除",
+                isDestructive = true,
+                onConfirm = {
+                    scope.launch {
+                        haptics.tearDelete()
+                        syncManager.deleteEntry(entry.id)
+                        ArchiveToastManager.show("已撕除记录")
+                        entryToDelete = null
+                        if (selectedEntryForDetail?.id == entry.id) {
+                            selectedEntryForDetail = null
                         }
-                    ) {
-                        Text("确认撕除", color = colors.accentWarm)
                     }
                 },
-                dismissButton = {
-                    TextButton(onClick = { entryToDelete = null }) {
-                        Text("取消", color = colors.inkSecondary)
-                    }
-                }
+                onDismiss = { entryToDelete = null }
+            )
+        }
+
+        // 全屏照片灯箱
+        lightboxPhoto?.let { (url, meta) ->
+            ArchiveLightboxViewer(
+                imageUrl = url,
+                metadataText = meta,
+                onDismiss = { lightboxPhoto = null }
             )
         }
 
@@ -540,7 +547,7 @@ fun StreamScreen(
                             cityCode = code,
                             cityName = cityName
                         )
-                        Toast.makeText(context, "随笔已归册", Toast.LENGTH_SHORT).show()
+                        ArchiveToastManager.show("随笔已归册")
                         showQuickNoteDialog = false
                     }
                 }
@@ -662,7 +669,8 @@ private fun EntryDetailSheetDialog(
     apiClient: APIClient,
     onDismiss: () -> Unit,
     onSaveEdit: (CreateEntryRequest) -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onPhotoClick: (String, String?) -> Unit
 ) {
     val colors = LooseLeafTheme.colors
     var isEditing by remember { mutableStateOf(false) }
@@ -891,15 +899,12 @@ private fun EntryDetailSheetDialog(
 
                     if (entry.attachments.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(14.dp))
-                        for (att in entry.attachments) {
-                            val fullUrl = apiClient.resolveMediaUrl(att.url)
-                            val meta = entry.camera ?: att.originalFilename
-                            FilmFrame(
-                                imageUrl = fullUrl,
-                                metadataText = meta,
-                                modifier = Modifier.padding(vertical = 6.dp)
-                            )
-                        }
+                        EntryAttachmentsGrid(
+                            attachments = entry.attachments,
+                            camera = entry.camera,
+                            apiClient = apiClient,
+                            onPhotoClick = onPhotoClick
+                        )
                     }
                 }
             }
@@ -1251,11 +1256,90 @@ private fun StreamFilterBar(
 }
 
 @Composable
+private fun EntryAttachmentsGrid(
+    attachments: List<Attachment>,
+    camera: String?,
+    apiClient: APIClient,
+    onPhotoClick: (String, String?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (attachments.isEmpty()) return
+
+    Column(modifier = modifier) {
+        val count = attachments.size
+        when (count) {
+            1 -> {
+                val att = attachments.first()
+                val fullUrl = apiClient.resolveMediaUrl(att.url)
+                val meta = camera ?: att.originalFilename
+                FilmFrame(
+                    imageUrl = fullUrl,
+                    metadataText = meta,
+                    aspectRatio = 4f / 3f,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    onClick = { onPhotoClick(fullUrl, meta) }
+                )
+            }
+            2, 4 -> {
+                attachments.chunked(2).forEach { row ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (att in row) {
+                            val fullUrl = apiClient.resolveMediaUrl(att.url)
+                            val meta = camera ?: att.originalFilename
+                            FilmFrame(
+                                imageUrl = fullUrl,
+                                metadataText = null,
+                                aspectRatio = 1f,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onPhotoClick(fullUrl, meta) }
+                            )
+                        }
+                    }
+                }
+            }
+            else -> {
+                attachments.chunked(3).forEach { row ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (att in row) {
+                            val fullUrl = apiClient.resolveMediaUrl(att.url)
+                            val meta = camera ?: att.originalFilename
+                            FilmFrame(
+                                imageUrl = fullUrl,
+                                metadataText = null,
+                                aspectRatio = 1f,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onPhotoClick(fullUrl, meta) }
+                            )
+                        }
+                        if (row.size < 3) {
+                            repeat(3 - row.size) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun StreamEntryCard(
     entry: LifeEntry,
     apiClient: APIClient,
     onClick: () -> Unit,
     onDelete: () -> Unit,
+    onPhotoClick: (String, String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
@@ -1364,19 +1448,15 @@ private fun StreamEntryCard(
                 )
             }
 
-            // 关联胶片相纸附件渲染
+            // 关联胶片相纸附件渲染 (多图网格与触击放大灯箱)
             if (entry.attachments.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
-                for (att in entry.attachments) {
-                    val fullUrl = apiClient.resolveMediaUrl(att.url)
-                    val meta = entry.camera ?: att.originalFilename
-                    FilmFrame(
-                        imageUrl = fullUrl,
-                        metadataText = meta,
-                        modifier = Modifier.padding(vertical = 4.dp),
-                        onClick = onClick
-                    )
-                }
+                EntryAttachmentsGrid(
+                    attachments = entry.attachments,
+                    camera = entry.camera,
+                    apiClient = apiClient,
+                    onPhotoClick = onPhotoClick
+                )
             }
         }
     }

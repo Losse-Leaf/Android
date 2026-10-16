@@ -2,6 +2,7 @@ package com.looseleaf.app.data.local
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.looseleaf.app.model.LifeEntry
 import com.looseleaf.app.model.Transaction
@@ -10,7 +11,14 @@ import com.looseleaf.app.utils.FormatUtils
 /**
  * 离线本地生活记录缓存表 (CachedEntry) - docs/mobile.md §4
  */
-@Entity(tableName = "cached_entries")
+@Entity(
+    tableName = "cached_entries",
+    indices = [
+        Index(value = ["occurred_at"]),
+        Index(value = ["server_id"]),
+        Index(value = ["sync_status"])
+    ]
+)
 data class CachedEntryEntity(
     @PrimaryKey(autoGenerate = true)
     @ColumnInfo(name = "local_id") val localId: Long = 0,
@@ -32,7 +40,14 @@ data class CachedEntryEntity(
  * 离线记账明细缓存表 (CachedTransaction) - docs/mobile.md §4
  * 铁律：金额字段严格为 Long 整型分 (Cents)
  */
-@Entity(tableName = "cached_transactions")
+@Entity(
+    tableName = "cached_transactions",
+    indices = [
+        Index(value = ["occurred_at"]),
+        Index(value = ["server_id"]),
+        Index(value = ["sync_status"])
+    ]
+)
 data class CachedTransactionEntity(
     @PrimaryKey(autoGenerate = true)
     @ColumnInfo(name = "local_id") val localId: Long = 0,
@@ -52,7 +67,13 @@ data class CachedTransactionEntity(
 /**
  * 发件箱事件日志表 (OutboxEvent) - docs/mobile.md §4
  */
-@Entity(tableName = "outbox_events")
+@Entity(
+    tableName = "outbox_events",
+    indices = [
+        Index(value = ["created_at"]),
+        Index(value = ["entity_type"])
+    ]
+)
 data class OutboxEventEntity(
     @PrimaryKey
     @ColumnInfo(name = "event_id") val eventId: String,
