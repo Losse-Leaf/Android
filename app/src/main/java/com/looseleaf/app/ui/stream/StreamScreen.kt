@@ -59,6 +59,7 @@ import java.time.LocalDate
  * 生活时间流主展厅 (StreamScreen) - docs/mobile.md §3 & docs/ecosystem.md §4.1
  * 承载生命之流母体记录，支持相纸画廊、那年今日回响、年度生活年鉴、详情查阅与行内修订、岁月留白切线
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StreamScreen(
     onNavigateToDarkroom: () -> Unit,
@@ -520,9 +521,9 @@ fun StreamScreen(
             )
         }
 
-        // 速记随笔对话框
+        // 速记随笔底抽信笺
         if (showQuickNoteDialog) {
-            QuickNoteDialog(
+            QuickNoteSheet(
                 onDismiss = { showQuickNoteDialog = false },
                 onSave = { type, title, content, loc ->
                     scope.launch {
@@ -1565,8 +1566,9 @@ private fun GlobalSearchDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun QuickNoteDialog(
+private fun QuickNoteSheet(
     onDismiss: () -> Unit,
     onSave: (type: String, title: String, content: String, location: String) -> Unit
 ) {
@@ -1575,69 +1577,177 @@ private fun QuickNoteDialog(
     var noteTitle by remember { mutableStateOf("") }
     var noteContent by remember { mutableStateOf("") }
     var noteLocation by remember { mutableStateOf("") }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    AlertDialog(
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text("速记随笔 · 生活印记", fontFamily = ArchiveFontFamilies.EditorialSerif) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("life" to "日常", "travel" to "游历", "project" to "造物", "wish" to "心愿").forEach { (k, label) ->
-                        PaperFilterPill(
-                            selected = noteType == k,
-                            onClick = { noteType = k },
-                            label = label
+        sheetState = sheetState,
+        containerColor = colors.archivePaper,
+        dragHandle = null,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier.imePadding()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 16.dp)
+        ) {
+            // 顶栏：取消 / 标题 / 存入散页
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                TextButton(
+                    onClick = onDismiss,
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                ) {
+                    Text("取消", color = colors.inkSecondary, fontSize = 14.sp)
+                }
+
+                Text(
+                    text = "《新散页》",
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 16.sp,
+                    color = colors.inkPrimary
+                )
+
+                TextButton(
+                    enabled = noteTitle.isNotBlank() || noteContent.isNotBlank(),
+                    onClick = {
+                        onSave(noteType, noteTitle.trim(), noteContent.trim(), noteLocation.trim())
+                    },
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                ) {
+                    Text(
+                        text = "存入手账",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 14.sp,
+                        color = if (noteTitle.isNotBlank() || noteContent.isNotBlank()) colors.accentWarm else colors.inkMuted
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 模式胶囊
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("life" to "日常", "travel" to "游历", "project" to "造物", "wish" to "心愿").forEach { (k, label) ->
+                    PaperFilterPill(
+                        selected = noteType == k,
+                        onClick = { noteType = k },
+                        label = label
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // 标题输入（大号无框衬线体）
+            androidx.compose.foundation.text.BasicTextField(
+                value = noteTitle,
+                onValueChange = { noteTitle = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                textStyle = TextStyle(
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.inkPrimary
+                ),
+                cursorBrush = SolidColor(colors.accentWarm),
+                decorationBox = { innerTextField ->
+                    if (noteTitle.isEmpty()) {
+                        Text(
+                            text = "给此刻起个名字…",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = colors.inkMuted.copy(alpha = 0.5f)
                         )
                     }
+                    innerTextField()
                 }
-                PaperTextField(
-                    value = noteTitle,
-                    onValueChange = { noteTitle = it },
-                    placeholder = "记录命名 (可选)",
-                    isUnderline = true,
-                    textStyle = TextStyle(
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.inkPrimary
-                    ),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+            HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 正文书写（开阔自由无框文稿区，绝无发黄盒子）
+            androidx.compose.foundation.text.BasicTextField(
+                value = noteContent,
+                onValueChange = { noteContent = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .heightIn(min = 140.dp, max = 280.dp),
+                textStyle = TextStyle(
+                    fontFamily = ArchiveFontFamilies.BodySans,
+                    fontSize = 15.sp,
+                    lineHeight = 24.sp,
+                    color = colors.inkPrimary
+                ),
+                cursorBrush = SolidColor(colors.accentWarm),
+                decorationBox = { innerTextField ->
+                    if (noteContent.isEmpty()) {
+                        Text(
+                            text = "提笔写下当下的心绪、现场气味或片刻偶遇…",
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 15.sp,
+                            lineHeight = 24.sp,
+                            color = colors.inkMuted.copy(alpha = 0.45f)
+                        )
+                    }
+                    innerTextField()
+                }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 底部轻量地点输入
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(colors.archiveSubtle.copy(alpha = 0.5f))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.LocationOn,
+                    contentDescription = null,
+                    tint = colors.accentWarm,
+                    modifier = Modifier.size(14.dp)
                 )
-                PaperTextEditor(
-                    value = noteContent,
-                    onValueChange = { noteContent = it },
-                    placeholder = "当下心绪手记 *",
-                    minHeight = 90.dp,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                PaperTextField(
+                Spacer(modifier = Modifier.width(6.dp))
+                androidx.compose.foundation.text.BasicTextField(
                     value = noteLocation,
                     onValueChange = { noteLocation = it },
-                    placeholder = "地点/城市 (可选)",
-                    isUnderline = true,
-                    leadingIcon = {
-                        Icon(Icons.Outlined.LocationOn, contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(15.dp))
-                    },
+                    modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    textStyle = TextStyle(
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 12.sp,
+                        color = colors.inkSecondary
+                    ),
+                    cursorBrush = SolidColor(colors.accentWarm),
+                    decorationBox = { innerTextField ->
+                        if (noteLocation.isEmpty()) {
+                            Text(
+                                text = "添加所处地点 (如: 杭州西湖)",
+                                fontSize = 12.sp,
+                                color = colors.inkMuted
+                            )
+                        }
+                        innerTextField()
+                    }
                 )
             }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = noteTitle.isNotBlank() || noteContent.isNotBlank(),
-                onClick = {
-                    onSave(noteType, noteTitle.trim(), noteContent.trim(), noteLocation.trim())
-                }
-            ) {
-                Text("完成记录", color = colors.accentWarm)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消", color = colors.inkSecondary)
-            }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
-    )
+    }
 }

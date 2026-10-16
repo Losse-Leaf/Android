@@ -22,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +50,7 @@ import kotlinx.coroutines.launch
  * 造物、心愿与山川足迹视界 (ProjectsWishesScreen)
  * 严格遵从 docs/README.md §三.8 记录为一切的母体原则
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectsWishesScreen(
     modifier: Modifier = Modifier
@@ -213,131 +215,209 @@ fun ProjectsWishesScreen(
             var inputNote by remember { mutableStateOf("") }
             var inputThird by remember { mutableStateOf("") }
             var wishKind by remember { mutableStateOf("item") }
+            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-            AlertDialog(
+            ModalBottomSheet(
                 onDismissRequest = { showCreateDialog = false },
-                title = {
-                    Text(
-                        text = when (selectedTab) {
-                            0 -> "新建造物项目"
-                            1 -> "许下新心愿"
-                            else -> "点亮山川足迹"
-                        },
-                        fontFamily = ArchiveFontFamilies.EditorialSerif
-                    )
-                },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (selectedTab == 1) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("item" to "好物", "travel" to "旅程", "milestone" to "里程碑").forEach { (k, label) ->
-                                    PaperFilterPill(
-                                        selected = wishKind == k,
-                                        onClick = { wishKind = k },
-                                        label = label
-                                    )
-                                }
-                            }
+                sheetState = sheetState,
+                containerColor = colors.archivePaper,
+                dragHandle = null,
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+                modifier = Modifier.imePadding()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                ) {
+                    // 顶栏：取消 / 标题 / 保存
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        TextButton(
+                            onClick = { showCreateDialog = false },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                        ) {
+                            Text("取消", color = colors.inkSecondary, fontSize = 14.sp)
                         }
-                        PaperTextField(
-                            value = inputTitle,
-                            onValueChange = { inputTitle = it },
-                            placeholder = when (selectedTab) {
-                                0 -> "造物名称"
-                                1 -> "心愿标题"
-                                else -> "城市名称 (如: 杭州市、大理市)"
+
+                        Text(
+                            text = when (selectedTab) {
+                                0 -> "《新建造物》"
+                                1 -> "《许下心愿》"
+                                else -> "《点亮足迹》"
                             },
-                            isUnderline = true,
-                            textStyle = TextStyle(
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = colors.inkPrimary
-                            ),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 16.sp,
+                            color = colors.inkPrimary
                         )
-                        if (selectedTab == 1) {
-                            PaperTextField(
-                                value = inputThird,
-                                onValueChange = { inputThird = it },
-                                placeholder = "预算金额 (元，可选)",
-                                isUnderline = true,
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        } else if (selectedTab == 2) {
-                            PaperTextField(
-                                value = inputThird,
-                                onValueChange = { inputThird = it },
-                                placeholder = "旅程标题 (可选)",
-                                isUnderline = true,
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        PaperTextEditor(
-                            value = inputNote,
-                            onValueChange = { inputNote = it },
-                            placeholder = "随笔或备注手记...",
-                            minHeight = 84.dp,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        enabled = inputTitle.isNotBlank(),
-                        onClick = {
-                            scope.launch {
-                                try {
-                                    when (selectedTab) {
-                                        0 -> apiClient.createProject(
-                                            CreateProjectRequest(
-                                                title = inputTitle.trim(),
-                                                description = inputNote.trim()
-                                            )
-                                        )
-                                        1 -> apiClient.createWish(
-                                            CreateWishRequest(
-                                                title = inputTitle.trim(),
-                                                kind = wishKind,
-                                                note = inputNote.trim().takeIf { it.isNotBlank() },
-                                                budget = FormatUtils.yuanStringToCents(inputThird)
-                                            )
-                                        )
-                                        else -> {
-                                            val city = inputTitle.trim()
-                                            val code = CityDictionary.codeForLocation(city) ?: "330100"
-                                            apiClient.createFootprint(
-                                                CreateFootprintRequest(
-                                                    cityCode = code,
-                                                    cityName = city,
-                                                    title = inputThird.trim().takeIf { it.isNotBlank() },
-                                                    visitedAt = FormatUtils.beijingNowIsoString(),
-                                                    note = inputNote.trim().takeIf { it.isNotBlank() }
+
+                        TextButton(
+                            enabled = inputTitle.isNotBlank(),
+                            onClick = {
+                                scope.launch {
+                                    try {
+                                        when (selectedTab) {
+                                            0 -> apiClient.createProject(
+                                                CreateProjectRequest(
+                                                    title = inputTitle.trim(),
+                                                    description = inputNote.trim()
                                                 )
                                             )
+                                            1 -> apiClient.createWish(
+                                                CreateWishRequest(
+                                                    title = inputTitle.trim(),
+                                                    kind = wishKind,
+                                                    note = inputNote.trim().takeIf { it.isNotBlank() },
+                                                    budget = FormatUtils.yuanStringToCents(inputThird)
+                                                )
+                                            )
+                                            else -> {
+                                                val city = inputTitle.trim()
+                                                val code = CityDictionary.codeForLocation(city) ?: "330100"
+                                                apiClient.createFootprint(
+                                                    CreateFootprintRequest(
+                                                        cityCode = code,
+                                                        cityName = city,
+                                                        title = inputThird.trim().takeIf { it.isNotBlank() },
+                                                        visitedAt = FormatUtils.beijingNowIsoString(),
+                                                        note = inputNote.trim().takeIf { it.isNotBlank() }
+                                                    )
+                                                )
+                                            }
                                         }
+                                        haptics.stampSave()
+                                        showCreateDialog = false
+                                        reloadAll()
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "创建失败: ${e.message}", Toast.LENGTH_SHORT).show()
                                     }
-                                    haptics.stampSave()
-                                    showCreateDialog = false
-                                    reloadAll()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "创建失败: ${e.message}", Toast.LENGTH_SHORT).show()
                                 }
+                            },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                        ) {
+                            Text(
+                                text = "确认保存",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp,
+                                color = if (inputTitle.isNotBlank()) colors.accentWarm else colors.inkMuted
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    if (selectedTab == 1) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("item" to "好物", "travel" to "旅程", "milestone" to "里程碑").forEach { (k, label) ->
+                                PaperFilterPill(
+                                    selected = wishKind == k,
+                                    onClick = { wishKind = k },
+                                    label = label
+                                )
                             }
                         }
-                    ) {
-                        Text("保存归册", color = colors.accentWarm)
+                        Spacer(modifier = Modifier.height(14.dp))
                     }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showCreateDialog = false }) {
-                        Text("取消", color = colors.inkSecondary)
+
+                    // 大号标题输入
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = inputTitle,
+                        onValueChange = { inputTitle = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.inkPrimary
+                        ),
+                        cursorBrush = SolidColor(colors.accentWarm),
+                        decorationBox = { innerTextField ->
+                            if (inputTitle.isEmpty()) {
+                                Text(
+                                    text = when (selectedTab) {
+                                        0 -> "造物名称…"
+                                        1 -> "心愿标题…"
+                                        else -> "城市名称 (如: 杭州、大理)…"
+                                    },
+                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                    fontSize = 20.sp,
+                                    color = colors.inkMuted.copy(alpha = 0.5f)
+                                )
+                            }
+                            innerTextField()
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    if (selectedTab == 1 || selectedTab == 2) {
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = inputThird,
+                            onValueChange = { inputThird = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                fontFamily = ArchiveFontFamilies.BodySans,
+                                fontSize = 15.sp,
+                                color = colors.inkPrimary
+                            ),
+                            cursorBrush = SolidColor(colors.accentWarm),
+                            decorationBox = { innerTextField ->
+                                if (inputThird.isEmpty()) {
+                                    Text(
+                                        text = if (selectedTab == 1) "预算金额 (元，可选)" else "旅程标题 (可选)",
+                                        fontSize = 15.sp,
+                                        color = colors.inkMuted.copy(alpha = 0.5f)
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
+                        Spacer(modifier = Modifier.height(14.dp))
                     }
+
+                    // 开阔手记书写区域
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = inputNote,
+                        onValueChange = { inputNote = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .heightIn(min = 120.dp, max = 240.dp),
+                        textStyle = TextStyle(
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 14.5.sp,
+                            lineHeight = 24.sp,
+                            color = colors.inkPrimary
+                        ),
+                        cursorBrush = SolidColor(colors.accentWarm),
+                        decorationBox = { innerTextField ->
+                            if (inputNote.isEmpty()) {
+                                Text(
+                                    text = "写下背后的故事、随笔手记或愿景备忘…",
+                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    fontSize = 14.5.sp,
+                                    lineHeight = 24.sp,
+                                    color = colors.inkMuted.copy(alpha = 0.45f)
+                                )
+                            }
+                            innerTextField()
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
-            )
+            }
         }
 
         resolvingWish?.let { wish ->
