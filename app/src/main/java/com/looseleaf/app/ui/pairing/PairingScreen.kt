@@ -380,7 +380,7 @@ fun PairingScreen(
 
                 // 完成进入按钮 (同时调用后端 PUT /api/v1/auth/devices/:id 同步自定义设备名称)
                 TerracottaStampButton(
-                    text = "【 完成设置，进入散页 (ENTER) 】",
+                    text = "完成设置，进入散页",
                     enabled = customDeviceName.isNotBlank(),
                     onClick = {
                         val finalName = customDeviceName.trim()

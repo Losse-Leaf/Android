@@ -107,6 +107,21 @@ class SyncManager private constructor(private val context: Context) {
         entities.map { it.toDomainModel() }
     }
 
+    // 观察全量造物项目 (离线缓存即时上屏)
+    val projectsFlow: Flow<List<Project>> = database.projectDao().getAllProjectsFlow().map { entities ->
+        entities.map { it.toDomainModel() }
+    }
+
+    // 观察全量三维心愿 (离线缓存即时上屏)
+    val wishesFlow: Flow<List<Wish>> = database.wishDao().getAllWishesFlow().map { entities ->
+        entities.map { it.toDomainModel() }
+    }
+
+    // 观察全量山川足迹 (离线缓存即时上屏)
+    val footprintsFlow: Flow<List<Footprint>> = database.footprintDao().getAllFootprintsFlow().map { entities ->
+        entities.map { it.toDomainModel() }
+    }
+
     /**
      * 将压制后的相纸字节保存至离线发件箱目录
      */
@@ -539,6 +554,9 @@ class SyncManager private constructor(private val context: Context) {
             database.entryDao().clearAll()
             database.transactionDao().clearAll()
             database.outboxDao().clearAll()
+            database.projectDao().clearAll()
+            database.wishDao().clearAll()
+            database.footprintDao().clearAll()
         }
         syncPrefs.edit().clear().apply()
         runCatching {
@@ -706,6 +724,58 @@ class SyncManager private constructor(private val context: Context) {
             syncPrefs.edit().putString(KEY_TX_CURSOR, maxTxUpdated).apply()
         } else if (txCursor.isNullOrBlank()) {
             syncPrefs.edit().putString(KEY_TX_CURSOR, FormatUtils.beijingNowIsoString()).apply()
+        }
+
+        // 4. 同步造物、心愿与山川足迹至离线 Room 数据库
+        runCatching {
+            val remoteProjects = apiClient.fetchProjects()
+            database.projectDao().clearAll()
+            database.projectDao().insertAll(remoteProjects.map {
+                CachedProjectEntity(
+                    id = it.id,
+                    title = it.title,
+                    subtitle = it.subtitle,
+                    description = it.description,
+                    status = it.status,
+                    githubUrl = it.githubUrl,
+                    order = it.order,
+                    updatedAt = it.updatedAt
+                )
+            })
+        }
+        runCatching {
+            val remoteWishes = apiClient.fetchWishes()
+            database.wishDao().clearAll()
+            database.wishDao().insertAll(remoteWishes.map {
+                CachedWishEntity(
+                    id = it.id,
+                    title = it.title,
+                    kind = it.kind,
+                    note = it.note,
+                    spec = it.spec,
+                    budget = it.budget,
+                    actualCost = it.actualCost,
+                    status = it.status,
+                    fulfilledAt = it.fulfilledAt,
+                    updatedAt = it.updatedAt
+                )
+            })
+        }
+        runCatching {
+            val remoteFootprints = apiClient.fetchFootprints()
+            database.footprintDao().clearAll()
+            database.footprintDao().insertAll(remoteFootprints.map {
+                CachedFootprintEntity(
+                    id = it.id,
+                    cityCode = it.cityCode,
+                    cityName = it.cityName,
+                    title = it.title,
+                    visitedAt = it.visitedAt,
+                    departedAt = it.departedAt,
+                    note = it.note,
+                    updatedAt = it.updatedAt
+                )
+            })
         }
     }
 
@@ -930,5 +1000,46 @@ fun CachedTransactionEntity.toDomainModel(): Transaction {
         cityCode = cityCode,
         syncStatus = syncStatus,
         createdAt = createdAt
+    )
+}
+
+fun CachedProjectEntity.toDomainModel(): Project {
+    return Project(
+        id = id,
+        title = title,
+        subtitle = subtitle,
+        description = description,
+        status = status,
+        githubUrl = githubUrl,
+        order = order,
+        updatedAt = updatedAt
+    )
+}
+
+fun CachedWishEntity.toDomainModel(): Wish {
+    return Wish(
+        id = id,
+        title = title,
+        kind = kind,
+        note = note,
+        spec = spec,
+        budget = budget,
+        actualCost = actualCost,
+        status = status,
+        fulfilledAt = fulfilledAt,
+        updatedAt = updatedAt
+    )
+}
+
+fun CachedFootprintEntity.toDomainModel(): Footprint {
+    return Footprint(
+        id = id,
+        cityCode = cityCode,
+        cityName = cityName,
+        title = title,
+        visitedAt = visitedAt,
+        departedAt = departedAt,
+        note = note,
+        updatedAt = updatedAt
     )
 }

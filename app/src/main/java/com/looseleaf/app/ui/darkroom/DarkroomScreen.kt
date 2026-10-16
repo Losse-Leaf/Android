@@ -163,7 +163,7 @@ fun DarkroomScreen(
             ) {
             // 顶栏标头
             Text(
-                text = "随行暗房 · 现场相纸",
+                text = "随行暗房",
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                 fontWeight = FontWeight.Medium,
                 fontSize = 22.sp,
@@ -172,7 +172,7 @@ fun DarkroomScreen(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "原图端侧无损压制至 4K · 自动提取 EXIF 与 GPS 城市坐标",
+                text = "银盐相纸装裱与现场手记",
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                 fontSize = 12.sp,
                 color = colors.inkSecondary
@@ -180,70 +180,31 @@ fun DarkroomScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 双联装片按钮：现场快门直拍 + 相册装入相纸
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            // 现场快门直拍
+            Button(
+                onClick = {
+                    haptics.tapKey()
+                    cameraLauncher.launch(null)
+                },
+                enabled = !isProcessing && photoSlots.size < 9,
+                shape = RoundedCornerShape(2.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.accentWarm,
+                    contentColor = colors.archivePaper
+                ),
+                modifier = Modifier.fillMaxWidth().height(42.dp)
             ) {
-                OutlinedButton(
-                    onClick = {
-                        haptics.tapKey()
-                        cameraLauncher.launch(null)
-                    },
-                    enabled = !isProcessing && photoSlots.size < 9,
-                    shape = RoundedCornerShape(2.dp),
-                    border = ButtonDefaults.outlinedButtonBorder.copy(
-                        brush = SolidColor(colors.accentWarm)
-                    ),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = colors.archiveSubtle,
-                        contentColor = colors.accentWarm
-                    ),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.CameraAlt,
-                        contentDescription = "现场快门直拍",
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "现场快门直拍",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 13.sp
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = {
-                        haptics.tapKey()
-                        multiPhotoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
-                    enabled = !isProcessing && photoSlots.size < 9,
-                    shape = RoundedCornerShape(2.dp),
-                    border = ButtonDefaults.outlinedButtonBorder.copy(
-                        brush = SolidColor(colors.borderDivider)
-                    ),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = colors.archiveSubtle,
-                        contentColor = colors.inkPrimary
-                    ),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.PhotoLibrary,
-                        contentDescription = "相册装入相纸",
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "相册装入相纸",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 13.sp
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Outlined.CameraAlt,
+                    contentDescription = "现场快门直拍",
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "现场快门直拍",
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontSize = 13.sp
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -390,13 +351,13 @@ fun DarkroomScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         listOf("life" to "日常随笔", "travel" to "山川游历", "project" to "造物日志", "wish" to "心愿印记").forEach { (k, label) ->
-                            FilterChip(
+                            PaperFilterPill(
                                 selected = selectedType == k,
                                 onClick = {
                                     haptics.tapKey()
                                     selectedType = k
                                 },
-                                label = { Text(label, fontSize = 11.sp) }
+                                label = label
                             )
                         }
                     }
@@ -425,7 +386,7 @@ fun DarkroomScreen(
                     PaperTextField(
                         value = locationText,
                         onValueChange = { locationText = it },
-                        placeholder = "所处地点 (如: 大理古城、上海武康路，自动提取 EXIF 城市坐标)",
+                        placeholder = "所处地点 (如: 大理古城、上海武康路)",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -436,7 +397,7 @@ fun DarkroomScreen(
 
             // 提交归册按钮
             TerracottaStampButton(
-                text = if (isSaving) "正在冲洗装裱..." else "盖印归册 (ARCHIVE)",
+                text = if (isSaving) "正在冲洗装裱..." else "完成记录",
                 enabled = !isSaving && !isProcessing && (titleText.isNotBlank() || contentText.isNotBlank() || photoSlots.isNotEmpty()),
                 onClick = {
                     scope.launch {

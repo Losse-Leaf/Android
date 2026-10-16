@@ -198,7 +198,7 @@ fun LedgerScreen(
                         color = colors.inkPrimary
                     )
                     Text(
-                        text = "盲打触觉记账 · 资产流动大盘 · 分期信贷透视",
+                        text = "生活收支流水与资产中枢",
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontSize = 11.sp,
                         color = colors.inkMuted
@@ -519,9 +519,9 @@ fun LedgerScreen(
                             keyHeight = keypadKeyHeight
                         )
 
-                        // 盖章记下按钮
+                        // 记入账本提交按钮
                         TerracottaStampButton(
-                            text = "【 盖章记下 (SAVE) 】",
+                            text = "记入账本",
                             enabled = inputAmountString != "0" && inputAmountString.toDoubleOrNull() != 0.0,
                             onClick = {
                                 val amountDouble = inputAmountString.toDoubleOrNull() ?: 0.0
@@ -613,10 +613,10 @@ fun LedgerScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("expense" to "支出", "income" to "收入").forEach { (k, label) ->
-                                FilterChip(
+                                PaperFilterPill(
                                     selected = editType == k,
                                     onClick = { editType = k },
-                                    label = { Text(label, fontSize = 11.sp) }
+                                    label = label
                                 )
                             }
                         }

@@ -267,16 +267,23 @@ fun ProfileScreen(
             // 本机入网受信任凭据卡片
             PaperCard(modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    Text(
-                        text = "受信任设备凭据",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 15.sp,
-                        color = colors.inkPrimary
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "受信任设备凭据",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 15.sp,
+                            color = colors.inkPrimary
+                        )
+                        PaperBadge(text = if (credentialStore.isPaired()) "已授权接入" else "未连接")
+                    }
 
-                    ProfileInfoRow(label = "设备编号", value = credentialStore.deviceId ?: "未绑定")
+                    Spacer(modifier = Modifier.height(10.dp))
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -284,23 +291,18 @@ fun ProfileScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(text = "设备名称", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
+                        Text(text = "设备别名", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = credentialStore.deviceName, fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 12.sp, color = colors.inkSecondary)
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(text = credentialStore.deviceName, fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp, color = colors.inkPrimary)
+                            Spacer(modifier = Modifier.width(6.dp))
                             TextButton(
                                 onClick = { showRenameDeviceDialog = true },
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                             ) {
-                                Text("重命名", fontSize = 10.sp, color = colors.accentWarm)
+                                Text("重命名", fontSize = 11.sp, color = colors.accentWarm)
                             }
                         }
                     }
-                    ProfileInfoRow(label = "中枢 Hub", value = apiClient.baseUrl)
-                    ProfileInfoRow(
-                        label = "授权状态",
-                        value = if (credentialStore.isPaired()) "已信任 (Active)" else "未配对"
-                    )
                 }
             }
 
@@ -476,7 +478,7 @@ fun ProfileScreen(
             ) {
                 Icon(Icons.Outlined.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("解除此设备绑定 (UNPAIR)", fontFamily = ArchiveFontFamilies.EditorialSerif)
+                Text("解除此设备绑定", fontFamily = ArchiveFontFamilies.EditorialSerif)
             }
 
             if (availableUpdate != null) {
@@ -804,20 +806,21 @@ private fun CategoryManagerDialog(
     val colors = LooseLeafTheme.colors
     val scope = rememberCoroutineScope()
     var selectedScope by remember { mutableStateOf("expense") }
-    var categories by remember { mutableStateOf<List<CategoryOption>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    var allCategories by remember { mutableStateOf<List<CategoryOption>>(emptyList()) }
     var newCategoryInput by remember { mutableStateOf("") }
 
     suspend fun loadCats() {
-        isLoading = true
         runCatching {
-            categories = apiClient.fetchCategories(selectedScope)
+            allCategories = apiClient.fetchCategories()
         }
-        isLoading = false
     }
 
-    LaunchedEffect(selectedScope) {
+    LaunchedEffect(Unit) {
         loadCats()
+    }
+
+    val currentScopeCats = remember(allCategories, selectedScope) {
+        allCategories.filter { it.scope == selectedScope }
     }
 
     androidx.compose.ui.window.Dialog(
@@ -843,16 +846,16 @@ private fun CategoryManagerDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Scope 切换
+                // Scope 切换 (0ms 纯本地过滤，零紫光，零等待转圈)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     listOf("expense" to "支出", "income" to "收入", "gear" to "装备", "project" to "造物").forEach { (k, label) ->
-                        FilterChip(
+                        PaperFilterPill(
                             selected = selectedScope == k,
                             onClick = { selectedScope = k },
-                            label = { Text(label, fontSize = 11.sp) }
+                            label = label
                         )
                     }
                 }
@@ -894,16 +897,21 @@ private fun CategoryManagerDialog(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // 分类芯片列表
-                if (isLoading) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth().height(160.dp)) {
-                        CircularProgressIndicator(color = colors.accentWarm, modifier = Modifier.size(24.dp))
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        items(categories, key = { it.id }) { cat ->
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (currentScopeCats.isEmpty()) {
+                        item {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.fillMaxWidth().height(100.dp)
+                            ) {
+                                Text("此分类下暂无标签", fontSize = 12.sp, color = colors.inkMuted)
+                            }
+                        }
+                    } else {
+                        items(currentScopeCats, key = { it.id }) { cat ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()

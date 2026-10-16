@@ -9,15 +9,21 @@ import androidx.room.RoomDatabase
     entities = [
         CachedEntryEntity::class,
         CachedTransactionEntity::class,
-        OutboxEventEntity::class
+        OutboxEventEntity::class,
+        CachedProjectEntity::class,
+        CachedWishEntity::class,
+        CachedFootprintEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun entryDao(): EntryDao
     abstract fun transactionDao(): TransactionDao
     abstract fun outboxDao(): OutboxDao
+    abstract fun projectDao(): ProjectDao
+    abstract fun wishDao(): WishDao
+    abstract fun footprintDao(): FootprintDao
 
     companion object {
         @Volatile

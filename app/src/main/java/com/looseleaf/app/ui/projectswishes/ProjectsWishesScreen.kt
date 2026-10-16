@@ -56,13 +56,15 @@ fun ProjectsWishesScreen(
     val scope = rememberCoroutineScope()
     val colors = LooseLeafTheme.colors
     val apiClient = remember { APIClient.getInstance(context) }
+    val syncManager = remember { com.looseleaf.app.data.sync.SyncManager.getInstance(context) }
     val haptics = remember { HapticsEngine.getInstance(context) }
 
     var selectedTab by remember { mutableStateOf(0) } // 0: 造物, 1: 心愿, 2: 足迹
-    var projects by remember { mutableStateOf<List<Project>>(emptyList()) }
-    var wishes by remember { mutableStateOf<List<Wish>>(emptyList()) }
-    var footprints by remember { mutableStateOf<List<Footprint>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val projects by syncManager.projectsFlow.collectAsState(initial = emptyList())
+    val wishes by syncManager.wishesFlow.collectAsState(initial = emptyList())
+    val footprints by syncManager.footprintsFlow.collectAsState(initial = emptyList())
+
+    var isLoading by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
 
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -75,9 +77,7 @@ fun ProjectsWishesScreen(
         isLoading = true
         loadError = null
         try {
-            projects = apiClient.fetchProjects()
-            wishes = apiClient.fetchWishes()
-            footprints = apiClient.fetchFootprints()
+            syncManager.pullRemoteData()
         } catch (e: Exception) {
             loadError = e.message
         } finally {
@@ -181,7 +181,7 @@ fun ProjectsWishesScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            if (isLoading) {
+            if (isLoading && projects.isEmpty() && wishes.isEmpty() && footprints.isEmpty()) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.weight(1f).fillMaxWidth()) {
                     CircularProgressIndicator(color = colors.accentWarm, modifier = Modifier.size(24.dp))
                 }
@@ -230,10 +230,10 @@ fun ProjectsWishesScreen(
                         if (selectedTab == 1) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 listOf("item" to "好物", "travel" to "旅程", "milestone" to "里程碑").forEach { (k, label) ->
-                                    FilterChip(
+                                    PaperFilterPill(
                                         selected = wishKind == k,
                                         onClick = { wishKind = k },
-                                        label = { Text(label, fontSize = 12.sp) }
+                                        label = label
                                     )
                                 }
                             }
@@ -344,10 +344,10 @@ fun ProjectsWishesScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("exact" to "如愿拿下", "altered" to "替代方案", "relinquished" to "理性拔草").forEach { (k, label) ->
-                                FilterChip(
+                                PaperFilterPill(
                                     selected = resType == k,
                                     onClick = { resType = k },
-                                    label = { Text(label, fontSize = 11.sp) }
+                                    label = label
                                 )
                             }
                         }
@@ -488,10 +488,10 @@ fun ProjectsWishesScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf("进行中", "已完成", "维护中", "已搁置").forEach { s ->
-                                FilterChip(
+                                PaperFilterPill(
                                     selected = editStatus == s,
                                     onClick = { editStatus = s },
-                                    label = { Text(s, fontSize = 11.sp) }
+                                    label = s
                                 )
                             }
                         }
@@ -721,10 +721,10 @@ private fun WishesList(
             )
             statusFilters.forEach { (k, label) ->
                 val isSelected = statusFilter == k
-                FilterChip(
+                PaperFilterPill(
                     selected = isSelected,
                     onClick = { statusFilter = k },
-                    label = { Text(label, fontSize = 11.sp) }
+                    label = label
                 )
             }
         }

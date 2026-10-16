@@ -64,3 +64,50 @@ data class OutboxEventEntity(
     @ColumnInfo(name = "retry_count") val retryCount: Int = 0,
     @ColumnInfo(name = "created_at") val createdAt: String = FormatUtils.beijingNowIsoString()
 )
+
+/**
+ * 离线造物项目缓存表 (CachedProject)
+ */
+@Entity(tableName = "cached_projects")
+data class CachedProjectEntity(
+    @PrimaryKey val id: Long,
+    @ColumnInfo(name = "title") val title: String,
+    @ColumnInfo(name = "subtitle") val subtitle: String? = null,
+    @ColumnInfo(name = "description") val description: String? = null,
+    @ColumnInfo(name = "status") val status: String? = null,
+    @ColumnInfo(name = "github_url") val githubUrl: String? = null,
+    @ColumnInfo(name = "order") val order: Int? = 0,
+    @ColumnInfo(name = "updated_at") val updatedAt: String? = null
+)
+
+/**
+ * 离线三维心愿缓存表 (CachedWish)
+ */
+@Entity(tableName = "cached_wishes")
+data class CachedWishEntity(
+    @PrimaryKey val id: Long,
+    @ColumnInfo(name = "title") val title: String,
+    @ColumnInfo(name = "kind") val kind: String = "item",
+    @ColumnInfo(name = "note") val note: String? = null,
+    @ColumnInfo(name = "spec") val spec: String? = null,
+    @ColumnInfo(name = "budget") val budget: Long = 0,
+    @ColumnInfo(name = "actual_cost") val actualCost: Long = 0,
+    @ColumnInfo(name = "status") val status: String = "wanting",
+    @ColumnInfo(name = "fulfilled_at") val fulfilledAt: String? = null,
+    @ColumnInfo(name = "updated_at") val updatedAt: String? = null
+)
+
+/**
+ * 离线山川足迹缓存表 (CachedFootprint)
+ */
+@Entity(tableName = "cached_footprints")
+data class CachedFootprintEntity(
+    @PrimaryKey val id: Long,
+    @ColumnInfo(name = "city_code") val cityCode: String,
+    @ColumnInfo(name = "city_name") val cityName: String,
+    @ColumnInfo(name = "title") val title: String? = null,
+    @ColumnInfo(name = "visited_at") val visitedAt: String? = null,
+    @ColumnInfo(name = "departed_at") val departedAt: String? = null,
+    @ColumnInfo(name = "note") val note: String? = null,
+    @ColumnInfo(name = "updated_at") val updatedAt: String? = null
+)

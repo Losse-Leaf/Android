@@ -789,7 +789,7 @@ private fun EntryDetailSheetDialog(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     TerracottaStampButton(
-                        text = "保存修订 (UPDATE)",
+                        text = "保存修订",
                         enabled = editTitle.isNotBlank() || editContent.isNotBlank(),
                         onClick = {
                             val code = CityDictionary.codeForLocation(editLocation) ?: entry.cityCode
@@ -1233,26 +1233,60 @@ private fun StreamEntryCard(
 ) {
     val colors = LooseLeafTheme.colors
 
+    val cardBg = when (entry.type) {
+        "travel" -> colors.accentWarm.copy(alpha = 0.04f)
+        "project" -> colors.accentMoss.copy(alpha = 0.04f)
+        "wish" -> colors.archivePaper
+        else -> colors.archiveSubtle
+    }
+    val cardBorder = when (entry.type) {
+        "travel" -> colors.accentWarm.copy(alpha = 0.35f)
+        "project" -> colors.accentMoss.copy(alpha = 0.35f)
+        "wish" -> colors.accentWarm.copy(alpha = 0.25f)
+        else -> colors.borderDivider
+    }
+
     PaperCard(
         modifier = modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .clickable { onClick() },
+        backgroundColor = cardBg,
+        borderColor = cardBorder
     ) {
         Column {
-            // 头部：类型标签、时间戳、地点与同步标记
+            // 头部：类型个性化标签、时间戳、地点与同步标记
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val typeLabel = when (entry.type) {
-                        "travel" -> "游历"
-                        "project" -> "造物"
-                        "wish" -> "心愿"
-                        else -> "日常"
+                    when (entry.type) {
+                        "travel" -> {
+                            PaperBadge(
+                                text = "山川游历 · 行程存根",
+                                containerColor = colors.accentWarm.copy(alpha = 0.12f),
+                                textColor = colors.accentWarm
+                            )
+                        }
+                        "project" -> {
+                            PaperBadge(
+                                text = "造物日志",
+                                containerColor = colors.accentMoss.copy(alpha = 0.12f),
+                                textColor = colors.accentMoss
+                            )
+                        }
+                        "wish" -> {
+                            PaperBadge(
+                                text = "心愿印记",
+                                containerColor = colors.accentWarm.copy(alpha = 0.12f),
+                                textColor = colors.accentWarm
+                            )
+                        }
+                        else -> {
+                            PaperBadge(text = "日常随笔")
+                        }
                     }
-                    PaperBadge(text = typeLabel)
 
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
@@ -1269,14 +1303,14 @@ private fun StreamEntryCard(
                             Icon(
                                 imageVector = Icons.Outlined.LocationOn,
                                 contentDescription = null,
-                                tint = colors.accentWarm,
+                                tint = if (entry.type == "travel") colors.accentWarm else colors.inkMuted,
                                 modifier = Modifier.size(13.dp)
                             )
                             Text(
                                 text = placeString,
                                 fontFamily = ArchiveFontFamilies.BodySans,
                                 fontSize = 11.sp,
-                                color = colors.inkSecondary
+                                color = if (entry.type == "travel") colors.accentWarm else colors.inkSecondary
                             )
                         }
                     }
@@ -1545,10 +1579,10 @@ private fun QuickNoteDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("life" to "日常", "travel" to "游历", "project" to "造物", "wish" to "心愿").forEach { (k, label) ->
-                        FilterChip(
+                        PaperFilterPill(
                             selected = noteType == k,
                             onClick = { noteType = k },
-                            label = { Text(label, fontSize = 11.sp) }
+                            label = label
                         )
                     }
                 }
@@ -1582,7 +1616,7 @@ private fun QuickNoteDialog(
                     onSave(noteType, noteTitle.trim(), noteContent.trim(), noteLocation.trim())
                 }
             ) {
-                Text("盖印归册", color = colors.accentWarm)
+                Text("完成记录", color = colors.accentWarm)
             }
         },
         dismissButton = {

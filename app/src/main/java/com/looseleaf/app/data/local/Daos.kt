@@ -101,3 +101,48 @@ interface OutboxDao {
     @Query("UPDATE outbox_events SET retry_count = retry_count + 1 WHERE event_id = :eventId")
     suspend fun incrementRetry(eventId: String)
 }
+
+@Dao
+interface ProjectDao {
+    @Query("SELECT * FROM cached_projects ORDER BY `order` ASC, id DESC")
+    fun getAllProjectsFlow(): Flow<List<CachedProjectEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(projects: List<CachedProjectEntity>)
+
+    @Query("DELETE FROM cached_projects WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM cached_projects")
+    suspend fun clearAll()
+}
+
+@Dao
+interface WishDao {
+    @Query("SELECT * FROM cached_wishes ORDER BY id DESC")
+    fun getAllWishesFlow(): Flow<List<CachedWishEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(wishes: List<CachedWishEntity>)
+
+    @Query("DELETE FROM cached_wishes WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM cached_wishes")
+    suspend fun clearAll()
+}
+
+@Dao
+interface FootprintDao {
+    @Query("SELECT * FROM cached_footprints ORDER BY visited_at DESC")
+    fun getAllFootprintsFlow(): Flow<List<CachedFootprintEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(footprints: List<CachedFootprintEntity>)
+
+    @Query("DELETE FROM cached_footprints WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM cached_footprints")
+    suspend fun clearAll()
+}

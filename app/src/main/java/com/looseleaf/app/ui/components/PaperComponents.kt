@@ -225,7 +225,7 @@ fun PaperTextField(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(shape)
-                .background(colors.archivePaper, shape)
+                .background(colors.archiveSubtle.copy(alpha = 0.7f), shape)
                 .border(borderWidth, borderColor, shape)
                 .padding(horizontal = 12.dp, vertical = 9.dp),
             contentAlignment = Alignment.CenterStart
@@ -318,7 +318,7 @@ fun PaperTextEditor(
                 .fillMaxWidth()
                 .heightIn(min = minHeight)
                 .clip(shape)
-                .background(colors.archivePaper, shape)
+                .background(colors.archiveSubtle.copy(alpha = 0.7f), shape)
                 .border(borderWidth, borderColor, shape)
                 .padding(12.dp)
         ) {
@@ -341,5 +341,40 @@ fun PaperTextEditor(
                 keyboardActions = keyboardActions
             )
         }
+    }
+}
+
+/**
+ * 散页纸本筛选与形态选择胶囊 (PaperFilterPill)
+ * 彻底替换 Material3 默认 FilterChip 的违和薰衣草紫色，呈现沉稳的朱砂与棉纸大地质感
+ */
+@Composable
+fun PaperFilterPill(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    val colors = LooseLeafTheme.colors
+    val shape = RoundedCornerShape(12.dp)
+    val bg = if (selected) colors.accentWarm.copy(alpha = 0.15f) else colors.archiveSubtle
+    val border = if (selected) colors.accentWarm else colors.borderDivider
+    val textColor = if (selected) colors.accentWarm else colors.inkSecondary
+
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(bg, shape)
+            .border(if (selected) 1.dp else 0.5.dp, border, shape)
+            .clickable { onClick() }
+            .padding(horizontal = 11.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text = label,
+            fontFamily = ArchiveFontFamilies.EditorialSerif,
+            fontSize = 11.5.sp,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+            color = textColor
+        )
     }
 }
