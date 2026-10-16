@@ -55,6 +55,9 @@ jobs:
           path: app/build/reports/tests/
           retention-days: 7
 
+      - name: Build Desktop Preview Studio (Compose Multiplatform)
+        run: ./gradlew :desktop:classes --no-daemon
+
       - name: Build Release APK
         run: ./gradlew assembleRelease --no-daemon
 

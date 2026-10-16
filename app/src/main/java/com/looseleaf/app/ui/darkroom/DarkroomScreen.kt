@@ -152,15 +152,19 @@ fun DarkroomScreen(
     val activeSlot = photoSlots.getOrNull(activeSlotIndex) ?: photoSlots.firstOrNull()
 
     NoiseBackground(modifier = modifier) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 680.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .imePadding(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
             // 顶栏标头
             Text(
                 text = "随行暗房 · 现场相纸",
@@ -577,4 +581,5 @@ fun DarkroomScreen(
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
+}
 }

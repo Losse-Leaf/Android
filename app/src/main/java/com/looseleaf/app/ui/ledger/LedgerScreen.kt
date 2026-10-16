@@ -175,12 +175,15 @@ fun LedgerScreen(
     }
 
     NoiseBackground(modifier = modifier) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 680.dp)
+            ) {
             // 顶栏：标题与隐私锁
             Row(
                 modifier = Modifier
@@ -300,15 +303,22 @@ fun LedgerScreen(
             when (selectedTab) {
                 0 -> {
                     // ==========================================
-                    // Tab 0: 极速触觉记账面板
+                    // Tab 0: 极速触觉记账面板 (全机型自适应)
                     // ==========================================
-                    Column(
+                    BoxWithConstraints(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.SpaceBetween
                     ) {
+                        val isCompactHeight = maxHeight < 700.dp
+                        val keypadKeyHeight = if (isCompactHeight) 44.dp else 52.dp
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 16.dp),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
                         // 金额与属性装裱卡片
                         PaperCard(
                             modifier = Modifier.fillMaxWidth(),
@@ -514,14 +524,14 @@ fun LedgerScreen(
                             }
                         )
 
-                        // 4x3 触觉小键盘 (紧凑高度 54dp，单屏无滚动直达)
+                        // 4x3 触觉小键盘 (紧凑自适应高度，单屏无滚动直达)
                         TactileKeypad(
                             onDigitClick = { appendDigit(it) },
                             onDotClick = { appendDot() },
                             onBackspaceClick = { backspace() },
                             onClearAll = { clearAll() },
                             haptics = haptics,
-                            keyHeight = 52.dp
+                            keyHeight = keypadKeyHeight
                         )
 
                         // 盖章记下按钮
@@ -562,6 +572,7 @@ fun LedgerScreen(
                         )
                     }
                 }
+            }
                 1 -> {
                     // ==========================================
                     // Tab 1: 账单明细流水与月度汇总光谱
@@ -895,6 +906,7 @@ fun LedgerScreen(
             )
         }
     }
+}
 }
 
 /**

@@ -91,12 +91,15 @@ fun ProjectsWishesScreen(
     }
 
     NoiseBackground(modifier = modifier) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 680.dp)
+            ) {
             // 顶栏
             Row(
                 modifier = Modifier
@@ -600,6 +603,7 @@ fun ProjectsWishesScreen(
             )
         }
     }
+}
 }
 
 @Composable

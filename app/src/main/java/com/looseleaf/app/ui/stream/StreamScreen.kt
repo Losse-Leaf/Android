@@ -129,12 +129,15 @@ fun StreamScreen(
     }
 
     NoiseBackground(modifier = modifier) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 680.dp)
+            ) {
             // 顶栏：标尺、年度年鉴与同步指示
             Row(
                 modifier = Modifier
@@ -492,6 +495,7 @@ fun StreamScreen(
             )
         }
     }
+}
 }
 
 @Composable
