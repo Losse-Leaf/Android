@@ -28,7 +28,7 @@ jobs:
       - name: Build Release APK
         run: |
           set +e
-          ./gradlew assembleRelease --no-daemon --stacktrace > gradle_release.log 2>&1
+          ./gradlew assembleRelease --no-daemon -Dkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_release.log 2>&1
           EXIT_CODE=$?
           cat gradle_release.log
           if [ $EXIT_CODE -ne 0 ]; then
