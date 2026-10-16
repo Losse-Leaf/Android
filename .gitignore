@@ -19,3 +19,5 @@ Captures
 *.ap_
 *.dex
 *.class
+.jdk*
+*.jdk

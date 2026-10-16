@@ -116,6 +116,18 @@ esac
 
 
 
+# Auto-detect incompatible Java version (e.g. Java 25+ breaks Gradle 8.9 / Kotlin 2.0 with IllegalArgumentException: 27)
+SYS_JAVA_VER=$(java -version 2>&1 | awk -F '"' '/version/ {print $2}' | cut -d'.' -f1)
+if [ -n "$SYS_JAVA_VER" ] && [ "$SYS_JAVA_VER" -ge 24 ] 2>/dev/null; then
+    if [ -d "$APP_HOME/.jdk17/Contents/Home" ]; then
+        echo "[Loose-Leaf] 检测到系统 Java $SYS_JAVA_VER，自动切换为配套的 JDK 17 ($APP_HOME/.jdk17)..." >&2
+        export JAVA_HOME="$APP_HOME/.jdk17/Contents/Home"
+    elif [ -d "/tmp/jdk17/Contents/Home" ]; then
+        echo "[Loose-Leaf] 检测到系统 Java $SYS_JAVA_VER，自动切换为 JDK 17 (/tmp/jdk17)..." >&2
+        export JAVA_HOME="/tmp/jdk17/Contents/Home"
+    fi
+fi
+
 # Determine the Java command to use to start the JVM.
 if [ -n "$JAVA_HOME" ] ; then
     if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
