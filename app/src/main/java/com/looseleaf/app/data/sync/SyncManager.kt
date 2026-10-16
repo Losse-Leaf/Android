@@ -743,7 +743,7 @@ class SyncManager private constructor(private val context: Context) {
                 CachedWishEntity(
                     id = it.id,
                     title = it.title,
-                    kind = it.kind,
+                    kind = it.kind ?: "item",
                     note = it.note,
                     spec = it.spec,
                     budget = it.budget,
