@@ -263,6 +263,10 @@ fun StreamScreen(
 
             // 新版本可用提示卡片
             cloudUpdate?.let { update ->
+                var downloadProgress by remember { mutableStateOf(0f) }
+                var isDownloading by remember { mutableStateOf(false) }
+                var downloadedFile by remember { mutableStateOf<java.io.File?>(null) }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -282,7 +286,27 @@ fun StreamScreen(
                             fontSize = 12.sp,
                             color = colors.accentWarm
                         )
-                        if (update.body.isNotBlank()) {
+                        if (isDownloading) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                progress = { downloadProgress },
+                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                color = colors.accentWarm,
+                                trackColor = colors.accentWarm.copy(alpha = 0.2f)
+                            )
+                            Text(
+                                text = "正在应用内下载: ${(downloadProgress * 100).toInt()}%",
+                                fontSize = 10.sp,
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                color = colors.inkMuted
+                            )
+                        } else if (downloadedFile != null) {
+                            Text(
+                                text = "下载完成，准备安装",
+                                fontSize = 11.sp,
+                                color = colors.accentMoss
+                            )
+                        } else if (update.body.isNotBlank()) {
                             Text(
                                 text = update.body.lines().firstOrNull() ?: "",
                                 fontFamily = ArchiveFontFamilies.BodySans,
@@ -292,11 +316,51 @@ fun StreamScreen(
                             )
                         }
                     }
-                    TextButton(
-                        onClick = { UpdateChecker.openDownloadPage(context, update.apkUrl) },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                    ) {
-                        Text("立即升级", color = colors.accentWarm, fontSize = 12.sp, fontFamily = ArchiveFontFamilies.EditorialSerif)
+
+                    if (downloadedFile != null) {
+                        Button(
+                            onClick = { UpdateChecker.installApk(context, downloadedFile!!) },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                            shape = RoundedCornerShape(2.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
+                        ) {
+                            Text("立即安装", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.EditorialSerif)
+                        }
+                    } else if (isDownloading) {
+                        Text(
+                            text = "${(downloadProgress * 100).toInt()}%",
+                            fontSize = 12.sp,
+                            fontFamily = ArchiveFontFamilies.MonoScale,
+                            color = colors.accentWarm,
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    } else {
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    isDownloading = true
+                                    val res = UpdateChecker.downloadApkStream(
+                                        context = context,
+                                        apkUrl = update.apkUrl,
+                                        versionName = update.versionName
+                                    ) { p, _, _ ->
+                                        downloadProgress = p
+                                    }
+                                    isDownloading = false
+                                    res.onSuccess { f ->
+                                        downloadedFile = f
+                                        UpdateChecker.installApk(context, f)
+                                    }.onFailure { err ->
+                                        Toast.makeText(context, "下载失败: ${err.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                            shape = RoundedCornerShape(2.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
+                        ) {
+                            Text("应用内更新", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.EditorialSerif)
+                        }
                     }
                 }
             }

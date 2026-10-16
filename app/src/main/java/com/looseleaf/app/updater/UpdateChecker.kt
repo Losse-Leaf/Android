@@ -3,7 +3,11 @@ package com.looseleaf.app.updater
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import android.util.Log
+import androidx.core.content.FileProvider
 import com.looseleaf.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,6 +17,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 data class ReleaseInfo(
@@ -29,6 +36,13 @@ sealed class UpdateCheckResult {
     data class Error(val message: String) : UpdateCheckResult()
 }
 
+sealed class InAppDownloadState {
+    object Idle : InAppDownloadState()
+    data class Downloading(val progress: Float, val downloadedBytes: Long, val totalBytes: Long) : InAppDownloadState()
+    data class ReadyToInstall(val apkFile: File) : InAppDownloadState()
+    data class Failed(val error: String) : InAppDownloadState()
+}
+
 object UpdateChecker {
     private const val TAG = "UpdateChecker"
     const val REPO = "Losse-Leaf/Android"
@@ -38,8 +52,8 @@ object UpdateChecker {
 
     private val httpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
             .build()
     }
 
@@ -82,7 +96,6 @@ object UpdateChecker {
                 }
 
                 if (isVersionGreaterThan(cleanRemoteTag, cleanLocalTag)) {
-                    // 寻找 apk 资产
                     var apkDownloadUrl: String? = null
                     for (asset in assets) {
                         val assetObj = asset.jsonObject
@@ -116,6 +129,96 @@ object UpdateChecker {
     }
 
     /**
+     * 应用内流式高速下载 APK（带实时进度回调，完全绕过外部浏览器）
+     */
+    suspend fun downloadApkStream(
+        context: Context,
+        apkUrl: String,
+        versionName: String,
+        onProgress: (progress: Float, downloadedBytes: Long, totalBytes: Long) -> Unit
+    ): Result<File> = withContext(Dispatchers.IO) {
+        runCatching {
+            val request = Request.Builder()
+                .url(apkUrl)
+                .header("User-Agent", "LooseLeaf-Android/$currentVersionName")
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            if (!response.isSuccessful) {
+                throw IOException("下载请求失败: HTTP ${response.code}")
+            }
+
+            val body = response.body ?: throw IOException("下载响应体为空")
+            val totalBytes = body.contentLength()
+
+            val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                ?: File(context.cacheDir, "downloads").apply { mkdirs() }
+            val apkFile = File(downloadDir, "LooseLeaf-v$versionName.apk")
+            if (apkFile.exists()) {
+                apkFile.delete()
+            }
+
+            val inputStream = body.byteStream()
+            val outputStream = FileOutputStream(apkFile)
+
+            val buffer = ByteArray(8192)
+            var downloadedBytes = 0L
+
+            inputStream.use { input ->
+                outputStream.use { output ->
+                    var bytesRead: Int
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        downloadedBytes += bytesRead
+                        val progress = if (totalBytes > 0) {
+                            downloadedBytes.toFloat() / totalBytes.toFloat()
+                        } else 0f
+                        onProgress(progress, downloadedBytes, totalBytes)
+                    }
+                    output.flush()
+                }
+            }
+
+            apkFile
+        }
+    }
+
+    /**
+     * 直接调起系统安装器安装 APK（支持 FileProvider 与 Android 8.0+ 未知应用安装意图）
+     */
+    fun installApk(context: Context, apkFile: File) {
+        if (!apkFile.exists()) return
+        try {
+            // Android 8.0+ 检查未知来源安装权限
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (!context.packageManager.canRequestPackageInstalls()) {
+                    val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(intent)
+                    return
+                }
+            }
+
+            val contentUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                apkFile
+            )
+            val installIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(contentUri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(installIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed launching package installer: ${e.message}", e)
+            openDownloadPage(context, apkFile.absolutePath)
+        }
+    }
+
+    /**
      * 语义版本对比 (如 1.0.1 > 1.0.0)
      */
     fun isVersionGreaterThan(remote: String, local: String): Boolean {
@@ -133,7 +236,7 @@ object UpdateChecker {
     }
 
     /**
-     * 调起系统下载器或浏览器直接下载安装包
+     * 兜底调起浏览器下载
      */
     fun openDownloadPage(context: Context, apkUrl: String) {
         try {

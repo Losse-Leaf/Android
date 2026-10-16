@@ -463,8 +463,14 @@ fun ProfileScreen(
 
             if (availableUpdate != null) {
                 val update = availableUpdate!!
+                var downloadProgress by remember { mutableStateOf(0f) }
+                var isDownloading by remember { mutableStateOf(false) }
+                var downloadedFile by remember { mutableStateOf<java.io.File?>(null) }
+
                 AlertDialog(
-                    onDismissRequest = { availableUpdate = null },
+                    onDismissRequest = {
+                        if (!isDownloading) availableUpdate = null
+                    },
                     title = {
                         Text(
                             text = "🎉 发现新版本 ${update.tagName}",
@@ -488,26 +494,75 @@ fun ProfileScreen(
                                 lineHeight = 18.sp,
                                 color = colors.inkSecondary
                             )
+                            if (isDownloading) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                LinearProgressIndicator(
+                                    progress = { downloadProgress },
+                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                                    color = colors.accentWarm,
+                                    trackColor = colors.accentWarm.copy(alpha = 0.2f)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "应用内高速下载中: ${(downloadProgress * 100).toInt()}%",
+                                    fontSize = 11.sp,
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    color = colors.accentWarm
+                                )
+                            }
                         }
                     },
                     confirmButton = {
-                        Button(
-                            onClick = {
-                                UpdateChecker.openDownloadPage(context, update.apkUrl)
-                                availableUpdate = null
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = colors.accentWarm,
-                                contentColor = colors.archivePaper
-                            ),
-                            shape = RoundedCornerShape(2.dp)
-                        ) {
-                            Text("立即下载升级", fontFamily = ArchiveFontFamilies.EditorialSerif)
+                        if (downloadedFile != null) {
+                            Button(
+                                onClick = {
+                                    UpdateChecker.installApk(context, downloadedFile!!)
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.accentWarm,
+                                    contentColor = colors.archivePaper
+                                ),
+                                shape = RoundedCornerShape(2.dp)
+                            ) {
+                                Text("立即安装", fontFamily = ArchiveFontFamilies.EditorialSerif)
+                            }
+                        } else {
+                            Button(
+                                enabled = !isDownloading,
+                                onClick = {
+                                    scope.launch {
+                                        isDownloading = true
+                                        val res = UpdateChecker.downloadApkStream(
+                                            context = context,
+                                            apkUrl = update.apkUrl,
+                                            versionName = update.versionName
+                                        ) { p, _, _ ->
+                                            downloadProgress = p
+                                        }
+                                        isDownloading = false
+                                        res.onSuccess { f ->
+                                            downloadedFile = f
+                                            UpdateChecker.installApk(context, f)
+                                        }.onFailure { err ->
+                                            Toast.makeText(context, "下载失败: ${err.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.accentWarm,
+                                    contentColor = colors.archivePaper
+                                ),
+                                shape = RoundedCornerShape(2.dp)
+                            ) {
+                                Text(if (isDownloading) "正在下载 ${(downloadProgress * 100).toInt()}%" else "应用内直接更新", fontFamily = ArchiveFontFamilies.EditorialSerif)
+                            }
                         }
                     },
                     dismissButton = {
-                        TextButton(onClick = { availableUpdate = null }) {
-                            Text("稍后再说", color = colors.inkSecondary)
+                        if (!isDownloading) {
+                            TextButton(onClick = { availableUpdate = null }) {
+                                Text("稍后再说", color = colors.inkSecondary)
+                            }
                         }
                     }
                 )
