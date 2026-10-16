@@ -93,7 +93,7 @@ fun ProfileScreen(
                             folder = "avatar"
                         )
                         val updated = apiClient.updateCuratorProfile(
-                            UpdateProfileRequest(avatarUrl = att.objectKey)
+                            UpdateProfileRequest(avatarKey = att.objectKey)
                         )
                         profile = updated
                         Toast.makeText(context, "肖像照片已更新", Toast.LENGTH_SHORT).show()
