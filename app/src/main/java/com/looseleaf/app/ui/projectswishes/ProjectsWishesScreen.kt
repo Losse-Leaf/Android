@@ -241,11 +241,18 @@ fun ProjectsWishesScreen(
                         PaperTextField(
                             value = inputTitle,
                             onValueChange = { inputTitle = it },
-                            label = when (selectedTab) {
+                            placeholder = when (selectedTab) {
                                 0 -> "造物名称"
                                 1 -> "心愿标题"
                                 else -> "城市名称 (如: 杭州市、大理市)"
                             },
+                            isUnderline = true,
+                            textStyle = TextStyle(
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.inkPrimary
+                            ),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -253,7 +260,8 @@ fun ProjectsWishesScreen(
                             PaperTextField(
                                 value = inputThird,
                                 onValueChange = { inputThird = it },
-                                label = "预算金额 (元，可选)",
+                                placeholder = "预算金额 (元，可选)",
+                                isUnderline = true,
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -261,7 +269,8 @@ fun ProjectsWishesScreen(
                             PaperTextField(
                                 value = inputThird,
                                 onValueChange = { inputThird = it },
-                                label = "旅程标题 (可选)",
+                                placeholder = "旅程标题 (可选)",
+                                isUnderline = true,
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -269,8 +278,8 @@ fun ProjectsWishesScreen(
                         PaperTextEditor(
                             value = inputNote,
                             onValueChange = { inputNote = it },
-                            label = "备注或随笔手记",
-                            minHeight = 80.dp,
+                            placeholder = "随笔或备注手记...",
+                            minHeight = 84.dp,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }

@@ -370,6 +370,13 @@ fun PairingScreen(
                             value = customDeviceName,
                             onValueChange = { customDeviceName = it },
                             placeholder = "例如: 主理人的随行手机、iQOO Neo 9 Pro",
+                            isUnderline = true,
+                            textStyle = TextStyle(
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.inkPrimary
+                            ),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )

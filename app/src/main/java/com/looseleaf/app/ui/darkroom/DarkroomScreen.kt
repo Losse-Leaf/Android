@@ -352,26 +352,37 @@ fun DarkroomScreen(
                         value = titleText,
                         onValueChange = { titleText = it },
                         placeholder = "记录此刻命名...",
+                        isUnderline = true,
+                        textStyle = TextStyle(
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.inkPrimary
+                        ),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     PaperTextEditor(
                         value = contentText,
                         onValueChange = { contentText = it },
                         placeholder = "记录现场气味、光影、或片刻偶遇...",
-                        minHeight = 88.dp,
+                        minHeight = 96.dp,
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     PaperTextField(
                         value = locationText,
                         onValueChange = { locationText = it },
                         placeholder = "所处地点 (如: 大理古城、上海武康路)",
+                        isUnderline = true,
+                        leadingIcon = {
+                            Icon(Icons.Outlined.LocationOn, contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(16.dp))
+                        },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )

@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -179,6 +180,9 @@ fun PaperDivider(
 /**
  * 散页独家自研纸本输入框 (PaperTextField)
  * 彻底替换 Material 粗糙的 OutlinedTextField，还原宣纸微凹、极细墨边与沉稳光标
+ * 支持：
+ * - isUnderline = true：典雅稿纸下划底线风格（无生硬方框，纯净书写基线）
+ * - isUnderline = false：温润宣纸微凹内嵌风格（极细沉墨微边，聚焦金石朱砂）
  */
 @Composable
 fun PaperTextField(
@@ -187,6 +191,7 @@ fun PaperTextField(
     modifier: Modifier = Modifier,
     placeholder: String = "",
     label: String? = null,
+    isUnderline: Boolean = false,
     singleLine: Boolean = true,
     minLines: Int = 1,
     enabled: Boolean = true,
@@ -200,12 +205,12 @@ fun PaperTextField(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val shape = RoundedCornerShape(4.dp)
+    val shape = RoundedCornerShape(3.dp)
     val borderColor = if (isFocused) colors.accentWarm else colors.borderDivider
     val borderWidth = if (isFocused) 1.dp else 0.5.dp
     val effectiveTextStyle = (textStyle ?: TextStyle(
         fontFamily = ArchiveFontFamilies.EditorialSerif,
-        fontSize = 14.sp,
+        fontSize = 14.5.sp,
         fontWeight = FontWeight.Normal,
         color = colors.inkPrimary
     ))
@@ -216,18 +221,36 @@ fun PaperTextField(
                 text = label,
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                 fontSize = 12.sp,
-                color = colors.inkSecondary,
-                modifier = Modifier.padding(bottom = 4.dp)
+                color = if (isFocused) colors.accentWarm else colors.inkSecondary,
+                modifier = Modifier.padding(bottom = 5.dp)
             )
         }
 
-        Box(
-            modifier = Modifier
+        val boxModifier = if (isUnderline) {
+            Modifier
+                .fillMaxWidth()
+                .drawBehind {
+                    val stroke = if (isFocused) 1.5.dp.toPx() else 0.8.dp.toPx()
+                    val y = size.height - stroke / 2
+                    drawLine(
+                        color = borderColor,
+                        start = androidx.compose.ui.geometry.Offset(0f, y),
+                        end = androidx.compose.ui.geometry.Offset(size.width, y),
+                        strokeWidth = stroke
+                    )
+                }
+                .padding(vertical = 8.dp)
+        } else {
+            Modifier
                 .fillMaxWidth()
                 .clip(shape)
-                .background(colors.archiveSubtle.copy(alpha = 0.7f), shape)
+                .background(colors.archivePaper, shape)
                 .border(borderWidth, borderColor, shape)
-                .padding(horizontal = 12.dp, vertical = 9.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        }
+
+        Box(
+            modifier = boxModifier,
             contentAlignment = Alignment.CenterStart
         ) {
             Row(
@@ -291,13 +314,13 @@ fun PaperTextEditor(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val shape = RoundedCornerShape(4.dp)
+    val shape = RoundedCornerShape(3.dp)
     val borderColor = if (isFocused) colors.accentWarm else colors.borderDivider
     val borderWidth = if (isFocused) 1.dp else 0.5.dp
     val effectiveTextStyle = (textStyle ?: TextStyle(
         fontFamily = ArchiveFontFamilies.BodySans,
-        fontSize = 13.5.sp,
-        lineHeight = 22.sp,
+        fontSize = 14.sp,
+        lineHeight = 23.sp,
         fontWeight = FontWeight.Normal,
         color = colors.inkPrimary
     ))
@@ -308,8 +331,8 @@ fun PaperTextEditor(
                 text = label,
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                 fontSize = 12.sp,
-                color = colors.inkSecondary,
-                modifier = Modifier.padding(bottom = 4.dp)
+                color = if (isFocused) colors.accentWarm else colors.inkSecondary,
+                modifier = Modifier.padding(bottom = 5.dp)
             )
         }
 
@@ -318,9 +341,9 @@ fun PaperTextEditor(
                 .fillMaxWidth()
                 .heightIn(min = minHeight)
                 .clip(shape)
-                .background(colors.archiveSubtle.copy(alpha = 0.7f), shape)
+                .background(colors.archivePaper, shape)
                 .border(borderWidth, borderColor, shape)
-                .padding(12.dp)
+                .padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
             if (value.isEmpty() && placeholder.isNotEmpty()) {
                 Text(

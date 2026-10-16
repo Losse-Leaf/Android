@@ -549,6 +549,7 @@ fun StreamScreen(
         if (showAlmanacDialog) {
             AlmanacDialog(
                 apiClient = apiClient,
+                entries = entries,
                 onDismiss = { showAlmanacDialog = false }
             )
         }
@@ -764,27 +765,38 @@ private fun EntryDetailSheetDialog(
                     PaperTextField(
                         value = editTitle,
                         onValueChange = { editTitle = it },
-                        label = "标题",
+                        placeholder = "标题",
+                        isUnderline = true,
+                        textStyle = TextStyle(
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.inkPrimary
+                        ),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     PaperTextEditor(
                         value = editContent,
                         onValueChange = { editContent = it },
-                        label = "正文手记",
+                        placeholder = "正文手记...",
                         minHeight = 110.dp,
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     PaperTextField(
                         value = editLocation,
                         onValueChange = { editLocation = it },
-                        label = "所处地点",
+                        placeholder = "所处地点",
+                        isUnderline = true,
+                        leadingIcon = {
+                            Icon(Icons.Outlined.LocationOn, contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(15.dp))
+                        },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -896,10 +908,18 @@ private fun EntryDetailSheetDialog(
 @Composable
 private fun AlmanacDialog(
     apiClient: APIClient,
+    entries: List<LifeEntry>,
     onDismiss: () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
     val currentYear = remember { LocalDate.now(FormatUtils.BeijingZone).year }
+    val earliestYear = remember(entries) {
+        val entryYears = entries.mapNotNull { it.occurredAt.take(4).toIntOrNull() }
+        if (entryYears.isNotEmpty()) minOf(entryYears.min(), currentYear) else currentYear
+    }
+    val availableYears = remember(earliestYear, currentYear) {
+        (earliestYear..currentYear).toList().reversed()
+    }
     var selectedYear by remember { mutableStateOf(currentYear) }
     var summary by remember { mutableStateOf<AlmanacSummaryResponse?>(null) }
     var isLoading by remember { mutableStateOf(true) }
@@ -956,19 +976,24 @@ private fun AlmanacDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // 年份切换胶囊
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (yr in listOf(currentYear, currentYear - 1, currentYear - 2)) {
+                // 年份切换胶囊 (从刚进入的年份至当前年份，支持横滑)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (yr in availableYears) {
                         val isSelected = yr == selectedYear
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) colors.inkPrimary else colors.archivePaper)
-                                .border(0.5.dp, colors.borderDivider, RoundedCornerShape(12.dp))
+                                .background(if (isSelected) colors.accentWarm else colors.archivePaper)
+                                .border(0.5.dp, if (isSelected) colors.accentWarm else colors.borderDivider, RoundedCornerShape(12.dp))
                                 .clickable { selectedYear = yr }
-                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
                         ) {
                             Text(
                                 text = "$yr 年",
@@ -1567,21 +1592,32 @@ private fun QuickNoteDialog(
                 PaperTextField(
                     value = noteTitle,
                     onValueChange = { noteTitle = it },
-                    label = "记录命名 (可选)",
+                    placeholder = "记录命名 (可选)",
+                    isUnderline = true,
+                    textStyle = TextStyle(
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.inkPrimary
+                    ),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 PaperTextEditor(
                     value = noteContent,
                     onValueChange = { noteContent = it },
-                    label = "当下心绪手记 *",
-                    minHeight = 88.dp,
+                    placeholder = "当下心绪手记 *",
+                    minHeight = 90.dp,
                     modifier = Modifier.fillMaxWidth()
                 )
                 PaperTextField(
                     value = noteLocation,
                     onValueChange = { noteLocation = it },
-                    label = "地点/城市 (可选)",
+                    placeholder = "地点/城市 (可选)",
+                    isUnderline = true,
+                    leadingIcon = {
+                        Icon(Icons.Outlined.LocationOn, contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(15.dp))
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )

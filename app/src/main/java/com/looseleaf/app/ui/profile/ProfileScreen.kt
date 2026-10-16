@@ -659,6 +659,7 @@ private fun EditProfileDialog(
                     value = name,
                     onValueChange = { name = it },
                     label = "主理人称谓",
+                    isUnderline = true,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -666,6 +667,7 @@ private fun EditProfileDialog(
                     value = title,
                     onValueChange = { title = it },
                     label = "头衔/身份说明",
+                    isUnderline = true,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -673,6 +675,7 @@ private fun EditProfileDialog(
                     value = currentCity,
                     onValueChange = { currentCity = it },
                     label = "常居城市/坐标",
+                    isUnderline = true,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -680,6 +683,7 @@ private fun EditProfileDialog(
                     value = motto,
                     onValueChange = { motto = it },
                     label = "生活格言",
+                    isUnderline = true,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -736,7 +740,8 @@ private fun RenameDeviceDialog(
                 PaperTextField(
                     value = nameInput,
                     onValueChange = { nameInput = it },
-                    label = "设备名称",
+                    placeholder = "设备名称",
+                    isUnderline = true,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )

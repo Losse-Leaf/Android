@@ -431,6 +431,7 @@ fun LedgerScreen(
                                     value = noteText,
                                     onValueChange = { noteText = it },
                                     placeholder = "备注，或输入“42.5 手冲咖啡”点拆解",
+                                    isUnderline = true,
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth().imePadding(),
                                     trailingIcon = {
