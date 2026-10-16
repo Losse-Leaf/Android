@@ -59,7 +59,7 @@ jobs:
         run: ./gradlew :desktop:classes --no-daemon
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease --no-daemon -Dkotlin.compiler.execution.strategy=in-process
+        run: ./gradlew assembleRelease --no-daemon -Pkotlin.compiler.execution.strategy=in-process
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
