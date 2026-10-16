@@ -9,19 +9,30 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -80,13 +91,16 @@ fun TerracottaStampButton(
         colors = ButtonDefaults.buttonColors(
             containerColor = colors.accentWarm,
             contentColor = colors.archivePaper,
-            disabledContainerColor = colors.inkMuted.copy(alpha = 0.3f),
-            disabledContentColor = colors.archivePaper.copy(alpha = 0.7f)
+            disabledContainerColor = colors.archiveSubtle,
+            disabledContentColor = colors.inkMuted.copy(alpha = 0.6f)
         ),
         elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 2.dp,
+            defaultElevation = 1.dp,
             pressedElevation = 0.dp
         ),
+        border = if (!enabled) ButtonDefaults.outlinedButtonBorder.copy(
+            brush = SolidColor(colors.borderDivider)
+        ) else null,
         contentPadding = PaddingValues(horizontal = 24.dp),
         modifier = modifier
             .fillMaxWidth()
@@ -160,4 +174,172 @@ fun PaperDivider(
         thickness = 0.5.dp,
         color = dividerColor
     )
+}
+
+/**
+ * 散页独家自研纸本输入框 (PaperTextField)
+ * 彻底替换 Material 粗糙的 OutlinedTextField，还原宣纸微凹、极细墨边与沉稳光标
+ */
+@Composable
+fun PaperTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = "",
+    label: String? = null,
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+    enabled: Boolean = true,
+    textStyle: TextStyle? = null,
+    trailingIcon: (@Composable () -> Unit)? = null,
+    leadingIcon: (@Composable () -> Unit)? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default
+) {
+    val colors = LooseLeafTheme.colors
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    val shape = RoundedCornerShape(4.dp)
+    val borderColor = if (isFocused) colors.accentWarm else colors.borderDivider
+    val borderWidth = if (isFocused) 1.dp else 0.5.dp
+    val effectiveTextStyle = (textStyle ?: TextStyle(
+        fontFamily = ArchiveFontFamilies.EditorialSerif,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Normal,
+        color = colors.inkPrimary
+    ))
+
+    Column(modifier = modifier) {
+        if (!label.isNullOrBlank()) {
+            Text(
+                text = label,
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontSize = 12.sp,
+                color = colors.inkSecondary,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(colors.archivePaper, shape)
+                .border(borderWidth, borderColor, shape)
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (leadingIcon != null) {
+                    leadingIcon()
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+
+                Box(modifier = Modifier.weight(1f)) {
+                    if (value.isEmpty() && placeholder.isNotEmpty()) {
+                        Text(
+                            text = placeholder,
+                            style = effectiveTextStyle.copy(color = colors.inkMuted)
+                        )
+                    }
+                    BasicTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = singleLine,
+                        minLines = minLines,
+                        enabled = enabled,
+                        textStyle = effectiveTextStyle,
+                        cursorBrush = SolidColor(colors.accentWarm),
+                        interactionSource = interactionSource,
+                        keyboardOptions = keyboardOptions,
+                        keyboardActions = keyboardActions
+                    )
+                }
+
+                if (trailingIcon != null) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    trailingIcon()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 散页独家自研多行文稿纸本编辑器 (PaperTextEditor)
+ * 专为长篇手记、随笔与感言打造，温润信笺质感，优美行高与微凹边框
+ */
+@Composable
+fun PaperTextEditor(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = "",
+    label: String? = null,
+    minHeight: Dp = 100.dp,
+    enabled: Boolean = true,
+    textStyle: TextStyle? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default
+) {
+    val colors = LooseLeafTheme.colors
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+
+    val shape = RoundedCornerShape(4.dp)
+    val borderColor = if (isFocused) colors.accentWarm else colors.borderDivider
+    val borderWidth = if (isFocused) 1.dp else 0.5.dp
+    val effectiveTextStyle = (textStyle ?: TextStyle(
+        fontFamily = ArchiveFontFamilies.BodySans,
+        fontSize = 13.5.sp,
+        lineHeight = 22.sp,
+        fontWeight = FontWeight.Normal,
+        color = colors.inkPrimary
+    ))
+
+    Column(modifier = modifier) {
+        if (!label.isNullOrBlank()) {
+            Text(
+                text = label,
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontSize = 12.sp,
+                color = colors.inkSecondary,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = minHeight)
+                .clip(shape)
+                .background(colors.archivePaper, shape)
+                .border(borderWidth, borderColor, shape)
+                .padding(12.dp)
+        ) {
+            if (value.isEmpty() && placeholder.isNotEmpty()) {
+                Text(
+                    text = placeholder,
+                    style = effectiveTextStyle.copy(color = colors.inkMuted)
+                )
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = false,
+                enabled = enabled,
+                textStyle = effectiveTextStyle,
+                cursorBrush = SolidColor(colors.accentWarm),
+                interactionSource = interactionSource,
+                keyboardOptions = keyboardOptions,
+                keyboardActions = keyboardActions
+            )
+        }
+    }
 }

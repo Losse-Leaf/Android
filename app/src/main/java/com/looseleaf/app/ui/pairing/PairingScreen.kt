@@ -224,24 +224,12 @@ fun PairingScreen(
 
                             Spacer(modifier = Modifier.height(14.dp))
 
-                            OutlinedTextField(
+                            PaperTextEditor(
                                 value = pastedLinkInput,
                                 onValueChange = { pastedLinkInput = it },
-                                placeholder = {
-                                    Text(
-                                        text = "例如 looseleaf://pair?hub=http://...&ticket=pair_tk_...",
-                                        fontSize = 12.sp,
-                                        color = colors.inkMuted
-                                    )
-                                },
-                                minLines = 3,
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = colors.accentWarm,
-                                    unfocusedBorderColor = colors.borderDivider,
-                                    focusedTextColor = colors.inkPrimary,
-                                    unfocusedTextColor = colors.inkPrimary
-                                )
+                                placeholder = "例如 looseleaf://pair?hub=http://...&ticket=pair_tk_...",
+                                minHeight = 72.dp,
+                                modifier = Modifier.fillMaxWidth()
                             )
 
                             Spacer(modifier = Modifier.height(10.dp))
@@ -381,18 +369,12 @@ fun PairingScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        OutlinedTextField(
+                        PaperTextField(
                             value = customDeviceName,
                             onValueChange = { customDeviceName = it },
-                            placeholder = { Text("例如: 迟暮的随行手机、vivo X100", color = colors.inkMuted) },
+                            placeholder = "例如: 主理人的随行手机、iQOO Neo 9 Pro",
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = colors.accentWarm,
-                                unfocusedBorderColor = colors.borderDivider,
-                                focusedTextColor = colors.inkPrimary,
-                                unfocusedTextColor = colors.inkPrimary
-                            )
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                 }

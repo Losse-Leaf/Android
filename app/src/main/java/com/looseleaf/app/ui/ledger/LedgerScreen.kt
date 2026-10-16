@@ -430,16 +430,12 @@ fun LedgerScreen(
                                 Spacer(modifier = Modifier.height(4.dp))
 
                                 // 备注与自然语言拆解
-                                OutlinedTextField(
+                                PaperTextField(
                                     value = noteText,
                                     onValueChange = { noteText = it },
-                                    placeholder = {
-                                        Text(
-                                            text = "备注，或输入“42.5 手冲咖啡”点拆解",
-                                            fontSize = 11.sp,
-                                            color = colors.inkMuted
-                                        )
-                                    },
+                                    placeholder = "备注，或输入“42.5 手冲咖啡”点拆解",
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth().imePadding(),
                                     trailingIcon = {
                                         if (noteText.isNotBlank()) {
                                             TextButton(
@@ -452,20 +448,13 @@ fun LedgerScreen(
                                                         selectedCategory = parsed.category
                                                         noteText = parsed.title
                                                     }
-                                                }
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                                             ) {
                                                 Text("拆解", fontSize = 11.sp, color = colors.accentWarm)
                                             }
                                         }
-                                    },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = colors.accentWarm,
-                                        unfocusedBorderColor = colors.borderSubtle,
-                                        focusedTextColor = colors.inkPrimary,
-                                        unfocusedTextColor = colors.inkPrimary
-                                    )
+                                    }
                                 )
 
                                 // 支出模式下的分期支持开关
@@ -636,43 +625,43 @@ fun LedgerScreen(
                             }
                         }
 
-                        OutlinedTextField(
+                        PaperTextField(
                             value = editAmountYuan,
                             onValueChange = { editAmountYuan = it },
-                            label = { Text("金额 (元)") },
+                            label = "金额 (元)",
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        OutlinedTextField(
+                        PaperTextField(
                             value = editTitle,
                             onValueChange = { editTitle = it },
-                            label = { Text("标题/简要") },
+                            label = "标题/简要",
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        OutlinedTextField(
+                        PaperTextField(
                             value = editCategory,
                             onValueChange = { editCategory = it },
-                            label = { Text("分类") },
+                            label = "分类",
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        OutlinedTextField(
+                        PaperTextField(
                             value = editPaymentMethod,
                             onValueChange = { editPaymentMethod = it },
-                            label = { Text("支付方式") },
+                            label = "支付方式",
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        OutlinedTextField(
+                        PaperTextEditor(
                             value = editNote,
                             onValueChange = { editNote = it },
-                            label = { Text("随附手记") },
-                            minLines = 2,
+                            label = "随附手记",
+                            minHeight = 70.dp,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -727,10 +716,10 @@ fun LedgerScreen(
                             fontSize = 12.sp,
                             color = colors.inkSecondary
                         )
-                        OutlinedTextField(
+                        PaperTextField(
                             value = inputLiquidYuan,
                             onValueChange = { inputLiquidYuan = it },
-                            label = { Text("初始资金底数 (元)") },
+                            label = "初始资金底数 (元)",
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -774,24 +763,24 @@ fun LedgerScreen(
                 title = { Text("登记在役装备", fontFamily = ArchiveFontFamilies.EditorialSerif) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
+                        PaperTextField(
                             value = gearName,
                             onValueChange = { gearName = it },
-                            label = { Text("装备名称 (如: 索尼 A7M4)") },
+                            label = "装备名称 (如: 索尼 A7M4)",
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        OutlinedTextField(
+                        PaperTextField(
                             value = gearSpec,
                             onValueChange = { gearSpec = it },
-                            label = { Text("规格参数 (可选)") },
+                            label = "规格参数 (可选)",
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        OutlinedTextField(
+                        PaperTextField(
                             value = gearPrice,
                             onValueChange = { gearPrice = it },
-                            label = { Text("购入总价 (元)") },
+                            label = "购入总价 (元)",
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -857,17 +846,17 @@ fun LedgerScreen(
                             fontSize = 12.sp,
                             color = colors.inkSecondary
                         )
-                        OutlinedTextField(
+                        PaperTextField(
                             value = soldPriceYuan,
                             onValueChange = { soldPriceYuan = it },
-                            label = { Text("成交出清金额 (元)") },
+                            label = "成交出清金额 (元)",
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        OutlinedTextField(
+                        PaperTextField(
                             value = sellNote,
                             onValueChange = { sellNote = it },
-                            label = { Text("退役备忘") },
+                            label = "退役备忘",
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -955,7 +944,7 @@ private fun TransactionsLedgerTab(
             .fillMaxSize()
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(vertical = 10.dp)
+        contentPadding = PaddingValues(top = 10.dp, bottom = 84.dp)
     ) {
         // 月份选择控制行
         item {
@@ -1213,7 +1202,7 @@ private fun AssetsAndGearTab(
             .fillMaxSize()
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(vertical = 10.dp)
+        contentPadding = PaddingValues(top = 10.dp, bottom = 84.dp)
     ) {
         // 1. 核心净资产透视卡片
         item {

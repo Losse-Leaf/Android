@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.data.api.APIClient
@@ -239,44 +240,39 @@ fun ProjectsWishesScreen(
                                 }
                             }
                         }
-                        OutlinedTextField(
+                        PaperTextField(
                             value = inputTitle,
                             onValueChange = { inputTitle = it },
-                            label = {
-                                Text(
-                                    when (selectedTab) {
-                                        0 -> "造物名称"
-                                        1 -> "心愿标题"
-                                        else -> "城市名称 (如: 杭州市、大理市)"
-                                    },
-                                    fontSize = 12.sp
-                                )
+                            label = when (selectedTab) {
+                                0 -> "造物名称"
+                                1 -> "心愿标题"
+                                else -> "城市名称 (如: 杭州市、大理市)"
                             },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
                         if (selectedTab == 1) {
-                            OutlinedTextField(
+                            PaperTextField(
                                 value = inputThird,
                                 onValueChange = { inputThird = it },
-                                label = { Text("预算金额 (元，可选)", fontSize = 12.sp) },
+                                label = "预算金额 (元，可选)",
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         } else if (selectedTab == 2) {
-                            OutlinedTextField(
+                            PaperTextField(
                                 value = inputThird,
                                 onValueChange = { inputThird = it },
-                                label = { Text("旅程标题 (可选)", fontSize = 12.sp) },
+                                label = "旅程标题 (可选)",
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
-                        OutlinedTextField(
+                        PaperTextEditor(
                             value = inputNote,
                             onValueChange = { inputNote = it },
-                            label = { Text("备注或随笔手记", fontSize = 12.sp) },
-                            minLines = 2,
+                            label = "备注或随笔手记",
+                            minHeight = 80.dp,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -358,19 +354,19 @@ fun ProjectsWishesScreen(
                             }
                         }
                         if (resType != "relinquished") {
-                            OutlinedTextField(
+                            PaperTextField(
                                 value = costInput,
                                 onValueChange = { costInput = it },
-                                label = { Text("实付金额 (元)", fontSize = 12.sp) },
+                                label = "实付金额 (元)",
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
-                        OutlinedTextField(
+                        PaperTextEditor(
                             value = entryNote,
                             onValueChange = { entryNote = it },
-                            label = { Text("圆梦感言手记 (同步写入时间流)", fontSize = 12.sp) },
-                            minLines = 2,
+                            label = "圆梦感言手记 (同步写入时间流)",
+                            minHeight = 80.dp,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -501,24 +497,24 @@ fun ProjectsWishesScreen(
                                 )
                             }
                         }
-                        OutlinedTextField(
+                        PaperTextField(
                             value = editTitle,
                             onValueChange = { editTitle = it },
-                            label = { Text("造物名称") },
+                            label = "造物名称",
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        OutlinedTextField(
+                        PaperTextEditor(
                             value = editDesc,
                             onValueChange = { editDesc = it },
-                            label = { Text("项目概述与故事") },
-                            minLines = 3,
+                            label = "项目概述与故事",
+                            minHeight = 88.dp,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        OutlinedTextField(
+                        PaperTextField(
                             value = editGithub,
                             onValueChange = { editGithub = it },
-                            label = { Text("仓库/发布链接 (可选)") },
+                            label = "仓库/发布链接 (可选)",
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -624,7 +620,7 @@ private fun ProjectsList(
     LazyColumn(
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(vertical = 12.dp)
+        contentPadding = PaddingValues(top = 10.dp, bottom = 84.dp)
     ) {
         items(projects, key = { it.id }) { proj ->
             PaperCard(
@@ -669,13 +665,22 @@ private fun ProjectsList(
 
                     if (!proj.githubUrl.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Code, contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(colors.archivePaper)
+                                .border(0.5.dp, colors.borderDivider, RoundedCornerShape(3.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Outlined.Code, contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = proj.githubUrl,
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 color = colors.accentWarm
                             )
                         }
@@ -739,7 +744,7 @@ private fun WishesList(
                 .weight(1f)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(vertical = 8.dp)
+            contentPadding = PaddingValues(top = 8.dp, bottom = 84.dp)
         ) {
             items(filteredWishes, key = { it.id }) { wish ->
                 val isFulfilled = wish.status == "fulfilled" || wish.status == "relinquished"
@@ -832,7 +837,7 @@ private fun FootprintsList(
     LazyColumn(
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(vertical = 12.dp)
+        contentPadding = PaddingValues(top = 10.dp, bottom = 84.dp)
     ) {
         items(footprints, key = { it.id }) { foot ->
             PaperCard(

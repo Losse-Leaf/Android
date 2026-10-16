@@ -163,12 +163,15 @@ fun StreamScreen(
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
                     if (pendingCount > 0) {
                         PaperBadge(
-                            text = "$pendingCount 待同步",
+                            text = "$pendingCount 待发",
                             isPendingSync = true,
-                            modifier = Modifier.padding(end = 6.dp)
+                            modifier = Modifier.padding(end = 4.dp)
                         )
                     }
 
@@ -177,63 +180,50 @@ fun StreamScreen(
                         onClick = {
                             haptics.tapKey()
                             showSearchDialog = true
-                        }
+                        },
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Search,
                             contentDescription = "检索",
                             tint = colors.inkPrimary,
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
 
                     // + 记随笔入口
-                    TextButton(
+                    IconButton(
                         onClick = {
                             haptics.tapKey()
                             showQuickNoteDialog = true
                         },
-                        contentPadding = PaddingValues(horizontal = 6.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
-                        Text(
-                            text = "+ 记随笔",
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 12.sp,
-                            color = colors.accentWarm
+                        Icon(
+                            imageVector = Icons.Outlined.Edit,
+                            contentDescription = "记随笔",
+                            tint = colors.accentWarm,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
 
                     // 年度年鉴入口按钮
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(colors.archiveSubtle)
-                            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
-                            .clickable {
-                                haptics.tapKey()
-                                showAlmanacDialog = true
-                            }
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    IconButton(
+                        onClick = {
+                            haptics.tapKey()
+                            showAlmanacDialog = true
+                        },
+                        modifier = Modifier.size(32.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Outlined.AutoStories,
-                                contentDescription = "年度年鉴",
-                                tint = colors.accentWarm,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "年度年鉴",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 12.sp,
-                                color = colors.inkPrimary
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Outlined.AutoStories,
+                            contentDescription = "年度年鉴",
+                            tint = colors.inkPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
 
-                    Spacer(modifier = Modifier.width(4.dp))
-
+                    // 同步刷新按钮
                     IconButton(
                         onClick = {
                             scope.launch {
@@ -249,13 +239,14 @@ fun StreamScreen(
                                     Toast.makeText(context, "同步提示: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                                 }
                             }
-                        }
+                        },
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Refresh,
                             contentDescription = "同步刷新",
                             tint = if (isRefreshing) colors.accentWarm else colors.inkSecondary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
@@ -414,7 +405,7 @@ fun StreamScreen(
                         .weight(1f)
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp),
-                    contentPadding = PaddingValues(vertical = 12.dp)
+                    contentPadding = PaddingValues(top = 10.dp, bottom = 84.dp)
                 ) {
                     // 那年今日 · 岁月回响 折叠卡片
                     if (onThisDayEntries.isNotEmpty()) {
@@ -767,30 +758,30 @@ private fun EntryDetailSheetDialog(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    OutlinedTextField(
+                    PaperTextField(
                         value = editTitle,
                         onValueChange = { editTitle = it },
-                        label = { Text("标题") },
+                        label = "标题",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    OutlinedTextField(
+                    PaperTextEditor(
                         value = editContent,
                         onValueChange = { editContent = it },
-                        label = { Text("正文手记") },
-                        minLines = 4,
+                        label = "正文手记",
+                        minHeight = 110.dp,
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    OutlinedTextField(
+                    PaperTextField(
                         value = editLocation,
                         onValueChange = { editLocation = it },
-                        label = { Text("所处地点") },
+                        label = "所处地点",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1393,7 +1384,7 @@ private fun GlobalSearchDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                OutlinedTextField(
+                PaperTextField(
                     value = searchQuery,
                     onValueChange = { q ->
                         searchQuery = q
@@ -1409,7 +1400,7 @@ private fun GlobalSearchDialog(
                             searchResult = null
                         }
                     },
-                    placeholder = { Text("搜索生活印记、山川足迹、心愿或造物…", fontSize = 12.sp, color = colors.inkMuted) },
+                    placeholder = "搜索生活印记、山川足迹、心愿或造物…",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     trailingIcon = {
@@ -1561,24 +1552,24 @@ private fun QuickNoteDialog(
                         )
                     }
                 }
-                OutlinedTextField(
+                PaperTextField(
                     value = noteTitle,
                     onValueChange = { noteTitle = it },
-                    label = { Text("记录命名 (可选)") },
+                    label = "记录命名 (可选)",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+                PaperTextEditor(
                     value = noteContent,
                     onValueChange = { noteContent = it },
-                    label = { Text("当下心绪手记 *") },
-                    minLines = 3,
+                    label = "当下心绪手记 *",
+                    minHeight = 88.dp,
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+                PaperTextField(
                     value = noteLocation,
                     onValueChange = { noteLocation = it },
-                    label = { Text("地点/城市 (可选)") },
+                    label = "地点/城市 (可选)",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )

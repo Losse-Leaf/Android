@@ -406,64 +406,32 @@ fun DarkroomScreen(
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
+                    PaperTextField(
                         value = titleText,
                         onValueChange = { titleText = it },
-                        placeholder = { Text("记录此刻命名...", color = colors.inkMuted) },
+                        placeholder = "记录此刻命名...",
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = colors.accentWarm,
-                            unfocusedBorderColor = colors.borderDivider,
-                            focusedTextColor = colors.inkPrimary,
-                            unfocusedTextColor = colors.inkPrimary
-                        )
+                        modifier = Modifier.fillMaxWidth()
                     )
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    Text(
-                        text = "当下心绪或胶片手记",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 13.sp,
-                        color = colors.inkSecondary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedTextField(
+                    PaperTextEditor(
                         value = contentText,
                         onValueChange = { contentText = it },
-                        placeholder = { Text("记录现场气味、光影、或片刻偶遇...", color = colors.inkMuted) },
-                        minLines = 3,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = colors.accentWarm,
-                            unfocusedBorderColor = colors.borderDivider,
-                            focusedTextColor = colors.inkPrimary,
-                            unfocusedTextColor = colors.inkPrimary
-                        )
+                        placeholder = "记录现场气味、光影、或片刻偶遇...",
+                        minHeight = 88.dp,
+                        modifier = Modifier.fillMaxWidth()
                     )
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    Text(
-                        text = "所处地点 (自动提取 EXIF 城市坐标)",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 13.sp,
-                        color = colors.inkSecondary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedTextField(
+                    PaperTextField(
                         value = locationText,
                         onValueChange = { locationText = it },
-                        placeholder = { Text("例如: 大理古城、上海武康路", color = colors.inkMuted) },
+                        placeholder = "所处地点 (如: 大理古城、上海武康路，自动提取 EXIF 城市坐标)",
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = colors.accentWarm,
-                            unfocusedBorderColor = colors.borderDivider,
-                            focusedTextColor = colors.inkPrimary,
-                            unfocusedTextColor = colors.inkPrimary
-                        )
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }

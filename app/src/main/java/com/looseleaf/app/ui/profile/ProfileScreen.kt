@@ -134,6 +134,24 @@ fun ProfileScreen(
                                 .border(1.dp, colors.borderDivider, CircleShape)
                         )
                         Spacer(modifier = Modifier.height(12.dp))
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(68.dp)
+                                .clip(CircleShape)
+                                .background(colors.accentWarm.copy(alpha = 0.12f))
+                                .border(1.dp, colors.accentWarm.copy(alpha = 0.35f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = profile.name.take(1).ifBlank { "散" },
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 26.sp,
+                                color = colors.accentWarm
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
 
                     Text(
@@ -646,7 +664,7 @@ fun ProfileScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(96.dp))
         }
     }
 }
@@ -675,39 +693,39 @@ private fun EditProfileDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedTextField(
+                PaperTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("主理人称谓") },
+                    label = "主理人称谓",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+                PaperTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("头衔/身份标签") },
+                    label = "头衔/身份标签",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+                PaperTextField(
                     value = currentCity,
                     onValueChange = { currentCity = it },
-                    label = { Text("常居城市/坐标") },
+                    label = "常居城市/坐标",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+                PaperTextField(
                     value = motto,
                     onValueChange = { motto = it },
-                    label = { Text("生活格言") },
+                    label = "生活格言",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
+                PaperTextEditor(
                     value = manifesto,
                     onValueChange = { manifesto = it },
-                    label = { Text("主理人自白手记") },
-                    minLines = 3,
+                    label = "主理人自白手记",
+                    minHeight = 88.dp,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -753,10 +771,10 @@ private fun RenameDeviceDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("为当前随行设备设置识别别名 (如: 主理人的随行手机)：", fontSize = 12.sp, color = colors.inkSecondary)
-                OutlinedTextField(
+                PaperTextField(
                     value = nameInput,
                     onValueChange = { nameInput = it },
-                    label = { Text("设备名称") },
+                    label = "设备名称",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -846,10 +864,10 @@ private fun CategoryManagerDialog(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
+                    PaperTextField(
                         value = newCategoryInput,
                         onValueChange = { newCategoryInput = it },
-                        placeholder = { Text("输入新分类标签…", fontSize = 12.sp, color = colors.inkMuted) },
+                        placeholder = "输入新分类标签…",
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
