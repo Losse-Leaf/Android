@@ -104,22 +104,22 @@ class SyncManager private constructor(private val context: Context) {
 
     // 观察全量记账明细 (合并本地乐观与云端权威)
     val transactionsFlow: Flow<List<Transaction>> = database.transactionDao().getAllTransactionsFlow().map { entities ->
-        entities.map { it.toDomainModel() }
+        entities.map { it.toTransaction() }
     }
 
     // 观察全量造物项目 (离线缓存即时上屏)
     val projectsFlow: Flow<List<Project>> = database.projectDao().getAllProjectsFlow().map { entities ->
-        entities.map { it.toDomainModel() }
+        entities.map { it.toProject() }
     }
 
     // 观察全量三维心愿 (离线缓存即时上屏)
     val wishesFlow: Flow<List<Wish>> = database.wishDao().getAllWishesFlow().map { entities ->
-        entities.map { it.toDomainModel() }
+        entities.map { it.toWish() }
     }
 
     // 观察全量山川足迹 (离线缓存即时上屏)
     val footprintsFlow: Flow<List<Footprint>> = database.footprintDao().getAllFootprintsFlow().map { entities ->
-        entities.map { it.toDomainModel() }
+        entities.map { it.toFootprint() }
     }
 
     /**
@@ -987,7 +987,7 @@ fun CachedEntryEntity.toDomainModel(json: Json): LifeEntry {
     )
 }
 
-fun CachedTransactionEntity.toDomainModel(): Transaction {
+fun CachedTransactionEntity.toTransaction(): Transaction {
     return Transaction(
         id = serverId ?: -localId,
         amount = amount,
@@ -1003,7 +1003,7 @@ fun CachedTransactionEntity.toDomainModel(): Transaction {
     )
 }
 
-fun CachedProjectEntity.toDomainModel(): Project {
+fun CachedProjectEntity.toProject(): Project {
     return Project(
         id = id,
         title = title,
@@ -1016,7 +1016,7 @@ fun CachedProjectEntity.toDomainModel(): Project {
     )
 }
 
-fun CachedWishEntity.toDomainModel(): Wish {
+fun CachedWishEntity.toWish(): Wish {
     return Wish(
         id = id,
         title = title,
@@ -1031,7 +1031,7 @@ fun CachedWishEntity.toDomainModel(): Wish {
     )
 }
 
-fun CachedFootprintEntity.toDomainModel(): Footprint {
+fun CachedFootprintEntity.toFootprint(): Footprint {
     return Footprint(
         id = id,
         cityCode = cityCode,
