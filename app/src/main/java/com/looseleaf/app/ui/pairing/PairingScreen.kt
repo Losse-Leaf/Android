@@ -31,10 +31,7 @@ import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
-import com.looseleaf.app.ui.components.NoiseBackground
-import com.looseleaf.app.ui.components.PaperCard
-import com.looseleaf.app.ui.components.PaperDivider
-import com.looseleaf.app.ui.components.TerracottaStampButton
+import com.looseleaf.app.ui.components.*
 import kotlinx.coroutines.launch
 
 /**

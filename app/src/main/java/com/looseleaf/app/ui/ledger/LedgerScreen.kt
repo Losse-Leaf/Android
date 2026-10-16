@@ -35,11 +35,7 @@ import com.looseleaf.app.model.*
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.theme.SpectrumColors
-import com.looseleaf.app.ui.components.NoiseBackground
-import com.looseleaf.app.ui.components.PaperBadge
-import com.looseleaf.app.ui.components.PaperCard
-import com.looseleaf.app.ui.components.PaperDivider
-import com.looseleaf.app.ui.components.TerracottaStampButton
+import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.launch
 import java.time.LocalDate
