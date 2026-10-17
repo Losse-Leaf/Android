@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.looseleaf.app.audio.AudioEngine
 import com.looseleaf.app.darkroom.ImagePipeline
 import com.looseleaf.app.darkroom.ProcessedImageResult
@@ -53,7 +55,8 @@ import java.io.IOException
 
 private data class DarkroomPhotoSlot(
     val previewUri: String,
-    val processed: ProcessedImageResult
+    val processed: ProcessedImageResult,
+    val savedOutboxFile: File? = null
 )
 
 /**
@@ -79,10 +82,10 @@ fun DarkroomScreen(
     var lightboxPhotoUrl by remember { mutableStateOf<String?>(null) }
     var lightboxMetadata by remember { mutableStateOf<String?>(null) }
 
-    var titleText by remember { mutableStateOf("") }
-    var contentText by remember { mutableStateOf("") }
-    var locationText by remember { mutableStateOf("") }
-    var selectedType by remember { mutableStateOf("life") }
+    var titleText by rememberSaveable { mutableStateOf("") }
+    var contentText by rememberSaveable { mutableStateOf("") }
+    var locationText by rememberSaveable { mutableStateOf("") }
+    var selectedType by rememberSaveable { mutableStateOf("life") }
 
     // 临时快门拍照文件引用
     var pendingCaptureFile by remember { mutableStateOf<File?>(null) }
@@ -101,7 +104,7 @@ fun DarkroomScreen(
                     val processed = ImagePipeline.processImage(context, uri)
                     val savedFile = syncManager.saveCompressedImageToOutboxDir(processed.compressedBytes)
                     val fileUri = "file://${savedFile.absolutePath}"
-                    val newSlot = DarkroomPhotoSlot(previewUri = fileUri, processed = processed)
+                    val newSlot = DarkroomPhotoSlot(previewUri = fileUri, processed = processed, savedOutboxFile = savedFile)
                     val updated = (photoSlots + newSlot).take(9)
                     photoSlots = updated
                     activeSlotIndex = updated.lastIndex.coerceAtLeast(0)
@@ -164,7 +167,9 @@ fun DarkroomScreen(
                         targetUris.map { uri ->
                             async {
                                 val res = ImagePipeline.processImage(context, uri)
-                                DarkroomPhotoSlot(previewUri = uri.toString(), processed = res)
+                                val savedFile = syncManager.saveCompressedImageToOutboxDir(res.compressedBytes)
+                                val fileUri = "file://${savedFile.absolutePath}"
+                                DarkroomPhotoSlot(previewUri = fileUri, processed = res, savedOutboxFile = savedFile)
                             }
                         }.awaitAll()
                     }
@@ -297,7 +302,12 @@ fun DarkroomScreen(
                                     .clickable { activeSlotIndex = idx }
                             ) {
                                 AsyncImage(
-                                    model = slot.previewUri,
+                                    model = ImageRequest.Builder(context)
+                                        .data(slot.previewUri)
+                                        .crossfade(true)
+                                        .memoryCacheKey(slot.previewUri)
+                                        .diskCacheKey(slot.previewUri)
+                                        .build(),
                                     contentDescription = "相纸 #${idx + 1}",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -460,7 +470,7 @@ fun DarkroomScreen(
 
                             if (photoSlots.isNotEmpty()) {
                                 val savedFiles = photoSlots.map { slot ->
-                                    val f = syncManager.saveCompressedImageToOutboxDir(slot.processed.compressedBytes)
+                                    val f = slot.savedOutboxFile ?: syncManager.saveCompressedImageToOutboxDir(slot.processed.compressedBytes)
                                     OfflineMediaFileItem(
                                         filePath = f.absolutePath,
                                         mimeType = slot.processed.mimeType,

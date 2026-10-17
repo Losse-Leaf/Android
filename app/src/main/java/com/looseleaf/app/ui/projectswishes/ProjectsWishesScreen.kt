@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,11 +63,12 @@ fun ProjectsWishesScreen(
     val syncManager = remember { com.looseleaf.app.data.sync.SyncManager.getInstance(context) }
     val haptics = remember { HapticsEngine.getInstance(context) }
 
-    var selectedTab by remember { mutableStateOf(0) } // 0: 造物, 1: 心愿, 2: 足迹
-    val projects by syncManager.projectsFlow.collectAsState(initial = emptyList())
-    val wishes by syncManager.wishesFlow.collectAsState(initial = emptyList())
-    val footprints by syncManager.footprintsFlow.collectAsState(initial = emptyList())
+    var selectedTab by rememberSaveable { mutableStateOf(0) } // 0: 造物, 1: 心愿, 2: 足迹
+    val projects by syncManager.projectsFlow.collectAsState()
+    val wishes by syncManager.wishesFlow.collectAsState()
+    val footprints by syncManager.footprintsFlow.collectAsState()
 
+    var hasInitializedProjectsWishes by rememberSaveable { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
 
@@ -75,8 +78,10 @@ fun ProjectsWishesScreen(
     var editingProject by remember { mutableStateOf<Project?>(null) }
     var wishToDelete by remember { mutableStateOf<Wish?>(null) }
 
-    suspend fun reloadAll() {
-        isLoading = true
+    suspend fun reloadAll(forceLoading: Boolean = false) {
+        if (forceLoading || (projects.isEmpty() && wishes.isEmpty() && footprints.isEmpty())) {
+            isLoading = true
+        }
         loadError = null
         try {
             syncManager.pullRemoteData()
@@ -87,8 +92,11 @@ fun ProjectsWishesScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        reloadAll()
+    LaunchedEffect(hasInitializedProjectsWishes) {
+        if (!hasInitializedProjectsWishes) {
+            reloadAll(forceLoading = false)
+            hasInitializedProjectsWishes = true
+        }
     }
 
     NoiseBackground(modifier = modifier) {
@@ -708,7 +716,10 @@ private fun ProjectsList(
         return
     }
 
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(top = 10.dp, bottom = 84.dp)
@@ -788,7 +799,8 @@ private fun WishesList(
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
-    var statusFilter by remember { mutableStateOf("all") }
+    var statusFilter by rememberSaveable { mutableStateOf("all") }
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
     val filteredWishes = remember(wishes, statusFilter) {
         if (statusFilter == "all") wishes
@@ -828,6 +840,7 @@ private fun WishesList(
         }
 
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .weight(1f)
@@ -928,7 +941,10 @@ private fun FootprintsList(
         return
     }
 
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = PaddingValues(top = 10.dp, bottom = 84.dp)

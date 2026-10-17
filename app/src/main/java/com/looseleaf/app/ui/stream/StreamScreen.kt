@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,16 +74,18 @@ fun StreamScreen(
     val syncManager = remember { SyncManager.getInstance(context) }
     val haptics = remember { HapticsEngine.getInstance(context) }
 
-    val entries by syncManager.entriesFlow.collectAsState(initial = emptyList())
-    val pendingCount by syncManager.pendingEventCountFlow.collectAsState(initial = 0)
+    val entries by syncManager.entriesFlow.collectAsState()
+    val pendingCount by syncManager.pendingEventCountFlow.collectAsState()
 
-    var selectedFilter by remember { mutableStateOf("all") }
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    var selectedFilter by rememberSaveable { mutableStateOf("all") }
     var isRefreshing by remember { mutableStateOf(false) }
     var cloudUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
 
     // 那年今日状态
     var remoteOnThisDay by remember { mutableStateOf<List<LifeEntry>>(emptyList()) }
-    var isOnThisDayExpanded by remember { mutableStateOf(true) }
+    var isOnThisDayExpanded by rememberSaveable { mutableStateOf(true) }
+    var hasInitializedStream by rememberSaveable { mutableStateOf(false) }
 
     // 年度年鉴弹窗状态
     var showAlmanacDialog by remember { mutableStateOf(false) }
@@ -95,18 +99,21 @@ fun StreamScreen(
     var selectedEntryForDetail by remember { mutableStateOf<LifeEntry?>(null) }
     var lightboxPhoto by remember { mutableStateOf<Pair<String, String?>?>(null) }
 
-    LaunchedEffect(Unit) {
-        launch {
-            when (val res = UpdateChecker.checkForUpdates()) {
-                is UpdateCheckResult.HasUpdate -> cloudUpdate = res.release
-                else -> {}
+    LaunchedEffect(hasInitializedStream) {
+        if (!hasInitializedStream) {
+            launch {
+                when (val res = UpdateChecker.checkForUpdates()) {
+                    is UpdateCheckResult.HasUpdate -> cloudUpdate = res.release
+                    else -> {}
+                }
             }
-        }
-        launch {
-            runCatching {
-                val resp = apiClient.fetchOnThisDay()
-                remoteOnThisDay = resp.entries
+            launch {
+                runCatching {
+                    val resp = apiClient.fetchOnThisDay()
+                    remoteOnThisDay = resp.entries
+                }
             }
+            hasInitializedStream = true
         }
     }
 
@@ -407,6 +414,7 @@ fun StreamScreen(
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -161,14 +162,19 @@ fun ProfileScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        runCatching {
-            val remoteProfile = apiClient.fetchCuratorProfile()
-            ProfileRepository.updateProfile(context, remoteProfile)
-            profile = remoteProfile
-            val remoteConfig = apiClient.fetchSiteConfig()
-            ProfileRepository.updateSiteConfig(context, remoteConfig)
-            siteConfig = remoteConfig
+    var hasInitializedProfile by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(hasInitializedProfile) {
+        if (!hasInitializedProfile) {
+            runCatching {
+                val remoteProfile = apiClient.fetchCuratorProfile()
+                ProfileRepository.updateProfile(context, remoteProfile)
+                profile = remoteProfile
+                val remoteConfig = apiClient.fetchSiteConfig()
+                ProfileRepository.updateSiteConfig(context, remoteConfig)
+                siteConfig = remoteConfig
+            }
+            hasInitializedProfile = true
         }
     }
 

@@ -198,8 +198,8 @@ object ImagePipeline {
             rawBitmap
         }
 
-        // 4. 压缩为 82% 质量 JPEG (体积相比 85% 锐减 30%，画质无可见差异)
-        val outStream = ByteArrayOutputStream()
+        // 4. 压缩为 82% 质量 JPEG (预分配 512KB 缓冲区，减少 14 次内部扩容与 GC 抖动)
+        val outStream = ByteArrayOutputStream(512 * 1024)
         rotatedBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, outStream)
         val bytes = outStream.toByteArray()
         val finalWidth = rotatedBitmap.width
@@ -233,7 +233,7 @@ object ImagePipeline {
         } else {
             bitmap
         }
-        val outStream = ByteArrayOutputStream()
+        val outStream = ByteArrayOutputStream(512 * 1024)
         scaledBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, outStream)
         val bytes = outStream.toByteArray()
         val finalWidth = scaledBitmap.width

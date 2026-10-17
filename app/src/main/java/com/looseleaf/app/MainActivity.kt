@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -165,6 +166,8 @@ class MainActivity : FragmentActivity() {
                         }
                     }
 
+                    val saveableStateHolder = rememberSaveableStateHolder()
+
                     Box(modifier = Modifier.fillMaxSize()) {
                         Scaffold(
                             bottomBar = {
@@ -183,27 +186,29 @@ class MainActivity : FragmentActivity() {
                                     .fillMaxSize()
                                     .padding(innerPadding)
                             ) {
-                                when (currentRoute) {
-                                    "stream" -> StreamScreen(
-                                        onNavigateToDarkroom = {
-                                            currentRoute = "darkroom"
-                                        }
-                                    )
-                                    "ledger" -> LedgerScreen()
-                                    "darkroom" -> DarkroomScreen(
-                                        onEntrySaved = {
-                                            currentRoute = "stream"
-                                        }
-                                    )
-                                    "projects" -> ProjectsWishesScreen()
-                                    "profile" -> ProfileScreen(
-                                        onUnpair = {
-                                            isPaired = false
-                                        },
-                                        onDarkroomModeChanged = { enabled ->
-                                            isDarkTheme = enabled
-                                        }
-                                    )
+                                saveableStateHolder.SaveableStateProvider(currentRoute) {
+                                    when (currentRoute) {
+                                        "stream" -> StreamScreen(
+                                            onNavigateToDarkroom = {
+                                                currentRoute = "darkroom"
+                                            }
+                                        )
+                                        "ledger" -> LedgerScreen()
+                                        "darkroom" -> DarkroomScreen(
+                                            onEntrySaved = {
+                                                currentRoute = "stream"
+                                            }
+                                        )
+                                        "projects" -> ProjectsWishesScreen()
+                                        "profile" -> ProfileScreen(
+                                            onUnpair = {
+                                                isPaired = false
+                                            },
+                                            onDarkroomModeChanged = { enabled ->
+                                                isDarkTheme = enabled
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }

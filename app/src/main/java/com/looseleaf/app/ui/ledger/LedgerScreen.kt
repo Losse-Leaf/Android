@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,10 +60,10 @@ fun LedgerScreen(
     val credentialStore = remember { CredentialStore.getInstance(context) }
     val apiClient = remember { APIClient.getInstance(context) }
 
-    val transactions by syncManager.transactionsFlow.collectAsState(initial = emptyList())
+    val transactions by syncManager.transactionsFlow.collectAsState()
 
     // 0: 极速记账, 1: 账单流水, 2: 资产与信贷
-    var selectedTab by remember { mutableStateOf(0) }
+    var selectedTab by rememberSaveable { mutableStateOf(0) }
 
     var expenseCategories by remember { mutableStateOf(DefaultExpenseCategories) }
     var incomeCategories by remember { mutableStateOf(DefaultIncomeCategories) }
@@ -69,11 +71,12 @@ fun LedgerScreen(
     var creditChannels by remember { mutableStateOf<List<CreditChannel>>(emptyList()) }
 
     // 记账输入状态
-    var inputAmountString by remember { mutableStateOf("0") }
-    var selectedType by remember { mutableStateOf("expense") } // "expense" | "income"
-    var selectedCategory by remember { mutableStateOf(inferRecommendedCategory()) }
-    var selectedPaymentMethod by remember { mutableStateOf("微信支付") }
-    var noteText by remember { mutableStateOf("") }
+    var inputAmountString by rememberSaveable { mutableStateOf("0") }
+    var selectedType by rememberSaveable { mutableStateOf("expense") } // "expense" | "income"
+    var selectedCategory by rememberSaveable { mutableStateOf(inferRecommendedCategory()) }
+    var selectedPaymentMethod by rememberSaveable { mutableStateOf("微信支付") }
+    var noteText by rememberSaveable { mutableStateOf("") }
+    var hasInitializedLedger by rememberSaveable { mutableStateOf(false) }
 
     // 分期参数
     var isInstallment by remember { mutableStateOf(false) }
@@ -97,7 +100,7 @@ fun LedgerScreen(
         mutableStateOf(YearMonth.now(FormatUtils.BeijingZone))
     }
 
-    suspend fun reloadCategoriesAndAssets() {
+    suspend fun reloadCategoriesAndAssets(forceLoadingSpinner: Boolean = false) {
         runCatching {
             val allCats = apiClient.fetchCategories()
             val exp = allCats.filter { it.scope == "expense" }.map { it.name }
@@ -117,14 +120,19 @@ fun LedgerScreen(
             }
         }
         runCatching {
-            isLoadingAssets = true
+            if (forceLoadingSpinner || assetsOverview == null) {
+                isLoadingAssets = true
+            }
             assetsOverview = apiClient.fetchAssetsOverview()
             isLoadingAssets = false
         }
     }
 
-    LaunchedEffect(Unit) {
-        reloadCategoriesAndAssets()
+    LaunchedEffect(hasInitializedLedger) {
+        if (!hasInitializedLedger) {
+            reloadCategoriesAndAssets(forceLoadingSpinner = false)
+            hasInitializedLedger = true
+        }
     }
 
     val activeCategories = if (selectedType == "income") incomeCategories else expenseCategories
@@ -895,7 +903,10 @@ private fun TransactionsLedgerTab(
             .sortedByDescending { it.second }
     }
 
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+
     LazyColumn(
+        state = listState,
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
@@ -1153,8 +1164,10 @@ private fun AssetsAndGearTab(
     }
 
     val ov = overview ?: AssetsOverview()
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
     LazyColumn(
+        state = listState,
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
