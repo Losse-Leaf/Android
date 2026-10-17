@@ -86,6 +86,18 @@ class CredentialStore private constructor(context: Context) {
             prefs.edit().putBoolean(KEY_DARKROOM_MODE, value).apply()
         }
 
+    var cachedProfileJson: String?
+        get() = prefs.getString("cached_profile_json", null)
+        set(value) {
+            prefs.edit().putString("cached_profile_json", value).apply()
+        }
+
+    var cachedSiteConfigJson: String?
+        get() = prefs.getString("cached_site_config_json", null)
+        set(value) {
+            prefs.edit().putString("cached_site_config_json", value).apply()
+        }
+
     fun isPaired(): Boolean {
         return !deviceToken.isNullOrBlank()
     }
@@ -94,6 +106,8 @@ class CredentialStore private constructor(context: Context) {
         prefs.edit()
             .remove(KEY_DEVICE_TOKEN)
             .remove(KEY_DEVICE_ID)
+            .remove("cached_profile_json")
+            .remove("cached_site_config_json")
             .apply()
     }
 }

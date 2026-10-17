@@ -45,14 +45,25 @@ class APIClient private constructor(private val context: Context) {
 
     private val etagCache = ConcurrentHashMap<String, String>()
 
-    private val okHttpClient: OkHttpClient by lazy {
+    val okHttpClient: OkHttpClient by lazy {
         val logging = HttpLoggingInterceptor { message ->
             Log.d(TAG, message)
         }.apply {
             level = HttpLoggingInterceptor.Level.BASIC
         }
 
+        val dispatcher = Dispatcher().apply {
+            maxRequests = 64
+            maxRequestsPerHost = 16
+        }
+
+        val connectionPool = ConnectionPool(16, 5, TimeUnit.MINUTES)
+
         OkHttpClient.Builder()
+            .dispatcher(dispatcher)
+            .connectionPool(connectionPool)
+            .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
+            .retryOnConnectionFailure(true)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)

@@ -27,11 +27,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import android.net.Uri
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.looseleaf.app.data.api.APIClient
+import com.looseleaf.app.data.local.ProfileRepository
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.haptics.HapticsEngine
@@ -45,7 +48,10 @@ import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.updater.ReleaseInfo
 import com.looseleaf.app.updater.UpdateCheckResult
 import com.looseleaf.app.updater.UpdateChecker
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 
 /**
  * 主理人展台与设备中枢设置 (ProfileScreen)
@@ -66,8 +72,14 @@ fun ProfileScreen(
     val syncManager = remember { SyncManager.getInstance(context) }
     val haptics = remember { HapticsEngine.getInstance(context) }
 
-    var profile by remember { mutableStateOf(CuratorProfile()) }
-    var siteConfig by remember { mutableStateOf(SiteConfig()) }
+    val cachedProfile = remember { ProfileRepository.getProfile(context) }
+    val cachedSiteConfig = remember { ProfileRepository.getSiteConfig(context) }
+    val repoProfile by ProfileRepository.profileState.collectAsState()
+    val repoSiteConfig by ProfileRepository.siteConfigState.collectAsState()
+
+    var profile by remember(repoProfile) { mutableStateOf(repoProfile ?: cachedProfile) }
+    var siteConfig by remember(repoSiteConfig) { mutableStateOf(repoSiteConfig ?: cachedSiteConfig) }
+    var localAvatarPreviewUri by remember { mutableStateOf<Uri?>(null) }
     var isDarkroomMode by remember { mutableStateOf(credentialStore.isDarkroomMode) }
     var isBiometricsEnabled by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
     var showUnpairDialog by remember { mutableStateOf(false) }
@@ -81,30 +93,47 @@ fun ProfileScreen(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
+            localAvatarPreviewUri = uri
             scope.launch {
                 isUploadingAvatar = true
                 try {
-                    val input = context.contentResolver.openInputStream(uri)
-                    val rawBytes = input?.use { it.readBytes() } ?: ByteArray(0)
-                    val bytes = if (rawBytes.isNotEmpty()) {
-                        val original = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
-                        if (original != null) {
-                            val maxDim = 512
-                            val (newW, newH) = if (original.width > original.height) {
-                                val h = (original.height * maxDim.toFloat() / original.width).toInt().coerceAtLeast(1)
+                    val bytes = withContext(Dispatchers.IO) {
+                        val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        context.contentResolver.openInputStream(uri)?.use {
+                            BitmapFactory.decodeStream(it, null, boundsOptions)
+                        }
+                        val origW = boundsOptions.outWidth
+                        val origH = boundsOptions.outHeight
+                        val maxDim = 512
+                        var sampleSize = 1
+                        while (origW / (sampleSize * 2) >= maxDim || origH / (sampleSize * 2) >= maxDim) {
+                            sampleSize *= 2
+                        }
+                        val decodeOptions = BitmapFactory.Options().apply {
+                            inSampleSize = sampleSize
+                            inPreferredConfig = Bitmap.Config.RGB_565
+                        }
+                        val decoded = context.contentResolver.openInputStream(uri)?.use {
+                            BitmapFactory.decodeStream(it, null, decodeOptions)
+                        }
+                        if (decoded != null) {
+                            val (targetW, targetH) = if (decoded.width > decoded.height) {
+                                val h = (decoded.height * maxDim.toFloat() / decoded.width).toInt().coerceAtLeast(1)
                                 maxDim to h
                             } else {
-                                val w = (original.width * maxDim.toFloat() / original.height).toInt().coerceAtLeast(1)
+                                val w = (decoded.width * maxDim.toFloat() / decoded.height).toInt().coerceAtLeast(1)
                                 w to maxDim
                             }
-                            val scaled = Bitmap.createScaledBitmap(original, newW, newH, true)
-                            val stream = java.io.ByteArrayOutputStream()
-                            scaled.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+                            val scaled = Bitmap.createScaledBitmap(decoded, targetW, targetH, true)
+                            if (scaled !== decoded) decoded.recycle()
+                            val stream = ByteArrayOutputStream()
+                            scaled.compress(Bitmap.CompressFormat.JPEG, 82, stream)
+                            scaled.recycle()
                             stream.toByteArray()
-                        } else rawBytes
-                    } else ByteArray(0)
+                        } else null
+                    }
 
-                    if (bytes.isNotEmpty()) {
+                    if (bytes != null && bytes.isNotEmpty()) {
                         val att = apiClient.uploadUnifiedFallback(
                             fileBytes = bytes,
                             filename = "avatar_${System.currentTimeMillis()}.jpg",
@@ -114,10 +143,16 @@ fun ProfileScreen(
                         val updated = apiClient.updateCuratorProfile(
                             UpdateProfileRequest(avatarKey = att.objectKey)
                         )
+                        ProfileRepository.updateProfile(context, updated)
                         profile = updated
+                        localAvatarPreviewUri = null
                         ArchiveToastManager.show("肖像照片已更新")
+                    } else {
+                        localAvatarPreviewUri = null
+                        ArchiveToastManager.show("头像解析失败", isError = true)
                     }
                 } catch (e: Exception) {
+                    localAvatarPreviewUri = null
                     ArchiveToastManager.show("头像上传失败: ${e.message}", isError = true)
                 } finally {
                     isUploadingAvatar = false
@@ -128,8 +163,12 @@ fun ProfileScreen(
 
     LaunchedEffect(Unit) {
         runCatching {
-            profile = apiClient.fetchCuratorProfile()
-            siteConfig = apiClient.fetchSiteConfig()
+            val remoteProfile = apiClient.fetchCuratorProfile()
+            ProfileRepository.updateProfile(context, remoteProfile)
+            profile = remoteProfile
+            val remoteConfig = apiClient.fetchSiteConfig()
+            ProfileRepository.updateSiteConfig(context, remoteConfig)
+            siteConfig = remoteConfig
         }
     }
 
@@ -189,9 +228,16 @@ fun ProfileScreen(
                             }
                     ) {
                         val avatarUrl = apiClient.resolveMediaUrl(profile.avatarUrl)
-                        if (avatarUrl.isNotBlank()) {
+                        val avatarModel: Any? = localAvatarPreviewUri ?: avatarUrl.takeIf { it.isNotBlank() }
+
+                        if (avatarModel != null) {
                             AsyncImage(
-                                model = avatarUrl,
+                                model = ImageRequest.Builder(context)
+                                    .data(avatarModel)
+                                    .crossfade(true)
+                                    .memoryCacheKey(avatarUrl.takeIf { localAvatarPreviewUri == null })
+                                    .diskCacheKey(avatarUrl.takeIf { localAvatarPreviewUri == null })
+                                    .build(),
                                 contentDescription = "主理人肖像",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
@@ -662,8 +708,12 @@ fun ProfileScreen(
                     onSave = { req ->
                         scope.launch {
                             runCatching {
-                                profile = apiClient.updateCuratorProfile(req)
+                                val updated = apiClient.updateCuratorProfile(req)
+                                ProfileRepository.updateProfile(context, updated)
+                                profile = updated
                                 ArchiveToastManager.show("主理人档案已保存")
+                            }.onFailure { err ->
+                                ArchiveToastManager.show("保存档案失败: ${err.message}", isError = true)
                             }
                             showEditProfileDialog = false
                         }

@@ -46,6 +46,7 @@ import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
+import kotlinx.coroutines.*
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.IOException
@@ -158,23 +159,27 @@ fun DarkroomScreen(
             scope.launch {
                 isProcessing = true
                 try {
-                    val added = mutableListOf<DarkroomPhotoSlot>()
-                    for (uri in uris.take(9 - photoSlots.size)) {
-                        val res = ImagePipeline.processImage(context, uri)
-                        added.add(DarkroomPhotoSlot(previewUri = uri.toString(), processed = res))
-
+                    val targetUris = uris.take(9 - photoSlots.size)
+                    val added = withContext(Dispatchers.IO) {
+                        targetUris.map { uri ->
+                            async {
+                                val res = ImagePipeline.processImage(context, uri)
+                                DarkroomPhotoSlot(previewUri = uri.toString(), processed = res)
+                            }
+                        }.awaitAll()
+                    }
+                    if (added.isNotEmpty()) {
+                        val firstRes = added.first().processed
                         if (titleText.isBlank()) {
-                            titleText = "现场记录 · " + (res.exif.model ?: "胶片相纸")
+                            titleText = "现场记录 · " + (firstRes.exif.model ?: "胶片相纸")
                         }
                         if (locationText.isBlank()) {
-                            val inferredCity = res.exif.inferredCityName
-                                ?: res.exif.inferredCityCode?.let { CityDictionary.cityNameForCode(it) }
+                            val inferredCity = firstRes.exif.inferredCityName
+                                ?: firstRes.exif.inferredCityCode?.let { CityDictionary.cityNameForCode(it) }
                             if (!inferredCity.isNullOrBlank()) {
                                 locationText = inferredCity
                             }
                         }
-                    }
-                    if (added.isNotEmpty()) {
                         val merged = (photoSlots + added).take(9)
                         photoSlots = merged
                         activeSlotIndex = merged.lastIndex.coerceAtLeast(0)

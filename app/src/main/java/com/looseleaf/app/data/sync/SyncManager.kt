@@ -16,14 +16,11 @@ import com.looseleaf.app.data.api.APIException
 import com.looseleaf.app.data.local.*
 import com.looseleaf.app.model.*
 import com.looseleaf.app.utils.FormatUtils
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -846,28 +843,29 @@ class SyncManager private constructor(private val context: Context) {
                         emptyList()
                     }
 
-                    val uploadedAttachments = mutableListOf<Attachment>()
-                    val tempFiles = mutableListOf<File>()
-
-                    for (item in itemsToUpload) {
-                        val file = File(item.filePath)
-                        if (file.exists()) {
-                            tempFiles.add(file)
-                            val bytes = file.readBytes()
-                            val processed = ProcessedImageResult(
-                                compressedBytes = bytes,
-                                width = item.width,
-                                height = item.height,
-                                mimeType = item.mimeType,
-                                exif = ExtractedExif()
-                            )
-                            val att = ImagePipeline.uploadImage(
-                                apiClient = apiClient,
-                                processed = processed,
-                                filename = file.name
-                            )
-                            uploadedAttachments.add(att)
-                        }
+                    val tempFiles = java.util.Collections.synchronizedList(mutableListOf<File>())
+                    val uploadedAttachments = coroutineScope {
+                        itemsToUpload.map { item ->
+                            async(Dispatchers.IO) {
+                                val file = File(item.filePath)
+                                if (file.exists()) {
+                                    tempFiles.add(file)
+                                    val bytes = file.readBytes()
+                                    val processed = ProcessedImageResult(
+                                        compressedBytes = bytes,
+                                        width = item.width,
+                                        height = item.height,
+                                        mimeType = item.mimeType,
+                                        exif = ExtractedExif()
+                                    )
+                                    ImagePipeline.uploadImage(
+                                        apiClient = apiClient,
+                                        processed = processed,
+                                        filename = file.name
+                                    )
+                                } else null
+                            }
+                        }.awaitAll().filterNotNull()
                     }
 
                     val mergedAttachmentIds = (
