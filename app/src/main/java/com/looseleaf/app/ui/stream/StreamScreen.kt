@@ -1526,7 +1526,7 @@ private fun EntryAttachmentsGrid(
                     ) {
                         for (att in row) {
                             val fullUrl = apiClient.resolveMediaUrl(att.url)
-                            val meta = camera ?: att.originalFilename
+                            val meta = att.originalFilename
                             FilmFrame(
                                 imageUrl = fullUrl,
                                 metadataText = null,
@@ -1548,7 +1548,7 @@ private fun EntryAttachmentsGrid(
                     ) {
                         for (att in row) {
                             val fullUrl = apiClient.resolveMediaUrl(att.url)
-                            val meta = camera ?: att.originalFilename
+                            val meta = att.originalFilename
                             FilmFrame(
                                 imageUrl = fullUrl,
                                 metadataText = null,
