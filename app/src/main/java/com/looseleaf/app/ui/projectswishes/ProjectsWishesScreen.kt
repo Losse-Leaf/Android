@@ -1303,7 +1303,7 @@ private fun EditFootprintSheetDialog(
     var note by remember(footprint.id) { mutableStateOf(footprint.note ?: "") }
     var visitedAtDt by remember(footprint.id) {
         mutableStateOf(
-            FormatUtils.parseToLocalDateTime(footprint.visitedAt) ?: LocalDateTime.now(FormatUtils.BeijingZone)
+            FormatUtils.parseToLocalDateTime(footprint.visitedAt)
         )
     }
     var isSubmitting by remember { mutableStateOf(false) }

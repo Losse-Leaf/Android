@@ -67,10 +67,20 @@ object FormatUtils {
     }
 
     /**
-     * 将任意支持的日期时间串解析为北京时间 LocalDateTime
+     * 将任意支持的日期时间串解析为北京时间 LocalDateTime (可空容错，为空或异常时安全兜底当前北京时间)
      */
-    fun parseToLocalDateTime(raw: String): LocalDateTime {
-        return parseOccurredInstant(raw).atZone(BeijingZone).toLocalDateTime()
+    fun parseToLocalDateTime(raw: String?): LocalDateTime {
+        if (raw.isNullOrBlank()) return LocalDateTime.now(BeijingZone)
+        return runCatching { parseOccurredInstant(raw).atZone(BeijingZone).toLocalDateTime() }
+            .getOrElse { LocalDateTime.now(BeijingZone) }
+    }
+
+    /**
+     * 将任意支持的日期时间串解析为北京时间 LocalDateTime (若为空或解析失败返回 null)
+     */
+    fun parseToLocalDateTimeOrNull(raw: String?): LocalDateTime? {
+        if (raw.isNullOrBlank()) return null
+        return runCatching { parseOccurredInstant(raw).atZone(BeijingZone).toLocalDateTime() }.getOrNull()
     }
 
     /**
@@ -163,7 +173,8 @@ object FormatUtils {
     /**
      * 格式化展示为 YYYY.MM.DD
      */
-    fun formatDisplayDate(rawIso: String): String {
+    fun formatDisplayDate(rawIso: String?): String {
+        if (rawIso.isNullOrBlank()) return ""
         return try {
             val inst = parseOccurredInstant(rawIso)
             DisplayDateFormatter.format(inst.atZone(BeijingZone))
@@ -172,13 +183,14 @@ object FormatUtils {
         }
     }
 
-    fun formatDate(rawIso: String): String = formatDisplayDate(rawIso)
-    fun formatDateTime(rawIso: String): String = formatDisplayDateTime(rawIso)
+    fun formatDate(rawIso: String?): String = formatDisplayDate(rawIso)
+    fun formatDateTime(rawIso: String?): String = formatDisplayDateTime(rawIso)
 
     /**
      * 格式化展示为 YYYY.MM.DD HH:mm
      */
-    fun formatDisplayDateTime(rawIso: String): String {
+    fun formatDisplayDateTime(rawIso: String?): String {
+        if (rawIso.isNullOrBlank()) return ""
         return try {
             val inst = parseOccurredInstant(rawIso)
             DisplayDateTimeFormatter.format(inst.atZone(BeijingZone))
@@ -190,7 +202,8 @@ object FormatUtils {
     /**
      * 格式化展示为 HH:mm
      */
-    fun formatDisplayTime(rawIso: String): String {
+    fun formatDisplayTime(rawIso: String?): String {
+        if (rawIso.isNullOrBlank()) return ""
         return try {
             val inst = parseOccurredInstant(rawIso)
             DisplayTimeFormatter.format(inst.atZone(BeijingZone))
