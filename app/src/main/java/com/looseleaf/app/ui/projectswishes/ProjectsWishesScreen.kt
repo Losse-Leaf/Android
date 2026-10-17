@@ -1149,7 +1149,7 @@ private fun EditWishSheetDialog(
     val colors = LooseLeafTheme.colors
     val scope = rememberCoroutineScope()
     var title by remember(wish.id) { mutableStateOf(wish.title) }
-    var kind by remember(wish.id) { mutableStateOf(wish.kind) }
+    var kind by remember(wish.id) { mutableStateOf(wish.kind ?: "item") }
     var budgetYuan by remember(wish.id) { mutableStateOf(FormatUtils.centsToYuanString(wish.budget, includeSymbol = false)) }
     var spec by remember(wish.id) { mutableStateOf(wish.spec ?: "") }
     var note by remember(wish.id) { mutableStateOf(wish.note ?: "") }
@@ -1241,7 +1241,7 @@ private fun EditFootprintSheetDialog(
                             cityCode = cityCode.ifBlank { footprint.cityCode },
                             cityName = cityName.ifBlank { footprint.cityName },
                             title = title.trim().takeIf { it.isNotBlank() },
-                            visitedAt = footprint.visitedAt,
+                            visitedAt = footprint.visitedAt ?: FormatUtils.beijingNowIsoString(),
                             departedAt = footprint.departedAt,
                             note = note.trim().takeIf { it.isNotBlank() }
                         )
