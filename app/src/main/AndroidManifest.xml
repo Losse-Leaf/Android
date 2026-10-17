@@ -34,6 +34,29 @@
             </intent-filter>
         </activity>
 
+        <!-- 桌面小组件接收器（保留安全空实现以兼容历史桌面槽位） -->
+        <receiver
+            android:name=".widget.CityStatusWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_city_status_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.QuickLaunchWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_quick_launch_info" />
+        </receiver>
+
         <!-- 应用内更新安装 APK FileProvider (Android 7.0+) -->
         <provider
             android:name="androidx.core.content.FileProvider"

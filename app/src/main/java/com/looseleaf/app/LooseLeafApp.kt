@@ -26,8 +26,12 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
         }
 
         // 启动时初始化同步发件箱队列
-        val syncManager = SyncManager.getInstance(this)
-        syncManager.scheduleSync()
+        try {
+            val syncManager = SyncManager.getInstance(this)
+            syncManager.scheduleSync()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     override fun newImageLoader(): ImageLoader {

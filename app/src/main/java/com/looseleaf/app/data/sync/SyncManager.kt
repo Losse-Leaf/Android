@@ -74,7 +74,10 @@ class SyncManager private constructor(private val context: Context) {
     private val database = AppDatabase.getInstance(context)
     private val apiClient = APIClient.getInstance(context)
     private val workManager = WorkManager.getInstance(context)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e("SyncManager", "SyncManager uncaught exception: ${throwable.message}", throwable)
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + coroutineExceptionHandler)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     val outboxMutex = Mutex()
 
@@ -84,33 +87,44 @@ class SyncManager private constructor(private val context: Context) {
 
     // 观察待同步队列总数 (0ms 内存缓存)
     val pendingEventCountFlow: StateFlow<Int> = database.outboxDao().getPendingEventCountFlow()
+        .catch { emit(0) }
         .flowOn(Dispatchers.Default)
         .stateIn(scope, SharingStarted.Eagerly, 0)
 
     // 观察全量生活档案 (合并本地乐观与云端权威，后台 Default 线程反序列化，0ms 即刻上屏杜绝白屏闪烁)
-    val entriesFlow: StateFlow<List<LifeEntry>> = database.entryDao().getAllEntriesFlow().map { entities ->
-        entities.map { it.toDomainModel(json) }
-    }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
+    val entriesFlow: StateFlow<List<LifeEntry>> = database.entryDao().getAllEntriesFlow()
+        .catch { emit(emptyList()) }
+        .map { entities ->
+            entities.map { it.toDomainModel(json) }
+        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     // 观察全量记账明细 (合并本地乐观与云端权威，0ms 内存态直出)
-    val transactionsFlow: StateFlow<List<Transaction>> = database.transactionDao().getAllTransactionsFlow().map { entities ->
-        entities.map { it.toTransaction() }
-    }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
+    val transactionsFlow: StateFlow<List<Transaction>> = database.transactionDao().getAllTransactionsFlow()
+        .catch { emit(emptyList()) }
+        .map { entities ->
+            entities.map { it.toTransaction() }
+        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     // 观察全量造物项目 (离线缓存即时上屏)
-    val projectsFlow: StateFlow<List<Project>> = database.projectDao().getAllProjectsFlow().map { entities ->
-        entities.map { it.toProject() }
-    }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
+    val projectsFlow: StateFlow<List<Project>> = database.projectDao().getAllProjectsFlow()
+        .catch { emit(emptyList()) }
+        .map { entities ->
+            entities.map { it.toProject() }
+        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     // 观察全量三维心愿 (离线缓存即时上屏)
-    val wishesFlow: StateFlow<List<Wish>> = database.wishDao().getAllWishesFlow().map { entities ->
-        entities.map { it.toWish() }
-    }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
+    val wishesFlow: StateFlow<List<Wish>> = database.wishDao().getAllWishesFlow()
+        .catch { emit(emptyList()) }
+        .map { entities ->
+            entities.map { it.toWish() }
+        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     // 观察全量山川足迹 (离线缓存即时上屏)
-    val footprintsFlow: StateFlow<List<Footprint>> = database.footprintDao().getAllFootprintsFlow().map { entities ->
-        entities.map { it.toFootprint() }
-    }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
+    val footprintsFlow: StateFlow<List<Footprint>> = database.footprintDao().getAllFootprintsFlow()
+        .catch { emit(emptyList()) }
+        .map { entities ->
+            entities.map { it.toFootprint() }
+        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     /**
      * 将压制后的相纸字节保存至离线发件箱目录
