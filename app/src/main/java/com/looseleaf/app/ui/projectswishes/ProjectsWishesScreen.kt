@@ -356,8 +356,8 @@ fun ProjectsWishesScreen(
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         PaperDateTimePickerField(
-                            dateTime = fpVisitedAt,
-                            onDateTimeChange = { fpVisitedAt = it },
+                            selectedDateTime = fpVisitedAt,
+                            onDateTimeSelected = { fpVisitedAt = it },
                             label = "到访时刻"
                         )
                     } else {
@@ -551,8 +551,8 @@ fun ProjectsWishesScreen(
                         }
                     }
                     PaperDateTimePickerField(
-                        dateTime = fulfilledAtDt,
-                        onDateTimeChange = { fulfilledAtDt = it },
+                        selectedDateTime = fulfilledAtDt,
+                        onDateTimeSelected = { fulfilledAtDt = it },
                         label = "圆满时刻"
                     )
                     if (resType != "relinquished") {
@@ -1346,8 +1346,8 @@ private fun EditFootprintSheetDialog(
                 placeholder = "点选属地城市…"
             )
             PaperDateTimePickerField(
-                dateTime = visitedAtDt,
-                onDateTimeChange = { visitedAtDt = it },
+                selectedDateTime = visitedAtDt,
+                onDateTimeSelected = { visitedAtDt = it },
                 label = "到访时刻"
             )
             PaperTextField(value = title, onValueChange = { title = it }, label = "旅程标题", singleLine = true)
