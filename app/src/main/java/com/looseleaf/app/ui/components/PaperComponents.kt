@@ -803,7 +803,7 @@ fun PaperDateTimePickerField(
                         },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = colors.paperTertiary,
+                            containerColor = colors.archiveSubtle,
                             contentColor = colors.inkPrimary
                         ),
                         shape = RoundedCornerShape(8.dp)
