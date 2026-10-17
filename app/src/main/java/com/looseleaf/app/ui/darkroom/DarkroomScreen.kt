@@ -462,6 +462,7 @@ fun DarkroomScreen(
                                 ?: primaryExif?.inferredCityCode
                             val cityName = cityCode?.let { CityDictionary.cityNameForCode(it) }
                                 ?: primaryExif?.inferredCityName
+                            val finalTitle = titleText.ifBlank { "现场随笔" }
                             val rawContent = contentText.ifBlank { "无文字记录" }
                             val cameraMeta = primaryExif?.toFilmMetadataString()
                             val finalContent = if (!cameraMeta.isNullOrBlank()) {
