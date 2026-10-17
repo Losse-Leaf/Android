@@ -46,6 +46,7 @@ import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
+import java.time.LocalDateTime
 import kotlinx.coroutines.launch
 
 /**
@@ -224,6 +225,7 @@ fun ProjectsWishesScreen(
 
         if (showCreateDialog) {
             var inputTitle by remember { mutableStateOf("") }
+            var inputSubtitle by remember { mutableStateOf("") }
             var inputNote by remember { mutableStateOf("") }
             var inputThird by remember { mutableStateOf("") }
             var wishKind by remember { mutableStateOf("item") }
@@ -231,6 +233,7 @@ fun ProjectsWishesScreen(
             var fpCityName by remember { mutableStateOf("") }
             var wishCityCode by remember { mutableStateOf("") }
             var wishCityName by remember { mutableStateOf("") }
+            var fpVisitedAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
             val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
             val isSaveEnabled = if (selectedTab == 2) fpCityName.isNotBlank() else inputTitle.isNotBlank()
@@ -282,6 +285,7 @@ fun ProjectsWishesScreen(
                                             0 -> apiClient.createProject(
                                                 CreateProjectRequest(
                                                     title = inputTitle.trim(),
+                                                    subtitle = inputSubtitle.trim().takeIf { it.isNotBlank() },
                                                     description = inputNote.trim()
                                                 )
                                             )
@@ -301,7 +305,7 @@ fun ProjectsWishesScreen(
                                                         cityCode = fpCityCode.ifBlank { "330100" },
                                                         cityName = fpCityName.ifBlank { "杭州市" },
                                                         title = inputThird.trim().takeIf { it.isNotBlank() },
-                                                        visitedAt = FormatUtils.beijingNowIsoString(),
+                                                        visitedAt = FormatUtils.toBeijingIsoString(fpVisitedAt),
                                                         note = inputNote.trim().takeIf { it.isNotBlank() }
                                                     )
                                                 )
@@ -343,12 +347,18 @@ fun ProjectsWishesScreen(
                     }
 
                     if (selectedTab == 2) {
-                        // 足迹：标准行政区划城市选择器
+                        // 足迹：标准行政区划城市选择器 + 到访时刻补记
                         PaperCityPickerField(
                             selectedCityCode = fpCityCode,
                             selectedCityName = fpCityName,
                             onCitySelected = { c, n -> fpCityCode = c; fpCityName = n },
-                            placeholder = "点击点选行政区划城市…"
+                            placeholder = "选择行政区划城市…"
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        PaperDateTimePickerField(
+                            dateTime = fpVisitedAt,
+                            onDateTimeChange = { fpVisitedAt = it },
+                            label = "到访时刻"
                         )
                     } else {
                         // 大号标题输入
@@ -380,6 +390,32 @@ fun ProjectsWishesScreen(
                             }
                         )
 
+                        if (selectedTab == 0) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            androidx.compose.foundation.text.BasicTextField(
+                                value = inputSubtitle,
+                                onValueChange = { inputSubtitle = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    fontSize = 14.sp,
+                                    color = colors.inkSecondary
+                                ),
+                                cursorBrush = SolidColor(colors.accentWarm),
+                                decorationBox = { innerTextField ->
+                                    if (inputSubtitle.isEmpty()) {
+                                        Text(
+                                            text = "副标题或设计注记 (选填)…",
+                                            fontSize = 14.sp,
+                                            color = colors.inkMuted.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            )
+                        }
+
                         if (selectedTab == 1 && wishKind == "travel") {
                             Spacer(modifier = Modifier.height(10.dp))
                             PaperCityPickerField(
@@ -410,7 +446,7 @@ fun ProjectsWishesScreen(
                             decorationBox = { innerTextField ->
                                 if (inputThird.isEmpty()) {
                                     Text(
-                                        text = if (selectedTab == 1) "预算金额 (元，可选)" else "旅程标题 (可选)",
+                                        text = if (selectedTab == 1) "预算金额 (元)" else "旅程标题",
                                         fontSize = 15.sp,
                                         color = colors.inkMuted.copy(alpha = 0.5f)
                                     )
@@ -464,6 +500,13 @@ fun ProjectsWishesScreen(
             var resType by remember(wish.id) { mutableStateOf("exact") }
             var actualTitleInput by remember(wish.id) { mutableStateOf(wish.title) }
             var entryNote by remember(wish.id) { mutableStateOf("") }
+            var fulfilledAtDt by remember(wish.id) {
+                mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone))
+            }
+            var createTx by remember(wish.id) { mutableStateOf(wish.budget > 0) }
+            var createGear by remember(wish.id) { mutableStateOf(wish.kind == "item") }
+            var createEntry by remember(wish.id) { mutableStateOf(true) }
+            var createFp by remember(wish.id) { mutableStateOf(wish.kind == "travel") }
 
             ArchiveBottomSheet(
                 onDismissRequest = { resolvingWish = null },
@@ -477,14 +520,14 @@ fun ProjectsWishesScreen(
                             apiClient.resolveWish(
                                 id = wish.id,
                                 req = ResolveWishRequest(
-                                    fulfilledAt = FormatUtils.beijingNowIsoString(),
+                                    fulfilledAt = FormatUtils.toBeijingIsoString(fulfilledAtDt),
                                     actualCost = cents,
                                     resolutionType = resType,
                                     actualTitle = actualTitleInput.ifBlank { wish.title },
-                                    createTransaction = !isRel && cents > 0,
-                                    createGearAsset = !isRel && wish.kind == "item",
-                                    createLifeEntry = true,
-                                    createFootprint = !isRel && wish.kind == "travel",
+                                    createTransaction = !isRel && createTx && cents > 0,
+                                    createGearAsset = !isRel && createGear && wish.kind == "item",
+                                    createLifeEntry = createEntry,
+                                    createFootprint = !isRel && createFp && wish.kind == "travel",
                                     entryContent = entryNote.takeIf { it.isNotBlank() }
                                 )
                             )
@@ -507,6 +550,11 @@ fun ProjectsWishesScreen(
                             )
                         }
                     }
+                    PaperDateTimePickerField(
+                        dateTime = fulfilledAtDt,
+                        onDateTimeChange = { fulfilledAtDt = it },
+                        label = "圆满时刻"
+                    )
                     if (resType != "relinquished") {
                         PaperTextField(
                             value = actualTitleInput,
@@ -522,6 +570,35 @@ fun ProjectsWishesScreen(
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            PaperFilterPill(
+                                selected = createTx,
+                                onClick = { createTx = !createTx },
+                                label = if (createTx) "✓ 记账" else "不记账"
+                            )
+                            if (wish.kind == "item") {
+                                PaperFilterPill(
+                                    selected = createGear,
+                                    onClick = { createGear = !createGear },
+                                    label = if (createGear) "✓ 建固资" else "不建固资"
+                                )
+                            }
+                            if (wish.kind == "travel") {
+                                PaperFilterPill(
+                                    selected = createFp,
+                                    onClick = { createFp = !createFp },
+                                    label = if (createFp) "✓ 亮足迹" else "不建足迹"
+                                )
+                            }
+                            PaperFilterPill(
+                                selected = createEntry,
+                                onClick = { createEntry = !createEntry },
+                                label = if (createEntry) "✓ 伴生手记" else "不写手记"
+                            )
+                        }
                     }
                     PaperTextEditor(
                         value = entryNote,
@@ -714,7 +791,7 @@ fun ProjectsWishesScreen(
                     PaperTextField(
                         value = editGithub,
                         onValueChange = { editGithub = it },
-                        label = "仓库/发布链接 (可选)",
+                        label = "仓库/发布链接",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1224,6 +1301,11 @@ private fun EditFootprintSheetDialog(
     var cityName by remember(footprint.id) { mutableStateOf(footprint.cityName) }
     var title by remember(footprint.id) { mutableStateOf(footprint.title ?: "") }
     var note by remember(footprint.id) { mutableStateOf(footprint.note ?: "") }
+    var visitedAtDt by remember(footprint.id) {
+        mutableStateOf(
+            FormatUtils.parseToLocalDateTime(footprint.visitedAt) ?: LocalDateTime.now(FormatUtils.BeijingZone)
+        )
+    }
     var isSubmitting by remember { mutableStateOf(false) }
 
     ArchiveBottomSheet(
@@ -1241,7 +1323,7 @@ private fun EditFootprintSheetDialog(
                             cityCode = cityCode.ifBlank { footprint.cityCode },
                             cityName = cityName.ifBlank { footprint.cityName },
                             title = title.trim().takeIf { it.isNotBlank() },
-                            visitedAt = footprint.visitedAt ?: FormatUtils.beijingNowIsoString(),
+                            visitedAt = FormatUtils.toBeijingIsoString(visitedAtDt),
                             departedAt = footprint.departedAt,
                             note = note.trim().takeIf { it.isNotBlank() }
                         )
@@ -1263,7 +1345,12 @@ private fun EditFootprintSheetDialog(
                 onCitySelected = { c, n -> cityCode = c; cityName = n },
                 placeholder = "点选属地城市…"
             )
-            PaperTextField(value = title, onValueChange = { title = it }, label = "旅程标题 (可选)", singleLine = true)
+            PaperDateTimePickerField(
+                dateTime = visitedAtDt,
+                onDateTimeChange = { visitedAtDt = it },
+                label = "到访时刻"
+            )
+            PaperTextField(value = title, onValueChange = { title = it }, label = "旅程标题", singleLine = true)
             PaperTextEditor(value = note, onValueChange = { note = it }, placeholder = "随笔手记…", minHeight = 90.dp)
         }
     }

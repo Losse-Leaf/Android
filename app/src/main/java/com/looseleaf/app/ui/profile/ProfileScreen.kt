@@ -26,6 +26,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import android.net.Uri
@@ -40,9 +42,13 @@ import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.model.CuratorProfile
+import com.looseleaf.app.model.GlobalStats
 import com.looseleaf.app.model.SiteConfig
 import com.looseleaf.app.model.UpdateProfileRequest
 import com.looseleaf.app.model.CategoryOption
+import com.looseleaf.app.model.TrustedDevice
+import com.looseleaf.app.model.PairTicketResponse
+import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
@@ -83,12 +89,39 @@ fun ProfileScreen(
     var localAvatarPreviewUri by remember { mutableStateOf<Uri?>(null) }
     var isDarkroomMode by remember { mutableStateOf(credentialStore.isDarkroomMode) }
     var isBiometricsEnabled by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
+    var isHapticsEnabled by remember { mutableStateOf(credentialStore.isHapticsEnabled) }
     var showUnpairDialog by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var availableUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showRenameDeviceDialog by remember { mutableStateOf(false) }
     var isUploadingAvatar by remember { mutableStateOf(false) }
+
+    val clipboardManager = LocalClipboardManager.current
+    var trustedDevices by remember { mutableStateOf<List<TrustedDevice>>(emptyList()) }
+    var isLoadingDevices by remember { mutableStateOf(false) }
+    var deviceToRevoke by remember { mutableStateOf<TrustedDevice?>(null) }
+    var deviceToRename by remember { mutableStateOf<TrustedDevice?>(null) }
+    var issuedPairTicket by remember { mutableStateOf<PairTicketResponse?>(null) }
+    var isIssuingPairTicket by remember { mutableStateOf(false) }
+    var globalStats by remember { mutableStateOf<GlobalStats?>(null) }
+
+    val reloadDevices: () -> Unit = {
+        scope.launch {
+            isLoadingDevices = true
+            runCatching {
+                trustedDevices = apiClient.fetchTrustedDevices()
+            }
+            isLoadingDevices = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        reloadDevices()
+        runCatching {
+            globalStats = apiClient.fetchGlobalStats()
+        }
+    }
 
     val avatarPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -422,6 +455,68 @@ fun ProfileScreen(
                 }
             }
 
+            // 全局档案指标概览卡片 (GlobalStats)
+            Spacer(modifier = Modifier.height(16.dp))
+            PaperCard(
+                modifier = Modifier.fillMaxWidth(),
+                backgroundColor = colors.archivePaper,
+                borderColor = colors.borderDivider.copy(alpha = 0.5f),
+                contentPadding = PaddingValues(16.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "全局档案指标",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.inkPrimary
+                        )
+                        val ym = listOfNotNull(globalStats?.currentYear?.takeIf { it > 0 }?.let { "${it}年" }, globalStats?.currentMonth?.takeIf { it > 0 }?.let { "${it}月" }).joinToString("")
+                        if (ym.isNotBlank()) {
+                            Text(
+                                text = ym,
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 11.sp,
+                                color = colors.inkMuted
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                            Text("散页手稿", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text("${globalStats?.totalEntries ?: 0}", fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                            Text("暗房底片", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text("${globalStats?.totalPhotos ?: 0}", fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.accentWarm)
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                            Text("造物项目", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text("${globalStats?.totalProjects ?: 0}", fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.accentMoss)
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                            Text("当月支出", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text("¥${FormatUtils.centsToYuanString(globalStats?.monthExpense ?: 0)}", fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                        }
+                    }
+                }
+            }
+
             // EDC 常用随行装备展台
             if (profile.edcGear.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(20.dp))
@@ -468,35 +563,229 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // 本机入网受信任凭据卡片
+            // 受信任设备组卡片 (Trusted Devices Group Management)
             PaperCard(modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    Text(
-                        text = "受信任设备凭据",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 15.sp,
-                        color = colors.inkPrimary
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 3.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(text = "设备别名", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
+                        Text(
+                            text = "受信任设备组 (${trustedDevices.size})",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 15.sp,
+                            color = colors.inkPrimary
+                        )
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(text = credentialStore.deviceName, fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp, color = colors.inkPrimary)
-                            Spacer(modifier = Modifier.width(6.dp))
                             TextButton(
-                                onClick = { showRenameDeviceDialog = true },
+                                onClick = { reloadDevices() },
                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                             ) {
-                                Text("重命名", fontSize = 11.sp, color = colors.accentWarm)
+                                Text(if (isLoadingDevices) "刷新中…" else "刷新", fontSize = 11.sp, color = colors.inkSecondary)
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            TextButton(
+                                onClick = {
+                                    scope.launch {
+                                        isIssuingPairTicket = true
+                                        runCatching {
+                                            issuedPairTicket = apiClient.initPairing()
+                                            haptics.snapConfirm()
+                                            ArchiveToastManager.show("已生成 5 分钟有效配对工单")
+                                        }.onFailure { err ->
+                                            ArchiveToastManager.show("生成配对失败: ${err.message}", isError = true)
+                                        }
+                                        isIssuingPairTicket = false
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                enabled = !isIssuingPairTicket
+                            ) {
+                                Text(if (isIssuingPairTicket) "签发中…" else "发起配对", fontSize = 11.sp, color = colors.accentWarm)
+                            }
+                        }
+                    }
+
+                    // 1. 若当前签发了配对工单，展示工单与一键复制卡片
+                    issuedPairTicket?.let { ticket ->
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(colors.archiveSubtle, RoundedCornerShape(4.dp))
+                                .border(0.5.dp, colors.accentWarm.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                .padding(10.dp)
+                        ) {
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "新设备配对链接（5分钟有效）",
+                                        fontFamily = ArchiveFontFamilies.BodySans,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = colors.inkPrimary
+                                    )
+                                    TextButton(
+                                        onClick = { issuedPairTicket = null },
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text("收起", fontSize = 11.sp, color = colors.inkMuted)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = ticket.qrPayload,
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    fontSize = 10.sp,
+                                    color = colors.inkSecondary,
+                                    maxLines = 2
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Button(
+                                    onClick = {
+                                        clipboardManager.setText(AnnotatedString(ticket.qrPayload))
+                                        haptics.snapConfirm()
+                                        ArchiveToastManager.show("已复制配对链接至剪贴板")
+                                    },
+                                    modifier = Modifier.fillMaxWidth().height(32.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = colors.inkPrimary,
+                                        contentColor = colors.archivePaper
+                                    ),
+                                    shape = RoundedCornerShape(3.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text("一键复制配对链接", fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // 2. 本机设备卡片
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = credentialStore.deviceName.ifBlank { "Android 随行设备" },
+                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 13.sp,
+                                    color = colors.inkPrimary
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .background(colors.accentMoss.copy(alpha = 0.12f), RoundedCornerShape(2.dp))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                ) {
+                                    Text("本机", fontSize = 9.sp, fontFamily = ArchiveFontFamilies.MonoScale, color = colors.accentMoss)
+                                }
+                            }
+                            Text(
+                                text = "标识: ${credentialStore.deviceId ?: "未初始化"}",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 10.5.sp,
+                                color = colors.inkMuted
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(
+                                onClick = { showRenameDeviceDialog = true },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                            ) {
+                                Text("改名", fontSize = 11.sp, color = colors.inkSecondary)
+                            }
+                            TextButton(
+                                onClick = { showUnpairDialog = true },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                            ) {
+                                Text("解除", fontSize = 11.sp, color = colors.accentWarm)
+                            }
+                        }
+                    }
+
+                    // 3. 其他受信任设备列表
+                    val otherDevices = trustedDevices.filter { it.deviceId != credentialStore.deviceId }
+                    if (otherDevices.isNotEmpty()) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 6.dp),
+                            color = colors.borderDivider.copy(alpha = 0.5f),
+                            thickness = 0.5.dp
+                        )
+                        Text(
+                            text = "其他接入端 (${otherDevices.size})",
+                            fontFamily = ArchiveFontFamilies.MonoScale,
+                            fontSize = 10.sp,
+                            color = colors.inkMuted
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        otherDevices.forEach { dev ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = dev.name.ifBlank { dev.deviceId },
+                                            fontFamily = ArchiveFontFamilies.BodySans,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 12.5.sp,
+                                            color = colors.inkPrimary
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .background(colors.archiveSubtle, RoundedCornerShape(2.dp))
+                                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                                        ) {
+                                            Text(
+                                                text = dev.platform.uppercase(),
+                                                fontSize = 9.sp,
+                                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                                color = colors.inkSecondary
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "${dev.deviceId} · 最近活跃 ${FormatUtils.formatDate(dev.lastActiveAt)}",
+                                        fontFamily = ArchiveFontFamilies.MonoScale,
+                                        fontSize = 10.sp,
+                                        color = colors.inkMuted
+                                    )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    TextButton(
+                                        onClick = { deviceToRename = dev },
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                    ) {
+                                        Text("改名", fontSize = 11.sp, color = colors.inkSecondary)
+                                    }
+                                    TextButton(
+                                        onClick = { deviceToRevoke = dev },
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                    ) {
+                                        Text("踢除", fontSize = 11.sp, color = colors.accentWarm)
+                                    }
+                                }
                             }
                         }
                     }
@@ -557,6 +846,30 @@ fun ProfileScreen(
                                 haptics.tapKey()
                                 isBiometricsEnabled = it
                                 credentialStore.isBiometricsEnabled = it
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = colors.accentWarm, checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f))
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    PaperDivider()
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("物理触感反馈 (Tactile Haptics)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 14.sp, color = colors.inkPrimary)
+                            Text("打字机键帽触击、印章盖下沉稳震动与快门反冲", fontSize = 11.sp, color = colors.inkMuted)
+                        }
+                        Switch(
+                            checked = isHapticsEnabled,
+                            onCheckedChange = {
+                                isHapticsEnabled = it
+                                credentialStore.isHapticsEnabled = it
+                                if (it) haptics.tapKey()
                             },
                             colors = SwitchDefaults.colors(checkedThumbColor = colors.accentWarm, checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f))
                         )
@@ -731,7 +1044,7 @@ fun ProfileScreen(
                 ArchivePromptDialog(
                     title = "重命名此设备",
                     initialValue = credentialStore.deviceName,
-                    placeholder = "设备名称 (如: 主理人的随行手机)",
+                    placeholder = "设备名称",
                     label = "为当前随行设备设置识别别名：",
                     confirmText = "确认更名",
                     onDismiss = { showRenameDeviceDialog = false },
@@ -743,12 +1056,61 @@ fun ProfileScreen(
                                     apiClient.updateDeviceName(devId, newName)
                                     credentialStore.deviceName = newName
                                     ArchiveToastManager.show("设备名称已更新")
+                                    reloadDevices()
                                 }
                                 showRenameDeviceDialog = false
                             }
                         } else {
                             credentialStore.deviceName = newName
                             showRenameDeviceDialog = false
+                        }
+                    }
+                )
+            }
+
+            deviceToRevoke?.let { dev ->
+                ArchiveConfirmDialog(
+                    title = "吊销该接入设备？",
+                    content = "吊销后设备「${dev.name.ifBlank { dev.deviceId }}」将立即失去中枢访问凭据，无法再读取或提交任何档案。此操作不可逆。",
+                    confirmText = "确认吊销",
+                    isDestructive = true,
+                    onConfirm = {
+                        haptics.tearDelete()
+                        val targetId = dev.deviceId
+                        deviceToRevoke = null
+                        scope.launch {
+                            runCatching {
+                                apiClient.revokeDevice(targetId)
+                                ArchiveToastManager.show("已成功吊销设备「${dev.name}」")
+                                reloadDevices()
+                            }.onFailure { err ->
+                                ArchiveToastManager.show("吊销失败: ${err.message}", isError = true)
+                            }
+                        }
+                    },
+                    onDismiss = { deviceToRevoke = null }
+                )
+            }
+
+            deviceToRename?.let { dev ->
+                ArchivePromptDialog(
+                    title = "重命名受信任设备",
+                    initialValue = dev.name,
+                    placeholder = "新设备名称",
+                    label = "修改设备「${dev.deviceId}」的识别别名：",
+                    confirmText = "确认更名",
+                    onDismiss = { deviceToRename = null },
+                    onConfirm = { newName ->
+                        val targetId = dev.deviceId
+                        deviceToRename = null
+                        scope.launch {
+                            runCatching {
+                                apiClient.updateDeviceName(targetId, newName)
+                                ArchiveToastManager.show("设备名称已更新")
+                                reloadDevices()
+                            }.onFailure { err ->
+                                ArchiveToastManager.show("更名失败: ${err.message}", isError = true)
+                            }
                         }
                     }
                 )

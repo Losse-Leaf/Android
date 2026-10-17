@@ -52,6 +52,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.IOException
+import java.time.LocalDateTime
 
 private data class DarkroomPhotoSlot(
     val previewUri: String,
@@ -85,7 +86,10 @@ fun DarkroomScreen(
     var titleText by rememberSaveable { mutableStateOf("") }
     var contentText by rememberSaveable { mutableStateOf("") }
     var locationText by rememberSaveable { mutableStateOf("") }
+    var selectedCityCode by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedCityName by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedType by rememberSaveable { mutableStateOf("life") }
+    var darkroomOccurredAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
 
     // 临时快门拍照文件引用
     var pendingCaptureFile by remember { mutableStateOf<File?>(null) }
@@ -111,12 +115,28 @@ fun DarkroomScreen(
                     if (titleText.isBlank()) {
                         titleText = "现场快门 · " + (processed.exif.model ?: "胶片相纸")
                     }
+                    if (selectedCityCode.isNullOrBlank()) {
+                        val inferredCode = processed.exif.inferredCityCode
+                        val inferredCity = processed.exif.inferredCityName
+                            ?: inferredCode?.let { CityDictionary.cityNameForCode(it) }
+                        if (!inferredCode.isNullOrBlank()) {
+                            selectedCityCode = inferredCode
+                            selectedCityName = inferredCity
+                        } else if (!inferredCity.isNullOrBlank()) {
+                            val code = CityDictionary.codeForLocation(inferredCity)
+                            selectedCityCode = code
+                            selectedCityName = inferredCity
+                        }
+                    }
                     if (locationText.isBlank()) {
                         val inferredCity = processed.exif.inferredCityName
                             ?: processed.exif.inferredCityCode?.let { CityDictionary.cityNameForCode(it) }
                         if (!inferredCity.isNullOrBlank()) {
                             locationText = inferredCity
                         }
+                    }
+                    processed.exif.dateTimeOriginal?.let { raw ->
+                        runCatching { darkroomOccurredAt = FormatUtils.parseToLocalDateTime(raw) }
                     }
                     haptics.shutterRelease()
                     AudioEngine.playShutter()
@@ -178,12 +198,28 @@ fun DarkroomScreen(
                         if (titleText.isBlank()) {
                             titleText = "现场记录 · " + (firstRes.exif.model ?: "胶片相纸")
                         }
+                        if (selectedCityCode.isNullOrBlank()) {
+                            val inferredCode = firstRes.exif.inferredCityCode
+                            val inferredCity = firstRes.exif.inferredCityName
+                                ?: inferredCode?.let { CityDictionary.cityNameForCode(it) }
+                            if (!inferredCode.isNullOrBlank()) {
+                                selectedCityCode = inferredCode
+                                selectedCityName = inferredCity
+                            } else if (!inferredCity.isNullOrBlank()) {
+                                val code = CityDictionary.codeForLocation(inferredCity)
+                                selectedCityCode = code
+                                selectedCityName = inferredCity
+                            }
+                        }
                         if (locationText.isBlank()) {
                             val inferredCity = firstRes.exif.inferredCityName
                                 ?: firstRes.exif.inferredCityCode?.let { CityDictionary.cityNameForCode(it) }
                             if (!inferredCity.isNullOrBlank()) {
                                 locationText = inferredCity
                             }
+                        }
+                        firstRes.exif.dateTimeOriginal?.let { raw ->
+                            runCatching { darkroomOccurredAt = FormatUtils.parseToLocalDateTime(raw) }
                         }
                         val merged = (photoSlots + added).take(9)
                         photoSlots = merged
@@ -433,10 +469,34 @@ fun DarkroomScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PaperDateTimePickerField(
+                            selectedDateTime = darkroomOccurredAt,
+                            onDateTimeSelected = { darkroomOccurredAt = it },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Box(modifier = Modifier.weight(1f)) {
+                            PaperCityPickerField(
+                                selectedCityCode = selectedCityCode,
+                                selectedCityName = selectedCityName,
+                                onCitySelected = { code, name ->
+                                    selectedCityCode = code
+                                    selectedCityName = name
+                                },
+                                placeholder = "属地城市…"
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     PaperTextField(
                         value = locationText,
                         onValueChange = { locationText = it },
-                        placeholder = "所处地点 (如: 大理古城、上海武康路)",
+                        placeholder = "街巷、地标或所处空间细节（选填）",
                         isUnderline = true,
                         leadingIcon = {
                             Icon(Icons.Outlined.LocationOn, contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(16.dp))
@@ -458,9 +518,11 @@ fun DarkroomScreen(
                         isSaving = true
                         try {
                             val primaryExif = photoSlots.firstOrNull()?.processed?.exif
-                            val cityCode = CityDictionary.codeForLocation(locationText)
+                            val cityCode = selectedCityCode
+                                ?: CityDictionary.codeForLocation(locationText)
                                 ?: primaryExif?.inferredCityCode
-                            val cityName = cityCode?.let { CityDictionary.cityNameForCode(it) }
+                            val cityName = selectedCityName
+                                ?: cityCode?.let { CityDictionary.cityNameForCode(it) }
                                 ?: primaryExif?.inferredCityName
                             val finalTitle = titleText.ifBlank { "现场随笔" }
                             val rawContent = contentText.ifBlank { "无文字记录" }
@@ -469,7 +531,7 @@ fun DarkroomScreen(
                                 if (rawContent == "无文字记录") "> $cameraMeta" else "$rawContent\n\n> $cameraMeta"
                             } else rawContent
                             val entryType = selectedType
-                            val occurredIso = FormatUtils.beijingNowIsoString()
+                            val occurredIso = FormatUtils.toBeijingIsoString(darkroomOccurredAt)
 
                             if (photoSlots.isNotEmpty()) {
                                 val savedFiles = photoSlots.map { slot ->

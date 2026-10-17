@@ -248,6 +248,7 @@ class SyncManager private constructor(private val context: Context) {
         location: String? = null,
         cityCode: String? = null,
         cityName: String? = null,
+        featured: Boolean = false,
         attachmentIds: List<Long>? = null,
         attachments: List<Attachment> = emptyList()
     ): Long {
@@ -275,6 +276,7 @@ class SyncManager private constructor(private val context: Context) {
             location = location,
             cityCode = cityCode,
             cityName = cityName,
+            featured = featured,
             attachmentIds = attachmentIds
         )
         val event = OutboxEventEntity(
@@ -576,12 +578,21 @@ class SyncManager private constructor(private val context: Context) {
         val entriesCursor = syncPrefs.getString(KEY_ENTRIES_CURSOR, null)
         val useIncrementalEntries = !forceFull && currentLocalEntries.isNotEmpty() && !entriesCursor.isNullOrBlank()
 
-        val entriesResp = apiClient.fetchEntries(
-            page = 1,
-            pageSize = 100,
-            since = if (useIncrementalEntries) entriesCursor else null
-        )
-        val remoteEntries = entriesResp.entries
+        val remoteEntries = mutableListOf<LifeEntry>()
+        var currentEntriesPage = 1
+        val entriesPageSize = 100
+        while (true) {
+            val resp = apiClient.fetchEntries(
+                page = currentEntriesPage,
+                pageSize = entriesPageSize,
+                since = if (useIncrementalEntries) entriesCursor else null
+            )
+            remoteEntries.addAll(resp.entries)
+            if (resp.entries.size < entriesPageSize || remoteEntries.size >= resp.total) {
+                break
+            }
+            currentEntriesPage++
+        }
 
         database.withTransaction {
             val currentLocal = database.entryDao().getAllEntries()
@@ -652,10 +663,21 @@ class SyncManager private constructor(private val context: Context) {
         val txCursor = syncPrefs.getString(KEY_TX_CURSOR, null)
         val useIncrementalTxs = !forceFull && currentLocalTxs.isNotEmpty() && !txCursor.isNullOrBlank()
 
-        val remoteTxs = apiClient.fetchTransactions(
-            since = if (useIncrementalTxs) txCursor else null,
-            limit = 200
-        )
+        val remoteTxs = mutableListOf<Transaction>()
+        val txLimit = 200
+        var currentTxOffset = 0
+        while (true) {
+            val batch = apiClient.fetchTransactions(
+                since = if (useIncrementalTxs) txCursor else null,
+                limit = txLimit,
+                offset = if (currentTxOffset > 0) currentTxOffset else null
+            )
+            remoteTxs.addAll(batch)
+            if (batch.size < txLimit) {
+                break
+            }
+            currentTxOffset += batch.size
+        }
 
         database.withTransaction {
             val localTxs = database.transactionDao().getAllTransactions()

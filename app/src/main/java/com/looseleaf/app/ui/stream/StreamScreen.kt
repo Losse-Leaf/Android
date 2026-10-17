@@ -12,8 +12,11 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DateRange
@@ -25,13 +28,16 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -39,7 +45,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
 import com.looseleaf.app.audio.AudioEngine
+import com.looseleaf.app.darkroom.ImagePipeline
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.haptics.HapticsEngine
@@ -57,6 +65,7 @@ import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalDateTime
 
 /**
  * 生活时间流主展厅 (StreamScreen) - docs/mobile.md §3 & docs/ecosystem.md §4.1
@@ -264,7 +273,7 @@ fun StreamScreen(
                                 if (res.isSuccess) {
                                     ArchiveToastManager.show("档案已增量同步")
                                 } else {
-                                    ArchiveToastManager.show("同步提示: ${res.exceptionOrNull()?.message}", isError = true)
+                                    ArchiveToastManager.show(res.exceptionOrNull()?.message ?: "同步未完成", isError = true)
                                 }
                             }
                         },
@@ -573,20 +582,21 @@ fun StreamScreen(
         if (showQuickNoteDialog) {
             QuickNoteSheet(
                 onDismiss = { showQuickNoteDialog = false },
-                onSave = { type, title, content, loc ->
+                onSave = { type, title, content, cityCode, cityName, loc, occurredAt, featured ->
                     scope.launch {
                         haptics.stampSave()
                         AudioEngine.playShutter()
-                        val code = CityDictionary.codeForLocation(loc)
-                        val cityName = code?.let { CityDictionary.cityNameForCode(it) }
+                        val finalCode = cityCode ?: CityDictionary.codeForLocation(loc)
+                        val finalCityName = cityName ?: finalCode?.let { CityDictionary.cityNameForCode(it) }
                         syncManager.createEntryOptimistic(
                             type = type,
                             title = title.ifBlank { "无题随笔" },
                             content = content,
-                            occurredAt = FormatUtils.beijingNowIsoString(),
+                            occurredAt = occurredAt,
                             location = loc.takeIf { it.isNotBlank() },
-                            cityCode = code,
-                            cityName = cityName
+                            cityCode = finalCode,
+                            cityName = finalCityName,
+                            featured = featured
                         )
                         ArchiveToastManager.show("随笔已归册")
                         showQuickNoteDialog = false
@@ -714,12 +724,39 @@ private fun EntryDetailSheetDialog(
     onPhotoClick: (String, String?) -> Unit
 ) {
     val colors = LooseLeafTheme.colors
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var isEditing by remember { mutableStateOf(false) }
     var editType by remember(entry) { mutableStateOf(entry.type) }
     var editTitle by remember(entry) { mutableStateOf(entry.title) }
     var editContent by remember(entry) { mutableStateOf(entry.content) }
     var editCityCode by remember(entry) { mutableStateOf(entry.cityCode ?: "") }
     var editCityName by remember(entry) { mutableStateOf(entry.cityName ?: entry.location ?: "") }
+    var editOccurredAt by remember(entry) { mutableStateOf(FormatUtils.parseToLocalDateTime(entry.occurredAt)) }
+    var editFeatured by remember(entry) { mutableStateOf(entry.featured ?: false) }
+    var editAttachments by remember(entry) { mutableStateOf(entry.attachments) }
+    var isUploadingPhoto by remember { mutableStateOf(false) }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            coroutineScope.launch {
+                isUploadingPhoto = true
+                try {
+                    for (uri in uris) {
+                        val processed = ImagePipeline.processImage(context, uri)
+                        val att = ImagePipeline.uploadImage(apiClient, processed)
+                        editAttachments = editAttachments + att
+                    }
+                } catch (e: Exception) {
+                    ArchiveToastManager.show("相纸照片上传失败: ${e.message ?: "网络异常"}")
+                } finally {
+                    isUploadingPhoto = false
+                }
+            }
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -750,6 +787,33 @@ private fun EntryDetailSheetDialog(
                     )
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = {
+                            val targetFeatured = !(entry.featured ?: false)
+                            val code = entry.cityCode
+                            val cityName = entry.cityName ?: entry.location
+                            val req = CreateEntryRequest(
+                                type = entry.type,
+                                title = entry.title,
+                                content = entry.content,
+                                occurredAt = entry.occurredAt,
+                                location = cityName,
+                                cityCode = code,
+                                cityName = cityName,
+                                projectId = entry.projectId,
+                                wishId = entry.wishId,
+                                footprintId = entry.footprintId,
+                                featured = targetFeatured,
+                                attachmentIds = entry.attachments.mapNotNull { it.id.takeIf { id -> id > 0 } }
+                            )
+                            onSaveEdit(req)
+                        }) {
+                            Icon(
+                                imageVector = if (entry.featured == true) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                                contentDescription = if (entry.featured == true) "取消精选" else "设为精选",
+                                tint = if (entry.featured == true) colors.featuredGold else colors.inkSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                         IconButton(onClick = { isEditing = !isEditing }) {
                             Icon(
                                 imageVector = Icons.Outlined.Edit,
@@ -841,15 +905,147 @@ private fun EntryDetailSheetDialog(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    PaperCityPickerField(
-                        selectedCityCode = editCityCode,
-                        selectedCityName = editCityName,
-                        onCitySelected = { code, name ->
-                            editCityCode = code
-                            editCityName = name
-                        },
-                        placeholder = "点选属地行政区划城市…"
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PaperDateTimePickerField(
+                            selectedDateTime = editOccurredAt,
+                            onDateTimeSelected = { editOccurredAt = it },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Box(modifier = Modifier.weight(1f)) {
+                            PaperCityPickerField(
+                                selectedCityCode = editCityCode,
+                                selectedCityName = editCityName,
+                                onCitySelected = { code, name ->
+                                    editCityCode = code
+                                    editCityName = name
+                                },
+                                placeholder = "点选属地城市…"
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 照片附件管理与增删
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "手账影像相纸 (${editAttachments.size})",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.inkPrimary
+                            )
+                            if (isUploadingPhoto) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(12.dp),
+                                        strokeWidth = 1.5.dp,
+                                        color = colors.accentWarm
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "暗房直传中…",
+                                        fontFamily = ArchiveFontFamilies.MonoScale,
+                                        fontSize = 11.sp,
+                                        color = colors.accentWarm
+                                    )
+                                }
+                            } else {
+                                TextButton(
+                                    onClick = { photoPickerLauncher.launch("image/*") },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                ) {
+                                    Text(
+                                        text = "+ 补选相纸照片",
+                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                        fontSize = 12.sp,
+                                        color = colors.accentWarm
+                                    )
+                                }
+                            }
+                        }
+
+                        if (editAttachments.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                for (att in editAttachments) {
+                                    val fullUrl = apiClient.resolveMediaUrl(att.url)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(72.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
+                                    ) {
+                                        AsyncImage(
+                                            model = fullUrl,
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(2.dp)
+                                                .size(18.dp)
+                                                .clip(CircleShape)
+                                                .background(colors.inkPrimary.copy(alpha = 0.7f))
+                                                .clickable {
+                                                    editAttachments = editAttachments.filter { it.id != att.id }
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Close,
+                                                contentDescription = "撕除此照片",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // 精选印记标记
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { editFeatured = !editFeatured }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = editFeatured,
+                            onCheckedChange = { editFeatured = it },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = colors.accentWarm,
+                                uncheckedColor = colors.inkMuted
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "标记为精选印记（收录于精选特刊）",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 13.sp,
+                            color = colors.inkPrimary
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -863,28 +1059,49 @@ private fun EntryDetailSheetDialog(
                                 type = editType,
                                 title = editTitle.ifBlank { "无题随笔" },
                                 content = editContent.ifBlank { "无文字记录" },
-                                occurredAt = entry.occurredAt,
+                                occurredAt = FormatUtils.toBeijingIsoString(editOccurredAt),
                                 location = cityName,
                                 cityCode = code,
                                 cityName = cityName,
                                 projectId = entry.projectId,
                                 wishId = entry.wishId,
                                 footprintId = entry.footprintId,
-                                featured = entry.featured ?: false,
-                                attachmentIds = entry.attachments.mapNotNull { it.id.takeIf { id -> id > 0 } }
+                                featured = editFeatured,
+                                attachmentIds = editAttachments.mapNotNull { it.id.takeIf { id -> id > 0 } }
                             )
                             onSaveEdit(req)
                         }
                     )
                 } else {
                     // 阅览模式
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Text(
                             text = FormatUtils.formatDisplayDateTime(entry.occurredAt),
                             fontFamily = ArchiveFontFamilies.MonoScale,
                             fontSize = 12.sp,
                             color = colors.inkMuted
                         )
+                        if (entry.featured == true) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(colors.featuredGoldBg)
+                                    .border(0.5.dp, colors.featuredGoldBorder, RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "★ 精选印记",
+                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                    fontSize = 10.sp,
+                                    color = colors.featuredGold,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
                     }
 
                     val detailPlace = listOfNotNull(entry.cityName, entry.location).distinct().filter { it.isNotBlank() }.joinToString(" · ")
@@ -1384,7 +1601,7 @@ private fun LifeActivityHeatmap(
         }.eachCount()
     }
 
-    val weeksCount = 32
+    val weeksCount = 52
     val calWeeks = remember(weeksCount) {
         val today = LocalDate.now(FormatUtils.BeijingZone)
         val list = mutableListOf<List<Pair<String, Boolean>>>()
@@ -1707,7 +1924,36 @@ private fun GlobalSearchDialog(
     var searchQuery by remember { mutableStateOf("") }
     var searchResult by remember { mutableStateOf<com.looseleaf.app.model.GlobalSearchResponse?>(null) }
     var isSearching by remember { mutableStateOf(false) }
+    var viewingDetail by remember { mutableStateOf<Pair<String, String>?>(null) }
     val scope = rememberCoroutineScope()
+
+    viewingDetail?.let { (title, content) ->
+        AlertDialog(
+            onDismissRequest = { viewingDetail = null },
+            containerColor = colors.archivePaper,
+            title = {
+                Text(
+                    text = title,
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontSize = 16.sp,
+                    color = colors.inkPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = content,
+                    fontFamily = ArchiveFontFamilies.BodySans,
+                    fontSize = 13.sp,
+                    color = colors.inkSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewingDetail = null }) {
+                    Text("合上", color = colors.accentWarm)
+                }
+            }
+        )
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -1824,8 +2070,16 @@ private fun GlobalSearchDialog(
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(colors.archiveSubtle)
+                                        .clickable {
+                                            viewingDetail = "山川足迹 · ${foot.cityName}" to listOfNotNull(
+                                                foot.title?.takeIf { it.isNotBlank() },
+                                                "到访时刻: ${FormatUtils.formatDisplayDate(foot.visitedAt)}",
+                                                foot.note?.takeIf { it.isNotBlank() }
+                                            ).joinToString("\n\n")
+                                        }
                                         .padding(8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text("${foot.cityName} · ${foot.title ?: "足迹"}", fontSize = 12.sp, color = colors.inkPrimary)
                                     Text(foot.visitedAt?.take(10) ?: "", fontSize = 10.sp, color = colors.inkMuted)
@@ -1844,8 +2098,17 @@ private fun GlobalSearchDialog(
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(colors.archiveSubtle)
+                                        .clickable {
+                                            viewingDetail = "心愿清单 · ${wish.title}" to listOfNotNull(
+                                                "心愿类别: ${if (wish.kind == "travel") "山川旅程" else if (wish.kind == "milestone") "里程碑" else "好物"}",
+                                                if (wish.budget > 0) "意向预算: ${FormatUtils.centsToYuanString(wish.budget)}" else null,
+                                                wish.cityName?.takeIf { it.isNotBlank() }?.let { "目的地: $it" },
+                                                wish.note?.takeIf { it.isNotBlank() }?.let { "手记备忘: $it" }
+                                            ).joinToString("\n\n")
+                                        }
                                         .padding(8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(wish.title, fontSize = 12.sp, color = colors.inkPrimary)
                                     if (wish.budget > 0) {
@@ -1866,8 +2129,18 @@ private fun GlobalSearchDialog(
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(colors.archiveSubtle)
+                                        .clickable {
+                                            viewingDetail = "造物项目 · ${proj.title}" to listOfNotNull(
+                                                proj.subtitle?.takeIf { it.isNotBlank() }?.let { "副标题: $it" },
+                                                proj.status?.takeIf { it.isNotBlank() }?.let { "状态: $it" },
+                                                proj.description?.takeIf { it.isNotBlank() }?.let { "描述: $it" },
+                                                proj.story?.takeIf { it.isNotBlank() }?.let { "造物故事: $it" },
+                                                proj.githubUrl?.takeIf { it.isNotBlank() }?.let { "源码仓库: $it" }
+                                            ).joinToString("\n\n")
+                                        }
                                         .padding(8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(proj.title, fontSize = 12.sp, color = colors.inkPrimary)
                                     Text(proj.status ?: "", fontSize = 10.sp, color = colors.inkMuted)
@@ -1885,13 +2158,17 @@ private fun GlobalSearchDialog(
 @Composable
 private fun QuickNoteSheet(
     onDismiss: () -> Unit,
-    onSave: (type: String, title: String, content: String, location: String) -> Unit
+    onSave: (type: String, title: String, content: String, cityCode: String?, cityName: String?, location: String, occurredAt: String, featured: Boolean) -> Unit
 ) {
     val colors = LooseLeafTheme.colors
     var noteType by remember { mutableStateOf("life") }
     var noteTitle by remember { mutableStateOf("") }
     var noteContent by remember { mutableStateOf("") }
+    var noteCityCode by remember { mutableStateOf<String?>(null) }
+    var noteCityName by remember { mutableStateOf<String?>(null) }
     var noteLocation by remember { mutableStateOf("") }
+    var noteFeatured by remember { mutableStateOf(false) }
+    var noteOccurredAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
@@ -1931,7 +2208,18 @@ private fun QuickNoteSheet(
                 TextButton(
                     enabled = noteTitle.isNotBlank() || noteContent.isNotBlank(),
                     onClick = {
-                        onSave(noteType, noteTitle.trim(), noteContent.trim(), noteLocation.trim())
+                        val fallbackCode = noteCityCode ?: CityDictionary.codeForLocation(noteLocation)
+                        val fallbackName = noteCityName ?: fallbackCode?.let { CityDictionary.cityNameForCode(it) }
+                        onSave(
+                            noteType,
+                            noteTitle.trim(),
+                            noteContent.trim(),
+                            fallbackCode,
+                            fallbackName,
+                            noteLocation.trim(),
+                            FormatUtils.toBeijingIsoString(noteOccurredAt),
+                            noteFeatured
+                        )
                     },
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                 ) {
@@ -2022,7 +2310,32 @@ private fun QuickNoteSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 底部轻量地点输入
+            // 发生时刻与属地行政区划城市点选
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PaperDateTimePickerField(
+                    selectedDateTime = noteOccurredAt,
+                    onDateTimeSelected = { noteOccurredAt = it },
+                    modifier = Modifier.weight(1f)
+                )
+                Box(modifier = Modifier.weight(1f)) {
+                    PaperCityPickerField(
+                        selectedCityCode = noteCityCode,
+                        selectedCityName = noteCityName,
+                        onCitySelected = { code, name ->
+                            noteCityCode = code
+                            noteCityName = name
+                        },
+                        placeholder = "属地城市…"
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // 底部轻量地点输入（空间/街巷细节）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2052,13 +2365,40 @@ private fun QuickNoteSheet(
                     decorationBox = { innerTextField ->
                         if (noteLocation.isEmpty()) {
                             Text(
-                                text = "添加所处地点 (如: 杭州西湖)",
+                                text = "街巷、地标或所处空间细节（选填）",
                                 fontSize = 12.sp,
                                 color = colors.inkMuted
                             )
                         }
                         innerTextField()
                     }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 精选印记标记
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { noteFeatured = !noteFeatured }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = noteFeatured,
+                    onCheckedChange = { noteFeatured = it },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = colors.accentWarm,
+                        uncheckedColor = colors.inkMuted
+                    )
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "标记为精选印记（收录于精选特刊）",
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontSize = 13.sp,
+                    color = colors.inkPrimary
                 )
             }
 

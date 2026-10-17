@@ -534,6 +534,16 @@ data class GlobalSearchResponse(
 )
 
 @Serializable
+data class GlobalStats(
+    @SerialName("total_entries") val totalEntries: Int = 0,
+    @SerialName("total_photos") val totalPhotos: Int = 0,
+    @SerialName("total_projects") val totalProjects: Int = 0,
+    @SerialName("month_expense") val monthExpense: Long = 0,
+    @SerialName("current_year") val currentYear: Int = 0,
+    @SerialName("current_month") val currentMonth: Int = 0
+)
+
+@Serializable
 data class EntriesListResponse(
     val entries: List<LifeEntry> = emptyList(),
     val page: Int = 1,
@@ -606,6 +616,37 @@ data class DeviceInfo(
     @SerialName("device_id") val deviceId: String = "",
     val name: String = "",
     val platform: String = "android"
+)
+
+@Serializable
+data class TrustedDevice(
+    val id: Long = 0,
+    @SerialName("device_id") val deviceId: String = "",
+    val name: String = "",
+    val platform: String = "android",
+    @SerialName("device_model") val deviceModel: String? = null,
+    val status: String = "active",
+    @SerialName("paired_at") val pairedAt: String = "",
+    @SerialName("last_active_at") val lastActiveAt: String = ""
+)
+
+@Serializable
+data class PairTicketResponse(
+    val ticket: String = "",
+    @SerialName("hub_url") val hubUrl: String = "",
+    @SerialName("expires_at") val expiresAt: String = "",
+    @SerialName("expires_in_seconds") val expiresInSeconds: Int = 300,
+    @SerialName("qr_payload") val qrPayload: String = "",
+    @SerialName("qr_code_data_url") val qrCodeDataUrl: String = "",
+    val candidates: List<NetworkCandidate>? = null
+)
+
+@Serializable
+data class NetworkCandidate(
+    val type: String = "",
+    val label: String = "",
+    val ip: String = "",
+    val url: String = ""
 )
 
 @Serializable

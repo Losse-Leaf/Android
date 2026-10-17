@@ -53,6 +53,42 @@ object FormatUtils {
     }
 
     /**
+     * 将 LocalDateTime 锚定在北京时间转换为带 +08:00 偏移的标准 ISO8601 串
+     */
+    fun toBeijingIsoString(dateTime: LocalDateTime): String {
+        return dateTime.atZone(BeijingZone).format(IsoFormatter)
+    }
+
+    /**
+     * 将 Instant 锚定在北京时间转换为带 +08:00 偏移的标准 ISO8601 串
+     */
+    fun toBeijingIsoString(instant: Instant): String {
+        return instant.atZone(BeijingZone).format(IsoFormatter)
+    }
+
+    /**
+     * 将任意支持的日期时间串解析为北京时间 LocalDateTime
+     */
+    fun parseToLocalDateTime(raw: String): LocalDateTime {
+        return parseOccurredInstant(raw).atZone(BeijingZone).toLocalDateTime()
+    }
+
+    /**
+     * 判断给定 LocalDateTime 是否在北京时间的“今天”
+     */
+    fun isTodayInBeijing(dateTime: LocalDateTime): Boolean {
+        val today = LocalDate.now(BeijingZone)
+        return dateTime.toLocalDate() == today
+    }
+
+    /**
+     * 格式化 LocalDateTime 为 YYYY.MM.DD HH:mm
+     */
+    fun formatLocalDateTimeDisplay(dateTime: LocalDateTime): String {
+        return dateTime.format(DisplayDateTimeFormatter)
+    }
+
+    /**
      * 将整型「分」转换为「元」字符串展示 (例如 4250 -> "¥ 42.50" 或 "42.50")
      */
     fun centsToYuanString(cents: Long, includeSymbol: Boolean = true): String {
@@ -135,6 +171,9 @@ object FormatUtils {
             rawIso
         }
     }
+
+    fun formatDate(rawIso: String): String = formatDisplayDate(rawIso)
+    fun formatDateTime(rawIso: String): String = formatDisplayDateTime(rawIso)
 
     /**
      * 格式化展示为 YYYY.MM.DD HH:mm

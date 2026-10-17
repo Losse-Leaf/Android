@@ -212,7 +212,7 @@ fun PairingScreen(
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "在 Web 展厅管理台点击「复制配对链接」，粘贴至下方框内自动解析中枢与工单：",
+                                text = "粘贴 Web 展厅生成的配对链接：",
                                 fontFamily = ArchiveFontFamilies.BodySans,
                                 fontSize = 12.sp,
                                 lineHeight = 18.sp,
@@ -224,7 +224,7 @@ fun PairingScreen(
                             PaperTextEditor(
                                 value = pastedLinkInput,
                                 onValueChange = { pastedLinkInput = it },
-                                placeholder = "例如 looseleaf://pair?hub=http://...&ticket=pair_tk_...",
+                                placeholder = "looseleaf://pair?hub=...&ticket=...",
                                 minHeight = 72.dp,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -369,7 +369,7 @@ fun PairingScreen(
                         PaperTextField(
                             value = customDeviceName,
                             onValueChange = { customDeviceName = it },
-                            placeholder = "例如: 主理人的随行手机、iQOO Neo 9 Pro",
+                            placeholder = "设备名称",
                             isUnderline = true,
                             textStyle = TextStyle(
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,

@@ -42,6 +42,7 @@ import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.YearMonth
 import kotlin.math.roundToLong
 
@@ -77,6 +78,9 @@ fun LedgerScreen(
     var selectedCategory by rememberSaveable { mutableStateOf(inferRecommendedCategory()) }
     var selectedPaymentMethod by rememberSaveable { mutableStateOf("微信支付") }
     var noteText by rememberSaveable { mutableStateOf("") }
+    var selectedCityCode by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedCityName by rememberSaveable { mutableStateOf<String?>(null) }
+    var txOccurredAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
     var hasInitializedLedger by rememberSaveable { mutableStateOf(false) }
 
     // 分期参数
@@ -179,6 +183,9 @@ fun LedgerScreen(
         inputAmountString = "0"
         noteText = ""
         isInstallment = false
+        selectedCityCode = null
+        selectedCityName = null
+        txOccurredAt = LocalDateTime.now(FormatUtils.BeijingZone)
     }
 
     NoiseBackground(modifier = modifier) {
@@ -467,6 +474,30 @@ fun LedgerScreen(
                                     }
                                 )
 
+                                // 发生时间与属地城市点选 (关联城市账单光谱与同城足迹)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    PaperDateTimePickerField(
+                                        selectedDateTime = txOccurredAt,
+                                        onDateTimeSelected = { txOccurredAt = it },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        PaperCityPickerField(
+                                            selectedCityCode = selectedCityCode,
+                                            selectedCityName = selectedCityName,
+                                            onCitySelected = { code, name ->
+                                                selectedCityCode = code
+                                                selectedCityName = name
+                                            },
+                                            placeholder = "属地城市…"
+                                        )
+                                    }
+                                }
+
                                 // 支出模式下的分期支持开关
                                 if (selectedType == "expense") {
                                     Spacer(modifier = Modifier.height(6.dp))
@@ -490,21 +521,63 @@ fun LedgerScreen(
                                         }
 
                                         if (isInstallment) {
-                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                listOf(3, 6, 12, 24).forEach { m ->
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .clip(RoundedCornerShape(8.dp))
-                                                            .background(if (installmentMonths == m) colors.accentWarm else colors.archiveSubtle)
-                                                            .clickable { installmentMonths = m }
-                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                if (creditChannels.isNotEmpty()) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                                                     ) {
-                                                        Text(
-                                                            text = "${m}期",
-                                                            fontSize = 10.sp,
-                                                            color = if (installmentMonths == m) colors.archivePaper else colors.inkSecondary
-                                                        )
+                                                        creditChannels.forEach { ch ->
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .clip(RoundedCornerShape(8.dp))
+                                                                    .background(if (installmentChannelCode == ch.code) colors.accentWarm else colors.archiveSubtle)
+                                                                    .clickable {
+                                                                        installmentChannelCode = ch.code
+                                                                        repaymentDay = ch.repaymentDay
+                                                                    }
+                                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                            ) {
+                                                                Text(
+                                                                    text = ch.name,
+                                                                    fontSize = 10.sp,
+                                                                    color = if (installmentChannelCode == ch.code) colors.archivePaper else colors.inkSecondary
+                                                                )
+                                                            }
+                                                        }
                                                     }
+                                                }
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                        listOf(3, 6, 12, 24).forEach { m ->
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .clip(RoundedCornerShape(8.dp))
+                                                                    .background(if (installmentMonths == m) colors.accentWarm else colors.archiveSubtle)
+                                                                    .clickable { installmentMonths = m }
+                                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                            ) {
+                                                                Text(
+                                                                    text = "${m}期",
+                                                                    fontSize = 10.sp,
+                                                                    color = if (installmentMonths == m) colors.archivePaper else colors.inkSecondary
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                    Text(
+                                                        text = "每月${repaymentDay}日还款",
+                                                        fontSize = 10.sp,
+                                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                                        color = colors.inkMuted
+                                                    )
                                                 }
                                             }
                                         }
@@ -578,6 +651,8 @@ fun LedgerScreen(
                                         title = title,
                                         note = noteText.takeIf { it.isNotBlank() },
                                         paymentMethod = selectedPaymentMethod,
+                                        occurredAt = FormatUtils.toBeijingIsoString(txOccurredAt),
+                                        cityCode = selectedCityCode,
                                         isInstallment = isInstallment,
                                         installmentChannelCode = installmentChannelCode.takeIf { isInstallment },
                                         installmentTotalAmount = amountCents.takeIf { isInstallment },
@@ -643,6 +718,13 @@ fun LedgerScreen(
             var editTitle by remember(tx.id) { mutableStateOf(tx.title) }
             var editNote by remember(tx.id) { mutableStateOf(tx.note ?: "") }
             var editPaymentMethod by remember(tx.id) { mutableStateOf(tx.paymentMethod ?: "微信支付") }
+            var editCityCode by remember(tx.id) { mutableStateOf(tx.cityCode ?: "") }
+            var editCityName by remember(tx.id) {
+                mutableStateOf(tx.cityCode?.let { CityDictionary.cityNameForCode(it) } ?: "")
+            }
+            var editOccurredAt by remember(tx.id) {
+                mutableStateOf(FormatUtils.parseToLocalDateTime(tx.occurredAt))
+            }
 
             ArchiveBottomSheet(
                 onDismissRequest = { editingTransaction = null },
@@ -659,7 +741,8 @@ fun LedgerScreen(
                                 title = editTitle.trim().ifBlank { editCategory.trim() },
                                 note = editNote.trim().takeIf { it.isNotBlank() },
                                 paymentMethod = editPaymentMethod.trim(),
-                                occurredAt = tx.occurredAt
+                                cityCode = editCityCode.trim().takeIf { it.isNotBlank() },
+                                occurredAt = FormatUtils.toBeijingIsoString(editOccurredAt)
                             )
                             syncManager.updateTransactionOptimistic(tx.id, req)
                             editingTransaction = null
@@ -710,6 +793,28 @@ fun LedgerScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PaperDateTimePickerField(
+                            selectedDateTime = editOccurredAt,
+                            onDateTimeSelected = { editOccurredAt = it },
+                            modifier = Modifier.weight(1f)
+                        )
+                        Box(modifier = Modifier.weight(1f)) {
+                            PaperCityPickerField(
+                                selectedCityCode = editCityCode,
+                                selectedCityName = editCityName,
+                                onCitySelected = { code, name ->
+                                    editCityCode = code
+                                    editCityName = name
+                                },
+                                placeholder = "属地城市…"
+                            )
+                        }
+                    }
 
                     PaperTextEditor(
                         value = editNote,
@@ -801,14 +906,14 @@ fun LedgerScreen(
                     PaperTextField(
                         value = gearName,
                         onValueChange = { gearName = it },
-                        label = "装备名称 (如: 索尼 A7M4)",
+                        label = "装备名称",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     PaperTextField(
                         value = gearSpec,
                         onValueChange = { gearSpec = it },
-                        label = "规格参数 (可选)",
+                        label = "规格参数",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1417,7 +1522,7 @@ private fun AssetsAndGearTab(
 
                     if (ov.gearSummary.items.isEmpty()) {
                         Text(
-                            text = "暂无录入固资装备，可点击右上角登记数码相机、工作台等资产。",
+                            text = "暂无录入固资装备",
                             fontFamily = ArchiveFontFamilies.BodySans,
                             fontSize = 12.sp,
                             color = colors.inkMuted,
@@ -1517,7 +1622,69 @@ private fun CreditChannelsManagerDialog(
     val scope = rememberCoroutineScope()
     var newChannelName by remember { mutableStateOf("") }
     var newChannelDay by remember { mutableStateOf("10") }
+    var editingChannel by remember { mutableStateOf<CreditChannel?>(null) }
+    var editChannelName by remember { mutableStateOf("") }
+    var editChannelDay by remember { mutableStateOf("") }
     var isSubmitting by remember { mutableStateOf(false) }
+
+    if (editingChannel != null) {
+        AlertDialog(
+            onDismissRequest = { editingChannel = null },
+            containerColor = colors.archivePaper,
+            title = {
+                Text(
+                    text = "修订渠道 · ${editingChannel?.name}",
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontSize = 16.sp,
+                    color = colors.inkPrimary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PaperTextField(
+                        value = editChannelName,
+                        onValueChange = { editChannelName = it },
+                        label = "渠道名称",
+                        singleLine = true
+                    )
+                    PaperTextField(
+                        value = editChannelDay,
+                        onValueChange = { editChannelDay = it.filter { c -> c.isDigit() } },
+                        label = "每月还款日 (1~31)",
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val ch = editingChannel ?: return@TextButton
+                        val day = editChannelDay.toIntOrNull()?.coerceIn(1, 31) ?: ch.repaymentDay
+                        scope.launch {
+                            runCatching {
+                                apiClient.updateCreditChannel(
+                                    id = ch.id,
+                                    req = CreateCreditChannelRequest(
+                                        name = editChannelName.trim().ifBlank { ch.name },
+                                        repaymentDay = day
+                                    )
+                                )
+                                editingChannel = null
+                                onChannelsChanged()
+                            }
+                        }
+                    }
+                ) {
+                    Text("保存", color = colors.accentWarm)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingChannel = null }) {
+                    Text("取消", color = colors.inkSecondary)
+                }
+            }
+        )
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Box(
@@ -1557,7 +1724,7 @@ private fun CreditChannelsManagerDialog(
                     PaperTextField(
                         value = newChannelName,
                         onValueChange = { newChannelName = it },
-                        placeholder = "渠道名称 (如: 招行信用卡)",
+                        placeholder = "渠道名称",
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
@@ -1623,18 +1790,31 @@ private fun CreditChannelsManagerDialog(
                                 )
                             }
                             if (!ch.isBuiltin) {
-                                IconButton(
-                                    onClick = {
-                                        scope.launch {
-                                            runCatching {
-                                                apiClient.deleteCreditChannel(ch.id)
-                                                onChannelsChanged()
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = {
+                                            editingChannel = ch
+                                            editChannelName = ch.name
+                                            editChannelDay = ch.repaymentDay.toString()
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(Icons.Outlined.Edit, contentDescription = "编辑渠道", tint = colors.inkSecondary, modifier = Modifier.size(14.dp))
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    IconButton(
+                                        onClick = {
+                                            scope.launch {
+                                                runCatching {
+                                                    apiClient.deleteCreditChannel(ch.id)
+                                                    onChannelsChanged()
+                                                }
                                             }
-                                        }
-                                    },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(Icons.Outlined.Delete, contentDescription = "删除渠道", tint = colors.accentWarm, modifier = Modifier.size(15.dp))
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(Icons.Outlined.Delete, contentDescription = "删除渠道", tint = colors.accentWarm, modifier = Modifier.size(14.dp))
+                                    }
                                 }
                             }
                         }

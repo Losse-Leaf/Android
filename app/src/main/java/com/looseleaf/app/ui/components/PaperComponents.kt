@@ -25,8 +25,12 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.ui.platform.LocalContext
+import com.looseleaf.app.utils.FormatUtils
+import java.time.LocalDateTime
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Divider
@@ -425,7 +429,7 @@ fun PaperCityPickerField(
     selectedCityCode: String?,
     selectedCityName: String?,
     onCitySelected: (code: String, name: String) -> Unit,
-    placeholder: String = "点击选择属地城市…",
+    placeholder: String = "选择属地城市…",
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
@@ -592,3 +596,217 @@ fun PaperCityPickerField(
         }
     }
 }
+
+/**
+ * 散页古典纸墨风时间选择器 (PaperDateTimePickerField)
+ * 彻底对齐 Web/macOS 端的时间回溯补记能力，支持自然时间快捷芯片与精确时空选择
+ */
+@Composable
+fun PaperDateTimePickerField(
+    selectedDateTime: LocalDateTime,
+    onDateTimeSelected: (LocalDateTime) -> Unit,
+    modifier: Modifier = Modifier,
+    label: String? = null
+) {
+    val context = LocalContext.current
+    val colors = LooseLeafTheme.colors
+    var showDialog by remember { mutableStateOf(false) }
+
+    val isToday = remember(selectedDateTime) {
+        FormatUtils.isTodayInBeijing(selectedDateTime)
+    }
+    val displayStr = remember(selectedDateTime) {
+        FormatUtils.formatLocalDateTimeDisplay(selectedDateTime)
+    }
+
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(colors.archivePaper)
+            .border(
+                0.5.dp,
+                if (!isToday) colors.accentWarm.copy(alpha = 0.6f) else colors.borderDivider,
+                RoundedCornerShape(4.dp)
+            )
+            .clickable { showDialog = true }
+            .padding(horizontal = 9.dp, vertical = 6.5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.DateRange,
+            contentDescription = "选择发生时刻",
+            tint = if (!isToday) colors.accentWarm else colors.inkMuted,
+            modifier = Modifier.size(14.dp)
+        )
+        if (!label.isNullOrBlank()) {
+            Text(
+                text = "$label：",
+                fontFamily = ArchiveFontFamilies.BodySans,
+                fontSize = 11.5.sp,
+                color = colors.inkMuted
+            )
+        }
+        Text(
+            text = displayStr,
+            fontFamily = ArchiveFontFamilies.MonoScale,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = if (!isToday) colors.accentWarm else colors.inkPrimary
+        )
+        if (!isToday) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(colors.accentWarm.copy(alpha = 0.12f))
+                    .padding(horizontal = 4.dp, vertical = 1.dp)
+            ) {
+                Text(
+                    text = "补记",
+                    fontFamily = ArchiveFontFamilies.BodySans,
+                    fontSize = 9.5.sp,
+                    color = colors.accentWarm
+                )
+            }
+        }
+    }
+
+    if (showDialog) {
+        Dialog(onDismissRequest = { showDialog = false }) {
+            PaperCard(
+                backgroundColor = colors.archivePaper,
+                borderColor = colors.borderSubtle,
+                cornerRadius = 6.dp,
+                contentPadding = PaddingValues(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "回溯补记 · 发生时间",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.inkPrimary
+                            )
+                            Text(
+                                text = "当前选择：$displayStr",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 11.sp,
+                                color = colors.accentWarm
+                            )
+                        }
+                        IconButton(
+                            onClick = { showDialog = false },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "关闭",
+                                tint = colors.inkMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = colors.borderDivider, thickness = 0.5.dp)
+
+                    Text(
+                        text = "快捷时空锚点",
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 11.sp,
+                        color = colors.inkMuted
+                    )
+
+                    // 快捷时空芯片网格
+                    val now = remember { LocalDateTime.now(FormatUtils.BeijingZone) }
+                    val shortcuts = listOf(
+                        "此时此刻" to now,
+                        "今日 09:00" to now.withHour(9).withMinute(0).withSecond(0),
+                        "今日 14:00" to now.withHour(14).withMinute(0).withSecond(0),
+                        "今日 20:00" to now.withHour(20).withMinute(0).withSecond(0),
+                        "昨日此时" to now.minusDays(1),
+                        "3 天前" to now.minusDays(3)
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        shortcuts.chunked(3).forEach { rowItems ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                rowItems.forEach { (title, dt) ->
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(colors.archiveSubtle)
+                                            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
+                                            .clickable {
+                                                onDateTimeSelected(dt)
+                                                showDialog = false
+                                            }
+                                            .padding(vertical = 7.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = title,
+                                            fontFamily = ArchiveFontFamilies.BodySans,
+                                            fontSize = 11.sp,
+                                            color = colors.inkPrimary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = colors.borderDivider, thickness = 0.5.dp)
+
+                    // 自选精确日期与时刻按钮
+                    PaperButton(
+                        text = "自选精确日期与时刻…",
+                        onClick = {
+                            showDialog = false
+                            val year = selectedDateTime.year
+                            val month = selectedDateTime.monthValue - 1
+                            val day = selectedDateTime.dayOfMonth
+                            val hour = selectedDateTime.hour
+                            val minute = selectedDateTime.minute
+
+                            val datePicker = android.app.DatePickerDialog(
+                                context,
+                                { _, y, m, d ->
+                                    val timePicker = android.app.TimePickerDialog(
+                                        context,
+                                        { _, h, min ->
+                                            val newDt = LocalDateTime.of(y, m + 1, d, h, min, 0)
+                                            onDateTimeSelected(newDt)
+                                        },
+                                        hour,
+                                        minute,
+                                        true
+                                    )
+                                    timePicker.show()
+                                },
+                                year,
+                                month,
+                                day
+                            )
+                            datePicker.show()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
+}
+

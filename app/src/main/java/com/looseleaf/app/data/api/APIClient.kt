@@ -8,6 +8,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.*
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
@@ -242,6 +244,20 @@ class APIClient private constructor(private val context: Context) {
 
     suspend fun revokeDevice(deviceId: String) {
         executeEnvelopeRequest<DeleteResponse>("/api/v1/auth/devices/$deviceId", "DELETE")
+    }
+
+    suspend fun fetchTrustedDevices(): List<TrustedDevice> {
+        return executeEnvelopeRequest("/api/v1/auth/devices", "GET")
+    }
+
+    suspend fun initPairing(hubUrl: String? = null): PairTicketResponse {
+        val req = buildJsonObject {
+            if (!hubUrl.isNullOrBlank()) {
+                put("hub_url", hubUrl)
+            }
+        }
+        val body = req.toString().toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/auth/pair/ticket", "POST", body = body)
     }
 
     // MARK: - 3. 站点配置与主理人档案
@@ -561,5 +577,9 @@ class APIClient private constructor(private val context: Context) {
                 url = res.url
             )
         }
+    }
+
+    suspend fun fetchGlobalStats(): GlobalStats {
+        return executeEnvelopeRequest("/api/v1/stats", "GET")
     }
 }

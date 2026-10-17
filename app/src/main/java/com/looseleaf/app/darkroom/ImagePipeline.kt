@@ -253,18 +253,48 @@ object ImagePipeline {
     }
 
     /**
-     * 执行统一高速直传链路 (1 次网络握手直接入库，免去多轮预签名轮询与海外 R2 域名卡顿)
+     * 执行统一媒体直传与多重降级管线：
+     * 1. 尝试请求 POST /api/v1/uploads/presign 获取直传授权
+     * 2. 执行 HTTP PUT 直传 R2 存储桶
+     * 3. 请求 POST /api/v1/uploads/complete 确认入库
+     * 当后端未配置 R2 (HTTP 503) 或直传网络受阻时，自动平滑降级至中枢统一中转通道 (/api/v1/files/upload)
+     * 行为与 macOS 端 R2DirectUploader 保持 100% 一致
      */
     suspend fun uploadImage(
         apiClient: APIClient,
         processed: ProcessedImageResult,
         filename: String = "photo_${System.currentTimeMillis()}.jpg"
     ): Attachment = withContext(Dispatchers.IO) {
-        apiClient.uploadUnifiedFallback(
-            fileBytes = processed.compressedBytes,
-            filename = filename,
-            mimeType = processed.mimeType,
-            folder = "entries"
-        )
+        try {
+            val presignReq = PresignUploadRequest(
+                filename = filename,
+                contentType = processed.mimeType,
+                size = processed.compressedBytes.size.toLong()
+            )
+            val presignRes = apiClient.presignUpload(presignReq)
+            apiClient.uploadToR2Direct(
+                uploadUrl = presignRes.uploadUrl,
+                fileBytes = processed.compressedBytes,
+                mimeType = processed.mimeType
+            )
+            apiClient.completeUpload(
+                CompleteUploadRequest(
+                    objectKey = presignRes.objectKey,
+                    filename = filename,
+                    contentType = processed.mimeType,
+                    size = processed.compressedBytes.size.toLong(),
+                    width = processed.width,
+                    height = processed.height
+                )
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "R2 direct upload unavailable (${e.message}), falling back to unified multipart upload")
+            apiClient.uploadUnifiedFallback(
+                fileBytes = processed.compressedBytes,
+                filename = filename,
+                mimeType = processed.mimeType,
+                folder = "entries"
+            )
+        }
     }
 }
