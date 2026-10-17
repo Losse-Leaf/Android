@@ -771,8 +771,7 @@ fun PaperDateTimePickerField(
                     HorizontalDivider(color = colors.borderDivider, thickness = 0.5.dp)
 
                     // 自选精确日期与时刻按钮
-                    PaperButton(
-                        text = "自选精确日期与时刻…",
+                    Button(
                         onClick = {
                             showDialog = false
                             val year = selectedDateTime.year
@@ -802,8 +801,19 @@ fun PaperDateTimePickerField(
                             )
                             datePicker.show()
                         },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colors.paperTertiary,
+                            contentColor = colors.inkPrimary
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = "自选精确日期与时刻…",
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 13.sp
+                        )
+                    }
                 }
             }
         }
