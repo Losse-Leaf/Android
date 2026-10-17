@@ -392,6 +392,20 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/credit-channels", "GET")
     }
 
+    suspend fun createCreditChannel(req: CreateCreditChannelRequest): CreditChannel {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/credit-channels", "POST", body = body)
+    }
+
+    suspend fun updateCreditChannel(id: Long, req: CreateCreditChannelRequest): CreditChannel {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/credit-channels/$id", "PUT", body = body)
+    }
+
+    suspend fun deleteCreditChannel(id: Long) {
+        executeEnvelopeRequest<DeleteResponse>("/api/v1/credit-channels/$id", "DELETE")
+    }
+
     // MARK: - 6. 造物、心愿与山川足迹 (Projects, Wishes & Footprints)
 
     suspend fun fetchProjects(): List<Project> {
@@ -434,6 +448,11 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/wishes", "POST", body = body)
     }
 
+    suspend fun updateWish(id: Long, req: CreateWishRequest): Wish {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/wishes/$id", "PUT", body = body)
+    }
+
     suspend fun resolveWish(id: Long, req: ResolveWishRequest): Wish {
         val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
         return executeEnvelopeRequest("/api/v1/wishes/$id/resolve", "POST", body = body)
@@ -454,6 +473,11 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/footprints", "POST", body = body)
     }
 
+    suspend fun updateFootprint(id: Long, req: CreateFootprintRequest): Footprint {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/footprints/$id", "PUT", body = body)
+    }
+
     suspend fun deleteFootprint(id: Long, purge: Boolean = false) {
         val params = if (purge) mapOf("purge" to "true") else null
         executeEnvelopeRequest<DeleteResponse>("/api/v1/footprints/$id", "DELETE", queryParams = params)
@@ -461,6 +485,10 @@ class APIClient private constructor(private val context: Context) {
 
     suspend fun fetchCityMemoryDrawer(cityCode: String): CityMemoryDrawerResponse {
         return executeEnvelopeRequest("/api/v1/footprints/cities/$cityCode/drawer", "GET")
+    }
+
+    suspend fun fetchProvinceMemoryDrawer(adcode: String): ProvinceMemoryDrawerResponse {
+        return executeEnvelopeRequest("/api/v1/footprints/provinces/$adcode/drawer", "GET")
     }
 
     // MARK: - 7. 媒体直传 (R2 Presign & Upload)

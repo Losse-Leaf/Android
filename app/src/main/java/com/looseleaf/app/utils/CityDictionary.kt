@@ -851,4 +851,48 @@ object CityDictionary {
     fun nearestCityCodeForCoordinates(lat: Double, lng: Double): String? {
         return nearestCityForCoordinates(lat, lng)?.first
     }
+
+    // MARK: - 375 个标准行政区划城市条目与检索支持 (供 CityPicker 统一选点)
+
+    data class StandardCity(
+        val code: String,
+        val name: String,
+        val province: String
+    )
+
+    val provincePrefixMap: Map<String, String> = mapOf(
+        "11" to "北京", "12" to "天津", "13" to "河北", "14" to "山西", "15" to "内蒙古",
+        "21" to "辽宁", "22" to "吉林", "23" to "黑龙江",
+        "31" to "上海", "32" to "江苏", "33" to "浙江", "34" to "安徽", "35" to "福建", "36" to "江西", "37" to "山东",
+        "41" to "河南", "42" to "湖北", "43" to "湖南", "44" to "广东", "45" to "广西", "46" to "海南",
+        "50" to "重庆", "51" to "四川", "52" to "贵州", "53" to "云南", "54" to "西藏",
+        "61" to "陕西", "62" to "甘肃", "63" to "青海", "64" to "宁夏", "65" to "新疆",
+        "71" to "台湾", "81" to "香港", "82" to "澳门"
+    )
+
+    val standardCities: List<StandardCity> by lazy {
+        val map = mutableMapOf<String, String>()
+        for ((name, code) in nameToCode) {
+            val existing = map[code]
+            if (existing == null || name.length > existing.length) {
+                map[code] = name
+            }
+        }
+        map.keys.sorted().map { code ->
+            val name = map[code] ?: code
+            val prefix = if (code.length >= 2) code.substring(0, 2) else ""
+            val prov = provincePrefixMap[prefix] ?: "其他"
+            StandardCity(code, name, prov)
+        }
+    }
+
+    fun searchCities(query: String): List<StandardCity> {
+        val q = query.trim().lowercase()
+        if (q.isBlank()) return standardCities
+        return standardCities.filter {
+            it.name.lowercase().contains(q) ||
+            it.province.lowercase().contains(q) ||
+            it.code.contains(q)
+        }
+    }
 }

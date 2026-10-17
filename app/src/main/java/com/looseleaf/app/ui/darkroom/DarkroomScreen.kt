@@ -462,10 +462,12 @@ fun DarkroomScreen(
                                 ?: primaryExif?.inferredCityCode
                             val cityName = cityCode?.let { CityDictionary.cityNameForCode(it) }
                                 ?: primaryExif?.inferredCityName
-                            val finalTitle = titleText.ifBlank { "现场随笔" }
-                            val finalContent = contentText.ifBlank { "无文字记录" }
-                            val entryType = selectedType
+                            val rawContent = contentText.ifBlank { "无文字记录" }
                             val cameraMeta = primaryExif?.toFilmMetadataString()
+                            val finalContent = if (!cameraMeta.isNullOrBlank()) {
+                                if (rawContent == "无文字记录") "> $cameraMeta" else "$rawContent\n\n> $cameraMeta"
+                            } else rawContent
+                            val entryType = selectedType
                             val occurredIso = FormatUtils.beijingNowIsoString()
 
                             if (photoSlots.isNotEmpty()) {
@@ -494,7 +496,6 @@ fun DarkroomScreen(
                                     width = firstMedia.width,
                                     height = firstMedia.height,
                                     req = offlineReq,
-                                    camera = cameraMeta,
                                     additionalMediaFiles = savedFiles.drop(1)
                                 )
                             } else {

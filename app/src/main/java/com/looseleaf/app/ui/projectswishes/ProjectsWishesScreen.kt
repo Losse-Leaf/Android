@@ -76,6 +76,9 @@ fun ProjectsWishesScreen(
     var resolvingWish by remember { mutableStateOf<Wish?>(null) }
     var selectedDrawerFootprint by remember { mutableStateOf<Footprint?>(null) }
     var editingProject by remember { mutableStateOf<Project?>(null) }
+    var editingWish by remember { mutableStateOf<Wish?>(null) }
+    var editingFootprint by remember { mutableStateOf<Footprint?>(null) }
+    var selectedProvinceDrawerAdcode by remember { mutableStateOf<Pair<String, String>?>(null) }
     var wishToDelete by remember { mutableStateOf<Wish?>(null) }
 
     suspend fun reloadAll(forceLoading: Boolean = false) {
@@ -205,6 +208,7 @@ fun ProjectsWishesScreen(
                     1 -> WishesList(
                         wishes = wishes,
                         onResolveClick = { resolvingWish = it },
+                        onEditClick = { editingWish = it },
                         onDeleteClick = { wishToDelete = it },
                         modifier = Modifier.weight(1f)
                     )
@@ -222,7 +226,13 @@ fun ProjectsWishesScreen(
             var inputNote by remember { mutableStateOf("") }
             var inputThird by remember { mutableStateOf("") }
             var wishKind by remember { mutableStateOf("item") }
+            var fpCityCode by remember { mutableStateOf("") }
+            var fpCityName by remember { mutableStateOf("") }
+            var wishCityCode by remember { mutableStateOf("") }
+            var wishCityName by remember { mutableStateOf("") }
             val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+            val isSaveEnabled = if (selectedTab == 2) fpCityName.isNotBlank() else inputTitle.isNotBlank()
 
             ModalBottomSheet(
                 onDismissRequest = { showCreateDialog = false },
@@ -263,7 +273,7 @@ fun ProjectsWishesScreen(
                         )
 
                         TextButton(
-                            enabled = inputTitle.isNotBlank(),
+                            enabled = isSaveEnabled,
                             onClick = {
                                 scope.launch {
                                     try {
@@ -279,16 +289,16 @@ fun ProjectsWishesScreen(
                                                     title = inputTitle.trim(),
                                                     kind = wishKind,
                                                     note = inputNote.trim().takeIf { it.isNotBlank() },
-                                                    budget = FormatUtils.yuanStringToCents(inputThird)
+                                                    budget = FormatUtils.yuanStringToCents(inputThird),
+                                                    cityCode = wishCityCode.takeIf { it.isNotBlank() },
+                                                    cityName = wishCityName.takeIf { it.isNotBlank() }
                                                 )
                                             )
                                             else -> {
-                                                val city = inputTitle.trim()
-                                                val code = CityDictionary.codeForLocation(city) ?: "330100"
                                                 apiClient.createFootprint(
                                                     CreateFootprintRequest(
-                                                        cityCode = code,
-                                                        cityName = city,
+                                                        cityCode = fpCityCode.ifBlank { "330100" },
+                                                        cityName = fpCityName.ifBlank { "杭州市" },
                                                         title = inputThird.trim().takeIf { it.isNotBlank() },
                                                         visitedAt = FormatUtils.beijingNowIsoString(),
                                                         note = inputNote.trim().takeIf { it.isNotBlank() }
@@ -311,7 +321,7 @@ fun ProjectsWishesScreen(
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                                 fontWeight = FontWeight.Medium,
                                 fontSize = 14.sp,
-                                color = if (inputTitle.isNotBlank()) colors.accentWarm else colors.inkMuted
+                                color = if (isSaveEnabled) colors.accentWarm else colors.inkMuted
                             )
                         }
                     }
@@ -331,35 +341,54 @@ fun ProjectsWishesScreen(
                         Spacer(modifier = Modifier.height(14.dp))
                     }
 
-                    // 大号标题输入
-                    androidx.compose.foundation.text.BasicTextField(
-                        value = inputTitle,
-                        onValueChange = { inputTitle = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        textStyle = TextStyle(
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = colors.inkPrimary
-                        ),
-                        cursorBrush = SolidColor(colors.accentWarm),
-                        decorationBox = { innerTextField ->
-                            if (inputTitle.isEmpty()) {
-                                Text(
-                                    text = when (selectedTab) {
-                                        0 -> "造物名称…"
-                                        1 -> "心愿标题…"
-                                        else -> "城市名称 (如: 杭州、大理)…"
-                                    },
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 20.sp,
-                                    color = colors.inkMuted.copy(alpha = 0.5f)
-                                )
+                    if (selectedTab == 2) {
+                        // 足迹：标准行政区划城市选择器
+                        PaperCityPickerField(
+                            selectedCityCode = fpCityCode,
+                            selectedCityName = fpCityName,
+                            onCitySelected = { c, n -> fpCityCode = c; fpCityName = n },
+                            placeholder = "点击点选行政区划城市…"
+                        )
+                    } else {
+                        // 大号标题输入
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = inputTitle,
+                            onValueChange = { inputTitle = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.inkPrimary
+                            ),
+                            cursorBrush = SolidColor(colors.accentWarm),
+                            decorationBox = { innerTextField ->
+                                if (inputTitle.isEmpty()) {
+                                    Text(
+                                        text = when (selectedTab) {
+                                            0 -> "造物名称…"
+                                            else -> "心愿标题…"
+                                        },
+                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                        fontSize = 20.sp,
+                                        color = colors.inkMuted.copy(alpha = 0.5f)
+                                    )
+                                }
+                                innerTextField()
                             }
-                            innerTextField()
+                        )
+
+                        if (selectedTab == 1 && wishKind == "travel") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            PaperCityPickerField(
+                                selectedCityCode = wishCityCode,
+                                selectedCityName = wishCityName,
+                                onCitySelected = { c, n -> wishCityCode = c; wishCityName = n },
+                                placeholder = "点选目的地城市…"
+                            )
                         }
-                    )
+                    }
 
                     Spacer(modifier = Modifier.height(14.dp))
                     HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
@@ -432,6 +461,7 @@ fun ProjectsWishesScreen(
                 mutableStateOf(FormatUtils.centsToYuanString(wish.budget, includeSymbol = false))
             }
             var resType by remember(wish.id) { mutableStateOf("exact") }
+            var actualTitleInput by remember(wish.id) { mutableStateOf(wish.title) }
             var entryNote by remember(wish.id) { mutableStateOf("") }
 
             ArchiveBottomSheet(
@@ -449,7 +479,7 @@ fun ProjectsWishesScreen(
                                     fulfilledAt = FormatUtils.beijingNowIsoString(),
                                     actualCost = cents,
                                     resolutionType = resType,
-                                    actualTitle = wish.title,
+                                    actualTitle = actualTitleInput.ifBlank { wish.title },
                                     createTransaction = !isRel && cents > 0,
                                     createGearAsset = !isRel && wish.kind == "item",
                                     createLifeEntry = true,
@@ -477,6 +507,13 @@ fun ProjectsWishesScreen(
                         }
                     }
                     if (resType != "relinquished") {
+                        PaperTextField(
+                            value = actualTitleInput,
+                            onValueChange = { actualTitleInput = it },
+                            label = "实获好物/方案名称",
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                         PaperTextField(
                             value = costInput,
                             onValueChange = { costInput = it },
@@ -573,20 +610,45 @@ fun ProjectsWishesScreen(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        TextButton(
-                            onClick = {
-                                scope.launch {
-                                    runCatching {
-                                        apiClient.deleteFootprint(foot.id)
-                                        ArchiveToastManager.show("足迹已移除")
-                                    }
-                                    selectedDrawerFootprint = null
-                                    reloadAll()
-                                }
-                            },
-                            modifier = Modifier.align(Alignment.End)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("移除此足迹", fontSize = 12.sp, color = colors.accentWarm)
+                            TextButton(
+                                onClick = {
+                                    val prefix = if (foot.cityCode.length >= 2) foot.cityCode.substring(0, 2) else ""
+                                    val prov = CityDictionary.provincePrefixMap[prefix] ?: "属地省份"
+                                    selectedProvinceDrawerAdcode = foot.cityCode to prov
+                                }
+                            ) {
+                                Text("省级回忆抽屉", fontSize = 12.sp, color = colors.accentWarm)
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(
+                                    onClick = {
+                                        editingFootprint = foot
+                                    }
+                                ) {
+                                    Text("编辑票根", fontSize = 12.sp, color = colors.inkPrimary)
+                                }
+
+                                TextButton(
+                                    onClick = {
+                                        scope.launch {
+                                            runCatching {
+                                                apiClient.deleteFootprint(foot.id)
+                                                ArchiveToastManager.show("足迹已移除")
+                                            }
+                                            selectedDrawerFootprint = null
+                                            reloadAll()
+                                        }
+                                    }
+                                ) {
+                                    Text("移除", fontSize = 12.sp, color = colors.accentWarm)
+                                }
+                            }
                         }
                     }
                 }
@@ -697,6 +759,36 @@ fun ProjectsWishesScreen(
                 onDismiss = { wishToDelete = null }
             )
         }
+
+        // 编辑心愿抽屉
+        editingWish?.let { wish ->
+            EditWishSheetDialog(
+                wish = wish,
+                apiClient = apiClient,
+                onDismiss = { editingWish = null },
+                onSaved = { scope.launch { reloadAll() } }
+            )
+        }
+
+        // 编辑足迹票根抽屉
+        editingFootprint?.let { foot ->
+            EditFootprintSheetDialog(
+                footprint = foot,
+                apiClient = apiClient,
+                onDismiss = { editingFootprint = null },
+                onSaved = { scope.launch { reloadAll() } }
+            )
+        }
+
+        // 省级回忆抽屉
+        selectedProvinceDrawerAdcode?.let { (adcode, provName) ->
+            ProvinceMemoryDrawerBottomSheet(
+                adcode = adcode,
+                provinceName = provName,
+                apiClient = apiClient,
+                onDismiss = { selectedProvinceDrawerAdcode = null }
+            )
+        }
     }
 }
 }
@@ -795,6 +887,7 @@ private fun ProjectsList(
 private fun WishesList(
     wishes: List<Wish>,
     onResolveClick: (Wish) -> Unit,
+    onEditClick: (Wish) -> Unit,
     onDeleteClick: (Wish) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -884,6 +977,17 @@ private fun WishesList(
                                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                                         fontSize = 12.sp,
                                         color = if (wish.status == "relinquished") colors.inkMuted else colors.accentMoss
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { onEditClick(wish) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Edit,
+                                        contentDescription = "编辑心愿",
+                                        tint = colors.inkSecondary,
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                                 IconButton(
@@ -1026,6 +1130,233 @@ private fun FootprintsList(
                             color = colors.inkSecondary,
                             maxLines = 2
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditWishSheetDialog(
+    wish: Wish,
+    apiClient: APIClient,
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    val scope = rememberCoroutineScope()
+    var title by remember(wish.id) { mutableStateOf(wish.title) }
+    var kind by remember(wish.id) { mutableStateOf(wish.kind) }
+    var budgetYuan by remember(wish.id) { mutableStateOf(FormatUtils.centsToYuanString(wish.budget, includeSymbol = false)) }
+    var spec by remember(wish.id) { mutableStateOf(wish.spec ?: "") }
+    var note by remember(wish.id) { mutableStateOf(wish.note ?: "") }
+    var cityCode by remember(wish.id) { mutableStateOf(wish.cityCode ?: "") }
+    var cityName by remember(wish.id) { mutableStateOf(wish.cityName ?: "") }
+    var isSubmitting by remember { mutableStateOf(false) }
+
+    ArchiveBottomSheet(
+        onDismissRequest = onDismiss,
+        title = "修订心愿 · ${wish.title}",
+        actionButtonText = "保存修订",
+        isActionEnabled = title.isNotBlank() && !isSubmitting,
+        onActionClick = {
+            isSubmitting = true
+            scope.launch {
+                runCatching {
+                    val cents = FormatUtils.yuanStringToCents(budgetYuan)
+                    apiClient.updateWish(
+                        id = wish.id,
+                        req = CreateWishRequest(
+                            title = title.trim(),
+                            kind = kind,
+                            budget = cents,
+                            spec = spec.trim().takeIf { it.isNotBlank() },
+                            cityCode = cityCode.takeIf { it.isNotBlank() },
+                            cityName = cityName.takeIf { it.isNotBlank() },
+                            note = note.trim().takeIf { it.isNotBlank() }
+                        )
+                    )
+                    ArchiveToastManager.show("心愿已修订")
+                    onSaved()
+                    onDismiss()
+                }.onFailure {
+                    ArchiveToastManager.show("修订失败: ${it.message}", isError = true)
+                }
+                isSubmitting = false
+            }
+        }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("item" to "好物", "travel" to "旅程", "milestone" to "里程碑").forEach { (k, label) ->
+                    PaperFilterPill(
+                        selected = kind == k,
+                        onClick = { kind = k },
+                        label = label
+                    )
+                }
+            }
+            PaperTextField(value = title, onValueChange = { title = it }, label = "心愿名称", singleLine = true)
+            if (kind == "travel") {
+                PaperCityPickerField(selectedCityCode = cityCode, selectedCityName = cityName, onCitySelected = { c, n -> cityCode = c; cityName = n }, placeholder = "选择目的地城市…")
+            }
+            PaperTextField(value = spec, onValueChange = { spec = it }, label = "规格参数或备忘", singleLine = true)
+            PaperTextField(value = budgetYuan, onValueChange = { budgetYuan = it }, label = "意向预算 (元)", singleLine = true)
+            PaperTextEditor(value = note, onValueChange = { note = it }, placeholder = "初衷手记…", minHeight = 80.dp)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditFootprintSheetDialog(
+    footprint: Footprint,
+    apiClient: APIClient,
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    val scope = rememberCoroutineScope()
+    var cityCode by remember(footprint.id) { mutableStateOf(footprint.cityCode) }
+    var cityName by remember(footprint.id) { mutableStateOf(footprint.cityName) }
+    var title by remember(footprint.id) { mutableStateOf(footprint.title ?: "") }
+    var note by remember(footprint.id) { mutableStateOf(footprint.note ?: "") }
+    var isSubmitting by remember { mutableStateOf(false) }
+
+    ArchiveBottomSheet(
+        onDismissRequest = onDismiss,
+        title = "修订行迹票根 · ${footprint.cityName}",
+        actionButtonText = "保存票根",
+        isActionEnabled = cityName.isNotBlank() && !isSubmitting,
+        onActionClick = {
+            isSubmitting = true
+            scope.launch {
+                runCatching {
+                    apiClient.updateFootprint(
+                        id = footprint.id,
+                        req = CreateFootprintRequest(
+                            cityCode = cityCode.ifBlank { footprint.cityCode },
+                            cityName = cityName.ifBlank { footprint.cityName },
+                            title = title.trim().takeIf { it.isNotBlank() },
+                            visitedAt = footprint.visitedAt,
+                            departedAt = footprint.departedAt,
+                            note = note.trim().takeIf { it.isNotBlank() }
+                        )
+                    )
+                    ArchiveToastManager.show("票根已更新")
+                    onSaved()
+                    onDismiss()
+                }.onFailure {
+                    ArchiveToastManager.show("更新失败: ${it.message}", isError = true)
+                }
+                isSubmitting = false
+            }
+        }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            PaperCityPickerField(
+                selectedCityCode = cityCode,
+                selectedCityName = cityName,
+                onCitySelected = { c, n -> cityCode = c; cityName = n },
+                placeholder = "点选属地城市…"
+            )
+            PaperTextField(value = title, onValueChange = { title = it }, label = "旅程标题 (可选)", singleLine = true)
+            PaperTextEditor(value = note, onValueChange = { note = it }, placeholder = "随笔手记…", minHeight = 90.dp)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProvinceMemoryDrawerBottomSheet(
+    adcode: String,
+    provinceName: String,
+    apiClient: APIClient,
+    onDismiss: () -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    var drawerData by remember(adcode) { mutableStateOf<ProvinceMemoryDrawerResponse?>(null) }
+    var isLoading by remember(adcode) { mutableStateOf(true) }
+
+    LaunchedEffect(adcode) {
+        isLoading = true
+        runCatching {
+            drawerData = apiClient.fetchProvinceMemoryDrawer(adcode)
+        }
+        isLoading = false
+    }
+
+    ArchiveBottomSheet(
+        onDismissRequest = onDismiss,
+        title = "$provinceName · 省级回忆抽屉",
+        actionButtonText = "合上",
+        onActionClick = onDismiss
+    ) {
+        val d = drawerData
+        if (isLoading || d == null) {
+            Text("正在聚合全省行迹票根与属地手记…", fontSize = 12.sp, color = colors.inkMuted, modifier = Modifier.padding(vertical = 16.dp))
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "点亮 ${d.visitedCities.size} 座城邑 · 履迹 ${d.footprints.size} 次",
+                        fontFamily = ArchiveFontFamilies.MonoScale,
+                        fontSize = 12.sp,
+                        color = colors.accentWarm
+                    )
+                    if (d.ledgerSummary.totalSpent > 0) {
+                        Text(
+                            text = "全省花销: ${FormatUtils.centsToYuanString(d.ledgerSummary.totalSpent)}",
+                            fontFamily = ArchiveFontFamilies.MonoScale,
+                            fontSize = 12.sp,
+                            color = colors.accentMoss
+                        )
+                    }
+                }
+
+                if (d.visitedCities.isNotEmpty()) {
+                    Text("到访城市分布", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 12.5.sp, color = colors.inkSecondary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        d.visitedCities.forEach { city ->
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(colors.archiveSubtle)
+                                    .padding(horizontal = 7.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = "${city.cityName} (${city.visitCount})",
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    fontSize = 11.sp,
+                                    color = colors.inkPrimary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (d.entries.isNotEmpty()) {
+                    Text("属地散页手记", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 12.5.sp, color = colors.inkSecondary)
+                    d.entries.take(5).forEach { entry ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(colors.archiveSubtle)
+                                .padding(8.dp)
+                        ) {
+                            Text(text = entry.title.ifBlank { "散页手记" }, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, color = colors.inkPrimary)
+                            Text(text = FormatUtils.formatDisplayDate(entry.occurredAt), fontSize = 11.sp, fontFamily = ArchiveFontFamilies.MonoScale, color = colors.inkMuted)
+                        }
                     }
                 }
             }

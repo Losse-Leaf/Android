@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExpandLess
@@ -134,9 +135,23 @@ fun StreamScreen(
         }
     }
 
-    val filteredEntries = remember(entries, selectedFilter) {
-        if (selectedFilter == "all") entries
-        else entries.filter { it.type == selectedFilter }
+    var selectedYear by rememberSaveable { mutableStateOf<Int?>(null) }
+
+    val availableYears = remember(entries) {
+        entries.mapNotNull { entry ->
+            val date = entry.occurredAt
+            if (date.length >= 4) date.substring(0, 4).toIntOrNull() else null
+        }.distinct().sortedDescending()
+    }
+
+    val filteredEntries = remember(entries, selectedFilter, selectedYear) {
+        var list = entries
+        if (selectedYear != null) {
+            list = list.filter {
+                it.occurredAt.length >= 4 && it.occurredAt.substring(0, 4).toIntOrNull() == selectedYear
+            }
+        }
+        list.filter { entryMatchesFilter(it, selectedFilter) }
     }
 
     NoiseBackground(modifier = modifier) {
@@ -378,6 +393,16 @@ fun StreamScreen(
                 }
             )
 
+            // 年份归档切换栏
+            YearFilterBar(
+                availableYears = availableYears,
+                selectedYear = selectedYear,
+                onYearSelected = {
+                    haptics.tapKey()
+                    selectedYear = it
+                }
+            )
+
             Spacer(modifier = Modifier.height(4.dp))
 
             // 时间流列表
@@ -421,6 +446,14 @@ fun StreamScreen(
                         .padding(horizontal = 16.dp),
                     contentPadding = PaddingValues(top = 10.dp, bottom = 84.dp)
                 ) {
+                    // 52周时光生活刻度热力图
+                    item(key = "life_activity_heatmap") {
+                        LifeActivityHeatmap(
+                            entries = entries,
+                            modifier = Modifier.padding(bottom = 10.dp)
+                        )
+                    }
+
                     // 那年今日 · 岁月回响 折叠卡片
                     if (onThisDayEntries.isNotEmpty()) {
                         item(key = "on_this_day_banner") {
@@ -685,7 +718,8 @@ private fun EntryDetailSheetDialog(
     var editType by remember(entry) { mutableStateOf(entry.type) }
     var editTitle by remember(entry) { mutableStateOf(entry.title) }
     var editContent by remember(entry) { mutableStateOf(entry.content) }
-    var editLocation by remember(entry) { mutableStateOf(entry.location ?: "") }
+    var editCityCode by remember(entry) { mutableStateOf(entry.cityCode ?: "") }
+    var editCityName by remember(entry) { mutableStateOf(entry.cityName ?: entry.location ?: "") }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -807,16 +841,14 @@ private fun EntryDetailSheetDialog(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    PaperTextField(
-                        value = editLocation,
-                        onValueChange = { editLocation = it },
-                        placeholder = "所处地点",
-                        isUnderline = true,
-                        leadingIcon = {
-                            Icon(Icons.Outlined.LocationOn, contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(15.dp))
+                    PaperCityPickerField(
+                        selectedCityCode = editCityCode,
+                        selectedCityName = editCityName,
+                        onCitySelected = { code, name ->
+                            editCityCode = code
+                            editCityName = name
                         },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        placeholder = "点选属地行政区划城市…"
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -825,14 +857,14 @@ private fun EntryDetailSheetDialog(
                         text = "保存修订",
                         enabled = editTitle.isNotBlank() || editContent.isNotBlank(),
                         onClick = {
-                            val code = CityDictionary.codeForLocation(editLocation) ?: entry.cityCode
-                            val cityName = code?.let { CityDictionary.cityNameForCode(it) } ?: entry.cityName
+                            val code = editCityCode.ifBlank { entry.cityCode }
+                            val cityName = editCityName.ifBlank { entry.cityName }
                             val req = CreateEntryRequest(
                                 type = editType,
                                 title = editTitle.ifBlank { "无题随笔" },
                                 content = editContent.ifBlank { "无文字记录" },
                                 occurredAt = entry.occurredAt,
-                                location = editLocation.takeIf { it.isNotBlank() },
+                                location = cityName,
                                 cityCode = code,
                                 cityName = cityName,
                                 projectId = entry.projectId,
@@ -895,21 +927,10 @@ private fun EntryDetailSheetDialog(
                         color = colors.inkSecondary
                     )
 
-                    if (!entry.camera.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "器材底款: ${entry.camera}",
-                            fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontSize = 11.sp,
-                            color = colors.inkMuted
-                        )
-                    }
-
                     if (entry.attachments.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(14.dp))
                         EntryAttachmentsGrid(
                             attachments = entry.attachments,
-                            camera = entry.camera,
                             apiClient = apiClient,
                             onPhotoClick = onPhotoClick
                         )
@@ -1226,7 +1247,7 @@ private fun StreamFilterBar(
 ) {
     val filters = listOf(
         "all" to "全部印记",
-        "life" to "日常随笔",
+        "daily" to "日常随笔",
         "travel" to "山川游历",
         "project" to "造物日志",
         "wish" to "心愿印记"
@@ -1263,10 +1284,217 @@ private fun StreamFilterBar(
     }
 }
 
+/**
+ * 自然下渗分类过滤：遵循 docs/README.md §三.8 规范，带城市属地归入游历，带项目归入造物，带心愿归入心愿
+ */
+private fun entryMatchesFilter(entry: LifeEntry, filter: String): Boolean {
+    if (filter == "all") return true
+    val t = entry.type.lowercase()
+    if (filter == "travel") {
+        return t == "travel" || !entry.cityCode.isNullOrBlank()
+    }
+    if (filter == "project") {
+        return t == "project" || (entry.projectId != null && entry.projectId > 0)
+    }
+    if (filter == "wish") {
+        return t == "wish" || (entry.wishId != null && entry.wishId > 0)
+    }
+    if (filter == "daily" || filter == "life") {
+        return (t == "life" || t == "daily") && entry.cityCode.isNullOrBlank() && (entry.projectId == null || entry.projectId <= 0) && (entry.wishId == null || entry.wishId <= 0)
+    }
+    return t == filter
+}
+
+@Composable
+private fun YearFilterBar(
+    availableYears: List<Int>,
+    selectedYear: Int?,
+    onYearSelected: (Int?) -> Unit
+) {
+    if (availableYears.isEmpty()) return
+    val colors = LooseLeafTheme.colors
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "年份",
+            fontFamily = ArchiveFontFamilies.MonoScale,
+            fontSize = 11.sp,
+            color = colors.inkMuted,
+            modifier = Modifier.padding(end = 4.dp)
+        )
+
+        // 全部年份
+        val isAll = selectedYear == null
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (isAll) colors.accentWarm.copy(alpha = 0.15f) else colors.archiveSubtle)
+                .border(0.5.dp, if (isAll) colors.accentWarm else colors.borderDivider, RoundedCornerShape(10.dp))
+                .clickable { onYearSelected(null) }
+                .padding(horizontal = 10.dp, vertical = 3.dp)
+        ) {
+            Text(
+                text = "全集",
+                fontFamily = ArchiveFontFamilies.MonoScale,
+                fontSize = 11.sp,
+                color = if (isAll) colors.accentWarm else colors.inkSecondary
+            )
+        }
+
+        for (year in availableYears) {
+            val isSelected = selectedYear == year
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isSelected) colors.accentWarm.copy(alpha = 0.15f) else colors.archiveSubtle)
+                    .border(0.5.dp, if (isSelected) colors.accentWarm else colors.borderDivider, RoundedCornerShape(10.dp))
+                    .clickable { onYearSelected(year) }
+                    .padding(horizontal = 10.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = "${year}年",
+                    fontFamily = ArchiveFontFamilies.MonoScale,
+                    fontSize = 11.sp,
+                    color = if (isSelected) colors.accentWarm else colors.inkSecondary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LifeActivityHeatmap(
+    entries: List<LifeEntry>,
+    modifier: Modifier = Modifier
+) {
+    val colors = LooseLeafTheme.colors
+    var isExpanded by rememberSaveable { mutableStateOf(false) }
+
+    val dateCountMap = remember(entries) {
+        entries.groupingBy {
+            val d = it.occurredAt
+            if (d.length >= 10) d.substring(0, 10).replace("-", ".") else ""
+        }.eachCount()
+    }
+
+    val weeksCount = 32
+    val calWeeks = remember(weeksCount) {
+        val today = LocalDate.now(FormatUtils.BeijingZone)
+        val list = mutableListOf<List<Pair<String, Boolean>>>()
+        for (w in (0 until weeksCount).reversed()) {
+            val days = mutableListOf<Pair<String, Boolean>>()
+            for (d in 0 until 7) {
+                val daysAgo = w * 7 + (6 - d)
+                val targetDate = today.minusDays(daysAgo.toLong())
+                val key = String.format("%04d.%02d.%02d", targetDate.year, targetDate.monthValue, targetDate.dayOfMonth)
+                days.add(key to (daysAgo == 0))
+            }
+            list.add(days)
+        }
+        list
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .background(colors.archiveSubtle.copy(alpha = 0.5f))
+            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(6.dp))
+            .padding(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.DateRange,
+                    contentDescription = null,
+                    tint = colors.accentMoss,
+                    modifier = Modifier.size(13.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "时光生活刻度",
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.inkPrimary
+                )
+                Text(
+                    text = " · 共 ${entries.size} 篇手记",
+                    fontFamily = ArchiveFontFamilies.MonoScale,
+                    fontSize = 11.sp,
+                    color = colors.inkMuted
+                )
+            }
+
+            TextButton(
+                onClick = { isExpanded = !isExpanded },
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = if (isExpanded) "收起刻度" else "展开网格",
+                    fontFamily = ArchiveFontFamilies.BodySans,
+                    fontSize = 11.sp,
+                    color = colors.inkSecondary
+                )
+            }
+        }
+
+        if (isExpanded) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                for (week in calWeeks) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                        modifier = Modifier.padding(horizontal = 1.5.dp)
+                    ) {
+                        for ((dateKey, isToday) in week) {
+                            val count = dateCountMap[dateKey] ?: 0
+                            val cellColor = when {
+                                count >= 3 -> colors.accentWarm
+                                count == 2 -> colors.accentWarm.copy(alpha = 0.65f)
+                                count == 1 -> colors.accentWarm.copy(alpha = 0.35f)
+                                else -> colors.archivePaper
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(9.dp)
+                                    .clip(RoundedCornerShape(1.5.dp))
+                                    .background(cellColor)
+                                    .border(
+                                        width = if (isToday) 0.8.dp else 0.3.dp,
+                                        color = if (isToday) colors.accentWarm else colors.borderDivider.copy(alpha = 0.6f),
+                                        shape = RoundedCornerShape(1.5.dp)
+                                    )
+                                    .clickable {
+                                        ArchiveToastManager.show("$dateKey: ${if (count > 0) "$count 篇手记" else "静默留白"}")
+                                    }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun EntryAttachmentsGrid(
     attachments: List<Attachment>,
-    camera: String?,
     apiClient: APIClient,
     onPhotoClick: (String, String?) -> Unit,
     modifier: Modifier = Modifier
@@ -1279,7 +1507,7 @@ private fun EntryAttachmentsGrid(
             1 -> {
                 val att = attachments.first()
                 val fullUrl = apiClient.resolveMediaUrl(att.url)
-                val meta = camera ?: att.originalFilename
+                val meta = att.originalFilename
                 FilmFrame(
                     imageUrl = fullUrl,
                     metadataText = meta,
@@ -1461,7 +1689,6 @@ private fun StreamEntryCard(
                 Spacer(modifier = Modifier.height(12.dp))
                 EntryAttachmentsGrid(
                     attachments = entry.attachments,
-                    camera = entry.camera,
                     apiClient = apiClient,
                     onPhotoClick = onPhotoClick
                 )

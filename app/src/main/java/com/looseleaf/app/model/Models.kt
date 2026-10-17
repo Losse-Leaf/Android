@@ -36,7 +36,6 @@ data class LifeEntry(
     val location: String? = null,
     @SerialName("city_code") val cityCode: String? = null,
     @SerialName("city_name") val cityName: String? = null,
-    val camera: String? = null,
     val featured: Boolean? = null,
     @SerialName("project_id") val projectId: Long? = null,
     val project: Project? = null,
@@ -324,6 +323,26 @@ data class CityMemoryDrawerResponse(
     @SerialName("ledger_summary") val ledgerSummary: CityDrawerLedgerSummary = CityDrawerLedgerSummary()
 )
 
+@Serializable
+data class ProvinceVisitedCity(
+    @SerialName("city_code") val cityCode: String,
+    @SerialName("city_name") val cityName: String,
+    @SerialName("visit_count") val visitCount: Int = 1
+)
+
+@Serializable
+data class ProvinceMemoryDrawerResponse(
+    val adcode: String = "",
+    @SerialName("province_name") val provinceName: String = "",
+    @SerialName("province_short") val provinceShort: String = "",
+    val footprints: List<Footprint> = emptyList(),
+    @SerialName("visited_cities") val visitedCities: List<ProvinceVisitedCity> = emptyList(),
+    val entries: List<LifeEntry> = emptyList(),
+    val photos: List<Attachment> = emptyList(),
+    @SerialName("visit_stats") val visitStats: CityVisitStats = CityVisitStats(),
+    @SerialName("ledger_summary") val ledgerSummary: CityDrawerLedgerSummary = CityDrawerLedgerSummary()
+)
+
 /**
  * 资产大盘与设备库 (GET /api/v1/assets/overview)
  */
@@ -334,6 +353,14 @@ data class CreditChannel(
     val name: String = "",
     @SerialName("repayment_day") val repaymentDay: Int = 10,
     @SerialName("is_builtin") val isBuiltin: Boolean = false,
+    val color: String? = null
+)
+
+@Serializable
+data class CreateCreditChannelRequest(
+    val code: String? = null,
+    val name: String,
+    @SerialName("repayment_day") val repaymentDay: Int = 10,
     val color: String? = null
 )
 

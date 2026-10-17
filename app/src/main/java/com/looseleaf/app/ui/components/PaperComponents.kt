@@ -15,18 +15,29 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,8 +49,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
+import com.looseleaf.app.utils.CityDictionary
 
 /**
  * 手账质感纸张卡片容器
@@ -399,5 +412,182 @@ fun PaperFilterPill(
             fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
             color = textColor
         )
+    }
+}
+
+/**
+ * 纸质拟物行政区划城市选择器 (PaperCityPickerField)
+ * 严格遵循主理人规范：地点禁止用户自由输入，必须从 375 个标准地级行政区划中点选
+ */
+@Composable
+fun PaperCityPickerField(
+    selectedCityCode: String?,
+    selectedCityName: String?,
+    onCitySelected: (code: String, name: String) -> Unit,
+    placeholder: String = "点击选择属地城市…",
+    modifier: Modifier = Modifier
+) {
+    val colors = LooseLeafTheme.colors
+    var showDialog by remember { mutableStateOf(false) }
+    var searchKeyword by remember { mutableStateOf("") }
+
+    val hasSelection = !selectedCityName.isNullOrBlank() || !selectedCityCode.isNullOrBlank()
+    val displayText = if (hasSelection) {
+        val name = selectedCityName ?: ""
+        val code = selectedCityCode ?: ""
+        val prefix = if (code.length >= 2) code.substring(0, 2) else ""
+        val prov = CityDictionary.provincePrefixMap[prefix] ?: ""
+        val provText = if (prov.isBlank() || name.contains(prov)) "" else "$prov · "
+        if (code.isNotBlank()) "$provText$name ($code)" else name
+    } else {
+        placeholder
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .background(colors.archiveSubtle)
+            .border(
+                width = if (hasSelection) 0.8.dp else 0.5.dp,
+                color = if (hasSelection) colors.accentWarm.copy(alpha = 0.4f) else colors.borderDivider,
+                shape = RoundedCornerShape(4.dp)
+            )
+            .clickable {
+                searchKeyword = ""
+                showDialog = true
+            }
+            .padding(horizontal = 10.dp, vertical = 9.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.LocationOn,
+                contentDescription = null,
+                tint = if (hasSelection) colors.accentWarm else colors.inkMuted,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = displayText,
+                fontFamily = if (hasSelection) ArchiveFontFamilies.EditorialSerif else ArchiveFontFamilies.BodySans,
+                fontSize = 12.5.sp,
+                color = if (hasSelection) colors.inkPrimary else colors.inkMuted,
+                modifier = Modifier.weight(1f)
+            )
+            if (hasSelection) {
+                IconButton(
+                    onClick = { onCitySelected("", "") },
+                    modifier = Modifier.size(20.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "清除城市",
+                        tint = colors.inkMuted,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    if (showDialog) {
+        Dialog(onDismissRequest = { showDialog = false }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colors.archivePaper)
+                    .border(0.5.dp, colors.borderDivider, RoundedCornerShape(8.dp))
+                    .padding(16.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "选择属地城市",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.inkPrimary
+                        )
+                        IconButton(
+                            onClick = { showDialog = false },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "关闭",
+                                tint = colors.inkMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    PaperTextField(
+                        value = searchKeyword,
+                        onValueChange = { searchKeyword = it },
+                        placeholder = "输入城市名、省份或 6 位代码…",
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val filteredCities = remember(searchKeyword) {
+                        CityDictionary.searchCities(searchKeyword)
+                    }
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 280.dp)
+                    ) {
+                        items(filteredCities, key = { it.code }) { city ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        onCitySelected(city.code, city.name)
+                                        showDialog = false
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 7.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = city.name,
+                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = colors.inkPrimary
+                                    )
+                                    Text(
+                                        text = city.province,
+                                        fontFamily = ArchiveFontFamilies.BodySans,
+                                        fontSize = 10.5.sp,
+                                        color = colors.inkMuted
+                                    )
+                                }
+                                Text(
+                                    text = city.code,
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    fontSize = 11.sp,
+                                    color = colors.accentWarm
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

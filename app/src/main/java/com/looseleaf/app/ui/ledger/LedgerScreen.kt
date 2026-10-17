@@ -94,6 +94,8 @@ fun LedgerScreen(
     var showCalibrateBalanceDialog by remember { mutableStateOf(false) }
     var showAddGearDialog by remember { mutableStateOf(false) }
     var sellingGearItem by remember { mutableStateOf<GearItem?>(null) }
+    var showCreditChannelsDialog by remember { mutableStateOf(false) }
+    var showCategoriesManagerDialog by remember { mutableStateOf(false) }
 
     // 账单流水筛选月份 (默认当前年月)
     var selectedYearMonth by remember {
@@ -511,6 +513,29 @@ fun LedgerScreen(
                         }
 
                         // 分类滑动胶囊
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (selectedType == "income") "收入分类" else "支出分类",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 11.5.sp,
+                                color = colors.inkMuted
+                            )
+                            TextButton(
+                                onClick = { showCategoriesManagerDialog = true },
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                            ) {
+                                Icon(Icons.Outlined.Tune, contentDescription = null, modifier = Modifier.size(12.dp), tint = colors.accentWarm)
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("管理分类", fontSize = 11.5.sp, color = colors.accentWarm)
+                            }
+                        }
+
                         CategoryPills(
                             selectedCategory = selectedCategory,
                             categories = activeCategories,
@@ -600,6 +625,7 @@ fun LedgerScreen(
                         onCalibrateBalanceClick = { showCalibrateBalanceDialog = true },
                         onAddGearClick = { showAddGearDialog = true },
                         onSellGearClick = { sellingGearItem = it },
+                        onManageChannelsClick = { showCreditChannelsDialog = true },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -857,6 +883,29 @@ fun LedgerScreen(
                     )
                 }
             }
+        }
+
+        // 5. 信贷渠道管理对话框
+        if (showCreditChannelsDialog) {
+            CreditChannelsManagerDialog(
+                creditChannels = creditChannels,
+                apiClient = apiClient,
+                onDismiss = { showCreditChannelsDialog = false },
+                onChannelsChanged = {
+                    scope.launch { reloadCategoriesAndAssets() }
+                }
+            )
+        }
+
+        // 6. 分类字典管理对话框
+        if (showCategoriesManagerDialog) {
+            CategoriesManagerDialog(
+                apiClient = apiClient,
+                onDismiss = { showCategoriesManagerDialog = false },
+                onCategoriesChanged = {
+                    scope.launch { reloadCategoriesAndAssets() }
+                }
+            )
         }
     }
 }
@@ -1152,6 +1201,7 @@ private fun AssetsAndGearTab(
     onCalibrateBalanceClick: () -> Unit,
     onAddGearClick: () -> Unit,
     onSellGearClick: (GearItem) -> Unit,
+    onManageChannelsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
@@ -1261,13 +1311,22 @@ private fun AssetsAndGearTab(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "信贷渠道与分期负债",
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 15.sp,
-                            color = colors.inkPrimary
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "信贷渠道与分期负债",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 15.sp,
+                                color = colors.inkPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            TextButton(
+                                onClick = onManageChannelsClick,
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                            ) {
+                                Text("管理渠道", fontSize = 11.5.sp, color = colors.accentWarm)
+                            }
+                        }
                         if (ov.monthlyLiabilities > 0) {
                             Text(
                                 text = "月供 ${FormatUtils.centsToYuanString(ov.monthlyLiabilities)}",
@@ -1443,5 +1502,304 @@ private fun TypeToggleButton(
             fontSize = 11.sp,
             color = if (isSelected) colors.archivePaper else colors.inkSecondary
         )
+    }
+}
+
+@Composable
+private fun CreditChannelsManagerDialog(
+    creditChannels: List<CreditChannel>,
+    apiClient: APIClient,
+    onDismiss: () -> Unit,
+    onChannelsChanged: () -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    val scope = rememberCoroutineScope()
+    var newChannelName by remember { mutableStateOf("") }
+    var newChannelDay by remember { mutableStateOf("10") }
+    var isSubmitting by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(colors.archivePaper)
+                .border(0.5.dp, colors.borderDivider, RoundedCornerShape(8.dp))
+                .padding(16.dp)
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "信贷分期渠道管理",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.inkPrimary
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Outlined.Close, contentDescription = "关闭", tint = colors.inkMuted, modifier = Modifier.size(16.dp))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // 新增渠道行
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PaperTextField(
+                        value = newChannelName,
+                        onValueChange = { newChannelName = it },
+                        placeholder = "渠道名称 (如: 招行信用卡)",
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    PaperTextField(
+                        value = newChannelDay,
+                        onValueChange = { newChannelDay = it.filter { ch -> ch.isDigit() } },
+                        placeholder = "还款日",
+                        singleLine = true,
+                        modifier = Modifier.width(60.dp)
+                    )
+                    Button(
+                        onClick = {
+                            if (newChannelName.isNotBlank() && !isSubmitting) {
+                                isSubmitting = true
+                                scope.launch {
+                                    runCatching {
+                                        val day = newChannelDay.toIntOrNull()?.coerceIn(1, 31) ?: 10
+                                        apiClient.createCreditChannel(
+                                            CreateCreditChannelRequest(
+                                                name = newChannelName.trim(),
+                                                repaymentDay = day
+                                            )
+                                        )
+                                        newChannelName = ""
+                                        onChannelsChanged()
+                                    }
+                                    isSubmitting = false
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(2.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
+                    ) {
+                        Text("添加", fontSize = 12.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp)) {
+                    items(creditChannels, key = { it.id }) { ch ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 5.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = ch.name,
+                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    fontSize = 13.sp,
+                                    color = colors.inkPrimary
+                                )
+                                Text(
+                                    text = "每月 ${ch.repaymentDay} 日还款${if (ch.isBuiltin) " · 系统内置" else ""}",
+                                    fontSize = 10.5.sp,
+                                    color = colors.inkMuted
+                                )
+                            }
+                            if (!ch.isBuiltin) {
+                                IconButton(
+                                    onClick = {
+                                        scope.launch {
+                                            runCatching {
+                                                apiClient.deleteCreditChannel(ch.id)
+                                                onChannelsChanged()
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Outlined.Delete, contentDescription = "删除渠道", tint = colors.accentWarm, modifier = Modifier.size(15.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoriesManagerDialog(
+    apiClient: APIClient,
+    onDismiss: () -> Unit,
+    onCategoriesChanged: () -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    val scope = rememberCoroutineScope()
+    var selectedScope by remember { mutableStateOf("expense") }
+    var categories by remember { mutableStateOf<List<CategoryOption>>(emptyList()) }
+    var newCategoryName by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(true) }
+
+    suspend fun loadCats() {
+        isLoading = true
+        runCatching {
+            categories = apiClient.fetchCategories(selectedScope)
+        }
+        isLoading = false
+    }
+
+    LaunchedEffect(selectedScope) {
+        loadCats()
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(colors.archivePaper)
+                .border(0.5.dp, colors.borderDivider, RoundedCornerShape(8.dp))
+                .padding(16.dp)
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "分类字典管理",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.inkPrimary
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Outlined.Close, contentDescription = "关闭", tint = colors.inkMuted, modifier = Modifier.size(16.dp))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Scope 切换
+                val scopes = listOf(
+                    "expense" to "支出",
+                    "income" to "收入",
+                    "payment" to "支付方式",
+                    "gear" to "固定资产",
+                    "project" to "造物"
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    scopes.forEach { (sc, label) ->
+                        PaperFilterPill(
+                            selected = selectedScope == sc,
+                            onClick = { selectedScope = sc },
+                            label = label
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // 新增输入行
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PaperTextField(
+                        value = newCategoryName,
+                        onValueChange = { newCategoryName = it },
+                        placeholder = "新分类名称…",
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = {
+                            if (newCategoryName.isNotBlank()) {
+                                scope.launch {
+                                    runCatching {
+                                        apiClient.addCategoryOption(selectedScope, newCategoryName.trim())
+                                        newCategoryName = ""
+                                        loadCats()
+                                        onCategoriesChanged()
+                                    }
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(2.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
+                    ) {
+                        Text("新增", fontSize = 12.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (isLoading) {
+                    Text("加载中…", fontSize = 12.sp, color = colors.inkMuted)
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
+                        items(categories, key = { it.id }) { cat ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 5.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = cat.name + if (cat.isBuiltin) " (系统)" else "",
+                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    fontSize = 13.sp,
+                                    color = colors.inkPrimary
+                                )
+                                if (!cat.isBuiltin) {
+                                    IconButton(
+                                        onClick = {
+                                            scope.launch {
+                                                runCatching {
+                                                    apiClient.deleteCategoryOption(cat.id)
+                                                    loadCats()
+                                                    onCategoriesChanged()
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(Icons.Outlined.Delete, contentDescription = "删除分类", tint = colors.accentWarm, modifier = Modifier.size(15.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

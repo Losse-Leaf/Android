@@ -42,8 +42,7 @@ data class OfflineMediaEntryPayload(
     val width: Int = 0,
     val height: Int = 0,
     val files: List<OfflineMediaFileItem> = emptyList(),
-    val req: CreateEntryRequest,
-    val camera: String? = null
+    val req: CreateEntryRequest
 )
 
 /**
@@ -135,7 +134,6 @@ class SyncManager private constructor(private val context: Context) {
         width: Int,
         height: Int,
         req: CreateEntryRequest,
-        camera: String?,
         additionalMediaFiles: List<OfflineMediaFileItem> = emptyList()
     ): Long = withContext(Dispatchers.IO) {
         val outboxDir = File(context.filesDir, "outbox_media").apply { mkdirs() }
@@ -195,7 +193,6 @@ class SyncManager private constructor(private val context: Context) {
             location = req.location,
             cityCode = req.cityCode,
             cityName = req.cityName,
-            camera = camera,
             attachmentsJson = json.encodeToString(previewAttachments),
             syncStatus = "PENDING_CREATE",
             createdAt = FormatUtils.beijingNowIsoString()
@@ -209,8 +206,7 @@ class SyncManager private constructor(private val context: Context) {
             width = primaryItem?.width ?: width,
             height = primaryItem?.height ?: height,
             files = allItems,
-            req = req,
-            camera = camera
+            req = req
         )
 
         val event = OutboxEventEntity(
@@ -239,8 +235,7 @@ class SyncManager private constructor(private val context: Context) {
         cityCode: String? = null,
         cityName: String? = null,
         attachmentIds: List<Long>? = null,
-        attachments: List<Attachment> = emptyList(),
-        camera: String? = null
+        attachments: List<Attachment> = emptyList()
     ): Long {
         val entryEntity = CachedEntryEntity(
             localId = 0,
@@ -252,7 +247,6 @@ class SyncManager private constructor(private val context: Context) {
             location = location,
             cityCode = cityCode,
             cityName = cityName,
-            camera = camera,
             attachmentsJson = json.encodeToString(attachments),
             syncStatus = "PENDING_CREATE",
             createdAt = FormatUtils.beijingNowIsoString()
@@ -577,9 +571,6 @@ class SyncManager private constructor(private val context: Context) {
 
         database.withTransaction {
             val currentLocal = database.entryDao().getAllEntries()
-            val cameraByServerId = currentLocal
-                .filter { it.serverId != null && !it.camera.isNullOrBlank() }
-                .associate { it.serverId!! to it.camera }
 
             if (useIncrementalEntries) {
                 for (remote in remoteEntries) {
@@ -597,7 +588,6 @@ class SyncManager private constructor(private val context: Context) {
                             location = remote.location,
                             cityCode = remote.cityCode,
                             cityName = remote.cityName,
-                            camera = remote.camera ?: existing?.camera ?: cameraByServerId[remote.id],
                             attachmentsJson = json.encodeToString(remote.attachments),
                             syncStatus = "SYNCED",
                             createdAt = remote.createdAt ?: remote.occurredAt
@@ -623,7 +613,6 @@ class SyncManager private constructor(private val context: Context) {
                         location = remote.location,
                         cityCode = remote.cityCode,
                         cityName = remote.cityName,
-                        camera = remote.camera ?: cameraByServerId[remote.id],
                         attachmentsJson = json.encodeToString(remote.attachments),
                         syncStatus = "SYNCED",
                         createdAt = remote.createdAt ?: remote.occurredAt
@@ -972,7 +961,6 @@ fun CachedEntryEntity.toDomainModel(json: Json): LifeEntry {
         location = location,
         cityCode = cityCode,
         cityName = cityName,
-        camera = camera,
         attachments = atts,
         syncStatus = syncStatus,
         createdAt = createdAt

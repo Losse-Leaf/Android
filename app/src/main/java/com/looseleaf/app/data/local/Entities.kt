@@ -30,7 +30,6 @@ data class CachedEntryEntity(
     @ColumnInfo(name = "location") val location: String? = null,
     @ColumnInfo(name = "city_code") val cityCode: String? = null,
     @ColumnInfo(name = "city_name") val cityName: String? = null,
-    @ColumnInfo(name = "camera") val camera: String? = null,
     @ColumnInfo(name = "attachments_json") val attachmentsJson: String = "[]",
     @ColumnInfo(name = "sync_status") val syncStatus: String = "SYNCED", // 'SYNCED', 'PENDING_CREATE', 'PENDING_UPDATE', 'PENDING_DELETE'
     @ColumnInfo(name = "created_at") val createdAt: String = FormatUtils.beijingNowIsoString()
