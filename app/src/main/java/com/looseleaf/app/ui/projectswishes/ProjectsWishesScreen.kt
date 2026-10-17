@@ -38,6 +38,7 @@ import com.looseleaf.app.model.CreateProjectRequest
 import com.looseleaf.app.model.CreateWishRequest
 import com.looseleaf.app.model.Footprint
 import com.looseleaf.app.model.Project
+import com.looseleaf.app.model.ProvinceMemoryDrawerResponse
 import com.looseleaf.app.model.ResolveWishRequest
 import com.looseleaf.app.model.Wish
 import com.looseleaf.app.theme.ArchiveFontFamilies
