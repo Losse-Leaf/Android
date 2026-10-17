@@ -279,9 +279,10 @@ object ImagePipeline {
             )
             apiClient.completeUpload(
                 CompleteUploadRequest(
+                    uploadId = presignRes.uploadId,
                     objectKey = presignRes.objectKey,
-                    filename = filename,
-                    contentType = processed.mimeType,
+                    originalFilename = filename,
+                    mimeType = processed.mimeType,
                     size = processed.compressedBytes.size.toLong(),
                     width = processed.width,
                     height = processed.height
