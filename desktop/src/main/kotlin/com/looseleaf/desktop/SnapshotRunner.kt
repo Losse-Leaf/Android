@@ -31,17 +31,33 @@ object SnapshotRunner {
 
     @JvmStatic
     fun main(args: Array<String>) {
-        println("Starting headless UI self-check snapshots...")
-        val outCompact = File("build/snapshots/profile_compact_360.png")
-        renderToPng(360, 800, 2.0f, outCompact) {
-            MockProfileScreen(isDarkTheme = false)
-        }
-        println("Compact snapshot: ${outCompact.absolutePath} (${outCompact.length()} bytes)")
+        println("Starting headless UI self-check snapshots across all screens...")
+        val outDir = File("build/snapshots")
 
-        val outStandard = File("build/snapshots/profile_standard_392.png")
-        renderToPng(392, 852, 2.0f, outStandard) {
-            MockProfileScreen(isDarkTheme = false)
-        }
-        println("Standard snapshot: ${outStandard.absolutePath} (${outStandard.length()} bytes)")
+        val p392 = File(outDir, "profile_standard_392.png")
+        renderToPng(392, 852, 2.0f, p392) { MockProfileScreen(isDarkTheme = false) }
+        println("Snapshot: ${p392.name} (${p392.length()} bytes)")
+
+        val l392 = File(outDir, "ledger_standard_392.png")
+        renderToPng(392, 852, 2.0f, l392) { MockLedgerScreen(isDarkTheme = false) }
+        println("Snapshot: ${l392.name} (${l392.length()} bytes)")
+
+        val s392 = File(outDir, "stream_standard_392.png")
+        renderToPng(392, 852, 2.0f, s392) { MockStreamScreen(isDarkTheme = false) }
+        println("Snapshot: ${s392.name} (${s392.length()} bytes)")
+
+        val pr392 = File(outDir, "projects_standard_392.png")
+        renderToPng(392, 852, 2.0f, pr392) { MockProjectsScreen(isDarkTheme = false) }
+        println("Snapshot: ${pr392.name} (${pr392.length()} bytes)")
+
+        val d392 = File(outDir, "darkroom_standard_392.png")
+        renderToPng(392, 852, 2.0f, d392) { MockDarkroomScreen(isDarkTheme = false) }
+        println("Snapshot: ${d392.name} (${d392.length()} bytes)")
+
+        val outCompact = File(outDir, "profile_compact_360.png")
+        renderToPng(360, 800, 2.0f, outCompact) { MockProfileScreen(isDarkTheme = false) }
+        println("Snapshot: ${outCompact.name} (${outCompact.length()} bytes)")
+
+        println("All snapshots rendered successfully.")
     }
 }

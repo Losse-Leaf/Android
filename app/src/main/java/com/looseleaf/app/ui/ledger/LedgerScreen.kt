@@ -1438,6 +1438,20 @@ private fun TransactionsLedgerTab(
                                 fontSize = 11.sp,
                                 color = colors.inkMuted
                             )
+
+                            if (tx.isInstallment == true) {
+                                Spacer(modifier = Modifier.height(3.dp))
+                                val totalAmt = tx.installmentTotalAmount?.takeIf { it > 0 } ?: tx.amount
+                                val remain = tx.installmentRemainMonths ?: tx.installmentMonths
+                                val totalMonths = tx.installmentMonths ?: 12
+                                val day = tx.repaymentDay ?: 10
+                                Text(
+                                    text = "总额 ${FormatUtils.centsToYuanString(totalAmt)} · 剩 $remain/$totalMonths 期 · 每月 ${day} 日还款",
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    fontSize = 10.sp,
+                                    color = colors.accentWarm
+                                )
+                            }
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {

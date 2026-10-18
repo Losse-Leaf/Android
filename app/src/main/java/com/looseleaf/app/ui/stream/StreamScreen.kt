@@ -770,6 +770,8 @@ private fun EntryDetailSheetDialog(
             modifier = Modifier
                 .fillMaxWidth(0.94f)
                 .heightIn(max = 680.dp)
+                .imePadding()
+                .navigationBarsPadding()
         ) {
             Column(
                 modifier = Modifier

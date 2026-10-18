@@ -1047,6 +1047,93 @@ class SyncManager private constructor(private val context: Context) {
                     else -> database.outboxDao().delete(event)
                 }
             }
+            "project" -> {
+                when (event.action) {
+                    "CREATE" -> {
+                        val req = json.decodeFromString<CreateProjectRequest>(event.payload)
+                        apiClient.createProject(req)
+                        database.outboxDao().delete(event)
+                    }
+                    "UPDATE" -> {
+                        val targetServerId = event.serverTargetId
+                        if (targetServerId != null && targetServerId > 0) {
+                            val req = json.decodeFromString<CreateProjectRequest>(event.payload)
+                            apiClient.updateProject(targetServerId, req)
+                        }
+                        database.outboxDao().delete(event)
+                    }
+                    "DELETE" -> {
+                        val targetServerId = event.serverTargetId
+                        if (targetServerId != null && targetServerId > 0) {
+                            try {
+                                apiClient.deleteProject(targetServerId)
+                            } catch (e: APIException) {
+                                if (e.code != 404) throw e
+                            }
+                        }
+                        database.outboxDao().delete(event)
+                    }
+                    else -> database.outboxDao().delete(event)
+                }
+            }
+            "wish" -> {
+                when (event.action) {
+                    "CREATE" -> {
+                        val req = json.decodeFromString<CreateWishRequest>(event.payload)
+                        apiClient.createWish(req)
+                        database.outboxDao().delete(event)
+                    }
+                    "UPDATE" -> {
+                        val targetServerId = event.serverTargetId
+                        if (targetServerId != null && targetServerId > 0) {
+                            val req = json.decodeFromString<CreateWishRequest>(event.payload)
+                            apiClient.updateWish(targetServerId, req)
+                        }
+                        database.outboxDao().delete(event)
+                    }
+                    "DELETE" -> {
+                        val targetServerId = event.serverTargetId
+                        if (targetServerId != null && targetServerId > 0) {
+                            try {
+                                apiClient.deleteWish(targetServerId)
+                            } catch (e: APIException) {
+                                if (e.code != 404) throw e
+                            }
+                        }
+                        database.outboxDao().delete(event)
+                    }
+                    else -> database.outboxDao().delete(event)
+                }
+            }
+            "footprint" -> {
+                when (event.action) {
+                    "CREATE" -> {
+                        val req = json.decodeFromString<CreateFootprintRequest>(event.payload)
+                        apiClient.createFootprint(req)
+                        database.outboxDao().delete(event)
+                    }
+                    "UPDATE" -> {
+                        val targetServerId = event.serverTargetId
+                        if (targetServerId != null && targetServerId > 0) {
+                            val req = json.decodeFromString<CreateFootprintRequest>(event.payload)
+                            apiClient.updateFootprint(targetServerId, req)
+                        }
+                        database.outboxDao().delete(event)
+                    }
+                    "DELETE" -> {
+                        val targetServerId = event.serverTargetId
+                        if (targetServerId != null && targetServerId > 0) {
+                            try {
+                                apiClient.deleteFootprint(targetServerId)
+                            } catch (e: APIException) {
+                                if (e.code != 404) throw e
+                            }
+                        }
+                        database.outboxDao().delete(event)
+                    }
+                    else -> database.outboxDao().delete(event)
+                }
+            }
             else -> {
                 database.outboxDao().delete(event)
             }

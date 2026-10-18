@@ -48,7 +48,9 @@ fun ArchivePromptDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(28.dp),
+                .padding(28.dp)
+                .imePadding()
+                .navigationBarsPadding(),
             contentAlignment = Alignment.Center
         ) {
             Column(

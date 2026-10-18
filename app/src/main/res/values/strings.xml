@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">散页</string>
+    <string name="shortcut_ledger_short">记一笔</string>
+    <string name="shortcut_ledger_long">口袋极速触觉记账</string>
+    <string name="shortcut_darkroom_short">随行暗房</string>
+    <string name="shortcut_darkroom_long">胶片暗房快门冲印</string>
 </resources>

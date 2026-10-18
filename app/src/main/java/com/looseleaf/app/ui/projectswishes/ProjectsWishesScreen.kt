@@ -234,6 +234,8 @@ fun ProjectsWishesScreen(
             var wishCityCode by remember { mutableStateOf("") }
             var wishCityName by remember { mutableStateOf("") }
             var fpVisitedAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
+            var fpIsMultiDay by remember { mutableStateOf(false) }
+            var fpDepartedAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone).plusDays(2)) }
             val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
             val isSaveEnabled = if (selectedTab == 2) fpCityName.isNotBlank() else inputTitle.isNotBlank()
@@ -306,6 +308,7 @@ fun ProjectsWishesScreen(
                                                         cityName = fpCityName.ifBlank { "杭州市" },
                                                         title = inputThird.trim().takeIf { it.isNotBlank() },
                                                         visitedAt = FormatUtils.toBeijingIsoString(fpVisitedAt),
+                                                        departedAt = if (fpIsMultiDay) FormatUtils.toBeijingIsoString(fpDepartedAt) else null,
                                                         note = inputNote.trim().takeIf { it.isNotBlank() }
                                                     )
                                                 )
@@ -358,8 +361,33 @@ fun ProjectsWishesScreen(
                         PaperDateTimePickerField(
                             selectedDateTime = fpVisitedAt,
                             onDateTimeSelected = { fpVisitedAt = it },
-                            label = "到访时刻"
+                            label = "启程/到访时刻"
                         )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = fpIsMultiDay,
+                                onCheckedChange = { fpIsMultiDay = it },
+                                colors = CheckboxDefaults.colors(checkedColor = colors.accentWarm)
+                            )
+                            Text(
+                                text = "多日游历（选填返程日期）",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 12.sp,
+                                color = colors.inkPrimary
+                            )
+                        }
+                        if (fpIsMultiDay) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            PaperDateTimePickerField(
+                                selectedDateTime = fpDepartedAt,
+                                onDateTimeSelected = { fpDepartedAt = it },
+                                label = "返程/离程时刻"
+                            )
+                        }
                     } else {
                         // 大号标题输入
                         androidx.compose.foundation.text.BasicTextField(
