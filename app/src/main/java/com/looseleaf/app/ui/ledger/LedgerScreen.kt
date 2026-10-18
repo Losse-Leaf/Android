@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -1387,8 +1388,34 @@ private fun TransactionsLedgerTab(
                                     fontFamily = ArchiveFontFamilies.BodySans,
                                     fontWeight = FontWeight.Medium,
                                     fontSize = 15.sp,
-                                    color = colors.inkPrimary
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = colors.inkPrimary,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
+                                if (tx.isInstallment == true) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .background(colors.accentWarm.copy(alpha = 0.12f), RoundedCornerShape(2.dp))
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                    ) {
+                                        val channel = when (tx.installmentChannelCode) {
+                                            "huabei" -> "花呗"
+                                            "baitiao" -> "白条"
+                                            else -> tx.installmentChannelCode?.takeIf { it.isNotBlank() } ?: "分期"
+                                        }
+                                        val term = if ((tx.installmentMonths ?: 0) > 0) "${tx.installmentMonths}期" else ""
+                                        Text(
+                                            text = listOfNotNull(channel, term).filter { it.isNotBlank() }.joinToString(" "),
+                                            fontSize = 9.sp,
+                                            fontFamily = ArchiveFontFamilies.MonoScale,
+                                            color = colors.accentWarm,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
                                 if (tx.syncStatus != "SYNCED") {
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Box(

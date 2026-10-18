@@ -45,6 +45,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -1822,28 +1823,39 @@ private fun StreamEntryCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
                         text = FormatUtils.formatDisplayDateTime(entry.occurredAt),
                         fontFamily = ArchiveFontFamilies.MonoScale,
                         fontSize = 12.sp,
-                        color = colors.inkMuted
+                        color = colors.inkMuted,
+                        maxLines = 1,
+                        softWrap = false
                     )
 
                     val placeString = listOfNotNull(entry.cityName, entry.location).distinct().filter { it.isNotBlank() }.joinToString(" · ")
                     if (placeString.isNotBlank()) {
                         Spacer(modifier = Modifier.width(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f, fill = false)
+                        ) {
                             Icon(
                                 imageVector = Icons.Outlined.LocationOn,
                                 contentDescription = null,
                                 tint = if (entry.type == "travel") colors.accentWarm else colors.inkMuted,
                                 modifier = Modifier.size(13.dp)
                             )
+                            Spacer(modifier = Modifier.width(2.dp))
                             Text(
                                 text = placeString,
                                 fontFamily = ArchiveFontFamilies.BodySans,
                                 fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 color = if (entry.type == "travel") colors.accentWarm else colors.inkSecondary
                             )
                         }

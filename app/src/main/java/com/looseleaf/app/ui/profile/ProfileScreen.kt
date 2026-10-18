@@ -32,6 +32,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import android.net.Uri
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -667,125 +668,48 @@ fun ProfileScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     // 2. 本机设备卡片
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = credentialStore.deviceName.ifBlank { "Android 随行设备" },
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 13.sp,
-                                    color = colors.inkPrimary
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .background(colors.accentMoss.copy(alpha = 0.12f), RoundedCornerShape(2.dp))
-                                        .padding(horizontal = 4.dp, vertical = 1.dp)
-                                ) {
-                                    Text("本机", fontSize = 9.sp, fontFamily = ArchiveFontFamilies.MonoScale, color = colors.accentMoss)
-                                }
-                            }
-                            Text(
-                                text = "标识: ${credentialStore.deviceId ?: "未初始化"}",
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 10.5.sp,
-                                color = colors.inkMuted
-                            )
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(
-                                onClick = { showRenameDeviceDialog = true },
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                            ) {
-                                Text("改名", fontSize = 11.sp, color = colors.inkSecondary)
-                            }
-                            TextButton(
-                                onClick = { showUnpairDialog = true },
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                            ) {
-                                Text("解除", fontSize = 11.sp, color = colors.accentWarm)
-                            }
-                        }
-                    }
+                    TrustedDeviceRow(
+                        deviceName = credentialStore.deviceName.ifBlank { "Android 随行设备" },
+                        deviceId = credentialStore.deviceId ?: "未初始化",
+                        platform = "android",
+                        isLocal = true,
+                        lastActiveAt = null,
+                        onRename = { showRenameDeviceDialog = true },
+                        onRevokeOrUnpair = { showUnpairDialog = true }
+                    )
 
                     // 3. 其他受信任设备列表
                     val otherDevices = trustedDevices.filter { it.deviceId != credentialStore.deviceId }
                     if (otherDevices.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
                         HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 6.dp),
+                            modifier = Modifier.padding(vertical = 4.dp),
                             color = colors.borderDivider.copy(alpha = 0.5f),
                             thickness = 0.5.dp
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "其他接入端 (${otherDevices.size})",
                             fontFamily = ArchiveFontFamilies.MonoScale,
                             fontSize = 10.sp,
                             color = colors.inkMuted
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
-                        otherDevices.forEach { dev ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = dev.name.ifBlank { dev.deviceId },
-                                            fontFamily = ArchiveFontFamilies.BodySans,
-                                            fontWeight = FontWeight.Medium,
-                                            fontSize = 12.5.sp,
-                                            color = colors.inkPrimary
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .background(colors.archiveSubtle, RoundedCornerShape(2.dp))
-                                                .padding(horizontal = 4.dp, vertical = 1.dp)
-                                        ) {
-                                            Text(
-                                                text = dev.platform.uppercase(),
-                                                fontSize = 9.sp,
-                                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                                color = colors.inkSecondary
-                                            )
-                                        }
-                                    }
-                                    Text(
-                                        text = "${dev.deviceId} · 最近活跃 ${FormatUtils.formatDate(dev.lastActiveAt)}",
-                                        fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 10.sp,
-                                        color = colors.inkMuted
-                                    )
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    TextButton(
-                                        onClick = { deviceToRename = dev },
-                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                                    ) {
-                                        Text("改名", fontSize = 11.sp, color = colors.inkSecondary)
-                                    }
-                                    TextButton(
-                                        onClick = { deviceToRevoke = dev },
-                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                                    ) {
-                                        Text("踢除", fontSize = 11.sp, color = colors.accentWarm)
-                                    }
-                                }
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            otherDevices.forEach { dev ->
+                                TrustedDeviceRow(
+                                    deviceName = dev.name.ifBlank { dev.deviceId },
+                                    deviceId = dev.deviceId,
+                                    platform = dev.platform,
+                                    isLocal = false,
+                                    lastActiveAt = dev.lastActiveAt,
+                                    onRename = { deviceToRename = dev },
+                                    onRevokeOrUnpair = { deviceToRevoke = dev }
+                                )
                             }
                         }
                     }
@@ -963,6 +887,8 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("解除此设备绑定", fontFamily = ArchiveFontFamilies.EditorialSerif)
             }
+
+            Spacer(modifier = Modifier.height(96.dp))
 
             if (availableUpdate != null) {
                 val update = availableUpdate!!
@@ -1320,5 +1246,121 @@ private fun ProfileInfoRow(label: String, value: String) {
     ) {
         Text(text = label, fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
         Text(text = value, fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 12.sp, color = colors.inkSecondary)
+    }
+}
+
+@Composable
+private fun TrustedDeviceRow(
+    deviceName: String,
+    deviceId: String,
+    platform: String,
+    isLocal: Boolean,
+    lastActiveAt: String? = null,
+    onRename: () -> Unit,
+    onRevokeOrUnpair: () -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .background(colors.archiveSubtle.copy(alpha = 0.55f))
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        // 第一行：设备名称（单行省略）+ 平台胶囊标签（永不折行）+ 操作按钮
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = deviceName,
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 13.sp,
+                    color = colors.inkPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .background(
+                            if (isLocal) colors.accentMoss.copy(alpha = 0.14f) else colors.borderDivider.copy(alpha = 0.5f),
+                            RoundedCornerShape(2.dp)
+                        )
+                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = if (isLocal) "本机" else platform.uppercase(),
+                        fontSize = 9.sp,
+                        fontFamily = ArchiveFontFamilies.MonoScale,
+                        color = if (isLocal) colors.accentMoss else colors.inkSecondary,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "改名",
+                    fontSize = 11.sp,
+                    fontFamily = ArchiveFontFamilies.BodySans,
+                    color = colors.inkSecondary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(2.dp))
+                        .clickable { onRename() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+                Spacer(modifier = Modifier.width(2.dp))
+                Text(
+                    text = if (isLocal) "解除" else "踢除",
+                    fontSize = 11.sp,
+                    fontFamily = ArchiveFontFamilies.BodySans,
+                    color = colors.accentWarm,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(2.dp))
+                        .clickable { onRevokeOrUnpair() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+        }
+
+        // 第二行：设备全局唯一标识与活跃时间 (独占整行，单行省略防止末尾数字孤折)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "标识: $deviceId",
+                fontFamily = ArchiveFontFamilies.MonoScale,
+                fontSize = 10.sp,
+                color = colors.inkMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            if (!isLocal && !lastActiveAt.isNullOrBlank()) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "活跃于 ${FormatUtils.formatDate(lastActiveAt)}",
+                    fontFamily = ArchiveFontFamilies.MonoScale,
+                    fontSize = 9.5.sp,
+                    color = colors.inkMuted,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+        }
     }
 }

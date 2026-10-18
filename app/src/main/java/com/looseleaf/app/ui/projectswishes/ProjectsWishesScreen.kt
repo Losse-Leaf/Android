@@ -924,7 +924,10 @@ private fun ProjectsList(
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontWeight = FontWeight.Medium,
                             fontSize = 17.sp,
-                            color = colors.inkPrimary
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = colors.inkPrimary,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
@@ -1054,7 +1057,10 @@ private fun WishesList(
                                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                                     fontWeight = FontWeight.Medium,
                                     fontSize = 16.sp,
-                                    color = colors.inkPrimary
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = colors.inkPrimary,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1203,6 +1209,8 @@ private fun FootprintsList(
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                                 fontWeight = FontWeight.Medium,
                                 fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 color = colors.inkPrimary,
                                 modifier = Modifier.weight(1f)
                             )
