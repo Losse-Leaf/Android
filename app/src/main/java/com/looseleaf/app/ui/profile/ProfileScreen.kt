@@ -53,6 +53,7 @@ import com.looseleaf.app.model.UpdateProfileRequest
 import com.looseleaf.app.model.CategoryOption
 import com.looseleaf.app.model.TrustedDevice
 import com.looseleaf.app.model.PairTicketResponse
+import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
@@ -378,7 +379,13 @@ fun ProfileScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
 
-                            val displayCity = listOfNotNull(profile.currentCity.takeIf { it.isNotBlank() }, profile.location.takeIf { it.isNotBlank() }).joinToString(" · ")
+                            val rawCity = profile.currentCity.takeIf { it.isNotBlank() } ?: profile.location.takeIf { it.isNotBlank() } ?: ""
+                            val displayCity = if (rawCity.isNotBlank()) {
+                                val cCode = CityDictionary.codeForLocation(rawCity)
+                                val std = cCode?.let { c -> CityDictionary.standardCities.firstOrNull { it.code == c } }
+                                if (std != null) "${std.province} · ${std.name}" else rawCity
+                            } else ""
+
                             if (displayCity.isNotBlank()) {
                                 Spacer(modifier = Modifier.height(3.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1132,180 +1139,175 @@ private fun EditProfileSheet(
     val colors = LooseLeafTheme.colors
     var name by remember(profile) { mutableStateOf(profile.name) }
     var title by remember(profile) { mutableStateOf(profile.title ?: "") }
-    var currentCity by remember(profile) { mutableStateOf(profile.currentCity ?: "") }
+    var cityCode by remember(profile) {
+        val initialLoc = profile.currentCity.takeIf { !it.isNullOrBlank() } ?: profile.location ?: ""
+        mutableStateOf(CityDictionary.codeForLocation(initialLoc) ?: "")
+    }
+    var cityName by remember(profile) {
+        mutableStateOf(profile.currentCity.takeIf { !it.isNullOrBlank() } ?: profile.location ?: "")
+    }
     var motto by remember(profile) { mutableStateOf(profile.motto ?: "") }
     var manifesto by remember(profile) { mutableStateOf(profile.manifesto ?: "") }
+
     ArchiveBottomSheet(
         onDismissRequest = onDismiss,
         title = "《主理人手卷》",
         actionButtonText = "保存档案",
         isActionEnabled = name.isNotBlank(),
         onActionClick = {
+            val finalCity = cityName.trim()
             onSave(
                 UpdateProfileRequest(
                     name = name.trim(),
                     title = title.trim().takeIf { it.isNotBlank() },
-                    currentCity = currentCity.trim().takeIf { it.isNotBlank() },
+                    currentCity = finalCity.takeIf { it.isNotBlank() },
+                    location = finalCity.takeIf { it.isNotBlank() },
                     motto = motto.trim().takeIf { it.isNotBlank() },
                     manifesto = manifesto.trim().takeIf { it.isNotBlank() }
                 )
             )
         }
     ) {
-
-            // 称谓大标题输入
-            Text("称谓", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 11.sp, color = colors.inkMuted)
-            Spacer(modifier = Modifier.height(2.dp))
-            androidx.compose.foundation.text.BasicTextField(
-                value = name,
-                onValueChange = { name = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                textStyle = TextStyle(
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = colors.inkPrimary
-                ),
-                cursorBrush = SolidColor(colors.accentWarm),
-                decorationBox = { innerTextField ->
-                    if (name.isEmpty()) {
-                        Text(
-                            text = "输入主理人称谓…",
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 20.sp,
-                            color = colors.inkMuted.copy(alpha = 0.5f)
-                        )
-                    }
-                    innerTextField()
+        // 1. 称谓输入
+        Text("称谓", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.5.sp, color = colors.inkMuted)
+        Spacer(modifier = Modifier.height(3.dp))
+        androidx.compose.foundation.text.BasicTextField(
+            value = name,
+            onValueChange = { name = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            textStyle = TextStyle(
+                fontFamily = ArchiveFontFamilies.BodySans,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.inkPrimary
+            ),
+            cursorBrush = SolidColor(colors.accentWarm),
+            decorationBox = { innerTextField ->
+                if (name.isEmpty()) {
+                    Text(
+                        text = "输入主理人称谓…",
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 18.sp,
+                        color = colors.inkMuted.copy(alpha = 0.5f)
+                    )
                 }
-            )
+                innerTextField()
+            }
+        )
 
-            Spacer(modifier = Modifier.height(14.dp))
-            HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-            Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(14.dp))
+        HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
+        Spacer(modifier = Modifier.height(14.dp))
 
-            // 头衔与身份
-            Text("头衔与身份", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 11.sp, color = colors.inkMuted)
-            Spacer(modifier = Modifier.height(2.dp))
-            androidx.compose.foundation.text.BasicTextField(
-                value = title,
-                onValueChange = { title = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                textStyle = TextStyle(
-                    fontFamily = ArchiveFontFamilies.BodySans,
-                    fontSize = 15.sp,
-                    color = colors.inkPrimary
-                ),
-                cursorBrush = SolidColor(colors.accentWarm),
-                decorationBox = { innerTextField ->
-                    if (title.isEmpty()) {
-                        Text(
-                            text = "如：生活记录者、独立摄影师…",
-                            fontSize = 15.sp,
-                            color = colors.inkMuted.copy(alpha = 0.5f)
-                        )
-                    }
-                    innerTextField()
+        // 2. 头衔与身份
+        Text("头衔与身份", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.5.sp, color = colors.inkMuted)
+        Spacer(modifier = Modifier.height(3.dp))
+        androidx.compose.foundation.text.BasicTextField(
+            value = title,
+            onValueChange = { title = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            textStyle = TextStyle(
+                fontFamily = ArchiveFontFamilies.BodySans,
+                fontSize = 15.sp,
+                color = colors.inkPrimary
+            ),
+            cursorBrush = SolidColor(colors.accentWarm),
+            decorationBox = { innerTextField ->
+                if (title.isEmpty()) {
+                    Text(
+                        text = "如：生活记录者、独立摄影师…",
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 15.sp,
+                        color = colors.inkMuted.copy(alpha = 0.5f)
+                    )
                 }
-            )
+                innerTextField()
+            }
+        )
 
-            Spacer(modifier = Modifier.height(14.dp))
-            HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-            Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(14.dp))
+        HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
+        Spacer(modifier = Modifier.height(14.dp))
 
-            // 常居城市
-            Text("常居城市", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 11.sp, color = colors.inkMuted)
-            Spacer(modifier = Modifier.height(2.dp))
-            androidx.compose.foundation.text.BasicTextField(
-                value = currentCity,
-                onValueChange = { currentCity = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                textStyle = TextStyle(
-                    fontFamily = ArchiveFontFamilies.BodySans,
-                    fontSize = 15.sp,
-                    color = colors.inkPrimary
-                ),
-                cursorBrush = SolidColor(colors.accentWarm),
-                decorationBox = { innerTextField ->
-                    if (currentCity.isEmpty()) {
-                        Text(
-                            text = "如：大理、杭州、上海…",
-                            fontSize = 15.sp,
-                            color = colors.inkMuted.copy(alpha = 0.5f)
-                        )
-                    }
-                    innerTextField()
+        // 3. 常居城市（严格使用统一行政区划选择器，定位到地级市！）
+        Text("常居城市 (点选定位至地级市)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.5.sp, color = colors.inkMuted)
+        Spacer(modifier = Modifier.height(6.dp))
+        PaperCityPickerField(
+            selectedCityCode = cityCode,
+            selectedCityName = cityName,
+            onCitySelected = { c, n ->
+                cityCode = c
+                cityName = n
+            },
+            placeholder = "点选所在省市 (375 国标行政区划)…"
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+        HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 4. 生活信条与格言
+        Text("生活格言", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.5.sp, color = colors.inkMuted)
+        Spacer(modifier = Modifier.height(3.dp))
+        androidx.compose.foundation.text.BasicTextField(
+            value = motto,
+            onValueChange = { motto = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            textStyle = TextStyle(
+                fontFamily = ArchiveFontFamilies.BodySans,
+                fontSize = 14.5.sp,
+                color = colors.accentWarm
+            ),
+            cursorBrush = SolidColor(colors.accentWarm),
+            decorationBox = { innerTextField ->
+                if (motto.isEmpty()) {
+                    Text(
+                        text = "写下一句指引你的生活信条…",
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 14.5.sp,
+                        color = colors.inkMuted.copy(alpha = 0.5f)
+                    )
                 }
-            )
+                innerTextField()
+            }
+        )
 
-            Spacer(modifier = Modifier.height(14.dp))
-            HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-            Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(14.dp))
+        HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
+        Spacer(modifier = Modifier.height(14.dp))
 
-            // 生活信条与格言
-            Text("生活格言", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 11.sp, color = colors.inkMuted)
-            Spacer(modifier = Modifier.height(2.dp))
-            androidx.compose.foundation.text.BasicTextField(
-                value = motto,
-                onValueChange = { motto = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                textStyle = TextStyle(
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 15.sp,
-                    color = colors.inkPrimary
-                ),
-                cursorBrush = SolidColor(colors.accentWarm),
-                decorationBox = { innerTextField ->
-                    if (motto.isEmpty()) {
-                        Text(
-                            text = "写下一句指引你的生活信条…",
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 15.sp,
-                            color = colors.inkMuted.copy(alpha = 0.5f)
-                        )
-                    }
-                    innerTextField()
+        // 5. 自白手记正文
+        Text("自白手记", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.5.sp, color = colors.inkMuted)
+        Spacer(modifier = Modifier.height(6.dp))
+        androidx.compose.foundation.text.BasicTextField(
+            value = manifesto,
+            onValueChange = { manifesto = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 120.dp, max = 240.dp),
+            textStyle = TextStyle(
+                fontFamily = ArchiveFontFamilies.BodySans,
+                fontSize = 14.sp,
+                lineHeight = 22.sp,
+                color = colors.inkPrimary
+            ),
+            cursorBrush = SolidColor(colors.accentWarm),
+            decorationBox = { innerTextField ->
+                if (manifesto.isEmpty()) {
+                    Text(
+                        text = "关于你自己、关于时间、关于生活的自白散篇…",
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 14.sp,
+                        lineHeight = 22.sp,
+                        color = colors.inkMuted.copy(alpha = 0.45f)
+                    )
                 }
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-            HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // 自白手记正文（开阔纯净书写画布）
-            Text("自白手记", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 11.sp, color = colors.inkMuted)
-            Spacer(modifier = Modifier.height(6.dp))
-            androidx.compose.foundation.text.BasicTextField(
-                value = manifesto,
-                onValueChange = { manifesto = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 120.dp, max = 240.dp),
-                textStyle = TextStyle(
-                    fontFamily = ArchiveFontFamilies.BodySans,
-                    fontSize = 14.5.sp,
-                    lineHeight = 24.sp,
-                    color = colors.inkPrimary
-                ),
-                cursorBrush = SolidColor(colors.accentWarm),
-                decorationBox = { innerTextField ->
-                    if (manifesto.isEmpty()) {
-                        Text(
-                            text = "关于你自己、关于时间、关于生活的自白散篇…",
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 14.5.sp,
-                            lineHeight = 24.sp,
-                            color = colors.inkMuted.copy(alpha = 0.45f)
-                        )
-                    }
-                    innerTextField()
-                }
-            )
-
+                innerTextField()
+            }
+        )
     }
 }
 

@@ -58,6 +58,10 @@ object SnapshotRunner {
         renderToPng(360, 800, 2.0f, outCompact) { MockProfileScreen(isDarkTheme = false) }
         println("Snapshot: ${outCompact.name} (${outCompact.length()} bytes)")
 
+        val editSheet = File(outDir, "edit_profile_sheet.png")
+        renderToPng(392, 540, 2.0f, editSheet) { MockProfileEditSheet(isDarkTheme = false) }
+        println("Snapshot: ${editSheet.name} (${editSheet.length()} bytes)")
+
         println("All snapshots rendered successfully.")
     }
 }

@@ -1238,3 +1238,47 @@ private fun DesktopTrustedDeviceItem(
         }
     }
 }
+
+@Composable
+fun MockProfileEditSheet(isDarkTheme: Boolean) {
+    val textPrimary = if (isDarkTheme) Color(0xFFEBE8E1) else Color(0xFF181716)
+    val textMuted = if (isDarkTheme) Color(0xFF88847C) else Color(0xFF8C887F)
+    val accentWarm = Color(0xFFA24F2B)
+    val cardBg = if (isDarkTheme) Color(0xFF1E1D1B) else Color.White
+    val borderDivider = if (isDarkTheme) Color(0xFF33302B) else Color(0xFFE8E5DC)
+
+    Column(
+        modifier = Modifier.fillMaxWidth().background(cardBg).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("取消", fontSize = 13.sp, color = textMuted)
+            Text("《主理人手卷》", fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 16.sp, color = textPrimary)
+            Text("保存档案", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = accentWarm)
+        }
+
+        Spacer(modifier = Modifier.height(2.dp))
+        Text("称谓", fontSize = 11.sp, color = textMuted)
+        Text("迟暮", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = textPrimary)
+        HorizontalDivider(color = borderDivider.copy(alpha = 0.5f), thickness = 0.5.dp)
+
+        Text("头衔与身份", fontSize = 11.sp, color = textMuted)
+        Text("编程", fontSize = 15.sp, color = textPrimary)
+        HorizontalDivider(color = borderDivider.copy(alpha = 0.5f), thickness = 0.5.dp)
+
+        Text("常居城市 (点选定位至地级市)", fontSize = 11.sp, color = textMuted)
+        Box(
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).border(0.5.dp, borderDivider, RoundedCornerShape(4.dp)).padding(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("📍", fontSize = 12.sp)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("浙江 · 衢州市 (330800)", fontSize = 13.5.sp, color = textPrimary)
+            }
+        }
+        HorizontalDivider(color = borderDivider.copy(alpha = 0.5f), thickness = 0.5.dp)
+
+        Text("生活格言", fontSize = 11.sp, color = textMuted)
+        Text("“ 不要沉迷雾里，不要执着没有意义的人和事 ”", fontSize = 13.5.sp, color = accentWarm)
+    }
+}
