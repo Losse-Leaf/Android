@@ -23,3 +23,8 @@ compose.desktop {
         }
     }
 }
+
+tasks.register<JavaExec>("renderSnapshots") {
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.looseleaf.desktop.SnapshotRunner")
+}
