@@ -21,6 +21,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.ContentValues
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import androidx.compose.ui.platform.LocalContext
+import java.io.File
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.model.*
 import com.looseleaf.app.theme.ArchiveFontFamilies
@@ -75,6 +81,43 @@ fun StorageBackupSheetDialog(
             ArchiveToastManager.show("加载灾备信息失败: ${err.message}", isError = true)
         }
         isLoading = false
+    }
+
+    val context = LocalContext.current
+
+    fun downloadBackupAction(b: BackupItem) {
+        scope.launch {
+            isOperating = true
+            ArchiveToastManager.show("正在下载「${b.filename}」…")
+            runCatching {
+                val bytes = apiClient.downloadBackup(b.filename)
+                val resolver = context.contentResolver
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, b.filename)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "application/zip")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                    }
+                }
+                val uri = resolver.insert(
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Downloads.EXTERNAL_CONTENT_URI else MediaStore.Files.getContentUri("external"),
+                    contentValues
+                )
+                if (uri != null) {
+                    resolver.openOutputStream(uri)?.use { os ->
+                        os.write(bytes)
+                    }
+                } else {
+                    val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+                    val targetFile = File(downloadDir, b.filename)
+                    targetFile.writeBytes(bytes)
+                }
+                ArchiveToastManager.show("已保存至系统下载目录：${b.filename}")
+            }.onFailure { err ->
+                ArchiveToastManager.show("下载快照失败: ${err.message}", isError = true)
+            }
+            isOperating = false
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -271,6 +314,17 @@ fun StorageBackupSheetDialog(
                                     Spacer(modifier = Modifier.width(8.dp))
 
                                     Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "下载",
+                                            fontSize = 11.5.sp,
+                                            fontFamily = ArchiveFontFamilies.BodySans,
+                                            color = colors.inkPrimary,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(2.dp))
+                                                .clickable { downloadBackupAction(b) }
+                                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = "回滚",
                                             fontSize = 11.5.sp,

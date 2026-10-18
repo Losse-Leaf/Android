@@ -642,4 +642,19 @@ class APIClient private constructor(private val context: Context) {
         val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
         return executeEnvelopeRequest("/api/v1/system/backup/restore", "POST", body = body)
     }
+
+    suspend fun downloadBackup(filename: String): ByteArray = withContext(Dispatchers.IO) {
+        val (request, _) = buildRequest("/api/v1/system/backup/download/$filename", "GET")
+        val response = try {
+            okHttpClient.newCall(request).execute()
+        } catch (e: IOException) {
+            throw APIException(-1, "网络连接异常: ${e.message}")
+        }
+        response.use { res ->
+            if (!res.isSuccessful) {
+                throw APIException(res.code, "下载备份失败 (HTTP ${res.code})")
+            }
+            res.body?.bytes() ?: throw APIException(-1, "备份文件数据为空")
+        }
+    }
 }
