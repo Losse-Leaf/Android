@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CachedWishEntity::class,
         CachedFootprintEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -55,13 +55,60 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                try {
+                    // cached_entries
+                    db.execSQL("ALTER TABLE `cached_entries` ADD COLUMN `featured` INTEGER DEFAULT 0")
+                    db.execSQL("ALTER TABLE `cached_entries` ADD COLUMN `project_id` INTEGER")
+                    db.execSQL("ALTER TABLE `cached_entries` ADD COLUMN `wish_id` INTEGER")
+                    db.execSQL("ALTER TABLE `cached_entries` ADD COLUMN `footprint_id` INTEGER")
+
+                    // cached_transactions
+                    db.execSQL("ALTER TABLE `cached_transactions` ADD COLUMN `is_installment` INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("ALTER TABLE `cached_transactions` ADD COLUMN `installment_channel_code` TEXT")
+                    db.execSQL("ALTER TABLE `cached_transactions` ADD COLUMN `installment_total_amount` INTEGER")
+                    db.execSQL("ALTER TABLE `cached_transactions` ADD COLUMN `installment_months` INTEGER")
+                    db.execSQL("ALTER TABLE `cached_transactions` ADD COLUMN `installment_monthly_pay` INTEGER")
+                    db.execSQL("ALTER TABLE `cached_transactions` ADD COLUMN `installment_remain_months` INTEGER")
+                    db.execSQL("ALTER TABLE `cached_transactions` ADD COLUMN `repayment_day` INTEGER")
+                    db.execSQL("ALTER TABLE `cached_transactions` ADD COLUMN `wish_id` INTEGER")
+                    db.execSQL("ALTER TABLE `cached_transactions` ADD COLUMN `footprint_id` INTEGER")
+
+                    // cached_projects
+                    db.execSQL("ALTER TABLE `cached_projects` ADD COLUMN `story` TEXT")
+                    db.execSQL("ALTER TABLE `cached_projects` ADD COLUMN `category` TEXT")
+                    db.execSQL("ALTER TABLE `cached_projects` ADD COLUMN `featured` INTEGER DEFAULT 0")
+
+                    // cached_wishes
+                    db.execSQL("ALTER TABLE `cached_wishes` ADD COLUMN `city_code` TEXT")
+                    db.execSQL("ALTER TABLE `cached_wishes` ADD COLUMN `city_name` TEXT")
+                    db.execSQL("ALTER TABLE `cached_wishes` ADD COLUMN `target_date` TEXT")
+                    db.execSQL("ALTER TABLE `cached_wishes` ADD COLUMN `resolution_type` TEXT")
+                    db.execSQL("ALTER TABLE `cached_wishes` ADD COLUMN `actual_title` TEXT")
+                    db.execSQL("ALTER TABLE `cached_wishes` ADD COLUMN `gear_id` TEXT")
+                    db.execSQL("ALTER TABLE `cached_wishes` ADD COLUMN `attachments_json` TEXT NOT NULL DEFAULT '[]'")
+
+                    // cached_footprints
+                    db.execSQL("ALTER TABLE `cached_footprints` ADD COLUMN `attachments_json` TEXT NOT NULL DEFAULT '[]'")
+                    db.execSQL("ALTER TABLE `cached_footprints` ADD COLUMN `life_entry_id` INTEGER")
+                    db.execSQL("ALTER TABLE `cached_footprints` ADD COLUMN `wish_id` INTEGER")
+                    db.execSQL("ALTER TABLE `cached_footprints` ADD COLUMN `entries_count` INTEGER")
+                    db.execSQL("ALTER TABLE `cached_footprints` ADD COLUMN `total_spent` INTEGER")
+                    db.execSQL("ALTER TABLE `cached_footprints` ADD COLUMN `transaction_count` INTEGER")
+                } catch (e: Exception) {
+                    Log.e(TAG, "MIGRATION_4_5 error: ${e.message}")
+                }
+            }
+        }
+
         private fun buildDatabase(context: Context): AppDatabase {
             return Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 DB_NAME
             )
-                .addMigrations(MIGRATION_3_4)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build()
         }

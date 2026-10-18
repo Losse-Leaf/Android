@@ -519,9 +519,28 @@ data class CategoryOption(
 )
 
 @Serializable
+data class CategoriesResponse(
+    val items: List<CategoryOption> = emptyList(),
+    @SerialName("by_scope") val byScope: Map<String, List<String>> = emptyMap()
+)
+
+@Serializable
 data class CreateCategoryRequest(
     val scope: String,
-    val name: String
+    val name: String,
+    @SerialName("sort_order") val sortOrder: Int? = null
+)
+
+@Serializable
+data class UpdateCategoryRequest(
+    val name: String,
+    @SerialName("sort_order") val sortOrder: Int? = null,
+    @SerialName("rename_records") val renameRecords: Boolean? = true
+)
+
+@Serializable
+data class ResetCategoriesRequest(
+    val scope: String = ""
 )
 
 @Serializable

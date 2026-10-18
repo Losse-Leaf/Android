@@ -42,6 +42,7 @@ class MainActivity : FragmentActivity() {
     private lateinit var credentialStore: CredentialStore
     private lateinit var haptics: HapticsEngine
     private var requestedRouteState = mutableStateOf<String?>(null)
+    private var pendingDeepLinkPayloadState = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,6 +52,9 @@ class MainActivity : FragmentActivity() {
         haptics = HapticsEngine.getInstance(this)
 
         requestedRouteState.value = intent?.getStringExtra("shortcut_route")
+        intent?.data?.toString()?.takeIf { it.startsWith("looseleaf://") }?.let {
+            pendingDeepLinkPayloadState.value = it
+        }
 
         setContent {
             var isDarkTheme by remember { mutableStateOf(credentialStore.isDarkroomMode) }
@@ -97,10 +101,13 @@ class MainActivity : FragmentActivity() {
                 }
 
                 if (!isPaired) {
+                    val deepLinkPayload by pendingDeepLinkPayloadState
                     PairingScreen(
+                        initialPayload = deepLinkPayload,
                         onPairingSuccess = {
                             isPaired = true
                             isUnlocked = true
+                            pendingDeepLinkPayloadState.value = null
                             currentRoute = "stream"
                         }
                     )
@@ -226,6 +233,9 @@ class MainActivity : FragmentActivity() {
         setIntent(intent)
         intent.getStringExtra("shortcut_route")?.takeIf { it.isNotBlank() }?.let {
             requestedRouteState.value = it
+        }
+        intent.data?.toString()?.takeIf { it.startsWith("looseleaf://") }?.let {
+            pendingDeepLinkPayloadState.value = it
         }
     }
 }

@@ -257,7 +257,7 @@ class APIClient private constructor(private val context: Context) {
             }
         }
         val body = req.toString().toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/auth/pair/ticket", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/auth/pair/init", "POST", body = body)
     }
 
     // MARK: - 3. 站点配置与主理人档案
@@ -277,13 +277,31 @@ class APIClient private constructor(private val context: Context) {
 
     suspend fun fetchCategories(scope: String? = null): List<CategoryOption> {
         val params = if (!scope.isNullOrBlank()) mapOf("scope" to scope) else null
+        val resp: CategoriesResponse = executeEnvelopeRequest("/api/v1/categories", "GET", queryParams = params)
+        return if (!scope.isNullOrBlank()) resp.items.filter { it.scope == scope } else resp.items
+    }
+
+    suspend fun fetchCategoriesResponse(scope: String? = null): CategoriesResponse {
+        val params = if (!scope.isNullOrBlank()) mapOf("scope" to scope) else null
         return executeEnvelopeRequest("/api/v1/categories", "GET", queryParams = params)
     }
 
-    suspend fun addCategoryOption(scope: String, name: String): CategoryOption {
-        val req = CreateCategoryRequest(scope = scope, name = name)
+    suspend fun addCategoryOption(scope: String, name: String, sortOrder: Int? = null): CategoryOption {
+        val req = CreateCategoryRequest(scope = scope, name = name, sortOrder = sortOrder)
         val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
         return executeEnvelopeRequest("/api/v1/categories", "POST", body = body)
+    }
+
+    suspend fun updateCategoryOption(id: Long, name: String, sortOrder: Int? = null, renameRecords: Boolean = true): CategoryOption {
+        val req = UpdateCategoryRequest(name = name, sortOrder = sortOrder, renameRecords = renameRecords)
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/categories/$id", "PUT", body = body)
+    }
+
+    suspend fun resetCategories(scope: String = ""): CategoriesResponse {
+        val req = ResetCategoriesRequest(scope = scope)
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/categories/reset", "POST", body = body)
     }
 
     suspend fun deleteCategoryOption(id: Long) {

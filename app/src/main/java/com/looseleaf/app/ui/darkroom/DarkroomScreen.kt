@@ -480,6 +480,21 @@ fun DarkroomScreen(
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("life" to "日常", "travel" to "游历").forEach { (k, label) ->
+                            PaperFilterPill(
+                                selected = selectedType == k,
+                                onClick = { selectedType = k },
+                                label = label
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
                     PaperTextField(
                         value = titleText,
                         onValueChange = { titleText = it },

@@ -43,7 +43,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun PairingScreen(
     onPairingSuccess: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    initialPayload: String? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -107,6 +108,12 @@ fun PairingScreen(
             } finally {
                 isConnecting = false
             }
+        }
+    }
+
+    LaunchedEffect(initialPayload) {
+        if (!initialPayload.isNullOrBlank()) {
+            executeHandshake(initialPayload)
         }
     }
 

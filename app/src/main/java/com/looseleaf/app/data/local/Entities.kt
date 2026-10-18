@@ -30,6 +30,10 @@ data class CachedEntryEntity(
     @ColumnInfo(name = "location") val location: String? = null,
     @ColumnInfo(name = "city_code") val cityCode: String? = null,
     @ColumnInfo(name = "city_name") val cityName: String? = null,
+    @ColumnInfo(name = "featured") val featured: Boolean? = false,
+    @ColumnInfo(name = "project_id") val projectId: Long? = null,
+    @ColumnInfo(name = "wish_id") val wishId: Long? = null,
+    @ColumnInfo(name = "footprint_id") val footprintId: Long? = null,
     @ColumnInfo(name = "attachments_json") val attachmentsJson: String = "[]",
     @ColumnInfo(name = "sync_status") val syncStatus: String = "SYNCED", // 'SYNCED', 'PENDING_CREATE', 'PENDING_UPDATE', 'PENDING_DELETE'
     @ColumnInfo(name = "created_at") val createdAt: String = FormatUtils.beijingNowIsoString()
@@ -59,6 +63,15 @@ data class CachedTransactionEntity(
     @ColumnInfo(name = "payment_method") val paymentMethod: String? = null,
     @ColumnInfo(name = "occurred_at") val occurredAt: String = FormatUtils.beijingNowIsoString(),
     @ColumnInfo(name = "city_code") val cityCode: String? = null,
+    @ColumnInfo(name = "wish_id") val wishId: Long? = null,
+    @ColumnInfo(name = "footprint_id") val footprintId: Long? = null,
+    @ColumnInfo(name = "is_installment") val isInstallment: Boolean = false,
+    @ColumnInfo(name = "installment_channel_code") val installmentChannelCode: String? = null,
+    @ColumnInfo(name = "installment_total_amount") val installmentTotalAmount: Long? = null,
+    @ColumnInfo(name = "installment_months") val installmentMonths: Int? = null,
+    @ColumnInfo(name = "installment_monthly_pay") val installmentMonthlyPay: Long? = null,
+    @ColumnInfo(name = "installment_remain_months") val installmentRemainMonths: Int? = null,
+    @ColumnInfo(name = "repayment_day") val repaymentDay: Int? = null,
     @ColumnInfo(name = "sync_status") val syncStatus: String = "SYNCED",
     @ColumnInfo(name = "created_at") val createdAt: String = FormatUtils.beijingNowIsoString()
 )
@@ -94,8 +107,11 @@ data class CachedProjectEntity(
     @ColumnInfo(name = "title") val title: String,
     @ColumnInfo(name = "subtitle") val subtitle: String? = null,
     @ColumnInfo(name = "description") val description: String? = null,
+    @ColumnInfo(name = "story") val story: String? = null,
+    @ColumnInfo(name = "category") val category: String? = null,
     @ColumnInfo(name = "status") val status: String? = null,
     @ColumnInfo(name = "github_url") val githubUrl: String? = null,
+    @ColumnInfo(name = "featured") val featured: Boolean? = false,
     @ColumnInfo(name = "order") val order: Int? = 0,
     @ColumnInfo(name = "updated_at") val updatedAt: String? = null
 )
@@ -110,10 +126,17 @@ data class CachedWishEntity(
     @ColumnInfo(name = "kind") val kind: String = "item",
     @ColumnInfo(name = "note") val note: String? = null,
     @ColumnInfo(name = "spec") val spec: String? = null,
+    @ColumnInfo(name = "city_code") val cityCode: String? = null,
+    @ColumnInfo(name = "city_name") val cityName: String? = null,
     @ColumnInfo(name = "budget") val budget: Long = 0,
     @ColumnInfo(name = "actual_cost") val actualCost: Long = 0,
+    @ColumnInfo(name = "resolution_type") val resolutionType: String? = null,
+    @ColumnInfo(name = "actual_title") val actualTitle: String? = null,
     @ColumnInfo(name = "status") val status: String = "wanting",
+    @ColumnInfo(name = "target_date") val targetDate: String? = null,
     @ColumnInfo(name = "fulfilled_at") val fulfilledAt: String? = null,
+    @ColumnInfo(name = "gear_id") val gearId: String? = null,
+    @ColumnInfo(name = "attachments_json") val attachmentsJson: String = "[]",
     @ColumnInfo(name = "updated_at") val updatedAt: String? = null
 )
 
@@ -129,5 +152,11 @@ data class CachedFootprintEntity(
     @ColumnInfo(name = "visited_at") val visitedAt: String? = null,
     @ColumnInfo(name = "departed_at") val departedAt: String? = null,
     @ColumnInfo(name = "note") val note: String? = null,
+    @ColumnInfo(name = "life_entry_id") val lifeEntryId: Long? = null,
+    @ColumnInfo(name = "wish_id") val wishId: Long? = null,
+    @ColumnInfo(name = "attachments_json") val attachmentsJson: String = "[]",
+    @ColumnInfo(name = "entries_count") val entriesCount: Int? = null,
+    @ColumnInfo(name = "total_spent") val totalSpent: Long? = null,
+    @ColumnInfo(name = "transaction_count") val transactionCount: Int? = null,
     @ColumnInfo(name = "updated_at") val updatedAt: String? = null
 )

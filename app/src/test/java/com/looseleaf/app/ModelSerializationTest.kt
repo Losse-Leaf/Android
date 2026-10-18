@@ -98,4 +98,38 @@ class ModelSerializationTest {
         assertEquals(true, delNumeric.deleted)
         assertEquals(true, delString.purged)
     }
+
+    @Test
+    fun testCategoriesResponseEnvelope() {
+        val categoriesPayload = """{"items":[{"id":1,"scope":"expense","name":"餐饮","sort_order":0,"is_builtin":true},{"id":2,"scope":"income","name":"薪资","sort_order":1,"is_builtin":true}],"by_scope":{"expense":["餐饮"],"income":["薪资"]}}"""
+        val resp = json.decodeFromString<com.looseleaf.app.model.CategoriesResponse>(categoriesPayload)
+        assertEquals(2, resp.items.size)
+        assertEquals("餐饮", resp.items.first().name)
+        assertEquals(listOf("餐饮"), resp.byScope["expense"])
+    }
+
+    @Test
+    fun testTransactionWithInstallmentsContract() {
+        val tx = Transaction(
+            id = 102,
+            amount = 120000L,
+            type = "expense",
+            category = "数码器材",
+            title = "iPad Pro M4",
+            occurredAt = "2026-10-14T08:30:00+08:00",
+            isInstallment = true,
+            installmentChannelCode = "huabei",
+            installmentTotalAmount = 120000L,
+            installmentMonths = 12,
+            installmentMonthlyPay = 10000L,
+            installmentRemainMonths = 11,
+            repaymentDay = 10
+        )
+        val str = json.encodeToString(tx)
+        val decoded = json.decodeFromString<Transaction>(str)
+        assertEquals(true, decoded.isInstallment)
+        assertEquals("huabei", decoded.installmentChannelCode)
+        assertEquals(12, decoded.installmentMonths)
+        assertEquals(10, decoded.repaymentDay)
+    }
 }

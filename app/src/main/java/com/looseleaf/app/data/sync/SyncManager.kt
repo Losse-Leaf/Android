@@ -116,14 +116,14 @@ class SyncManager private constructor(private val context: Context) {
     val wishesFlow: StateFlow<List<Wish>> = database.wishDao().getAllWishesFlow()
         .catch { emit(emptyList()) }
         .map { entities ->
-            entities.map { it.toWish() }
+            entities.map { it.toWish(json) }
         }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     // 观察全量山川足迹 (离线缓存即时上屏)
     val footprintsFlow: StateFlow<List<Footprint>> = database.footprintDao().getAllFootprintsFlow()
         .catch { emit(emptyList()) }
         .map { entities ->
-            entities.map { it.toFootprint() }
+            entities.map { it.toFootprint(json) }
         }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     /**
@@ -207,6 +207,10 @@ class SyncManager private constructor(private val context: Context) {
             location = req.location,
             cityCode = req.cityCode,
             cityName = req.cityName,
+            featured = req.featured,
+            projectId = req.projectId,
+            wishId = req.wishId,
+            footprintId = req.footprintId,
             attachmentsJson = json.encodeToString(previewAttachments),
             syncStatus = "PENDING_CREATE",
             createdAt = FormatUtils.beijingNowIsoString()
@@ -265,6 +269,10 @@ class SyncManager private constructor(private val context: Context) {
             location = location,
             cityCode = cityCode,
             cityName = cityName,
+            featured = featured,
+            projectId = projectId,
+            wishId = wishId,
+            footprintId = footprintId,
             attachmentsJson = json.encodeToString(attachments),
             syncStatus = "PENDING_CREATE",
             createdAt = FormatUtils.beijingNowIsoString()
@@ -327,6 +335,10 @@ class SyncManager private constructor(private val context: Context) {
             location = req.location,
             cityCode = req.cityCode,
             cityName = req.cityName ?: entity.cityName,
+            featured = req.featured,
+            projectId = req.projectId ?: entity.projectId,
+            wishId = req.wishId ?: entity.wishId,
+            footprintId = req.footprintId ?: entity.footprintId,
             syncStatus = newSyncStatus
         )
         database.entryDao().update(updatedEntity)
@@ -400,6 +412,15 @@ class SyncManager private constructor(private val context: Context) {
             paymentMethod = paymentMethod,
             occurredAt = occurredAt,
             cityCode = cityCode,
+            wishId = wishId,
+            footprintId = footprintId,
+            isInstallment = isInstallment,
+            installmentChannelCode = installmentChannelCode,
+            installmentTotalAmount = installmentTotalAmount,
+            installmentMonths = installmentMonths,
+            installmentMonthlyPay = installmentMonthlyPay,
+            installmentRemainMonths = installmentRemainMonths,
+            repaymentDay = repaymentDay,
             syncStatus = "PENDING_CREATE",
             createdAt = FormatUtils.beijingNowIsoString()
         )
@@ -467,6 +488,15 @@ class SyncManager private constructor(private val context: Context) {
             paymentMethod = req.paymentMethod,
             occurredAt = req.occurredAt,
             cityCode = req.cityCode,
+            wishId = req.wishId ?: entity.wishId,
+            footprintId = req.footprintId ?: entity.footprintId,
+            isInstallment = req.isInstallment,
+            installmentChannelCode = req.installmentChannelCode,
+            installmentTotalAmount = req.installmentTotalAmount,
+            installmentMonths = req.installmentMonths,
+            installmentMonthlyPay = req.installmentMonthlyPay,
+            installmentRemainMonths = req.installmentRemainMonths,
+            repaymentDay = req.repaymentDay,
             syncStatus = newSyncStatus
         )
         database.transactionDao().update(updatedEntity)
@@ -619,6 +649,10 @@ class SyncManager private constructor(private val context: Context) {
                             location = remote.location,
                             cityCode = remote.cityCode,
                             cityName = remote.cityName,
+                            featured = remote.featured,
+                            projectId = remote.projectId,
+                            wishId = remote.wishId,
+                            footprintId = remote.footprintId,
                             attachmentsJson = json.encodeToString(remote.attachments),
                             syncStatus = "SYNCED",
                             createdAt = remote.createdAt ?: remote.occurredAt
@@ -644,6 +678,10 @@ class SyncManager private constructor(private val context: Context) {
                         location = remote.location,
                         cityCode = remote.cityCode,
                         cityName = remote.cityName,
+                        featured = remote.featured,
+                        projectId = remote.projectId,
+                        wishId = remote.wishId,
+                        footprintId = remote.footprintId,
                         attachmentsJson = json.encodeToString(remote.attachments),
                         syncStatus = "SYNCED",
                         createdAt = remote.createdAt ?: remote.occurredAt
@@ -704,6 +742,15 @@ class SyncManager private constructor(private val context: Context) {
                             paymentMethod = remote.paymentMethod,
                             occurredAt = remote.occurredAt,
                             cityCode = remote.cityCode,
+                            wishId = remote.wishId,
+                            footprintId = remote.footprintId,
+                            isInstallment = remote.isInstallment ?: false,
+                            installmentChannelCode = remote.installmentChannelCode,
+                            installmentTotalAmount = remote.installmentTotalAmount,
+                            installmentMonths = remote.installmentMonths,
+                            installmentMonthlyPay = remote.installmentMonthlyPay,
+                            installmentRemainMonths = remote.installmentRemainMonths,
+                            repaymentDay = remote.repaymentDay,
                             syncStatus = "SYNCED",
                             createdAt = remote.createdAt ?: remote.occurredAt
                         )
@@ -729,6 +776,15 @@ class SyncManager private constructor(private val context: Context) {
                         paymentMethod = remote.paymentMethod,
                         occurredAt = remote.occurredAt,
                         cityCode = remote.cityCode,
+                        wishId = remote.wishId,
+                        footprintId = remote.footprintId,
+                        isInstallment = remote.isInstallment ?: false,
+                        installmentChannelCode = remote.installmentChannelCode,
+                        installmentTotalAmount = remote.installmentTotalAmount,
+                        installmentMonths = remote.installmentMonths,
+                        installmentMonthlyPay = remote.installmentMonthlyPay,
+                        installmentRemainMonths = remote.installmentRemainMonths,
+                        repaymentDay = remote.repaymentDay,
                         syncStatus = "SYNCED",
                         createdAt = remote.createdAt ?: remote.occurredAt
                     )
@@ -758,27 +814,45 @@ class SyncManager private constructor(private val context: Context) {
                     title = it.title,
                     subtitle = it.subtitle,
                     description = it.description,
+                    story = it.story,
+                    category = it.category,
                     status = it.status,
                     githubUrl = it.githubUrl,
+                    featured = it.featured,
                     order = it.order,
                     updatedAt = it.updatedAt
                 )
             })
         }
         runCatching {
-            val remoteWishes = apiClient.fetchWishes()
+            val allWishes = mutableListOf<Wish>()
+            var wishPage = 1
+            val wishPageSize = 100
+            while (true) {
+                val wishes = apiClient.fetchWishes(page = wishPage, pageSize = wishPageSize)
+                allWishes.addAll(wishes)
+                if (wishes.size < wishPageSize) break
+                wishPage++
+            }
             database.wishDao().clearAll()
-            database.wishDao().insertAll(remoteWishes.map {
+            database.wishDao().insertAll(allWishes.map {
                 CachedWishEntity(
                     id = it.id,
                     title = it.title,
                     kind = it.kind ?: "item",
                     note = it.note,
                     spec = it.spec,
+                    cityCode = it.cityCode,
+                    cityName = it.cityName,
                     budget = it.budget,
                     actualCost = it.actualCost,
+                    resolutionType = it.resolutionType,
+                    actualTitle = it.actualTitle,
                     status = it.status,
+                    targetDate = it.targetDate,
                     fulfilledAt = it.fulfilledAt,
+                    gearId = it.gearId,
+                    attachmentsJson = json.encodeToString(it.attachments),
                     updatedAt = it.updatedAt
                 )
             })
@@ -795,6 +869,12 @@ class SyncManager private constructor(private val context: Context) {
                     visitedAt = it.visitedAt,
                     departedAt = it.departedAt,
                     note = it.note,
+                    lifeEntryId = it.lifeEntryId,
+                    wishId = it.wishId,
+                    attachmentsJson = json.encodeToString(it.attachments),
+                    entriesCount = it.entriesCount,
+                    totalSpent = it.totalSpent,
+                    transactionCount = it.transactionCount,
                     updatedAt = it.updatedAt
                 )
             })
@@ -1003,6 +1083,10 @@ fun CachedEntryEntity.toDomainModel(json: Json): LifeEntry {
         location = location,
         cityCode = cityCode,
         cityName = cityName,
+        featured = featured,
+        projectId = projectId,
+        wishId = wishId,
+        footprintId = footprintId,
         attachments = atts,
         syncStatus = syncStatus,
         createdAt = createdAt
@@ -1020,6 +1104,15 @@ fun CachedTransactionEntity.toTransaction(): Transaction {
         paymentMethod = paymentMethod,
         occurredAt = occurredAt,
         cityCode = cityCode,
+        wishId = wishId,
+        footprintId = footprintId,
+        isInstallment = isInstallment,
+        installmentChannelCode = installmentChannelCode,
+        installmentTotalAmount = installmentTotalAmount,
+        installmentMonths = installmentMonths,
+        installmentMonthlyPay = installmentMonthlyPay,
+        installmentRemainMonths = installmentRemainMonths,
+        repaymentDay = repaymentDay,
         syncStatus = syncStatus,
         createdAt = createdAt
     )
@@ -1031,29 +1124,49 @@ fun CachedProjectEntity.toProject(): Project {
         title = title,
         subtitle = subtitle,
         description = description,
+        story = story,
+        category = category,
         status = status,
         githubUrl = githubUrl,
+        featured = featured,
         order = order,
         updatedAt = updatedAt
     )
 }
 
-fun CachedWishEntity.toWish(): Wish {
+fun CachedWishEntity.toWish(json: Json): Wish {
+    val atts = try {
+        json.decodeFromString<List<com.looseleaf.app.model.Attachment>>(attachmentsJson)
+    } catch (_: Exception) {
+        emptyList()
+    }
     return Wish(
         id = id,
         title = title,
         kind = kind,
         note = note,
         spec = spec,
+        cityCode = cityCode,
+        cityName = cityName,
         budget = budget,
         actualCost = actualCost,
+        resolutionType = resolutionType,
+        actualTitle = actualTitle,
         status = status,
+        targetDate = targetDate,
         fulfilledAt = fulfilledAt,
+        gearId = gearId,
+        attachments = atts,
         updatedAt = updatedAt
     )
 }
 
-fun CachedFootprintEntity.toFootprint(): Footprint {
+fun CachedFootprintEntity.toFootprint(json: Json): Footprint {
+    val atts = try {
+        json.decodeFromString<List<com.looseleaf.app.model.Attachment>>(attachmentsJson)
+    } catch (_: Exception) {
+        emptyList()
+    }
     return Footprint(
         id = id,
         cityCode = cityCode,
@@ -1062,6 +1175,12 @@ fun CachedFootprintEntity.toFootprint(): Footprint {
         visitedAt = visitedAt,
         departedAt = departedAt,
         note = note,
+        lifeEntryId = lifeEntryId,
+        wishId = wishId,
+        attachments = atts,
+        entriesCount = entriesCount,
+        totalSpent = totalSpent,
+        transactionCount = transactionCount,
         updatedAt = updatedAt
     )
 }

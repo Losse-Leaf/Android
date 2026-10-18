@@ -736,6 +736,7 @@ fun ProjectsWishesScreen(
         // 编辑/删除造物项目抽屉
         editingProject?.let { proj ->
             var editTitle by remember(proj.id) { mutableStateOf(proj.title) }
+            var editSubtitle by remember(proj.id) { mutableStateOf(proj.subtitle ?: "") }
             var editDesc by remember(proj.id) { mutableStateOf(proj.description ?: "") }
             var editStatus by remember(proj.id) { mutableStateOf(proj.status ?: "进行中") }
             var editGithub by remember(proj.id) { mutableStateOf(proj.githubUrl ?: "") }
@@ -752,9 +753,14 @@ fun ProjectsWishesScreen(
                                 id = proj.id,
                                 req = CreateProjectRequest(
                                     title = editTitle.trim(),
+                                    subtitle = editSubtitle.trim().takeIf { it.isNotBlank() },
                                     description = editDesc.trim(),
+                                    story = proj.story,
+                                    category = proj.category,
                                     status = editStatus,
-                                    githubUrl = editGithub.trim().takeIf { it.isNotBlank() }
+                                    githubUrl = editGithub.trim().takeIf { it.isNotBlank() },
+                                    featured = proj.featured ?: false,
+                                    order = proj.order ?: 0
                                 )
                             )
                             ArchiveToastManager.show("造物项目已更新")
@@ -778,6 +784,13 @@ fun ProjectsWishesScreen(
                         value = editTitle,
                         onValueChange = { editTitle = it },
                         label = "造物名称",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    PaperTextField(
+                        value = editSubtitle,
+                        onValueChange = { editSubtitle = it },
+                        label = "副标题或设计注记",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1253,7 +1266,9 @@ private fun EditWishSheetDialog(
                             spec = spec.trim().takeIf { it.isNotBlank() },
                             cityCode = cityCode.takeIf { it.isNotBlank() },
                             cityName = cityName.takeIf { it.isNotBlank() },
-                            note = note.trim().takeIf { it.isNotBlank() }
+                            note = note.trim().takeIf { it.isNotBlank() },
+                            targetDate = wish.targetDate,
+                            attachmentIds = wish.attachments.map { it.id }.takeIf { it.isNotEmpty() }
                         )
                     )
                     ArchiveToastManager.show("心愿已修订")
