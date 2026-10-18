@@ -88,7 +88,6 @@ fun DarkroomScreen(
     var titleText by rememberSaveable { mutableStateOf("") }
     var contentText by rememberSaveable { mutableStateOf("") }
     var locationText by rememberSaveable { mutableStateOf("") }
-    var candidatePlaces by remember { mutableStateOf<List<String>>(LocationHelper.commonScenePresets) }
     var selectedCityCode by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedCityName by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedType by rememberSaveable { mutableStateOf("life") }
@@ -105,7 +104,6 @@ fun DarkroomScreen(
                 if (locationText.isBlank() && res.locationName.isNotBlank()) {
                     locationText = res.locationName
                 }
-                candidatePlaces = (res.candidatePlaces + LocationHelper.commonScenePresets).distinct()
             }
         }
     }
@@ -528,12 +526,10 @@ fun DarkroomScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    PaperPlaceSelector(
-                        selectedPlace = locationText,
-                        onPlaceSelected = { locationText = it },
-                        candidatePlaces = candidatePlaces,
-                        onRequestLocation = { fetchCurrentLocation() },
-                        placeholder = "具体地点…"
+                    PaperLocationField(
+                        value = locationText,
+                        onValueChange = { locationText = it },
+                        placeholder = "具体地点 (选填)…"
                     )
                 }
             }

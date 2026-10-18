@@ -250,7 +250,10 @@ class SyncManager private constructor(private val context: Context) {
         cityName: String? = null,
         featured: Boolean = false,
         attachmentIds: List<Long>? = null,
-        attachments: List<Attachment> = emptyList()
+        attachments: List<Attachment> = emptyList(),
+        projectId: Long? = null,
+        wishId: Long? = null,
+        footprintId: Long? = null
     ): Long {
         val entryEntity = CachedEntryEntity(
             localId = 0,
@@ -277,7 +280,10 @@ class SyncManager private constructor(private val context: Context) {
             cityCode = cityCode,
             cityName = cityName,
             featured = featured,
-            attachmentIds = attachmentIds
+            attachmentIds = attachmentIds,
+            projectId = projectId,
+            wishId = wishId,
+            footprintId = footprintId
         )
         val event = OutboxEventEntity(
             eventId = UUID.randomUUID().toString(),

@@ -27,7 +27,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.CalendarToday
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
@@ -680,49 +682,6 @@ fun PaperDatePickerDialog(
                     }
                 }
 
-                HorizontalDivider(color = colors.borderDivider, thickness = 0.5.dp)
-
-                // 快捷纪年芯片
-                val shortcuts = listOf(
-                    "今天" to today,
-                    "昨天" to today.minusDays(1),
-                    "前天" to today.minusDays(2),
-                    "7天前" to today.minusDays(7)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    shortcuts.forEach { (label, dt) ->
-                        val isCurrent = tempDate == dt
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isCurrent) colors.accentWarm.copy(alpha = 0.15f) else colors.archiveSubtle)
-                                .border(
-                                    0.5.dp,
-                                    if (isCurrent) colors.accentWarm else colors.borderDivider,
-                                    RoundedCornerShape(4.dp)
-                                )
-                                .clickable {
-                                    tempDate = dt
-                                    currentMonth = YearMonth.from(dt)
-                                }
-                                .padding(vertical = 5.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = label,
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontSize = 11.sp,
-                                fontWeight = if (isCurrent) FontWeight.Medium else FontWeight.Normal,
-                                color = if (isCurrent) colors.accentWarm else colors.inkSecondary
-                            )
-                        }
-                    }
-                }
-
                 // 月份翻阅切换条
                 Row(
                     modifier = Modifier
@@ -923,14 +882,14 @@ fun PaperTimePickerDialog(
 
                 HorizontalDivider(color = colors.borderDivider, thickness = 0.5.dp)
 
-                // 快捷时段芯片
+                // 快捷时段纸签 (严格对齐 Web PaperDatePicker: 晨 09:00, 午 12:30, 暮 18:00, 夜 22:00)
                 val nowTime = remember { LocalTime.now(FormatUtils.BeijingZone) }
                 val timePresets = listOf(
                     "此刻" to nowTime,
-                    "晨光 08:00" to LocalTime.of(8, 0),
-                    "正午 12:00" to LocalTime.of(12, 0),
-                    "黄昏 18:00" to LocalTime.of(18, 0),
-                    "夜阑 22:00" to LocalTime.of(22, 0)
+                    "晨 09:00" to LocalTime.of(9, 0),
+                    "午 12:30" to LocalTime.of(12, 30),
+                    "暮 18:00" to LocalTime.of(18, 0),
+                    "夜 22:00" to LocalTime.of(22, 0)
                 )
 
                 Row(
@@ -1047,43 +1006,6 @@ fun PaperTimePickerDialog(
                     }
                 }
 
-                // 分钟微调快捷操作
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(-10 to "-10分", -1 to "-1分", 1 to "+1分", 10 to "+10分").forEach { (offset, tag) ->
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(colors.archiveSubtle)
-                                .border(0.5.dp, colors.borderDivider, RoundedCornerShape(3.dp))
-                                .clickable {
-                                    val newMin = tempMinute + offset
-                                    if (newMin < 0) {
-                                        tempMinute = (newMin + 60) % 60
-                                        tempHour = (tempHour - 1 + 24) % 24
-                                    } else if (newMin >= 60) {
-                                        tempMinute = newMin % 60
-                                        tempHour = (tempHour + 1) % 24
-                                    } else {
-                                        tempMinute = newMin
-                                    }
-                                }
-                                .padding(vertical = 4.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = tag,
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 10.sp,
-                                color = colors.inkSecondary
-                            )
-                        }
-                    }
-                }
-
                 HorizontalDivider(color = colors.borderDivider, thickness = 0.5.dp)
 
                 // 底部操作栏
@@ -1133,15 +1055,7 @@ fun PaperDateField(
     val isToday = selectedDate == today
 
     val displayDate = remember(selectedDate) {
-        val rel = when (selectedDate) {
-            today -> "今天"
-            today.minusDays(1) -> "昨天"
-            today.minusDays(2) -> "前天"
-            else -> "周" + when (selectedDate.dayOfWeek.value) {
-                1 -> "一"; 2 -> "二"; 3 -> "三"; 4 -> "四"; 5 -> "五"; 6 -> "六"; else -> "日"
-            }
-        }
-        String.format(Locale.US, "%d.%02d.%02d · %s", selectedDate.year, selectedDate.monthValue, selectedDate.dayOfMonth, rel)
+        String.format(Locale.US, "%d.%02d.%02d", selectedDate.year, selectedDate.monthValue, selectedDate.dayOfMonth)
     }
 
     Box(
@@ -1322,160 +1236,170 @@ fun PaperDateTimePickerField(
 }
 
 /**
- * 散页地点候选点选盘 (PaperPlaceSelector)
- * 严格践行主理人意志：“地点是拿来选的，而不是拿来填的”
- * 提供自动 GPS 地标、周边行政区划候选以及常用常去地点芯片，一键轻触即可选中
+ * 散页具体街巷地点输入槽位 (PaperLocationField)
+ * 纯粹纸墨风格可选输入框，严格对齐 Web 端具体地点注记规范
  */
 @Composable
-fun PaperPlaceSelector(
-    selectedPlace: String,
-    onPlaceSelected: (String) -> Unit,
+fun PaperLocationField(
+    value: String,
+    onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    candidatePlaces: List<String> = emptyList(),
-    onRequestLocation: (() -> Unit)? = null,
-    placeholder: String = "具体地点…"
+    label: String = "具体地点",
+    placeholder: String = "街巷或地标注记 (选填)"
+) {
+    PaperTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = label,
+        placeholder = placeholder,
+        singleLine = true,
+        modifier = modifier.fillMaxWidth()
+    )
+}
+
+/**
+ * 散页纸墨风格下拉选择器 (PaperSelectField)
+ * 纯原生 Compose 打造，替代丑陋的系统 Spinner，严格对齐 Web 端 PaperSelect
+ */
+@Composable
+fun <T> PaperSelectField(
+    selectedValue: T?,
+    options: List<Pair<T, String>>,
+    onSelected: (T) -> Unit,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    placeholder: String = "请选择…"
 ) {
     val colors = LooseLeafTheme.colors
-    var showCustomInputDialog by remember { mutableStateOf(false) }
+    var showDialog by remember { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.first == selectedValue }?.second
 
-    // 组合展示候选池：GPS 识别地标 + 预置常去生活场景
-    val presets = remember { listOf("家", "工作室", "咖啡馆", "书房", "公园", "街巷", "茶室", "旅途") }
-    val displayCandidates = remember(candidatePlaces) {
-        (candidatePlaces + presets).distinct().filter { it.isNotBlank() }
-    }
+    Column(modifier = modifier) {
+        if (!label.isNullOrBlank()) {
+            Text(
+                text = label,
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontSize = 11.5.sp,
+                color = colors.inkMuted
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+        }
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        // 顶部选中槽位
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(4.dp))
-                .background(colors.archiveSubtle.copy(alpha = 0.5f))
+                .background(colors.archiveSubtle)
                 .border(
-                    width = if (selectedPlace.isNotBlank()) 0.8.dp else 0.5.dp,
-                    color = if (selectedPlace.isNotBlank()) colors.accentWarm.copy(alpha = 0.4f) else colors.borderDivider,
+                    width = if (selectedLabel != null) 0.8.dp else 0.5.dp,
+                    color = if (selectedLabel != null) colors.accentWarm.copy(alpha = 0.4f) else colors.borderDivider,
                     shape = RoundedCornerShape(4.dp)
                 )
-                .padding(horizontal = 10.dp, vertical = 7.dp)
+                .clickable { showDialog = true }
+                .padding(horizontal = 10.dp, vertical = 9.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.Place,
-                    contentDescription = null,
-                    tint = if (selectedPlace.isNotBlank()) colors.accentWarm else colors.inkMuted,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = selectedPlace.ifBlank { placeholder },
-                    fontFamily = if (selectedPlace.isNotBlank()) ArchiveFontFamilies.EditorialSerif else ArchiveFontFamilies.BodySans,
+                    text = selectedLabel ?: placeholder,
+                    fontFamily = if (selectedLabel != null) ArchiveFontFamilies.EditorialSerif else ArchiveFontFamilies.BodySans,
                     fontSize = 12.5.sp,
-                    color = if (selectedPlace.isNotBlank()) colors.inkPrimary else colors.inkMuted,
+                    color = if (selectedLabel != null) colors.inkPrimary else colors.inkMuted,
                     modifier = Modifier.weight(1f)
                 )
-                if (selectedPlace.isNotBlank()) {
-                    IconButton(
-                        onClick = { onPlaceSelected("") },
-                        modifier = Modifier.size(20.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Close,
-                            contentDescription = "清除地点",
-                            tint = colors.inkMuted,
-                            modifier = Modifier.size(13.dp)
-                        )
-                    }
-                } else if (onRequestLocation != null) {
-                    TextButton(
-                        onClick = onRequestLocation,
-                        contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier.height(24.dp)
-                    ) {
-                        Text("定位", fontSize = 11.sp, color = colors.accentWarm)
-                    }
-                }
+                Icon(
+                    imageVector = Icons.Outlined.ArrowDropDown,
+                    contentDescription = null,
+                    tint = colors.inkMuted,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
+    }
 
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // 候选地标与常去地点点选流 (横向滑动选择胶囊)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            displayCandidates.take(10).forEach { candidate ->
-                val isSelected = candidate == selectedPlace
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(if (isSelected) colors.accentWarm.copy(alpha = 0.15f) else colors.archivePaper)
-                        .border(
-                            width = if (isSelected) 0.8.dp else 0.5.dp,
-                            color = if (isSelected) colors.accentWarm else colors.borderDivider,
-                            shape = RoundedCornerShape(3.dp)
-                        )
-                        .clickable { onPlaceSelected(candidate) }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = candidate,
-                        fontFamily = ArchiveFontFamilies.BodySans,
-                        fontSize = 11.sp,
-                        fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
-                        color = if (isSelected) colors.accentWarm else colors.inkSecondary
-                    )
-                }
-            }
-
-            // 自定义补充输入胶囊
+    if (showDialog) {
+        Dialog(onDismissRequest = { showDialog = false }) {
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(3.dp))
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
                     .background(colors.archivePaper)
-                    .border(0.5.dp, colors.borderDivider, RoundedCornerShape(3.dp))
-                    .clickable { showCustomInputDialog = true }
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .border(0.5.dp, colors.borderDivider, RoundedCornerShape(8.dp))
+                    .padding(16.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Outlined.Edit,
-                        contentDescription = "自定地点",
-                        tint = colors.inkMuted,
-                        modifier = Modifier.size(11.dp)
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = "自定…",
-                        fontFamily = ArchiveFontFamilies.BodySans,
-                        fontSize = 11.sp,
-                        color = colors.inkMuted
-                    )
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = label ?: "请选择",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.inkPrimary
+                        )
+                        IconButton(
+                            onClick = { showDialog = false },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "关闭",
+                                tint = colors.inkMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.5f))
+
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 280.dp)
+                    ) {
+                        items(options) { (value, optLabel) ->
+                            val isSelected = value == selectedValue
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (isSelected) colors.accentWarm.copy(alpha = 0.12f) else colors.archivePaper)
+                                    .clickable {
+                                        onSelected(value)
+                                        showDialog = false
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 9.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = optLabel,
+                                    fontFamily = if (isSelected) ArchiveFontFamilies.EditorialSerif else ArchiveFontFamilies.BodySans,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                                    color = if (isSelected) colors.accentWarm else colors.inkPrimary
+                                )
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Check,
+                                        contentDescription = null,
+                                        tint = colors.accentWarm,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
-
-    if (showCustomInputDialog) {
-        ArchivePromptDialog(
-            title = "自定义地点名称",
-            placeholder = "具体地点…",
-            initialValue = selectedPlace,
-            onConfirm = { custom ->
-                if (custom.isNotBlank()) {
-                    onPlaceSelected(custom.trim())
-                }
-                showCustomInputDialog = false
-            },
-            onDismiss = { showCustomInputDialog = false }
-        )
-    }
 }
-
-

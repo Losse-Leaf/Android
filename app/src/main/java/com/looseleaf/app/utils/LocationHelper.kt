@@ -28,7 +28,6 @@ object LocationHelper {
         val cityCode: String?,
         val cityName: String?,
         val locationName: String,
-        val candidatePlaces: List<String>,
         val latitude: Double,
         val longitude: Double
     )
@@ -47,13 +46,6 @@ object LocationHelper {
         ) == PackageManager.PERMISSION_GRANTED
         return fine || coarse
     }
-
-    /**
-     * 常用生活空间常去候选点（无网络或首次使用时的优雅纸墨预置）
-     */
-    val commonScenePresets = listOf(
-        "家", "工作室", "咖啡馆", "书房", "街巷", "公园", "旅途", "茶室"
-    )
 
     /**
      * 获取当前物理位置并进行逆地理编码与城市推断
@@ -204,7 +196,6 @@ object LocationHelper {
             cityCode = cityCode,
             cityName = cityName,
             locationName = primaryLocation,
-            candidatePlaces = candidates.distinct(),
             latitude = lat,
             longitude = lng
         )

@@ -14,8 +14,8 @@ android {
         applicationId = "com.looseleaf.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "1.3.6"
+        versionCode = 18
+        versionName = "1.3.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
