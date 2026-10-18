@@ -39,6 +39,10 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.theme.SpectrumColors
 import com.looseleaf.app.ui.components.*
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.looseleaf.app.utils.LocationHelper
 import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.launch
@@ -83,6 +87,39 @@ fun LedgerScreen(
     var selectedCityName by rememberSaveable { mutableStateOf<String?>(null) }
     var txOccurredAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
     var hasInitializedLedger by rememberSaveable { mutableStateOf(false) }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions.values.any { it }) {
+            scope.launch {
+                val loc = LocationHelper.getCurrentLocation(context)
+                if (loc != null && !loc.cityCode.isNullOrBlank()) {
+                    selectedCityCode = loc.cityCode
+                    selectedCityName = loc.cityName
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (selectedCityCode.isNullOrBlank()) {
+            if (LocationHelper.hasLocationPermission(context)) {
+                val loc = LocationHelper.getCurrentLocation(context)
+                if (loc != null && !loc.cityCode.isNullOrBlank()) {
+                    selectedCityCode = loc.cityCode
+                    selectedCityName = loc.cityName
+                }
+            } else {
+                locationPermissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
+            }
+        }
+    }
 
     // 分期参数
     var isInstallment by remember { mutableStateOf(false) }
@@ -450,7 +487,7 @@ fun LedgerScreen(
                                 PaperTextField(
                                     value = noteText,
                                     onValueChange = { noteText = it },
-                                    placeholder = "备注，或输入“42.5 手冲咖啡”点拆解",
+                                    placeholder = "备注…",
                                     isUnderline = true,
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
@@ -475,29 +512,23 @@ fun LedgerScreen(
                                     }
                                 )
 
-                                // 发生时间与属地城市点选 (关联城市账单光谱与同城足迹)
+                                // 发生时间拆解：独立日期与独立时刻
                                 Spacer(modifier = Modifier.height(6.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    PaperDateTimePickerField(
-                                        selectedDateTime = txOccurredAt,
-                                        onDateTimeSelected = { txOccurredAt = it },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Box(modifier = Modifier.weight(1f)) {
-                                        PaperCityPickerField(
-                                            selectedCityCode = selectedCityCode,
-                                            selectedCityName = selectedCityName,
-                                            onCitySelected = { code, name ->
-                                                selectedCityCode = code
-                                                selectedCityName = name
-                                            },
-                                            placeholder = "属地城市…"
-                                        )
-                                    }
-                                }
+                                PaperDateTimeSplitRow(
+                                    selectedDateTime = txOccurredAt,
+                                    onDateTimeSelected = { txOccurredAt = it }
+                                )
+
+                                Spacer(modifier = Modifier.height(6.dp))
+                                PaperCityPickerField(
+                                    selectedCityCode = selectedCityCode,
+                                    selectedCityName = selectedCityName,
+                                    onCitySelected = { code, name ->
+                                        selectedCityCode = code
+                                        selectedCityName = name
+                                    },
+                                    placeholder = "选择城市…"
+                                )
 
                                 // 支出模式下的分期支持开关
                                 if (selectedType == "expense") {
@@ -795,27 +826,22 @@ fun LedgerScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        PaperDateTimePickerField(
-                            selectedDateTime = editOccurredAt,
-                            onDateTimeSelected = { editOccurredAt = it },
-                            modifier = Modifier.weight(1f)
-                        )
-                        Box(modifier = Modifier.weight(1f)) {
-                            PaperCityPickerField(
-                                selectedCityCode = editCityCode,
-                                selectedCityName = editCityName,
-                                onCitySelected = { code, name ->
-                                    editCityCode = code
-                                    editCityName = name
-                                },
-                                placeholder = "属地城市…"
-                            )
-                        }
-                    }
+                    PaperDateTimeSplitRow(
+                        selectedDateTime = editOccurredAt,
+                        onDateTimeSelected = { editOccurredAt = it }
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    PaperCityPickerField(
+                        selectedCityCode = editCityCode,
+                        selectedCityName = editCityName,
+                        onCitySelected = { code, name ->
+                            editCityCode = code
+                            editCityName = name
+                        },
+                        placeholder = "选择城市…"
+                    )
 
                     PaperTextEditor(
                         value = editNote,

@@ -511,7 +511,7 @@ fun ProfileScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                             Text("当月支出", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text("¥${FormatUtils.centsToYuanString(globalStats?.monthExpense ?: 0)}", fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                            Text(FormatUtils.centsToYuanString(globalStats?.monthExpense ?: 0), fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
                         }
                     }
                 }
@@ -677,7 +677,7 @@ fun ProfileScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = credentialStore.deviceName.ifBlank { "Android 随行设备" },

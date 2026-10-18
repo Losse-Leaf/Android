@@ -47,8 +47,13 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.looseleaf.app.audio.AudioEngine
+import android.Manifest
+import android.net.Uri
+import androidx.core.content.FileProvider
 import com.looseleaf.app.darkroom.ImagePipeline
+import com.looseleaf.app.darkroom.ProcessedImageResult
 import com.looseleaf.app.data.api.APIClient
+import com.looseleaf.app.data.sync.OfflineMediaFileItem
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.model.AlmanacSummaryResponse
@@ -63,7 +68,13 @@ import com.looseleaf.app.updater.UpdateCheckResult
 import com.looseleaf.app.updater.UpdateChecker
 import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
+import com.looseleaf.app.utils.LocationHelper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -183,7 +194,7 @@ fun StreamScreen(
             ) {
                 Column {
                     Text(
-                        text = "散页 · 时光手账",
+                        text = "散页 · 随行手账",
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
                         fontSize = 22.sp,
@@ -578,30 +589,12 @@ fun StreamScreen(
             )
         }
 
-        // 速记随笔底抽信笺
+        // 随手写散页与图文装裱底抽信笺
         if (showQuickNoteDialog) {
             QuickNoteSheet(
                 onDismiss = { showQuickNoteDialog = false },
-                onSave = { type, title, content, cityCode, cityName, loc, occurredAt, featured ->
-                    scope.launch {
-                        haptics.stampSave()
-                        AudioEngine.playShutter()
-                        val finalCode = cityCode ?: CityDictionary.codeForLocation(loc)
-                        val finalCityName = cityName ?: finalCode?.let { CityDictionary.cityNameForCode(it) }
-                        syncManager.createEntryOptimistic(
-                            type = type,
-                            title = title.ifBlank { "无题随笔" },
-                            content = content,
-                            occurredAt = occurredAt,
-                            location = loc.takeIf { it.isNotBlank() },
-                            cityCode = finalCode,
-                            cityName = finalCityName,
-                            featured = featured
-                        )
-                        ArchiveToastManager.show("随笔已归册")
-                        showQuickNoteDialog = false
-                    }
-                }
+                syncManager = syncManager,
+                onSuccess = { showQuickNoteDialog = false }
             )
         }
 
@@ -905,27 +898,22 @@ private fun EntryDetailSheetDialog(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        PaperDateTimePickerField(
-                            selectedDateTime = editOccurredAt,
-                            onDateTimeSelected = { editOccurredAt = it },
-                            modifier = Modifier.weight(1f)
-                        )
-                        Box(modifier = Modifier.weight(1f)) {
-                            PaperCityPickerField(
-                                selectedCityCode = editCityCode,
-                                selectedCityName = editCityName,
-                                onCitySelected = { code, name ->
-                                    editCityCode = code
-                                    editCityName = name
-                                },
-                                placeholder = "点选属地城市…"
-                            )
-                        }
-                    }
+                    PaperDateTimeSplitRow(
+                        selectedDateTime = editOccurredAt,
+                        onDateTimeSelected = { editOccurredAt = it }
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    PaperCityPickerField(
+                        selectedCityCode = editCityCode,
+                        selectedCityName = editCityName,
+                        onCitySelected = { code, name ->
+                            editCityCode = code
+                            editCityName = name
+                        },
+                        placeholder = "选择城市…"
+                    )
 
                     Spacer(modifier = Modifier.height(14.dp))
 
@@ -2000,7 +1988,7 @@ private fun GlobalSearchDialog(
                             searchResult = null
                         }
                     },
-                    placeholder = "搜索生活印记、山川足迹、心愿或造物…",
+                    placeholder = "搜索……",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     trailingIcon = {
@@ -2154,21 +2142,194 @@ private fun GlobalSearchDialog(
     }
 }
 
+private data class AttachedPhotoItem(
+    val previewUri: String,
+    val processed: ProcessedImageResult,
+    val savedFile: File
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun QuickNoteSheet(
     onDismiss: () -> Unit,
-    onSave: (type: String, title: String, content: String, cityCode: String?, cityName: String?, location: String, occurredAt: String, featured: Boolean) -> Unit
+    syncManager: SyncManager,
+    onSuccess: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val colors = LooseLeafTheme.colors
+    val haptics = remember { HapticsEngine.getInstance(context) }
+
     var noteType by remember { mutableStateOf("life") }
     var noteTitle by remember { mutableStateOf("") }
     var noteContent by remember { mutableStateOf("") }
     var noteCityCode by remember { mutableStateOf<String?>(null) }
     var noteCityName by remember { mutableStateOf<String?>(null) }
     var noteLocation by remember { mutableStateOf("") }
+    var candidatePlaces by remember { mutableStateOf<List<String>>(LocationHelper.commonScenePresets) }
+    var isLocating by remember { mutableStateOf(false) }
     var noteFeatured by remember { mutableStateOf(false) }
     var noteOccurredAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
+    var isSubmitting by remember { mutableStateOf(false) }
+
+    // 照片装裱状态
+    var attachedPhotos by remember { mutableStateOf<List<AttachedPhotoItem>>(emptyList()) }
+    var isProcessingPhoto by remember { mutableStateOf(false) }
+
+    // 1. 定位获取与逆地理反查
+    val fetchCurrentLocation: () -> Unit = {
+        scope.launch {
+            isLocating = true
+            val res = LocationHelper.getCurrentLocation(context)
+            if (res != null) {
+                if (noteCityCode.isNullOrBlank() && !res.cityCode.isNullOrBlank()) {
+                    noteCityCode = res.cityCode
+                    noteCityName = res.cityName
+                }
+                if (noteLocation.isBlank() && res.locationName.isNotBlank()) {
+                    noteLocation = res.locationName
+                }
+                candidatePlaces = (res.candidatePlaces + LocationHelper.commonScenePresets).distinct()
+            }
+            isLocating = false
+        }
+    }
+
+    // 定位权限申请
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions.values.any { it }) {
+            fetchCurrentLocation()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (LocationHelper.hasLocationPermission(context)) {
+            fetchCurrentLocation()
+        } else {
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
+    // 2. 相机直拍
+    var pendingCameraFile by remember { mutableStateOf<File?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        val file = pendingCameraFile
+        if (success && file != null && file.exists() && file.length() > 0) {
+            scope.launch {
+                isProcessingPhoto = true
+                try {
+                    val uri = Uri.fromFile(file)
+                    val processed = withContext(Dispatchers.IO) {
+                        ImagePipeline.processImage(context, uri)
+                    }
+                    val savedFile = withContext(Dispatchers.IO) {
+                        syncManager.saveCompressedImageToOutboxDir(processed.compressedBytes)
+                    }
+                    val fileUri = "file://${savedFile.absolutePath}"
+                    val newPhoto = AttachedPhotoItem(previewUri = fileUri, processed = processed, savedFile = savedFile)
+                    attachedPhotos = (attachedPhotos + newPhoto).take(9)
+
+                    // EXIF 自动回溯
+                    if (noteTitle.isBlank()) {
+                        noteTitle = "现场快门 · " + (processed.exif.model ?: "胶片相纸")
+                    }
+                    if (noteCityCode.isNullOrBlank()) {
+                        val inferredCode = processed.exif.inferredCityCode
+                        val inferredCity = processed.exif.inferredCityName ?: inferredCode?.let { CityDictionary.cityNameForCode(it) }
+                        if (!inferredCode.isNullOrBlank()) {
+                            noteCityCode = inferredCode
+                            noteCityName = inferredCity
+                        }
+                    }
+                    if (noteLocation.isBlank()) {
+                        val inferredCity = processed.exif.inferredCityName ?: processed.exif.inferredCityCode?.let { CityDictionary.cityNameForCode(it) }
+                        if (!inferredCity.isNullOrBlank()) {
+                            noteLocation = inferredCity
+                        }
+                    }
+                    processed.exif.dateTimeOriginal?.let { raw ->
+                        runCatching { noteOccurredAt = FormatUtils.parseToLocalDateTime(raw) }
+                    }
+                    haptics.shutterRelease()
+                    AudioEngine.playShutter()
+                    ArchiveToastManager.show("相纸已装裱")
+                } catch (e: Exception) {
+                    ArchiveToastManager.show("快门相纸装裱失败: ${e.message}", isError = true)
+                } finally {
+                    isProcessingPhoto = false
+                    runCatching { file.delete() }
+                    pendingCameraFile = null
+                }
+            }
+        } else {
+            runCatching { file?.delete() }
+            pendingCameraFile = null
+        }
+    }
+
+    // 3. 相册多选
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 9)
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            scope.launch {
+                isProcessingPhoto = true
+                try {
+                    val remainingSlots = 9 - attachedPhotos.size
+                    val targetUris = uris.take(remainingSlots)
+                    val newItems = withContext(Dispatchers.IO) {
+                        targetUris.map { uri ->
+                            async {
+                                val res = ImagePipeline.processImage(context, uri)
+                                val saved = syncManager.saveCompressedImageToOutboxDir(res.compressedBytes)
+                                AttachedPhotoItem(previewUri = "file://${saved.absolutePath}", processed = res, savedFile = saved)
+                            }
+                        }.awaitAll()
+                    }
+                    if (newItems.isNotEmpty()) {
+                        attachedPhotos = (attachedPhotos + newItems).take(9)
+                        val first = newItems.first()
+                        if (noteTitle.isBlank()) {
+                            noteTitle = "现场记录 · " + (first.processed.exif.model ?: "相纸影像")
+                        }
+                        if (noteCityCode.isNullOrBlank()) {
+                            val code = first.processed.exif.inferredCityCode
+                            val name = first.processed.exif.inferredCityName ?: code?.let { CityDictionary.cityNameForCode(it) }
+                            if (!code.isNullOrBlank()) {
+                                noteCityCode = code
+                                noteCityName = name
+                            }
+                        }
+                        if (noteLocation.isBlank()) {
+                            val city = first.processed.exif.inferredCityName ?: first.processed.exif.inferredCityCode?.let { CityDictionary.cityNameForCode(it) }
+                            if (!city.isNullOrBlank()) {
+                                noteLocation = city
+                            }
+                        }
+                        first.processed.exif.dateTimeOriginal?.let { raw ->
+                            runCatching { noteOccurredAt = FormatUtils.parseToLocalDateTime(raw) }
+                        }
+                        haptics.snapConfirm()
+                        ArchiveToastManager.show("已装裱 ${newItems.size} 张相纸")
+                    }
+                } catch (e: Exception) {
+                    ArchiveToastManager.show("相纸装裱失败: ${e.message}", isError = true)
+                } finally {
+                    isProcessingPhoto = false
+                }
+            }
+        }
+    }
+
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
@@ -2182,6 +2343,7 @@ private fun QuickNoteSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
             // 顶栏：取消 / 标题 / 存入散页
@@ -2205,30 +2367,77 @@ private fun QuickNoteSheet(
                     color = colors.inkPrimary
                 )
 
+                val canSave = (noteTitle.isNotBlank() || noteContent.isNotBlank() || attachedPhotos.isNotEmpty()) && !isSubmitting
                 TextButton(
-                    enabled = noteTitle.isNotBlank() || noteContent.isNotBlank(),
+                    enabled = canSave,
                     onClick = {
-                        val fallbackCode = noteCityCode ?: CityDictionary.codeForLocation(noteLocation)
-                        val fallbackName = noteCityName ?: fallbackCode?.let { CityDictionary.cityNameForCode(it) }
-                        onSave(
-                            noteType,
-                            noteTitle.trim(),
-                            noteContent.trim(),
-                            fallbackCode,
-                            fallbackName,
-                            noteLocation.trim(),
-                            FormatUtils.toBeijingIsoString(noteOccurredAt),
-                            noteFeatured
-                        )
+                        scope.launch {
+                            isSubmitting = true
+                            haptics.stampSave()
+                            AudioEngine.playShutter()
+
+                            val finalCode = noteCityCode ?: CityDictionary.codeForLocation(noteLocation)
+                            val finalCityName = noteCityName ?: finalCode?.let { CityDictionary.cityNameForCode(it) }
+                            val effectiveTitle = noteTitle.ifBlank {
+                                if (attachedPhotos.isNotEmpty()) "现场快门 · " + (attachedPhotos.first().processed.exif.model ?: "胶片相纸")
+                                else "无题随笔"
+                            }
+
+                            if (attachedPhotos.isNotEmpty()) {
+                                val primary = attachedPhotos.first()
+                                val extraFiles = attachedPhotos.drop(1).map {
+                                    OfflineMediaFileItem(
+                                        filePath = it.savedFile.absolutePath,
+                                        mimeType = it.processed.mimeType,
+                                        width = it.processed.width,
+                                        height = it.processed.height
+                                    )
+                                }
+                                val req = CreateEntryRequest(
+                                    type = noteType,
+                                    title = effectiveTitle,
+                                    content = noteContent.trim(),
+                                    occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
+                                    location = noteLocation.trim().takeIf { it.isNotBlank() },
+                                    cityCode = finalCode,
+                                    cityName = finalCityName,
+                                    featured = noteFeatured
+                                )
+                                syncManager.createMediaEntryOffline(
+                                    localImageFilePath = primary.savedFile.absolutePath,
+                                    mimeType = primary.processed.mimeType,
+                                    width = primary.processed.width,
+                                    height = primary.processed.height,
+                                    req = req,
+                                    additionalMediaFiles = extraFiles
+                                )
+                                ArchiveToastManager.show("图文散页已装裱归册")
+                            } else {
+                                syncManager.createEntryOptimistic(
+                                    type = noteType,
+                                    title = effectiveTitle,
+                                    content = noteContent.trim(),
+                                    occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
+                                    location = noteLocation.trim().takeIf { it.isNotBlank() },
+                                    cityCode = finalCode,
+                                    cityName = finalCityName,
+                                    featured = noteFeatured
+                                )
+                                ArchiveToastManager.show("随笔已归册")
+                            }
+
+                            isSubmitting = false
+                            onSuccess()
+                        }
                     },
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                 ) {
                     Text(
-                        text = "存入手账",
+                        text = if (isSubmitting) "归册中…" else "存入散页",
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
                         fontSize = 14.sp,
-                        color = if (noteTitle.isNotBlank() || noteContent.isNotBlank()) colors.accentWarm else colors.inkMuted
+                        color = if (canSave) colors.accentWarm else colors.inkMuted
                     )
                 }
             }
@@ -2246,7 +2455,7 @@ private fun QuickNoteSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // 标题输入（大号无框衬线体）
             androidx.compose.foundation.text.BasicTextField(
@@ -2275,18 +2484,17 @@ private fun QuickNoteSheet(
                 }
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // 正文书写（开阔自由无框文稿区，绝无发黄盒子）
+            // 正文书写（开阔自由无框文稿区）
             androidx.compose.foundation.text.BasicTextField(
                 value = noteContent,
                 onValueChange = { noteContent = it },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f, fill = false)
-                    .heightIn(min = 140.dp, max = 280.dp),
+                    .heightIn(min = 90.dp, max = 220.dp),
                 textStyle = TextStyle(
                     fontFamily = ArchiveFontFamilies.BodySans,
                     fontSize = 15.sp,
@@ -2308,101 +2516,258 @@ private fun QuickNoteSheet(
                 }
             )
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 图文一体装裱胶片槽位 (Unified Photo Framing)
+            if (attachedPhotos.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "已装裱相纸 (${attachedPhotos.size}/9)",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 12.sp,
+                        color = colors.inkSecondary
+                    )
+                    if (attachedPhotos.size < 9) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(
+                                onClick = {
+                                    val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+                                    val f = File(dir, "snap_${System.currentTimeMillis()}.jpg")
+                                    pendingCameraFile = f
+                                    val u = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
+                                    cameraLauncher.launch(u)
+                                },
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("快门直拍", fontSize = 11.5.sp, color = colors.accentWarm)
+                            }
+                            TextButton(
+                                onClick = {
+                                    galleryLauncher.launch(
+                                        androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("加选相册", fontSize = 11.5.sp, color = colors.accentWarm)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    attachedPhotos.forEachIndexed { idx, photo ->
+                        Box(
+                            modifier = Modifier
+                                .size(88.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(colors.archiveSubtle)
+                                .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
+                        ) {
+                            AsyncImage(
+                                model = photo.previewUri,
+                                contentDescription = "装裱相纸",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            // 右上角移除小叉
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(3.dp)
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.inkPrimary.copy(alpha = 0.65f))
+                                    .clickable {
+                                        attachedPhotos = attachedPhotos.filterIndexed { i, _ -> i != idx }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Close,
+                                    contentDescription = "移除相纸",
+                                    tint = colors.archivePaper,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                            // 左下角序号标尺
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(3.dp)
+                                    .background(colors.inkPrimary.copy(alpha = 0.6f), RoundedCornerShape(2.dp))
+                                    .padding(horizontal = 3.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = "${idx + 1}",
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    fontSize = 9.sp,
+                                    color = colors.archivePaper
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+            } else {
+                // 图文一体快捷唤起工具栏 (相机直拍 + 相册加图)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(colors.archiveSubtle.copy(alpha = 0.4f))
+                        .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isProcessingPhoto) "相纸显影处理中…" else "装裱现场胶片相纸 (图文一体)",
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 11.5.sp,
+                        color = colors.inkMuted
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Button(
+                            onClick = {
+                                val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+                                val f = File(dir, "snap_${System.currentTimeMillis()}.jpg")
+                                pendingCameraFile = f
+                                val u = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
+                                cameraLauncher.launch(u)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = colors.archivePaper,
+                                contentColor = colors.inkPrimary
+                            ),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(colors.borderDivider)),
+                            shape = RoundedCornerShape(3.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text("📸 拍照", fontSize = 11.5.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                galleryLauncher.launch(
+                                    androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = colors.archivePaper,
+                                contentColor = colors.inkPrimary
+                            ),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(colors.borderDivider)),
+                            shape = RoundedCornerShape(3.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text("🖼️ 选图", fontSize = 11.5.sp)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 发生时刻与属地行政区划城市点选
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                PaperDateTimePickerField(
-                    selectedDateTime = noteOccurredAt,
-                    onDateTimeSelected = { noteOccurredAt = it },
-                    modifier = Modifier.weight(1f)
-                )
-                Box(modifier = Modifier.weight(1f)) {
-                    PaperCityPickerField(
-                        selectedCityCode = noteCityCode,
-                        selectedCityName = noteCityName,
-                        onCitySelected = { code, name ->
-                            noteCityCode = code
-                            noteCityName = name
-                        },
-                        placeholder = "属地城市…"
-                    )
-                }
-            }
+            // 发生时刻（拆分日期与时刻独立槽位）
+            Text(
+                text = "发生时刻与时空锚点",
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontSize = 11.5.sp,
+                color = colors.inkMuted
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            PaperDateTimeSplitRow(
+                selectedDateTime = noteOccurredAt,
+                onDateTimeSelected = { noteOccurredAt = it }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 属地行政区划城市与地点点选盘 (拿来选的，不是拿来填的)
+            Text(
+                text = "空间驻留地点",
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontSize = 11.5.sp,
+                color = colors.inkMuted
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+
+            PaperCityPickerField(
+                selectedCityCode = noteCityCode,
+                selectedCityName = noteCityName,
+                onCitySelected = { code, name ->
+                    noteCityCode = code
+                    noteCityName = name
+                },
+                placeholder = if (isLocating) "正在定位…" else "选择城市…"
+            )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 底部轻量地点输入（空间/街巷细节）
+            PaperPlaceSelector(
+                selectedPlace = noteLocation,
+                onPlaceSelected = { noteLocation = it },
+                candidatePlaces = candidatePlaces,
+                onRequestLocation = { fetchCurrentLocation() },
+                placeholder = if (isLocating) "正在检索周边…" else "具体地点…"
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 精选特刊收录标记（古典纸墨印章勾选块）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(4.dp))
-                    .background(colors.archiveSubtle.copy(alpha = 0.5f))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.LocationOn,
-                    contentDescription = null,
-                    tint = colors.accentWarm,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                androidx.compose.foundation.text.BasicTextField(
-                    value = noteLocation,
-                    onValueChange = { noteLocation = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    textStyle = TextStyle(
-                        fontFamily = ArchiveFontFamilies.BodySans,
-                        fontSize = 12.sp,
-                        color = colors.inkSecondary
-                    ),
-                    cursorBrush = SolidColor(colors.accentWarm),
-                    decorationBox = { innerTextField ->
-                        if (noteLocation.isEmpty()) {
-                            Text(
-                                text = "街巷、地标或所处空间细节（选填）",
-                                fontSize = 12.sp,
-                                color = colors.inkMuted
-                            )
-                        }
-                        innerTextField()
-                    }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // 精选印记标记
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
                     .clickable { noteFeatured = !noteFeatured }
                     .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Checkbox(
-                    checked = noteFeatured,
-                    onCheckedChange = { noteFeatured = it },
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = colors.accentWarm,
-                        uncheckedColor = colors.inkMuted
-                    )
-                )
-                Spacer(modifier = Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .size(16.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(if (noteFeatured) colors.accentWarm else colors.archiveSubtle)
+                        .border(
+                            0.8.dp,
+                            if (noteFeatured) colors.accentWarm else colors.borderDivider,
+                            RoundedCornerShape(3.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (noteFeatured) {
+                        Text("✓", fontSize = 10.sp, color = colors.archivePaper, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "标记为精选印记（收录于精选特刊）",
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 13.sp,
-                    color = colors.inkPrimary
+                    fontSize = 12.5.sp,
+                    color = if (noteFeatured) colors.accentWarm else colors.inkPrimary
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

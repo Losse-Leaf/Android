@@ -81,7 +81,7 @@ class MainActivity : FragmentActivity() {
                         BiometricHelper.authenticate(
                             activity = this@MainActivity,
                             title = "散页身份验证",
-                            subtitle = "验证面容或指纹以解锁时光手账",
+                            subtitle = "验证面容或指纹以解锁散页随行手账",
                             onSuccess = { isUnlocked = true },
                             onError = { /* 保持锁屏门禁态 */ }
                         )

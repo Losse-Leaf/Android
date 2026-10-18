@@ -1,9 +1,11 @@
 package com.looseleaf.app.ui.darkroom
 
+import android.Manifest
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import com.looseleaf.app.utils.LocationHelper
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -86,10 +88,48 @@ fun DarkroomScreen(
     var titleText by rememberSaveable { mutableStateOf("") }
     var contentText by rememberSaveable { mutableStateOf("") }
     var locationText by rememberSaveable { mutableStateOf("") }
+    var candidatePlaces by remember { mutableStateOf<List<String>>(LocationHelper.commonScenePresets) }
     var selectedCityCode by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedCityName by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedType by rememberSaveable { mutableStateOf("life") }
     var darkroomOccurredAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
+
+    val fetchCurrentLocation: () -> Unit = {
+        scope.launch {
+            val res = LocationHelper.getCurrentLocation(context)
+            if (res != null) {
+                if (selectedCityCode.isNullOrBlank() && !res.cityCode.isNullOrBlank()) {
+                    selectedCityCode = res.cityCode
+                    selectedCityName = res.cityName
+                }
+                if (locationText.isBlank() && res.locationName.isNotBlank()) {
+                    locationText = res.locationName
+                }
+                candidatePlaces = (res.candidatePlaces + LocationHelper.commonScenePresets).distinct()
+            }
+        }
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions.values.any { it }) {
+            fetchCurrentLocation()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (LocationHelper.hasLocationPermission(context)) {
+            fetchCurrentLocation()
+        } else {
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
 
     // 临时快门拍照文件引用
     var pendingCaptureFile by remember { mutableStateOf<File?>(null) }
@@ -445,7 +485,7 @@ fun DarkroomScreen(
                     PaperTextField(
                         value = titleText,
                         onValueChange = { titleText = it },
-                        placeholder = "记录此刻命名...",
+                        placeholder = "标题…",
                         isUnderline = true,
                         textStyle = TextStyle(
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
@@ -462,47 +502,38 @@ fun DarkroomScreen(
                     PaperTextEditor(
                         value = contentText,
                         onValueChange = { contentText = it },
-                        placeholder = "记录现场气味、光影、或片刻偶遇...",
+                        placeholder = "随笔手记…",
                         minHeight = 96.dp,
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        PaperDateTimePickerField(
-                            selectedDateTime = darkroomOccurredAt,
-                            onDateTimeSelected = { darkroomOccurredAt = it },
-                            modifier = Modifier.weight(1f)
-                        )
-                        Box(modifier = Modifier.weight(1f)) {
-                            PaperCityPickerField(
-                                selectedCityCode = selectedCityCode,
-                                selectedCityName = selectedCityName,
-                                onCitySelected = { code, name ->
-                                    selectedCityCode = code
-                                    selectedCityName = name
-                                },
-                                placeholder = "属地城市…"
-                            )
-                        }
-                    }
+                    // 发生时刻（拆分日期与时刻独立槽位）
+                    Spacer(modifier = Modifier.height(10.dp))
+                    PaperDateTimeSplitRow(
+                        selectedDateTime = darkroomOccurredAt,
+                        onDateTimeSelected = { darkroomOccurredAt = it }
+                    )
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    PaperTextField(
-                        value = locationText,
-                        onValueChange = { locationText = it },
-                        placeholder = "街巷、地标或所处空间细节（选填）",
-                        isUnderline = true,
-                        leadingIcon = {
-                            Icon(Icons.Outlined.LocationOn, contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(16.dp))
+                    PaperCityPickerField(
+                        selectedCityCode = selectedCityCode,
+                        selectedCityName = selectedCityName,
+                        onCitySelected = { code, name ->
+                            selectedCityCode = code
+                            selectedCityName = name
                         },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        placeholder = "选择城市…"
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    PaperPlaceSelector(
+                        selectedPlace = locationText,
+                        onPlaceSelected = { locationText = it },
+                        candidatePlaces = candidatePlaces,
+                        onRequestLocation = { fetchCurrentLocation() },
+                        placeholder = "具体地点…"
                     )
                 }
             }
