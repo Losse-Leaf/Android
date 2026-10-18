@@ -421,8 +421,6 @@ fun ProfileScreen(
                     )
                 }
             }
-                }
-            }
 
             // 全局档案指标概览卡片 (GlobalStats)
             Spacer(modifier = Modifier.height(16.dp))
@@ -1121,6 +1119,8 @@ fun ProfileScreen(
             Spacer(modifier = Modifier.height(96.dp))
         }
     }
+}
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
