@@ -51,7 +51,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
-import com.looseleaf.app.audio.AudioEngine
 import android.Manifest
 import android.net.Uri
 import androidx.core.content.FileProvider
@@ -60,7 +59,6 @@ import com.looseleaf.app.darkroom.ProcessedImageResult
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.sync.OfflineMediaFileItem
 import com.looseleaf.app.data.sync.SyncManager
-import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.model.AlmanacSummaryResponse
 import com.looseleaf.app.model.Attachment
 import com.looseleaf.app.model.CreateEntryRequest
@@ -103,7 +101,6 @@ fun StreamScreen(
     val colors = LooseLeafTheme.colors
     val apiClient = remember { APIClient.getInstance(context) }
     val syncManager = remember { SyncManager.getInstance(context) }
-    val haptics = remember { HapticsEngine.getInstance(context) }
 
     val entries by syncManager.entriesFlow.collectAsState()
     val pendingCount by syncManager.pendingEventCountFlow.collectAsState()
@@ -230,7 +227,6 @@ fun StreamScreen(
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(colors.accentWarm.copy(alpha = 0.12f))
                                 .clickable {
-                                    haptics.tapKey()
                                     scope.launch {
                                         ArchiveToastManager.show("正在同步发件箱 ($pendingCount 项待重放)…")
                                         syncManager.pullRemoteData()
@@ -258,7 +254,6 @@ fun StreamScreen(
                     // 全局检索按钮
                     IconButton(
                         onClick = {
-                            haptics.tapKey()
                             showSearchDialog = true
                         },
                         modifier = Modifier.size(32.dp)
@@ -274,7 +269,6 @@ fun StreamScreen(
                     // + 记随笔入口
                     IconButton(
                         onClick = {
-                            haptics.tapKey()
                             showQuickNoteDialog = true
                         },
                         modifier = Modifier.size(32.dp)
@@ -290,7 +284,6 @@ fun StreamScreen(
                     // 年度年鉴入口按钮
                     IconButton(
                         onClick = {
-                            haptics.tapKey()
                             showAlmanacDialog = true
                         },
                         modifier = Modifier.size(32.dp)
@@ -440,7 +433,6 @@ fun StreamScreen(
             StreamFilterBar(
                 selectedFilter = selectedFilter,
                 onFilterSelected = {
-                    haptics.tapKey()
                     selectedFilter = it
                 }
             )
@@ -450,7 +442,6 @@ fun StreamScreen(
                 availableYears = availableYears,
                 selectedYear = selectedYear,
                 onYearSelected = {
-                    haptics.tapKey()
                     selectedYear = it
                 }
             )
@@ -513,11 +504,9 @@ fun StreamScreen(
                                 entries = onThisDayEntries,
                                 isExpanded = isOnThisDayExpanded,
                                 onToggleExpand = {
-                                    haptics.tapKey()
                                     isOnThisDayExpanded = !isOnThisDayExpanded
                                 },
                                 onSelectEntry = { entry ->
-                                    haptics.tapKey()
                                     selectedEntryForDetail = entry
                                 },
                                 modifier = Modifier.padding(bottom = 10.dp)
@@ -542,7 +531,6 @@ fun StreamScreen(
                             entry = entry,
                             apiClient = apiClient,
                             onClick = {
-                                haptics.tapKey()
                                 selectedEntryForDetail = entry
                             },
                             onDelete = {
@@ -566,7 +554,6 @@ fun StreamScreen(
                 onDismiss = { selectedEntryForDetail = null },
                 onSaveEdit = { req ->
                     scope.launch {
-                        haptics.stampSave()
                         syncManager.updateEntryOptimistic(activeEntry.id, req)
                         ArchiveToastManager.show("已修订归册")
                         selectedEntryForDetail = null
@@ -590,7 +577,6 @@ fun StreamScreen(
                 isDestructive = true,
                 onConfirm = {
                     scope.launch {
-                        haptics.tearDelete()
                         syncManager.deleteEntry(entry.id)
                         ArchiveToastManager.show("已撕除记录")
                         entryToDelete = null
@@ -2211,7 +2197,6 @@ private fun QuickNoteSheet(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val colors = LooseLeafTheme.colors
-    val haptics = remember { HapticsEngine.getInstance(context) }
 
     val projects by syncManager.projectsFlow.collectAsState()
     val footprints by syncManager.footprintsFlow.collectAsState()
@@ -2342,8 +2327,6 @@ private fun QuickNoteSheet(
                     processed.exif.dateTimeOriginal?.let { raw ->
                         runCatching { noteOccurredAt = FormatUtils.parseToLocalDateTime(raw) }
                     }
-                    haptics.shutterRelease()
-                    AudioEngine.playShutter()
                     ArchiveToastManager.show("相纸已装裱")
                 } catch (e: Exception) {
                     ArchiveToastManager.show("快门相纸装裱失败: ${e.message}", isError = true)
@@ -2401,7 +2384,6 @@ private fun QuickNoteSheet(
                         first.processed.exif.dateTimeOriginal?.let { raw ->
                             runCatching { noteOccurredAt = FormatUtils.parseToLocalDateTime(raw) }
                         }
-                        haptics.snapConfirm()
                         ArchiveToastManager.show("已装裱 ${newItems.size} 张相纸")
                     }
                 } catch (e: Exception) {
@@ -2483,8 +2465,6 @@ private fun QuickNoteSheet(
                     onClick = {
                         scope.launch {
                             isSubmitting = true
-                            haptics.stampSave()
-                            AudioEngine.playShutter()
 
                             try {
                                 val finalCode = noteCityCode ?: CityDictionary.codeForLocation(noteLocation)

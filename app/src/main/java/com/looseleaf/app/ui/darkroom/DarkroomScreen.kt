@@ -35,14 +35,12 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.looseleaf.app.audio.AudioEngine
 import com.looseleaf.app.darkroom.ImagePipeline
 import com.looseleaf.app.darkroom.ProcessedImageResult
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.api.APIException
 import com.looseleaf.app.data.sync.OfflineMediaFileItem
 import com.looseleaf.app.data.sync.SyncManager
-import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.model.Attachment
 import com.looseleaf.app.model.CreateEntryRequest
 import com.looseleaf.app.theme.ArchiveFontFamilies
@@ -78,7 +76,6 @@ fun DarkroomScreen(
     val colors = LooseLeafTheme.colors
     val apiClient = remember { APIClient.getInstance(context) }
     val syncManager = remember { SyncManager.getInstance(context) }
-    val haptics = remember { HapticsEngine.getInstance(context) }
 
     var photoSlots by remember { mutableStateOf<List<DarkroomPhotoSlot>>(emptyList()) }
     var activeSlotIndex by remember { mutableStateOf(0) }
@@ -178,8 +175,6 @@ fun DarkroomScreen(
                     processed.exif.dateTimeOriginal?.let { raw ->
                         runCatching { darkroomOccurredAt = FormatUtils.parseToLocalDateTime(raw) }
                     }
-                    haptics.shutterRelease()
-                    AudioEngine.playShutter()
                     ArchiveToastManager.show("胶片显影完成，已装入暗房")
                 } catch (e: Exception) {
                     ArchiveToastManager.show("快门相纸显影失败: ${e.message}", isError = true)
@@ -316,7 +311,6 @@ fun DarkroomScreen(
             // 现场快门直拍
             Button(
                 onClick = {
-                    haptics.tapKey()
                     launchCameraCapture()
                 },
                 enabled = !isProcessing && photoSlots.size < 9,
@@ -619,8 +613,6 @@ fun DarkroomScreen(
                                     cityName = cityName
                                 )
                             }
-                            haptics.shutterRelease()
-                            AudioEngine.playShutter()
                             ArchiveToastManager.show("已装裱归入生活时间流")
                             onEntrySaved()
                         } catch (e: Exception) {

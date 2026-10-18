@@ -24,10 +24,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.fragment.app.FragmentActivity
-import com.looseleaf.app.audio.AudioEngine
 import com.looseleaf.app.data.security.BiometricHelper
 import com.looseleaf.app.data.security.CredentialStore
-import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.darkroom.DarkroomScreen
@@ -40,7 +38,6 @@ import com.looseleaf.app.ui.stream.StreamScreen
 class MainActivity : FragmentActivity() {
 
     private lateinit var credentialStore: CredentialStore
-    private lateinit var haptics: HapticsEngine
     private var requestedRouteState = mutableStateOf<String?>(null)
     private var pendingDeepLinkPayloadState = mutableStateOf<String?>(null)
 
@@ -49,7 +46,6 @@ class MainActivity : FragmentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         credentialStore = CredentialStore.getInstance(this)
-        haptics = HapticsEngine.getInstance(this)
 
         requestedRouteState.value = intent?.getStringExtra("shortcut_route")
         intent?.data?.toString()?.takeIf { it.startsWith("looseleaf://") }?.let {
@@ -159,8 +155,6 @@ class MainActivity : FragmentActivity() {
 
                     BackHandler {
                         if (currentRoute != "stream") {
-                            haptics.tapKey()
-                            AudioEngine.playPaperFlip()
                             currentRoute = "stream"
                         } else {
                             val now = System.currentTimeMillis()
@@ -181,8 +175,6 @@ class MainActivity : FragmentActivity() {
                                 LooseLeafBottomBar(
                                     currentRoute = currentRoute,
                                     onRouteSelected = { route ->
-                                        haptics.tapKey()
-                                        AudioEngine.playPaperFlip()
                                         currentRoute = route
                                     }
                                 )

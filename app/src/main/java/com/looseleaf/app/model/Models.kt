@@ -544,14 +544,62 @@ data class ResetCategoriesRequest(
 )
 
 @Serializable
-data class FullArchiveExport(
-    @SerialName("export_time") val exportTime: String = FormatUtils.beijingNowIsoString(),
-    @SerialName("app_version") val appVersion: String = "1.4.0",
-    val entries: List<LifeEntry> = emptyList(),
-    val transactions: List<Transaction> = emptyList(),
-    val wishes: List<Wish> = emptyList(),
-    val projects: List<Project> = emptyList(),
-    val footprints: List<Footprint> = emptyList()
+data class StorageStatus(
+    val provider: String = "local",
+    val configured: Boolean = false,
+    @SerialName("account_id") val accountId: String? = null,
+    val bucket: String? = null,
+    @SerialName("public_domain") val publicDomain: String? = null,
+    val endpoint: String? = null,
+    @SerialName("access_key_id") val accessKeyId: String? = null,
+    @SerialName("has_secret_key") val hasSecretKey: Boolean? = false,
+    @SerialName("local_file_count") val localFileCount: Int? = 0,
+    @SerialName("local_total_bytes") val localTotalBytes: Long? = 0
+)
+
+@Serializable
+data class StorageConfigRequest(
+    @SerialName("account_id") val accountId: String = "",
+    @SerialName("access_key_id") val accessKeyId: String = "",
+    @SerialName("secret_access_key") val secretAccessKey: String = "",
+    @SerialName("bucket_name") val bucketName: String = "",
+    val endpoint: String = "",
+    @SerialName("public_domain") val publicDomain: String = "",
+    @SerialName("presign_expire_seconds") val presignExpireSeconds: Int = 1800
+)
+
+@Serializable
+data class StorageTestResponse(
+    val status: String = "ok",
+    val message: String = "",
+    @SerialName("latency_ms") val latencyMs: Long = 0
+)
+
+@Serializable
+data class StorageMigrateResponse(
+    @SerialName("uploaded_to_r2") val uploadedToR2: Int = 0,
+    @SerialName("downloaded_to_local") val downloadedToLocal: Int = 0,
+    val message: String = ""
+)
+
+@Serializable
+data class BackupItem(
+    val filename: String,
+    val size: Long = 0,
+    @SerialName("created_at") val createdAt: String = "",
+    @SerialName("storage_type") val storageType: String = "local"
+)
+
+@Serializable
+data class RestoreBackupRequest(
+    val filename: String
+)
+
+@Serializable
+data class RestoreBackupResponse(
+    val message: String = "",
+    val filename: String = "",
+    val size: Long = 0
 )
 
 @Serializable

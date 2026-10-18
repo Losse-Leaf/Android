@@ -1152,57 +1152,6 @@ class SyncManager private constructor(private val context: Context) {
             }
         }
     }
-
-    /**
-     * 全量导出本地已缓存的生活手账档案为结构化 JSON 文件
-     */
-    suspend fun exportArchiveJson(): File = withContext(Dispatchers.IO) {
-        val entries = database.entryDao().getAllEntries().map { it.toDomainModel(json) }
-        val txs = database.transactionDao().getAllTransactions().map { it.toTransaction() }
-        val wishes = database.wishDao().getAllWishes().map { it.toWish(json) }
-        val projects = database.projectDao().getAllProjects().map { it.toProject() }
-        val footprints = database.footprintDao().getAllFootprints().map { it.toFootprint(json) }
-
-        val exportObj = FullArchiveExport(
-            exportTime = FormatUtils.beijingNowIsoString(),
-            appVersion = "1.4.0",
-            entries = entries,
-            transactions = txs,
-            wishes = wishes,
-            projects = projects,
-            footprints = footprints
-        )
-
-        val jsonStr = json.encodeToString(exportObj)
-        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
-        val dateTag = FormatUtils.beijingNowIsoString().take(10).replace("-", "")
-        val file = File(exportDir, "looseleaf_archive_$dateTag.json")
-        file.writeText(jsonStr, Charsets.UTF_8)
-        file
-    }
-
-    /**
-     * 导出本地财务记账明细为标准 CSV 文件
-     */
-    suspend fun exportLedgerCsv(): File = withContext(Dispatchers.IO) {
-        val txs = database.transactionDao().getAllTransactions().map { it.toTransaction() }
-        val sb = StringBuilder()
-        sb.append("ID,发生时间,类型,分类,标题,金额(元),支付方式,城市代码,分期,随附备注\n")
-        for (tx in txs) {
-            val isInc = tx.type == "income"
-            val typeStr = if (isInc) "收入" else "支出"
-            val yuan = FormatUtils.centsToYuanString(tx.amount, includeSymbol = false)
-            val instStr = if (tx.isInstallment == true) "${tx.installmentChannelCode ?: "分期"}(${tx.installmentMonths}期)" else "否"
-            val safeTitle = tx.title.replace(",", "，").replace("\n", " ")
-            val safeNote = (tx.note ?: "").replace(",", "，").replace("\n", " ")
-            sb.append("${tx.id},${tx.occurredAt},$typeStr,${tx.category},$safeTitle,$yuan,${tx.paymentMethod ?: ""},${tx.cityCode ?: ""},$instStr,$safeNote\n")
-        }
-        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
-        val dateTag = FormatUtils.beijingNowIsoString().take(10).replace("-", "")
-        val file = File(exportDir, "looseleaf_ledger_$dateTag.csv")
-        file.writeText(sb.toString(), Charsets.UTF_8)
-        file
-    }
 }
 
 // 扩展转换函数

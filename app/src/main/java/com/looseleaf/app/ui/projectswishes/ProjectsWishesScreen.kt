@@ -31,7 +31,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.data.api.APIClient
-import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.model.CityMemoryDrawerResponse
 import com.looseleaf.app.model.CreateFootprintRequest
 import com.looseleaf.app.model.CreateProjectRequest
@@ -64,7 +63,6 @@ fun ProjectsWishesScreen(
     val colors = LooseLeafTheme.colors
     val apiClient = remember { APIClient.getInstance(context) }
     val syncManager = remember { com.looseleaf.app.data.sync.SyncManager.getInstance(context) }
-    val haptics = remember { HapticsEngine.getInstance(context) }
 
     var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) } // 0: 造物, 1: 心愿, 2: 足迹
     val projects by syncManager.projectsFlow.collectAsState()
@@ -141,7 +139,6 @@ fun ProjectsWishesScreen(
                 }
                 TextButton(
                     onClick = {
-                        haptics.tapKey()
                         showCreateDialog = true
                     }
                 ) {
@@ -179,7 +176,6 @@ fun ProjectsWishesScreen(
                             .clip(RoundedCornerShape(14.dp))
                             .background(if (isSelected) colors.archivePaper else androidx.compose.ui.graphics.Color.Transparent)
                             .clickable {
-                                haptics.tapKey()
                                 selectedTab = index
                             }
                             .padding(vertical = 6.dp)
@@ -315,7 +311,6 @@ fun ProjectsWishesScreen(
                                                 )
                                             }
                                         }
-                                        haptics.stampSave()
                                         showCreateDialog = false
                                         reloadAll()
                                     } catch (e: Exception) {
@@ -560,7 +555,6 @@ fun ProjectsWishesScreen(
                                     entryContent = entryNote.takeIf { it.isNotBlank() }
                                 )
                             )
-                            haptics.stampSave()
                             resolvingWish = null
                             reloadAll()
                         } catch (e: Exception) {

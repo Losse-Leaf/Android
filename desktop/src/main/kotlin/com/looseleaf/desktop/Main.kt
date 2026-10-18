@@ -1078,7 +1078,7 @@ fun MockProfileScreen(isDarkTheme: Boolean) {
             )
         }
 
-        // 3. 随行偏好与拟物交互卡片
+        // 3. 随行偏好与隐私保护卡片
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1099,22 +1099,14 @@ fun MockProfileScreen(isDarkTheme: Boolean) {
             HorizontalDivider(color = borderDivider.copy(alpha = 0.4f), thickness = 0.5.dp)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("物理触感反馈 (Tactile Haptics)", fontSize = 13.sp, color = textPrimary)
-                    Text("按键敲击、印章落印与快门震动", fontSize = 10.5.sp, color = textMuted)
-                }
-                Text("已开启", fontSize = 11.sp, color = accentWarm)
-            }
-            HorizontalDivider(color = borderDivider.copy(alpha = 0.4f), thickness = 0.5.dp)
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("程序化机械音效 (Mechanical Sound)", fontSize = 13.sp, color = textPrimary)
-                    Text("算法实时合成快门、纸张翻动与打字音", fontSize = 10.5.sp, color = textMuted)
+                    Text("生物识别守护 (Biometrics)", fontSize = 13.sp, color = textPrimary)
+                    Text("解锁账本与敏感收支柱状图", fontSize = 10.5.sp, color = textMuted)
                 }
                 Text("已开启", fontSize = 11.sp, color = accentWarm)
             }
         }
 
-        // 4. 数据自持与本地全量备份卡片
+        // 4. 存储配置与快照灾备中枢卡片 (对齐 Web StorageBackupModal)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1124,23 +1116,11 @@ fun MockProfileScreen(isDarkTheme: Boolean) {
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("数据自持与本地备份", fontFamily = FontFamily.SansSerif, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = textPrimary)
-            Text("数据主权归属主理人，支持随时离线导出全量手账与账本明细：", fontSize = 11.sp, color = textMuted)
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(3.dp)).background(textPrimary).padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("导出手账 (JSON)", fontSize = 11.sp, color = if (isDarkTheme) Color(0xFF141312) else Color.White)
-                }
-                Box(
-                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(3.dp)).border(0.5.dp, borderDivider, RoundedCornerShape(3.dp)).padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("导出账单 (CSV)", fontSize = 11.sp, color = textPrimary)
-                }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("存储配置与快照灾备", fontFamily = FontFamily.SansSerif, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = textPrimary)
+                Text("配置与管理 ›", fontSize = 11.5.sp, color = accentWarm, modifier = Modifier.clickable { })
             }
+            Text("服务端全量 SQLite WAL 快照轮转管理，支持配置 Cloudflare R2 / S3 兼容对象存储与双向媒体同步。", fontSize = 11.sp, color = textMuted)
         }
 
         Spacer(modifier = Modifier.height(96.dp))

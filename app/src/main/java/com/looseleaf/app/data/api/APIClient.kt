@@ -600,4 +600,46 @@ class APIClient private constructor(private val context: Context) {
     suspend fun fetchGlobalStats(): GlobalStats {
         return executeEnvelopeRequest("/api/v1/stats", "GET")
     }
+
+    // MARK: - 8. 对象存储配置与全量快照灾备 (Storage & Backup)
+
+    suspend fun fetchStorageStatus(): StorageStatus {
+        return executeEnvelopeRequest("/api/v1/storage/status", "GET")
+    }
+
+    suspend fun testStorageConfig(req: StorageConfigRequest): StorageTestResponse {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/storage/test", "POST", body = body)
+    }
+
+    suspend fun updateStorageConfig(req: StorageConfigRequest): StorageStatus {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/storage/config", "PUT", body = body)
+    }
+
+    suspend fun resetStorageConfig(): StorageStatus {
+        return executeEnvelopeRequest("/api/v1/storage/config", "DELETE")
+    }
+
+    suspend fun migrateStorageMedia(): StorageMigrateResponse {
+        return executeEnvelopeRequest("/api/v1/storage/migrate", "POST")
+    }
+
+    suspend fun fetchBackupList(): List<BackupItem> {
+        return executeEnvelopeRequest("/api/v1/system/backup/list", "GET")
+    }
+
+    suspend fun createBackupNow(): BackupItem {
+        return executeEnvelopeRequest("/api/v1/system/backup/now", "POST")
+    }
+
+    suspend fun deleteBackup(filename: String): List<BackupItem> {
+        return executeEnvelopeRequest("/api/v1/system/backup/$filename", "DELETE")
+    }
+
+    suspend fun restoreBackup(filename: String): RestoreBackupResponse {
+        val req = RestoreBackupRequest(filename = filename)
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        return executeEnvelopeRequest("/api/v1/system/backup/restore", "POST", body = body)
+    }
 }

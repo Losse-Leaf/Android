@@ -29,12 +29,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.fragment.app.FragmentActivity
-import com.looseleaf.app.audio.AudioEngine
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.security.BiometricHelper
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.SyncManager
-import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.model.*
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
@@ -63,7 +61,6 @@ fun LedgerScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val colors = LooseLeafTheme.colors
-    val haptics = remember { HapticsEngine.getInstance(context) }
     val syncManager = remember { SyncManager.getInstance(context) }
     val credentialStore = remember { CredentialStore.getInstance(context) }
     val apiClient = remember { APIClient.getInstance(context) }
@@ -265,7 +262,6 @@ fun LedgerScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = {
-                            haptics.tapKey()
                             if (isPrivacyMasked && credentialStore.isBiometricsEnabled) {
                                 val act = context as? FragmentActivity
                                 if (act != null && BiometricHelper.canAuthenticate(act)) {
@@ -297,7 +293,6 @@ fun LedgerScreen(
                     IconButton(
                         onClick = {
                             scope.launch {
-                                haptics.tapKey()
                                 syncManager.pullRemoteData()
                                 reloadCategoriesAndAssets()
                                 ArchiveToastManager.show("账簿与资产已对齐")
@@ -335,7 +330,6 @@ fun LedgerScreen(
                             .clip(RoundedCornerShape(14.dp))
                             .background(if (isSelected) colors.archivePaper else Color.Transparent)
                             .clickable {
-                                haptics.tapKey()
                                 selectedTab = index
                             }
                             .padding(vertical = 6.dp)
@@ -397,7 +391,6 @@ fun LedgerScreen(
                                             text = "支出",
                                             isSelected = selectedType == "expense",
                                             onClick = {
-                                                haptics.tapKey()
                                                 selectedType = "expense"
                                                 if (selectedCategory !in expenseCategories) {
                                                     selectedCategory = expenseCategories.firstOrNull() ?: "餐饮"
@@ -408,7 +401,6 @@ fun LedgerScreen(
                                             text = "收入",
                                             isSelected = selectedType == "income",
                                             onClick = {
-                                                haptics.tapKey()
                                                 selectedType = "income"
                                                 isInstallment = false
                                                 if (selectedCategory !in incomeCategories) {
@@ -434,7 +426,6 @@ fun LedgerScreen(
                                                     .background(if (isPmSelected) colors.inkPrimary else Color.Transparent)
                                                     .border(0.5.dp, if (isPmSelected) colors.inkPrimary else colors.borderDivider, RoundedCornerShape(10.dp))
                                                     .clickable {
-                                                        haptics.tapKey()
                                                         selectedPaymentMethod = pm
                                                     }
                                                     .padding(horizontal = 8.dp, vertical = 3.dp)
@@ -498,7 +489,6 @@ fun LedgerScreen(
                                                 onClick = {
                                                     val parsed = FormatUtils.parseNaturalTransactionInput(noteText)
                                                     if (parsed.amountCents > 0) {
-                                                        haptics.tapKey()
                                                         inputAmountString = FormatUtils.centsToYuanString(parsed.amountCents, includeSymbol = false)
                                                         selectedType = parsed.type
                                                         selectedCategory = parsed.category
@@ -647,7 +637,6 @@ fun LedgerScreen(
                             selectedCategory = selectedCategory,
                             categories = activeCategories,
                             onCategorySelect = { cat ->
-                                haptics.tapKey()
                                 selectedCategory = cat
                             }
                         )
@@ -658,7 +647,6 @@ fun LedgerScreen(
                             onDotClick = { appendDot() },
                             onBackspaceClick = { backspace() },
                             onClearAll = { clearAll() },
-                            haptics = haptics,
                             keyHeight = keypadKeyHeight
                         )
 
@@ -671,8 +659,6 @@ fun LedgerScreen(
                                 val amountCents = (amountDouble * 100.0).roundToLong()
                                 if (amountCents <= 0) return@TerracottaStampButton
 
-                                haptics.stampSave()
-                                AudioEngine.playShutter()
                                 val title = if (noteText.isNotBlank()) noteText.trim() else selectedCategory
 
                                 scope.launch {
@@ -715,7 +701,6 @@ fun LedgerScreen(
                         onEdit = { editingTransaction = it },
                         onDelete = { tx ->
                             scope.launch {
-                                haptics.tearDelete()
                                 syncManager.deleteTransaction(tx.id)
                                 ArchiveToastManager.show("已删除记账明细")
                             }

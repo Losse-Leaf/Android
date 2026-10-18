@@ -25,10 +25,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.looseleaf.app.audio.AudioEngine
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.security.CredentialStore
-import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
@@ -51,7 +49,6 @@ fun PairingScreen(
     val colors = LooseLeafTheme.colors
     val apiClient = remember { APIClient.getInstance(context) }
     val credentialStore = remember { CredentialStore.getInstance(context) }
-    val haptics = remember { HapticsEngine.getInstance(context) }
 
     // 0: 连接配对阶段 (扫码/粘贴链接), 1: 配对成功设置设备名称阶段
     var currentStep by remember { mutableStateOf(0) }
@@ -79,7 +76,6 @@ fun PairingScreen(
         scope.launch {
             isConnecting = true
             try {
-                haptics.tapKey()
                 apiClient.baseUrl = parsed.hubUrl
 
                 val defaultModel = Build.MODEL ?: "Android"
@@ -98,12 +94,9 @@ fun PairingScreen(
                 pairedHubUrl = resp.hubUrl ?: parsed.hubUrl
                 customDeviceName = resp.deviceName.ifBlank { chosenName }
 
-                haptics.stampSave()
-                AudioEngine.playPaperFlip()
                 // 进入下一页面：设备展示名称定制页
                 currentStep = 1
             } catch (e: Exception) {
-                haptics.tearDelete()
                 ArchiveToastManager.show("连接数据中枢失败: ${e.message}", isError = true)
             } finally {
                 isConnecting = false
@@ -172,7 +165,6 @@ fun PairingScreen(
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(if (isSelected) colors.archivePaper else androidx.compose.ui.graphics.Color.Transparent)
                                 .clickable {
-                                    haptics.tapKey()
                                     selectedMethodTab = index
                                 }
                                 .padding(vertical = 8.dp)
@@ -398,8 +390,6 @@ fun PairingScreen(
                     enabled = customDeviceName.isNotBlank(),
                     onClick = {
                         val finalName = customDeviceName.trim()
-                        haptics.stampSave()
-                        AudioEngine.playPaperFlip()
                         credentialStore.deviceName = finalName
                         scope.launch {
                             if (pairedDeviceId.isNotBlank()) {

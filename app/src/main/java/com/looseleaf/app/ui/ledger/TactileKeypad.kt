@@ -21,13 +21,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 
 /**
- * 极速触觉记账键盘 (Tactile Ledger Keypad) - docs/mobile.md §3.1
- * 4x3 拟物微隆起大键位，单键高度 ≥ 60dp，按键触发系统轻微触感震动
+ * 极速记账键盘 (Ledger Keypad)
+ * 4x3 拟物微隆起大键位，单键高度 ≥ 60dp
  */
 @Composable
 fun TactileKeypad(
@@ -35,7 +34,6 @@ fun TactileKeypad(
     onDotClick: () -> Unit,
     onBackspaceClick: () -> Unit,
     onClearAll: () -> Unit,
-    haptics: HapticsEngine,
     modifier: Modifier = Modifier,
     keyHeight: Dp = 62.dp
 ) {
@@ -63,7 +61,6 @@ fun TactileKeypad(
                         height = keyHeight,
                         modifier = Modifier.weight(1f),
                         onClick = {
-                            haptics.tapKey()
                             when (item) {
                                 "." -> onDotClick()
                                 "⌫" -> onBackspaceClick()
@@ -72,7 +69,6 @@ fun TactileKeypad(
                         },
                         onLongClick = if (item == "⌫") {
                             {
-                                haptics.tearDelete()
                                 onClearAll()
                             }
                         } else null

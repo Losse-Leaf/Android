@@ -40,12 +40,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.looseleaf.app.audio.AudioEngine
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.local.ProfileRepository
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.SyncManager
-import com.looseleaf.app.haptics.HapticsEngine
 import com.looseleaf.app.model.CuratorProfile
 import com.looseleaf.app.model.GlobalStats
 import com.looseleaf.app.model.SiteConfig
@@ -83,7 +81,6 @@ fun ProfileScreen(
     val apiClient = remember { APIClient.getInstance(context) }
     val credentialStore = remember { CredentialStore.getInstance(context) }
     val syncManager = remember { SyncManager.getInstance(context) }
-    val haptics = remember { HapticsEngine.getInstance(context) }
 
     val cachedProfile = remember { ProfileRepository.getProfile(context) }
     val cachedSiteConfig = remember { ProfileRepository.getSiteConfig(context) }
@@ -95,9 +92,8 @@ fun ProfileScreen(
     var localAvatarPreviewUri by remember { mutableStateOf<Uri?>(null) }
     var isDarkroomMode by remember { mutableStateOf(credentialStore.isDarkroomMode) }
     var isBiometricsEnabled by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
-    var isHapticsEnabled by remember { mutableStateOf(credentialStore.isHapticsEnabled) }
-    var isSoundEnabled by remember { mutableStateOf(credentialStore.isSoundEnabled) }
     var showUnpairDialog by remember { mutableStateOf(false) }
+    var showStorageBackupDialog by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var availableUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
@@ -112,17 +108,6 @@ fun ProfileScreen(
     var issuedPairTicket by remember { mutableStateOf<PairTicketResponse?>(null) }
     var isIssuingPairTicket by remember { mutableStateOf(false) }
     var globalStats by remember { mutableStateOf<GlobalStats?>(null) }
-    var isExporting by remember { mutableStateOf(false) }
-
-    fun shareExportedFile(file: File, mimeType: String) {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = mimeType
-            putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        context.startActivity(Intent.createChooser(shareIntent, "分享或保存散页本地备份档案"))
-    }
 
     val reloadDevices: () -> Unit = {
         scope.launch {
@@ -568,7 +553,6 @@ fun ProfileScreen(
                                     isIssuingPairTicket = true
                                     runCatching {
                                         issuedPairTicket = apiClient.initPairing()
-                                        haptics.snapConfirm()
                                         ArchiveToastManager.show("已生成 5 分钟有效配对工单")
                                     }.onFailure { err ->
                                         ArchiveToastManager.show("生成配对失败: ${err.message}", isError = true)
@@ -625,7 +609,6 @@ fun ProfileScreen(
                                 Button(
                                     onClick = {
                                         clipboardManager.setText(AnnotatedString(ticket.qrPayload))
-                                        haptics.snapConfirm()
                                         ArchiveToastManager.show("已复制配对链接至剪贴板")
                                     },
                                     modifier = Modifier.fillMaxWidth().height(32.dp),
@@ -716,7 +699,6 @@ fun ProfileScreen(
                         Switch(
                             checked = isDarkroomMode,
                             onCheckedChange = {
-                                haptics.tapKey()
                                 isDarkroomMode = it
                                 credentialStore.isDarkroomMode = it
                                 onDarkroomModeChanged(it)
@@ -741,58 +723,8 @@ fun ProfileScreen(
                         Switch(
                             checked = isBiometricsEnabled,
                             onCheckedChange = {
-                                haptics.tapKey()
                                 isBiometricsEnabled = it
                                 credentialStore.isBiometricsEnabled = it
-                            },
-                            colors = SwitchDefaults.colors(checkedThumbColor = colors.accentWarm, checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f))
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    PaperDivider()
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                            Text("物理触感反馈 (Tactile Haptics)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
-                            Text("按键敲击、印章落印与快门震动", fontSize = 11.sp, color = colors.inkMuted)
-                        }
-                        Switch(
-                            checked = isHapticsEnabled,
-                            onCheckedChange = {
-                                isHapticsEnabled = it
-                                credentialStore.isHapticsEnabled = it
-                                if (it) haptics.tapKey()
-                            },
-                            colors = SwitchDefaults.colors(checkedThumbColor = colors.accentWarm, checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f))
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    PaperDivider()
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                            Text("程序化机械音效 (Mechanical Sound)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
-                            Text("算法实时合成快门、纸张翻动与打字音", fontSize = 11.sp, color = colors.inkMuted)
-                        }
-                        Switch(
-                            checked = isSoundEnabled,
-                            onCheckedChange = {
-                                isSoundEnabled = it
-                                credentialStore.isSoundEnabled = it
-                                AudioEngine.isSoundEnabled = it
-                                if (it) AudioEngine.playTink()
                             },
                             colors = SwitchDefaults.colors(checkedThumbColor = colors.accentWarm, checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f))
                         )
@@ -802,83 +734,39 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // 数据自持与本地全量备份 (Data Sovereignty & Local Export)
+            // 存储配置与快照灾备中枢卡片 (对齐 Web StorageBackupModal)
             PaperCard(modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    Text(
-                        text = "数据自持与本地备份",
-                        fontFamily = ArchiveFontFamilies.BodySans,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
-                        color = colors.inkPrimary
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "存储配置与快照灾备",
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp,
+                            color = colors.inkPrimary
+                        )
+
+                        TextButton(
+                            onClick = { showStorageBackupDialog = true },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                        ) {
+                            Icon(Icons.Outlined.Tune, contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("配置与管理", fontSize = 11.5.sp, fontFamily = ArchiveFontFamilies.BodySans, color = colors.accentWarm)
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "散页坚持数据主权归属主理人，支持随时离线导出全量手账与账本明细：",
+                        text = "服务端全量 SQLite WAL 快照轮转管理，支持配置 Cloudflare R2 / S3 兼容对象存储与双向媒体同步。",
                         fontFamily = ArchiveFontFamilies.BodySans,
                         fontSize = 11.5.sp,
                         color = colors.inkSecondary
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    isExporting = true
-                                    runCatching {
-                                        val f = syncManager.exportArchiveJson()
-                                        haptics.snapConfirm()
-                                        shareExportedFile(f, "application/json")
-                                    }.onFailure { err ->
-                                        ArchiveToastManager.show("导出失败: ${err.message}", isError = true)
-                                    }
-                                    isExporting = false
-                                }
-                            },
-                            enabled = !isExporting,
-                            shape = RoundedCornerShape(2.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = colors.inkPrimary,
-                                contentColor = colors.archivePaper
-                            ),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Outlined.FileDownload, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("导出手账 (JSON)", fontSize = 11.sp, fontFamily = ArchiveFontFamilies.BodySans)
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                scope.launch {
-                                    isExporting = true
-                                    runCatching {
-                                        val f = syncManager.exportLedgerCsv()
-                                        haptics.snapConfirm()
-                                        shareExportedFile(f, "text/csv")
-                                    }.onFailure { err ->
-                                        ArchiveToastManager.show("导出失败: ${err.message}", isError = true)
-                                    }
-                                    isExporting = false
-                                }
-                            },
-                            enabled = !isExporting,
-                            shape = RoundedCornerShape(2.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.inkPrimary),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(
-                                brush = androidx.compose.ui.graphics.SolidColor(colors.borderDivider)
-                            ),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Outlined.TableChart, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("导出账单 (CSV)", fontSize = 11.sp, fontFamily = ArchiveFontFamilies.BodySans)
-                        }
-                    }
                 }
             }
 
@@ -919,7 +807,6 @@ fun ProfileScreen(
                             onClick = {
                                 scope.launch {
                                     isCheckingUpdate = true
-                                    haptics.tapKey()
                                     when (val result = UpdateChecker.checkForUpdates()) {
                                         is UpdateCheckResult.HasUpdate -> {
                                             availableUpdate = result.release
@@ -1011,7 +898,6 @@ fun ProfileScreen(
                     confirmText = "确认解除",
                     isDestructive = true,
                     onConfirm = {
-                        haptics.tearDelete()
                         val currentDeviceId = credentialStore.deviceId
                         showUnpairDialog = false
                         scope.launch {
@@ -1082,7 +968,6 @@ fun ProfileScreen(
                     confirmText = "确认吊销",
                     isDestructive = true,
                     onConfirm = {
-                        haptics.tearDelete()
                         val targetId = dev.deviceId
                         deviceToRevoke = null
                         scope.launch {
@@ -1118,6 +1003,19 @@ fun ProfileScreen(
                             }.onFailure { err ->
                                 ArchiveToastManager.show("更名失败: ${err.message}", isError = true)
                             }
+                        }
+                    }
+                )
+            }
+
+            if (showStorageBackupDialog) {
+                StorageBackupSheetDialog(
+                    apiClient = apiClient,
+                    onDismiss = { showStorageBackupDialog = false },
+                    onRestored = {
+                        scope.launch {
+                            syncManager.pullRemoteData(forceFull = true)
+                            reloadDevices()
                         }
                     }
                 )

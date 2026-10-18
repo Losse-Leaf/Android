@@ -5,7 +5,6 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
-import com.looseleaf.app.audio.AudioEngine
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.local.ProfileRepository
 import com.looseleaf.app.data.security.CredentialStore
@@ -19,9 +18,8 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
         // 预热主理人档案与站点配置本地缓存 (0ms SWR)
         ProfileRepository.init(this)
 
-        // 绑定 APIClient 的 Token Provider 与全局音效设置
+        // 绑定 APIClient 的 Token Provider
         val credentialStore = CredentialStore.getInstance(this)
-        AudioEngine.isSoundEnabled = credentialStore.isSoundEnabled
         val apiClient = APIClient.getInstance(this)
         apiClient.tokenProvider = {
             credentialStore.deviceToken
