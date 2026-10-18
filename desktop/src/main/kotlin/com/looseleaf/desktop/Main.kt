@@ -161,7 +161,6 @@ fun DeviceStudioApp() {
             val screenTabs = listOf(
                 "ledger" to "口袋账本 (三栏架构)",
                 "stream" to "时光手账 (时间流)",
-                "darkroom" to "随行暗房 (4K相纸)",
                 "projects" to "造物 · 心愿 · 山川",
                 "profile" to "主理人展台"
             )
@@ -908,16 +907,89 @@ fun MockProfileScreen(isDarkTheme: Boolean) {
     val accentWarm = Color(0xFFA24F2B)
     val accentMoss = Color(0xFF2E6B4E)
     val cardBg = if (isDarkTheme) Color(0xFF1E1D1B) else Color.White
-    val cardSubtle = if (isDarkTheme) Color(0xFF262422) else Color(0xFFF3F1EC)
+    val cardSubtle = if (isDarkTheme) Color(0xFF262422) else Color(0xFFF6F4EF)
     val borderDivider = if (isDarkTheme) Color(0xFF33302B) else Color(0xFFE8E5DC)
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 20.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column {
-            Text("主理人展台", fontFamily = FontFamily.Serif, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = textPrimary)
-            Text("生活自留地 · 随身设备中枢", fontSize = 10.sp, color = textMuted)
+        // 主理人名片拓片卡片 (藏书票 Ex-libris 紧凑型架构，高度仅 105dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(4.dp))
+                .background(cardBg)
+                .border(0.5.dp, accentWarm.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(accentWarm.copy(alpha = 0.12f))
+                        .border(1.dp, accentWarm.copy(alpha = 0.4f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("散", fontSize = 22.sp, color = accentWarm, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "星河 · 散页主理人",
+                            fontFamily = FontFamily.SansSerif,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp,
+                            color = textPrimary,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "✎ 编辑",
+                            fontSize = 11.sp,
+                            color = textMuted,
+                            modifier = Modifier.clickable { }
+                        )
+                    }
+                    Text(
+                        text = "生活记录者 · 独立思想家",
+                        fontSize = 12.sp,
+                        color = textSecondary,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "📍 浙江 · 杭州市",
+                        fontSize = 11.sp,
+                        color = textMuted,
+                        maxLines = 1
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = borderDivider.copy(alpha = 0.4f), thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = "“ 在散落的日常里，拾取有光芒的瞬间 ”",
+                fontFamily = FontFamily.Serif,
+                fontSize = 11.5.sp,
+                textAlign = TextAlign.Center,
+                color = accentWarm,
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 1
+            )
         }
 
         // 1. 全局档案指标卡片
@@ -927,30 +999,30 @@ fun MockProfileScreen(isDarkTheme: Boolean) {
                 .clip(RoundedCornerShape(4.dp))
                 .background(cardBg)
                 .border(0.5.dp, borderDivider, RoundedCornerShape(4.dp))
-                .padding(14.dp)
+                .padding(12.dp)
         ) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("全局档案指标", fontFamily = FontFamily.Serif, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = textPrimary)
+                Text("全局档案指标", fontFamily = FontFamily.SansSerif, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = textPrimary)
                 Text("2026年10月", fontSize = 11.sp, color = textMuted)
             }
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(0.95f)) {
                     Text("散页手稿", fontSize = 10.sp, color = textMuted)
                     Spacer(modifier = Modifier.height(2.dp))
                     Text("0", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textPrimary)
                 }
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(0.95f)) {
                     Text("暗房底片", fontSize = 10.sp, color = textMuted)
                     Spacer(modifier = Modifier.height(2.dp))
                     Text("2", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = accentWarm)
                 }
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(0.95f)) {
                     Text("造物项目", fontSize = 10.sp, color = textMuted)
                     Spacer(modifier = Modifier.height(2.dp))
                     Text("0", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = accentMoss)
                 }
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1.15f)) {
                     Text("当月支出", fontSize = 10.sp, color = textMuted)
                     Spacer(modifier = Modifier.height(2.dp))
                     Text("¥ 0.00", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
@@ -965,16 +1037,12 @@ fun MockProfileScreen(isDarkTheme: Boolean) {
                 .clip(RoundedCornerShape(4.dp))
                 .background(cardBg)
                 .border(0.5.dp, borderDivider, RoundedCornerShape(4.dp))
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("受信任设备组 (3)", fontFamily = FontFamily.Serif, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = textPrimary)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("刷新", fontSize = 11.sp, color = textMuted, modifier = Modifier.clickable { })
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text("发起配对", fontSize = 11.sp, color = accentWarm, modifier = Modifier.clickable { })
-                }
+                Text("受信任设备组 (3)", fontFamily = FontFamily.SansSerif, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = textPrimary)
+                Text("+ 配对新设备", fontSize = 11.5.sp, fontFamily = FontFamily.SansSerif, color = accentWarm, modifier = Modifier.clickable { })
             }
 
             // 本机设备行
@@ -996,7 +1064,7 @@ fun MockProfileScreen(isDarkTheme: Boolean) {
                 deviceId = "dev_web_20261017_4967",
                 platform = "WEB",
                 isLocal = false,
-                lastActive = "2026.10.18",
+                lastActive = "10.18",
                 isDarkTheme = isDarkTheme
             )
 
@@ -1005,7 +1073,7 @@ fun MockProfileScreen(isDarkTheme: Boolean) {
                 deviceId = "dev_web_20261017_7776",
                 platform = "WEB",
                 isLocal = false,
-                lastActive = "2026.10.18",
+                lastActive = "10.18",
                 isDarkTheme = isDarkTheme
             )
         }
@@ -1017,17 +1085,31 @@ fun MockProfileScreen(isDarkTheme: Boolean) {
                 .clip(RoundedCornerShape(4.dp))
                 .background(cardBg)
                 .border(0.5.dp, borderDivider, RoundedCornerShape(4.dp))
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("随行偏好与拟物交互", fontFamily = FontFamily.Serif, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = textPrimary)
+            Text("随行偏好与隐私保护", fontFamily = FontFamily.SansSerif, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = textPrimary)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("物理触感反馈 (Tactile Haptics)", fontSize = 12.sp, color = textPrimary)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("深色纸墨外观 (Dark Theme)", fontSize = 13.sp, color = textPrimary)
+                    Text("碳黑宣纸底色与暗房安全灯赤红", fontSize = 10.5.sp, color = textMuted)
+                }
+                Text("关闭", fontSize = 11.sp, color = textMuted)
+            }
+            HorizontalDivider(color = borderDivider.copy(alpha = 0.4f), thickness = 0.5.dp)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("物理触感反馈 (Tactile Haptics)", fontSize = 13.sp, color = textPrimary)
+                    Text("按键敲击、印章落印与快门震动", fontSize = 10.5.sp, color = textMuted)
+                }
                 Text("已开启", fontSize = 11.sp, color = accentWarm)
             }
-            HorizontalDivider(color = borderDivider.copy(alpha = 0.5f), thickness = 0.5.dp)
+            HorizontalDivider(color = borderDivider.copy(alpha = 0.4f), thickness = 0.5.dp)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("程序化机械音效 (Mechanical Sound)", fontSize = 12.sp, color = textPrimary)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("程序化机械音效 (Mechanical Sound)", fontSize = 13.sp, color = textPrimary)
+                    Text("算法实时合成快门、纸张翻动与打字音", fontSize = 10.5.sp, color = textMuted)
+                }
                 Text("已开启", fontSize = 11.sp, color = accentWarm)
             }
         }
@@ -1039,10 +1121,10 @@ fun MockProfileScreen(isDarkTheme: Boolean) {
                 .clip(RoundedCornerShape(4.dp))
                 .background(cardBg)
                 .border(0.5.dp, borderDivider, RoundedCornerShape(4.dp))
-                .padding(14.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("数据自持与本地备份", fontFamily = FontFamily.Serif, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = textPrimary)
+            Text("数据自持与本地备份", fontFamily = FontFamily.SansSerif, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = textPrimary)
             Text("数据主权归属主理人，支持随时离线导出全量手账与账本明细：", fontSize = 11.sp, color = textMuted)
             Spacer(modifier = Modifier.height(4.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1079,6 +1161,7 @@ private fun DesktopTrustedDeviceItem(
     val textSecondary = if (isDarkTheme) Color(0xFFB0ACA2) else Color(0xFF4A463F)
     val accentWarm = Color(0xFFA24F2B)
     val accentMoss = Color(0xFF2E6B4E)
+    val cardBg = if (isDarkTheme) Color(0xFF1E1D1B) else Color.White
     val cardSubtle = if (isDarkTheme) Color(0xFF262422) else Color(0xFFF6F4EF)
     val borderDivider = if (isDarkTheme) Color(0xFF33302B) else Color(0xFFE8E5DC)
 
@@ -1087,76 +1170,70 @@ private fun DesktopTrustedDeviceItem(
             .fillMaxWidth()
             .clip(RoundedCornerShape(4.dp))
             .background(cardSubtle)
+            .border(0.5.dp, borderDivider.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
             .padding(horizontal = 10.dp, vertical = 7.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
+        // 第一行：设备名称（全宽独占！）+ 平台雅致药丸
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically
+            Text(
+                text = name,
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Medium,
+                fontSize = 13.sp,
+                color = textPrimary,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(if (isLocal) accentMoss.copy(alpha = 0.12f) else cardBg)
+                    .border(0.5.dp, if (isLocal) accentMoss.copy(alpha = 0.35f) else borderDivider, RoundedCornerShape(2.dp))
+                    .padding(horizontal = 5.dp, vertical = 1.dp)
             ) {
                 Text(
-                    text = name,
-                    fontFamily = FontFamily.Serif,
+                    text = if (isLocal) "本机" else platform.uppercase(),
+                    fontSize = 9.sp,
                     fontWeight = FontWeight.Medium,
-                    fontSize = 13.sp,
-                    color = textPrimary,
+                    color = if (isLocal) accentMoss else textSecondary,
                     maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
+                    softWrap = false
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Box(
-                    modifier = Modifier
-                        .background(if (isLocal) accentMoss.copy(alpha = 0.14f) else borderDivider.copy(alpha = 0.6f), RoundedCornerShape(2.dp))
-                        .padding(horizontal = 5.dp, vertical = 1.dp)
-                ) {
-                    Text(
-                        text = if (isLocal) "本机" else platform.uppercase(),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = if (isLocal) accentMoss else textSecondary,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("改名", fontSize = 11.sp, color = textSecondary, modifier = Modifier.clickable { }.padding(horizontal = 4.dp, vertical = 2.dp))
-                Spacer(modifier = Modifier.width(2.dp))
-                Text(if (isLocal) "解除" else "踢除", fontSize = 11.sp, color = accentWarm, modifier = Modifier.clickable { }.padding(horizontal = 4.dp, vertical = 2.dp))
             }
         }
 
+        // 第二行：设备全局唯一标识与活跃时间 (左侧) + 操作按钮 (右侧靠齐，不挤占第一行设备名！)
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            val metaString = if (!isLocal && lastActive != null) {
+                "$deviceId · 活跃于 $lastActive"
+            } else {
+                "标识: $deviceId"
+            }
             Text(
-                text = "标识: $deviceId",
+                text = metaString,
                 fontSize = 10.sp,
                 color = textMuted,
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false)
             )
-            if (!isLocal && lastActive != null) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "活跃于 $lastActive",
-                    fontSize = 9.5.sp,
-                    color = textMuted,
-                    maxLines = 1,
-                    softWrap = false
-                )
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("改名", fontSize = 11.5.sp, color = textSecondary, modifier = Modifier.clickable { }.padding(horizontal = 4.dp, vertical = 2.dp))
+                Spacer(modifier = Modifier.width(2.dp))
+                Text(if (isLocal) "解除" else "踢除", fontSize = 11.5.sp, color = accentWarm, modifier = Modifier.clickable { }.padding(horizontal = 4.dp, vertical = 2.dp))
             }
         }
     }

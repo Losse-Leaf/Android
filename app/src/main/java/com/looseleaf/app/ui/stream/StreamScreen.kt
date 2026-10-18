@@ -2835,24 +2835,39 @@ private fun QuickNoteSheet(
 
                     Spacer(modifier = Modifier.height(14.dp))
                 } else {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(4.dp))
-                            .background(colors.archiveSubtle.copy(alpha = 0.4f))
+                            .background(colors.archiveSubtle.copy(alpha = 0.45f))
                             .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = if (isProcessingPhoto) "相纸显影处理中…" else "装裱现场相纸 (图文一体)",
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 11.5.sp,
-                            color = colors.inkMuted
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isProcessingPhoto) "相纸显影处理中…" else "装裱现场相纸 (可选 9 张)",
+                                fontFamily = ArchiveFontFamilies.BodySans,
+                                fontSize = 11.5.sp,
+                                color = colors.inkMuted
+                            )
+                            if (isProcessingPhoto) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    color = colors.accentWarm,
+                                    strokeWidth = 1.5.dp
+                                )
+                            }
+                        }
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Button(
                                 onClick = {
                                     val dir = File(context.cacheDir, "camera").apply { mkdirs() }
@@ -2867,17 +2882,17 @@ private fun QuickNoteSheet(
                                 ),
                                 border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(colors.borderDivider)),
                                 shape = RoundedCornerShape(3.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                                modifier = Modifier.height(28.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.weight(1f).height(34.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Outlined.CameraAlt,
                                     contentDescription = null,
                                     tint = colors.accentWarm,
-                                    modifier = Modifier.size(13.dp)
+                                    modifier = Modifier.size(14.dp)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("快门直拍", fontSize = 11.5.sp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("快门直拍", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.BodySans)
                             }
 
                             Button(
@@ -2892,17 +2907,17 @@ private fun QuickNoteSheet(
                                 ),
                                 border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(colors.borderDivider)),
                                 shape = RoundedCornerShape(3.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                                modifier = Modifier.height(28.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.weight(1f).height(34.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Outlined.PhotoLibrary,
                                     contentDescription = null,
                                     tint = colors.accentWarm,
-                                    modifier = Modifier.size(13.dp)
+                                    modifier = Modifier.size(14.dp)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("装裱相纸", fontSize = 11.5.sp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("相册装裱", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.BodySans)
                             }
                         }
                     }

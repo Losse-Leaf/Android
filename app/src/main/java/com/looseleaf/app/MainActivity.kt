@@ -201,18 +201,19 @@ class MainActivity : FragmentActivity() {
                                             }
                                         )
                                         "ledger" -> LedgerScreen()
-                                        "darkroom" -> DarkroomScreen(
-                                            onEntrySaved = {
-                                                currentRoute = "stream"
-                                            }
-                                        )
-                                        "projects" -> ProjectsWishesScreen()
+                                        "footprints" -> ProjectsWishesScreen(initialTab = 2)
+                                        "projects" -> ProjectsWishesScreen(initialTab = 0)
                                         "profile" -> ProfileScreen(
                                             onUnpair = {
                                                 isPaired = false
                                             },
                                             onDarkroomModeChanged = { enabled ->
                                                 isDarkTheme = enabled
+                                            }
+                                        )
+                                        "darkroom" -> DarkroomScreen(
+                                            onEntrySaved = {
+                                                currentRoute = "stream"
                                             }
                                         )
                                     }
@@ -255,7 +256,7 @@ fun LooseLeafBottomBar(
     val tabs = listOf(
         NavigationTabItem("stream", "时间流", Icons.Outlined.AutoStories),
         NavigationTabItem("ledger", "账本", Icons.Outlined.Calculate),
-        NavigationTabItem("darkroom", "暗房", Icons.Outlined.PhotoCamera),
+        NavigationTabItem("footprints", "足迹", Icons.Outlined.Explore),
         NavigationTabItem("projects", "造物", Icons.Outlined.AllInclusive),
         NavigationTabItem("profile", "展台", Icons.Outlined.AccountCircle)
     )

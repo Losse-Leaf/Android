@@ -238,237 +238,189 @@ fun ProfileScreen(
                     .fillMaxSize()
                     .widthIn(max = 680.dp)
                     .verticalScroll(rememberScrollState())
-                    .padding(20.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-            // 顶栏
-            Text(
-                text = "主理人展台",
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontWeight = FontWeight.Medium,
-                fontSize = 22.sp,
-                letterSpacing = 1.sp,
-                color = colors.inkPrimary
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "生活自留地 · 独立档案",
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = 11.sp,
-                color = colors.inkMuted
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // 主理人名片拓片卡片
+            // 主理人名片拓片卡片 (藏书票 Ex-libris 紧凑型架构)
             PaperCard(
                 modifier = Modifier.fillMaxWidth(),
                 backgroundColor = colors.archivePaper,
                 borderColor = colors.accentWarm.copy(alpha = 0.25f),
-                contentPadding = PaddingValues(20.dp)
+                contentPadding = PaddingValues(14.dp)
             ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // 头像区域（带可点击上传提示与相机微图标）
-                    Box(
-                        contentAlignment = Alignment.BottomEnd,
-                        modifier = Modifier
-                            .clickable {
-                                if (!isUploadingAvatar) {
-                                    avatarPickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 头像区域（带可点击上传提示与相机微图标）
+                        Box(
+                            contentAlignment = Alignment.BottomEnd,
+                            modifier = Modifier
+                                .clickable {
+                                    if (!isUploadingAvatar) {
+                                        avatarPickerLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    }
+                                }
+                        ) {
+                            val avatarUrl = apiClient.resolveMediaUrl(profile.avatarUrl)
+                            val avatarModel: Any? = localAvatarPreviewUri ?: avatarUrl.takeIf { it.isNotBlank() }
+
+                            if (avatarModel != null) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(avatarModel)
+                                        .crossfade(true)
+                                        .memoryCacheKey(avatarUrl.takeIf { localAvatarPreviewUri == null })
+                                        .diskCacheKey(avatarUrl.takeIf { localAvatarPreviewUri == null })
+                                        .build(),
+                                    contentDescription = "主理人肖像",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .clip(CircleShape)
+                                        .border(1.dp, colors.accentWarm.copy(alpha = 0.45f), CircleShape)
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .clip(CircleShape)
+                                        .background(colors.accentWarm.copy(alpha = 0.1f))
+                                        .border(1.dp, colors.accentWarm.copy(alpha = 0.35f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = profile.name.take(1).ifBlank { "散" },
+                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 24.sp,
+                                        color = colors.accentWarm
                                     )
                                 }
                             }
-                    ) {
-                        val avatarUrl = apiClient.resolveMediaUrl(profile.avatarUrl)
-                        val avatarModel: Any? = localAvatarPreviewUri ?: avatarUrl.takeIf { it.isNotBlank() }
 
-                        if (avatarModel != null) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(avatarModel)
-                                    .crossfade(true)
-                                    .memoryCacheKey(avatarUrl.takeIf { localAvatarPreviewUri == null })
-                                    .diskCacheKey(avatarUrl.takeIf { localAvatarPreviewUri == null })
-                                    .build(),
-                                contentDescription = "主理人肖像",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size(84.dp)
-                                    .clip(CircleShape)
-                                    .border(1.5.dp, colors.accentWarm.copy(alpha = 0.5f), CircleShape)
-                            )
-                        } else {
+                            if (isUploadingAvatar) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .clip(CircleShape)
+                                        .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.4f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = colors.archivePaper,
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                }
+                            }
+
                             Box(
                                 modifier = Modifier
-                                    .size(84.dp)
+                                    .size(20.dp)
                                     .clip(CircleShape)
-                                    .background(colors.accentWarm.copy(alpha = 0.1f))
-                                    .border(1.5.dp, colors.accentWarm.copy(alpha = 0.4f), CircleShape),
+                                    .background(colors.accentWarm)
+                                    .border(1.dp, colors.archivePaper, CircleShape),
                                 contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CameraAlt,
+                                    contentDescription = "更换头像",
+                                    tint = colors.archivePaper,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(14.dp))
+
+                        // 右侧信息流：称谓 + 身份 + 城市 + 编辑铅笔图标
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = profile.name.take(1).ifBlank { "散" },
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 32.sp,
-                                    color = colors.accentWarm
+                                    text = profile.name.ifBlank { "散页主理人" },
+                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 17.sp,
+                                    color = colors.inkPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
+
+                                IconButton(
+                                    onClick = { showEditProfileDialog = true },
+                                    modifier = Modifier.size(26.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Edit,
+                                        contentDescription = "编辑主理人档案",
+                                        tint = colors.inkMuted,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                }
                             }
-                        }
 
-                        if (isUploadingAvatar) {
-                            Box(
-                                modifier = Modifier
-                                    .size(84.dp)
-                                    .clip(CircleShape)
-                                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.4f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(
-                                    color = colors.archivePaper,
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            }
-                        }
-
-                        // 相机微胶囊
-                        Box(
-                            modifier = Modifier
-                                .size(26.dp)
-                                .clip(CircleShape)
-                                .background(colors.accentWarm)
-                                .border(1.5.dp, colors.archivePaper, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.CameraAlt,
-                                contentDescription = "更换头像",
-                                tint = colors.archivePaper,
-                                modifier = Modifier.size(13.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // 称谓大标题
-                    Text(
-                        text = profile.name.ifBlank { siteConfig.siteName.ifBlank { "散页主理人" } },
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 22.sp,
-                        letterSpacing = 1.sp,
-                        color = colors.inkPrimary
-                    )
-
-                    // 身份/头衔
-                    val displayTitle = profile.title.ifBlank { "生活记录者 · 独立思想家" }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = displayTitle,
-                        fontFamily = ArchiveFontFamilies.BodySans,
-                        fontSize = 13.sp,
-                        color = colors.inkSecondary
-                    )
-
-                    // 城市坐标
-                    val displayCity = listOfNotNull(profile.currentCity.takeIf { it.isNotBlank() }, profile.location.takeIf { it.isNotBlank() }).joinToString(" · ")
-                    if (displayCity.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Outlined.LocationOn,
-                                contentDescription = null,
-                                tint = colors.accentWarm,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            val displayTitle = profile.title.ifBlank { "生活记录者 · 独立思想家" }
                             Text(
-                                text = displayCity,
+                                text = displayTitle,
                                 fontFamily = ArchiveFontFamilies.BodySans,
                                 fontSize = 12.sp,
-                                color = colors.inkMuted
+                                color = colors.inkSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
+
+                            val displayCity = listOfNotNull(profile.currentCity.takeIf { it.isNotBlank() }, profile.location.takeIf { it.isNotBlank() }).joinToString(" · ")
+                            if (displayCity.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.LocationOn,
+                                        contentDescription = null,
+                                        tint = colors.accentWarm,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = displayCity,
+                                        fontFamily = ArchiveFontFamilies.BodySans,
+                                        fontSize = 11.sp,
+                                        color = colors.inkMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-                    Spacer(modifier = Modifier.height(14.dp))
 
                     // 生活格言
                     val displayMotto = if (profile.motto.isNotBlank()) profile.motto else "在散落的日常里，拾取有光芒的瞬间"
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.35f))
+                    Spacer(modifier = Modifier.height(6.dp))
+
                     Text(
                         text = "“ $displayMotto ”",
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 13.5.sp,
-                        letterSpacing = 0.5.sp,
+                        fontSize = 12.sp,
+                        letterSpacing = 0.3.sp,
                         textAlign = TextAlign.Center,
-                        lineHeight = 20.sp,
-                        color = colors.accentWarm
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = colors.accentWarm,
+                        modifier = Modifier.fillMaxWidth()
                     )
-
-                    // 自白长文
-                    if (profile.manifesto.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = profile.manifesto,
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 12.5.sp,
-                            lineHeight = 20.sp,
-                            textAlign = TextAlign.Center,
-                            color = colors.inkMuted
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    // 底部双联操作
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                if (!isUploadingAvatar) {
-                                    avatarPickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                }
-                            },
-                            shape = RoundedCornerShape(2.dp),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(
-                                brush = SolidColor(colors.borderDivider)
-                            ),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.inkSecondary),
-                            contentPadding = PaddingValues(vertical = 6.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Outlined.CameraAlt, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("更换肖像", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.EditorialSerif)
-                        }
-
-                        Button(
-                            onClick = { showEditProfileDialog = true },
-                            shape = RoundedCornerShape(2.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = colors.accentWarm,
-                                contentColor = colors.archivePaper
-                            ),
-                            contentPadding = PaddingValues(vertical = 6.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("编辑档案", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.EditorialSerif)
-                        }
-                    }
+                }
+            }
                 }
             }
 
@@ -600,38 +552,29 @@ fun ProfileScreen(
                     ) {
                         Text(
                             text = "受信任设备组 (${trustedDevices.size})",
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium,
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontWeight = FontWeight.SemiBold,
                             fontSize = 15.sp,
                             color = colors.inkPrimary
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(
-                                onClick = { reloadDevices() },
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                            ) {
-                                Text(if (isLoadingDevices) "刷新中…" else "刷新", fontSize = 11.sp, color = colors.inkSecondary)
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
-                            TextButton(
-                                onClick = {
-                                    scope.launch {
-                                        isIssuingPairTicket = true
-                                        runCatching {
-                                            issuedPairTicket = apiClient.initPairing()
-                                            haptics.snapConfirm()
-                                            ArchiveToastManager.show("已生成 5 分钟有效配对工单")
-                                        }.onFailure { err ->
-                                            ArchiveToastManager.show("生成配对失败: ${err.message}", isError = true)
-                                        }
-                                        isIssuingPairTicket = false
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    isIssuingPairTicket = true
+                                    runCatching {
+                                        issuedPairTicket = apiClient.initPairing()
+                                        haptics.snapConfirm()
+                                        ArchiveToastManager.show("已生成 5 分钟有效配对工单")
+                                    }.onFailure { err ->
+                                        ArchiveToastManager.show("生成配对失败: ${err.message}", isError = true)
                                     }
-                                },
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                                enabled = !isIssuingPairTicket
-                            ) {
-                                Text(if (isIssuingPairTicket) "签发中…" else "发起配对", fontSize = 11.sp, color = colors.accentWarm)
-                            }
+                                    isIssuingPairTicket = false
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                            enabled = !isIssuingPairTicket
+                        ) {
+                            Text(if (isIssuingPairTicket) "签发中…" else "+ 配对新设备", fontSize = 11.5.sp, fontFamily = ArchiveFontFamilies.BodySans, color = colors.accentWarm)
                         }
                     }
 
@@ -749,21 +692,21 @@ fun ProfileScreen(
                 Column {
                     Text(
                         text = "随行偏好与隐私保护",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontWeight = FontWeight.SemiBold,
                         fontSize = 15.sp,
                         color = colors.inkPrimary
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column {
-                            Text("胶片暗房模式 (Darkroom)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 14.sp, color = colors.inkPrimary)
-                            Text("碳黑相纸底色与暗房安全灯赤红", fontSize = 11.sp, color = colors.inkMuted)
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text("深色纸墨外观 (Dark Theme)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
+                            Text("碳黑宣纸底色与暗房安全灯赤红", fontSize = 11.sp, color = colors.inkMuted)
                         }
                         Switch(
                             checked = isDarkroomMode,
@@ -786,8 +729,8 @@ fun ProfileScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column {
-                            Text("生物识别保护 (Biometrics)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 14.sp, color = colors.inkPrimary)
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text("生物识别守护 (Biometrics)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
                             Text("解锁账本与敏感收支柱状图", fontSize = 11.sp, color = colors.inkMuted)
                         }
                         Switch(
@@ -810,9 +753,9 @@ fun ProfileScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column {
-                            Text("物理触感反馈 (Tactile Haptics)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 14.sp, color = colors.inkPrimary)
-                            Text("打字机键帽触击、印章盖下沉稳震动与快门反冲", fontSize = 11.sp, color = colors.inkMuted)
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text("物理触感反馈 (Tactile Haptics)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
+                            Text("按键敲击、印章落印与快门震动", fontSize = 11.sp, color = colors.inkMuted)
                         }
                         Switch(
                             checked = isHapticsEnabled,
@@ -834,9 +777,9 @@ fun ProfileScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column {
-                            Text("程序化机械音效 (Mechanical Sound)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 14.sp, color = colors.inkPrimary)
-                            Text("纯算法实时合成快门、纸张翻动与打字机声音", fontSize = 11.sp, color = colors.inkMuted)
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text("程序化机械音效 (Mechanical Sound)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
+                            Text("算法实时合成快门、纸张翻动与打字音", fontSize = 11.sp, color = colors.inkMuted)
                         }
                         Switch(
                             checked = isSoundEnabled,
@@ -859,8 +802,8 @@ fun ProfileScreen(
                 Column {
                     Text(
                         text = "数据自持与本地备份",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontWeight = FontWeight.SemiBold,
                         fontSize = 15.sp,
                         color = colors.inkPrimary
                     )
@@ -941,8 +884,8 @@ fun ProfileScreen(
                 Column {
                     Text(
                         text = "版本与更新",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontWeight = FontWeight.SemiBold,
                         fontSize = 15.sp,
                         color = colors.inkPrimary
                     )
@@ -996,7 +939,7 @@ fun ProfileScreen(
                         ) {
                             Text(
                                 text = if (isCheckingUpdate) "检测中…" else "检测新版本",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontFamily = ArchiveFontFamilies.BodySans,
                                 fontSize = 12.sp
                             )
                         }
@@ -1018,7 +961,7 @@ fun ProfileScreen(
             ) {
                 Icon(Icons.Outlined.LinkOff, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("解除此设备绑定", fontFamily = ArchiveFontFamilies.EditorialSerif)
+                Text("解除此设备绑定", fontFamily = ArchiveFontFamilies.BodySans)
             }
 
             Spacer(modifier = Modifier.height(96.dp))
@@ -1178,8 +1121,6 @@ fun ProfileScreen(
             Spacer(modifier = Modifier.height(96.dp))
         }
     }
-}
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1393,89 +1334,78 @@ private fun TrustedDeviceRow(
     onRevokeOrUnpair: () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
+    val platformUpper = platform.uppercase()
+    val platformIcon = when {
+        isLocal -> Icons.Outlined.Smartphone
+        platformUpper.contains("MAC") || platformUpper.contains("PC") || platformUpper.contains("DESKTOP") -> Icons.Outlined.Laptop
+        platformUpper.contains("WEB") -> Icons.Outlined.Language
+        else -> Icons.Outlined.Devices
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(4.dp))
-            .background(colors.archiveSubtle.copy(alpha = 0.55f))
-            .padding(horizontal = 10.dp, vertical = 7.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(colors.archiveSubtle.copy(alpha = 0.5f))
+            .border(0.5.dp, colors.borderDivider.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // 第一行：设备名称（单行省略）+ 平台胶囊标签（永不折行）+ 操作按钮
+        // 第一行：平台图标 + 设备名称（全宽舒展展示，不与操作按钮硬挤！）+ 平台雅致轻胶囊
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically
+            Icon(
+                imageVector = platformIcon,
+                contentDescription = null,
+                tint = if (isLocal) colors.accentMoss else colors.inkMuted,
+                modifier = Modifier.size(15.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = deviceName,
+                fontFamily = ArchiveFontFamilies.BodySans,
+                fontWeight = FontWeight.Medium,
+                fontSize = 13.5.sp,
+                color = colors.inkPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(if (isLocal) colors.accentMoss.copy(alpha = 0.12f) else colors.archivePaper)
+                    .border(0.5.dp, if (isLocal) colors.accentMoss.copy(alpha = 0.3f) else colors.borderDivider, RoundedCornerShape(3.dp))
+                    .padding(horizontal = 5.dp, vertical = 1.dp)
             ) {
                 Text(
-                    text = deviceName,
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    text = if (isLocal) "本机" else platformUpper,
+                    fontSize = 9.sp,
+                    fontFamily = ArchiveFontFamilies.MonoScale,
                     fontWeight = FontWeight.Medium,
-                    fontSize = 13.sp,
-                    color = colors.inkPrimary,
+                    color = if (isLocal) colors.accentMoss else colors.inkSecondary,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Box(
-                    modifier = Modifier
-                        .background(
-                            if (isLocal) colors.accentMoss.copy(alpha = 0.14f) else colors.borderDivider.copy(alpha = 0.5f),
-                            RoundedCornerShape(2.dp)
-                        )
-                        .padding(horizontal = 5.dp, vertical = 1.dp)
-                ) {
-                    Text(
-                        text = if (isLocal) "本机" else platform.uppercase(),
-                        fontSize = 9.sp,
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        color = if (isLocal) colors.accentMoss else colors.inkSecondary,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "改名",
-                    fontSize = 11.sp,
-                    fontFamily = ArchiveFontFamilies.BodySans,
-                    color = colors.inkSecondary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(2.dp))
-                        .clickable { onRename() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-                Spacer(modifier = Modifier.width(2.dp))
-                Text(
-                    text = if (isLocal) "解除" else "踢除",
-                    fontSize = 11.sp,
-                    fontFamily = ArchiveFontFamilies.BodySans,
-                    color = colors.accentWarm,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(2.dp))
-                        .clickable { onRevokeOrUnpair() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                    softWrap = false
                 )
             }
         }
 
-        // 第二行：设备全局唯一标识与活跃时间 (独占整行，单行省略防止末尾数字孤折)
+        // 第二行：设备全局唯一标识与活跃时间（左侧）······ 操作按钮（右侧靠齐，不挤占第一行！）
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            val metaString = if (!isLocal && !lastActiveAt.isNullOrBlank()) {
+                "$deviceId · 活跃于 ${FormatUtils.formatDate(lastActiveAt).takeLast(5)}"
+            } else {
+                "标识: $deviceId"
+            }
             Text(
-                text = "标识: $deviceId",
+                text = metaString,
                 fontFamily = ArchiveFontFamilies.MonoScale,
                 fontSize = 10.sp,
                 color = colors.inkMuted,
@@ -1483,15 +1413,30 @@ private fun TrustedDeviceRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false)
             )
-            if (!isLocal && !lastActiveAt.isNullOrBlank()) {
-                Spacer(modifier = Modifier.width(8.dp))
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "活跃于 ${FormatUtils.formatDate(lastActiveAt)}",
-                    fontFamily = ArchiveFontFamilies.MonoScale,
-                    fontSize = 9.5.sp,
-                    color = colors.inkMuted,
-                    maxLines = 1,
-                    softWrap = false
+                    text = "改名",
+                    fontSize = 11.5.sp,
+                    fontFamily = ArchiveFontFamilies.BodySans,
+                    color = colors.inkSecondary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(2.dp))
+                        .clickable { onRename() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = if (isLocal) "解除" else "踢除",
+                    fontSize = 11.5.sp,
+                    fontFamily = ArchiveFontFamilies.BodySans,
+                    color = colors.accentWarm,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(2.dp))
+                        .clickable { onRevokeOrUnpair() }
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
         }

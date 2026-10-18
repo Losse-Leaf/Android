@@ -56,7 +56,8 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectsWishesScreen(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    initialTab: Int = 0
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -65,7 +66,7 @@ fun ProjectsWishesScreen(
     val syncManager = remember { com.looseleaf.app.data.sync.SyncManager.getInstance(context) }
     val haptics = remember { HapticsEngine.getInstance(context) }
 
-    var selectedTab by rememberSaveable { mutableStateOf(0) } // 0: 造物, 1: 心愿, 2: 足迹
+    var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) } // 0: 造物, 1: 心愿, 2: 足迹
     val projects by syncManager.projectsFlow.collectAsState()
     val wishes by syncManager.wishesFlow.collectAsState()
     val footprints by syncManager.footprintsFlow.collectAsState()
