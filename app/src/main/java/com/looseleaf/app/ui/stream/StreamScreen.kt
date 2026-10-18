@@ -224,12 +224,34 @@ fun StreamScreen(
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     if (pendingCount > 0) {
-                        Box(
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(colors.accentWarm)
-                        )
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(colors.accentWarm.copy(alpha = 0.12f))
+                                .clickable {
+                                    haptics.tapKey()
+                                    scope.launch {
+                                        ArchiveToastManager.show("正在同步发件箱 ($pendingCount 项待重放)…")
+                                        syncManager.pullRemoteData()
+                                    }
+                                }
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.accentWarm)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "待同步 $pendingCount",
+                                fontSize = 10.sp,
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                color = colors.accentWarm
+                            )
+                        }
                         Spacer(modifier = Modifier.width(4.dp))
                     }
 
@@ -1937,6 +1959,7 @@ private fun GlobalSearchDialog(
     var searchResult by remember { mutableStateOf<com.looseleaf.app.model.GlobalSearchResponse?>(null) }
     var isSearching by remember { mutableStateOf(false) }
     var viewingDetail by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var searchJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val scope = rememberCoroutineScope()
 
     viewingDetail?.let { (title, content) ->
@@ -1975,6 +1998,8 @@ private fun GlobalSearchDialog(
             modifier = Modifier
                 .fillMaxWidth(0.94f)
                 .heightIn(max = 680.dp)
+                .imePadding()
+                .navigationBarsPadding()
         ) {
             Column(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
                 Row(
@@ -2000,8 +2025,10 @@ private fun GlobalSearchDialog(
                     value = searchQuery,
                     onValueChange = { q ->
                         searchQuery = q
+                        searchJob?.cancel()
                         if (q.trim().length >= 2) {
-                            scope.launch {
+                            searchJob = scope.launch {
+                                kotlinx.coroutines.delay(280)
                                 isSearching = true
                                 runCatching {
                                     searchResult = apiClient.searchGlobalArchive(q)
@@ -2010,6 +2037,7 @@ private fun GlobalSearchDialog(
                             }
                         } else {
                             searchResult = null
+                            isSearching = false
                         }
                     },
                     placeholder = "搜索……",

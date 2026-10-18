@@ -1010,7 +1010,58 @@ fun MockProfileScreen(isDarkTheme: Boolean) {
             )
         }
 
-        Spacer(modifier = Modifier.height(60.dp))
+        // 3. 随行偏好与拟物交互卡片
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(4.dp))
+                .background(cardBg)
+                .border(0.5.dp, borderDivider, RoundedCornerShape(4.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("随行偏好与拟物交互", fontFamily = FontFamily.Serif, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = textPrimary)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("物理触感反馈 (Tactile Haptics)", fontSize = 12.sp, color = textPrimary)
+                Text("已开启", fontSize = 11.sp, color = accentWarm)
+            }
+            HorizontalDivider(color = borderDivider.copy(alpha = 0.5f), thickness = 0.5.dp)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("程序化机械音效 (Mechanical Sound)", fontSize = 12.sp, color = textPrimary)
+                Text("已开启", fontSize = 11.sp, color = accentWarm)
+            }
+        }
+
+        // 4. 数据自持与本地全量备份卡片
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(4.dp))
+                .background(cardBg)
+                .border(0.5.dp, borderDivider, RoundedCornerShape(4.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("数据自持与本地备份", fontFamily = FontFamily.Serif, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = textPrimary)
+            Text("数据主权归属主理人，支持随时离线导出全量手账与账本明细：", fontSize = 11.sp, color = textMuted)
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(3.dp)).background(textPrimary).padding(vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("导出手账 (JSON)", fontSize = 11.sp, color = if (isDarkTheme) Color(0xFF141312) else Color.White)
+                }
+                Box(
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(3.dp)).border(0.5.dp, borderDivider, RoundedCornerShape(3.dp)).padding(vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("导出账单 (CSV)", fontSize = 11.sp, color = textPrimary)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(96.dp))
     }
 }
 

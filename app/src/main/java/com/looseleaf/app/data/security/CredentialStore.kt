@@ -25,6 +25,7 @@ class CredentialStore private constructor(context: Context) {
         private const val KEY_BIOMETRICS_ENABLED = "biometrics_enabled"
         private const val KEY_DARKROOM_MODE = "darkroom_mode"
         private const val KEY_HAPTICS_ENABLED = "looseleaf_haptics_enabled"
+        private const val KEY_SOUND_ENABLED = "looseleaf_sound_enabled"
 
         @Volatile
         private var instance: CredentialStore? = null
@@ -91,6 +92,12 @@ class CredentialStore private constructor(context: Context) {
         get() = prefs.getBoolean(KEY_HAPTICS_ENABLED, true)
         set(value) {
             prefs.edit().putBoolean(KEY_HAPTICS_ENABLED, value).apply()
+        }
+
+    var isSoundEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SOUND_ENABLED, true)
+        set(value) {
+            prefs.edit().putBoolean(KEY_SOUND_ENABLED, value).apply()
         }
 
     var cachedProfileJson: String?

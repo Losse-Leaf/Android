@@ -30,13 +30,17 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import android.content.Intent
 import android.net.Uri
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.looseleaf.app.audio.AudioEngine
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.local.ProfileRepository
 import com.looseleaf.app.data.security.CredentialStore
@@ -91,6 +95,7 @@ fun ProfileScreen(
     var isDarkroomMode by remember { mutableStateOf(credentialStore.isDarkroomMode) }
     var isBiometricsEnabled by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
     var isHapticsEnabled by remember { mutableStateOf(credentialStore.isHapticsEnabled) }
+    var isSoundEnabled by remember { mutableStateOf(credentialStore.isSoundEnabled) }
     var showUnpairDialog by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var availableUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
@@ -106,6 +111,17 @@ fun ProfileScreen(
     var issuedPairTicket by remember { mutableStateOf<PairTicketResponse?>(null) }
     var isIssuingPairTicket by remember { mutableStateOf(false) }
     var globalStats by remember { mutableStateOf<GlobalStats?>(null) }
+    var isExporting by remember { mutableStateOf(false) }
+
+    fun shareExportedFile(file: File, mimeType: String) {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(shareIntent, "分享或保存散页本地备份档案"))
+    }
 
     val reloadDevices: () -> Unit = {
         scope.launch {
@@ -492,27 +508,37 @@ fun ProfileScreen(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                            Text("散页手稿", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(0.95f)) {
+                            Text("散页手稿", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text("${globalStats?.totalEntries ?: 0}", fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                            Text("${globalStats?.totalEntries ?: 0}", fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary, maxLines = 1)
                         }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                            Text("暗房底片", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(0.95f)) {
+                            Text("暗房底片", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text("${globalStats?.totalPhotos ?: 0}", fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.accentWarm)
+                            Text("${globalStats?.totalPhotos ?: 0}", fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.accentWarm, maxLines = 1)
                         }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                            Text("造物项目", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(0.95f)) {
+                            Text("造物项目", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text("${globalStats?.totalProjects ?: 0}", fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.accentMoss)
+                            Text("${globalStats?.totalProjects ?: 0}", fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.accentMoss, maxLines = 1)
                         }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                            Text("当月支出", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1.15f)) {
+                            Text("当月支出", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text(FormatUtils.centsToYuanString(globalStats?.monthExpense ?: 0), fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.inkPrimary)
+                            Text(
+                                text = FormatUtils.centsToYuanString(globalStats?.monthExpense ?: 0),
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                color = colors.inkPrimary
+                            )
                         }
                     }
                 }
@@ -797,6 +823,113 @@ fun ProfileScreen(
                             },
                             colors = SwitchDefaults.colors(checkedThumbColor = colors.accentWarm, checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f))
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    PaperDivider()
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("程序化机械音效 (Mechanical Sound)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 14.sp, color = colors.inkPrimary)
+                            Text("纯算法实时合成快门、纸张翻动与打字机声音", fontSize = 11.sp, color = colors.inkMuted)
+                        }
+                        Switch(
+                            checked = isSoundEnabled,
+                            onCheckedChange = {
+                                isSoundEnabled = it
+                                credentialStore.isSoundEnabled = it
+                                AudioEngine.isSoundEnabled = it
+                                if (it) AudioEngine.playTink()
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = colors.accentWarm, checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f))
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // 数据自持与本地全量备份 (Data Sovereignty & Local Export)
+            PaperCard(modifier = Modifier.fillMaxWidth()) {
+                Column {
+                    Text(
+                        text = "数据自持与本地备份",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 15.sp,
+                        color = colors.inkPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "散页坚持数据主权归属主理人，支持随时离线导出全量手账与账本明细：",
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 11.5.sp,
+                        color = colors.inkSecondary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    isExporting = true
+                                    runCatching {
+                                        val f = syncManager.exportArchiveJson()
+                                        haptics.snapConfirm()
+                                        shareExportedFile(f, "application/json")
+                                    }.onFailure { err ->
+                                        ArchiveToastManager.show("导出失败: ${err.message}", isError = true)
+                                    }
+                                    isExporting = false
+                                }
+                            },
+                            enabled = !isExporting,
+                            shape = RoundedCornerShape(2.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = colors.inkPrimary,
+                                contentColor = colors.archivePaper
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Outlined.FileDownload, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("导出手账 (JSON)", fontSize = 11.sp, fontFamily = ArchiveFontFamilies.BodySans)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    isExporting = true
+                                    runCatching {
+                                        val f = syncManager.exportLedgerCsv()
+                                        haptics.snapConfirm()
+                                        shareExportedFile(f, "text/csv")
+                                    }.onFailure { err ->
+                                        ArchiveToastManager.show("导出失败: ${err.message}", isError = true)
+                                    }
+                                    isExporting = false
+                                }
+                            },
+                            enabled = !isExporting,
+                            shape = RoundedCornerShape(2.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.inkPrimary),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(
+                                brush = androidx.compose.ui.graphics.SolidColor(colors.borderDivider)
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Outlined.TableChart, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("导出账单 (CSV)", fontSize = 11.sp, fontFamily = ArchiveFontFamilies.BodySans)
+                        }
                     }
                 }
             }

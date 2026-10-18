@@ -52,6 +52,8 @@ import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.io.File
 import java.io.IOException
 import java.time.LocalDateTime
@@ -221,13 +223,16 @@ fun DarkroomScreen(
                 isProcessing = true
                 try {
                     val targetUris = uris.take(9 - photoSlots.size)
+                    val semaphore = Semaphore(2)
                     val added = withContext(Dispatchers.IO) {
                         targetUris.map { uri ->
                             async {
-                                val res = ImagePipeline.processImage(context, uri)
-                                val savedFile = syncManager.saveCompressedImageToOutboxDir(res.compressedBytes)
-                                val fileUri = "file://${savedFile.absolutePath}"
-                                DarkroomPhotoSlot(previewUri = fileUri, processed = res, savedOutboxFile = savedFile)
+                                semaphore.withPermit {
+                                    val res = ImagePipeline.processImage(context, uri)
+                                    val savedFile = syncManager.saveCompressedImageToOutboxDir(res.compressedBytes)
+                                    val fileUri = "file://${savedFile.absolutePath}"
+                                    DarkroomPhotoSlot(previewUri = fileUri, processed = res, savedOutboxFile = savedFile)
+                                }
                             }
                         }.awaitAll()
                     }

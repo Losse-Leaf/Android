@@ -544,6 +544,17 @@ data class ResetCategoriesRequest(
 )
 
 @Serializable
+data class FullArchiveExport(
+    @SerialName("export_time") val exportTime: String = FormatUtils.beijingNowIsoString(),
+    @SerialName("app_version") val appVersion: String = "1.4.0",
+    val entries: List<LifeEntry> = emptyList(),
+    val transactions: List<Transaction> = emptyList(),
+    val wishes: List<Wish> = emptyList(),
+    val projects: List<Project> = emptyList(),
+    val footprints: List<Footprint> = emptyList()
+)
+
+@Serializable
 data class GlobalSearchResponse(
     val query: String = "",
     val entries: List<LifeEntry> = emptyList(),

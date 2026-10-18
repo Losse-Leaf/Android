@@ -107,6 +107,9 @@ interface ProjectDao {
     @Query("SELECT * FROM cached_projects ORDER BY `order` ASC, id DESC")
     fun getAllProjectsFlow(): Flow<List<CachedProjectEntity>>
 
+    @Query("SELECT * FROM cached_projects ORDER BY `order` ASC, id DESC")
+    suspend fun getAllProjects(): List<CachedProjectEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(projects: List<CachedProjectEntity>)
 
@@ -122,6 +125,9 @@ interface WishDao {
     @Query("SELECT * FROM cached_wishes ORDER BY id DESC")
     fun getAllWishesFlow(): Flow<List<CachedWishEntity>>
 
+    @Query("SELECT * FROM cached_wishes ORDER BY id DESC")
+    suspend fun getAllWishes(): List<CachedWishEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(wishes: List<CachedWishEntity>)
 
@@ -136,6 +142,9 @@ interface WishDao {
 interface FootprintDao {
     @Query("SELECT * FROM cached_footprints ORDER BY visited_at DESC")
     fun getAllFootprintsFlow(): Flow<List<CachedFootprintEntity>>
+
+    @Query("SELECT * FROM cached_footprints ORDER BY visited_at DESC")
+    suspend fun getAllFootprints(): List<CachedFootprintEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(footprints: List<CachedFootprintEntity>)
