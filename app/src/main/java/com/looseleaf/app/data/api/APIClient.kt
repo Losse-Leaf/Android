@@ -143,32 +143,10 @@ class APIClient private constructor(private val context: Context) {
         queryParams: Map<String, String>? = null,
         body: RequestBody? = null
     ): Pair<Request, String> {
-        val normPath = if (path.startsWith("/")) path else "/$path"
-        val httpUrlBuilder = (baseUrl + normPath).let { url ->
-            val parsed = url.toHttpUrlOrNull()?.newBuilder()
-                ?: throw IllegalArgumentException("Invalid URL: $url")
-            // 路径段可能含文件名（备份下载、抽屉编码）等非安全字符，
-            // 用 addPathSegment 逐个编码，避免 toHttpUrlOrNull 直接返 null
-            val rawSegments = normPath.split('/').filter { it.isNotEmpty() }
-            if (rawSegments.isNotEmpty()) {
-                val rebuilt = parsed.build().newBuilder()
-                rebuilt.encodedPath("")
-                rawSegments.forEach { rebuilt.addPathSegment(it) }
-                val withPath = rebuilt.build()
-                val finalBuilder = withPath.newBuilder()
-                queryParams?.forEach { (k, v) ->
-                    finalBuilder.addQueryParameter(k, v)
-                }
-                return@let finalBuilder.build()
-            }
-            queryParams?.forEach { (k, v) ->
-                parsed.addQueryParameter(k, v)
-            }
-            parsed.build()
-        }
+        val httpUrl = buildHubUrl(baseUrl, path, queryParams)
 
         val requestBuilder = Request.Builder()
-            .url(httpUrlBuilder)
+            .url(httpUrl)
 
         val token = tokenProvider?.invoke()
         if (!token.isNullOrBlank()) {
@@ -179,7 +157,7 @@ class APIClient private constructor(private val context: Context) {
         requestBuilder.header("X-Client-Platform", "android")
         requestBuilder.header("X-Client-Version", BuildConfig.VERSION_NAME)
 
-        val cacheKey = httpUrlBuilder.toString()
+        val cacheKey = httpUrl.toString()
 
         when (method) {
             "POST" -> requestBuilder.post(body ?: "".toRequestBody("application/json".toMediaType()))
@@ -718,4 +696,30 @@ class APIClient private constructor(private val context: Context) {
             throw APIException(-1, "网络连接异常: ${e.message}")
         }
     }
+}
+
+/**
+ * 构建中枢 API 的完整 URL（顶层纯函数，便于单元测试）。
+ *
+ * 路径必须「逐段 addPathSegment」而不是整串 toHttpUrlOrNull()：
+ * 后者对含中文/空格等未编码字符的 URL 直接返回 null（备份文件名等场景）。
+ * 也绝不能用 encodedPath("") 清空已解析路径——OkHttp 要求它以 "/" 开头，
+ * 传空串会抛 IllegalArgumentException（v1.5.0 的全量断连回归即源于此）。
+ */
+internal fun buildHubUrl(
+    baseUrl: String,
+    path: String,
+    queryParams: Map<String, String>? = null
+): HttpUrl {
+    val base = baseUrl.toHttpUrlOrNull()
+        ?: throw IllegalArgumentException("Invalid base URL: $baseUrl")
+    val builder = base.newBuilder()
+    val normPath = if (path.startsWith("/")) path else "/$path"
+    normPath.split('/').filter { it.isNotEmpty() }.forEach { segment ->
+        builder.addPathSegment(segment)
+    }
+    queryParams?.forEach { (k, v) ->
+        builder.addQueryParameter(k, v)
+    }
+    return builder.build()
 }
