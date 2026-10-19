@@ -21,18 +21,16 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
 
-        // 预热主理人档案与站点配置本地缓存（普通 Prefs，不触碰 KeyStore）
-        ProfileRepository.init(this)
-
         // Token 通过回调惰性读取，避免冷启动在主线程创建 EncryptedSharedPreferences
         val credentialStore = CredentialStore.getInstance(this)
         val apiClient = APIClient.getInstance(this)
         apiClient.tokenProvider = { credentialStore.deviceToken }
 
-        // 发件箱调度属于后台工作，不占用冷启动主线程；
-        // 顺带在 IO 上预热 KeyStore 加密 Prefs——MainActivity 组合期要读 isPaired()，
-        // 若等它自己触发初始化，这笔 IO 就会掉到主线程上。
+        // 以下三件事都涉及磁盘 IO（SharedPreferences / KeyStore / WorkManager 入队），
+        // 统一移到 IO：ProfileRepository.init 会同步读档案 JSON，
+        // getProfile/getSiteConfig 里的「未初始化则 init」兜底保持不变，正常路径已避开主线程。
         appScope.launch {
+            runCatching { ProfileRepository.init(this@LooseLeafApp) }
             runCatching { credentialStore.warmUp() }
             runCatching { SyncManager.getInstance(this@LooseLeafApp).scheduleSync() }
         }

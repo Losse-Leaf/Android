@@ -11,6 +11,10 @@ interface EntryDao {
     @Query("SELECT * FROM cached_entries WHERE sync_status != 'PENDING_DELETE' ORDER BY occurred_at DESC")
     suspend fun getAllEntries(): List<CachedEntryEntity>
 
+    /** 只判「有没有数据」：几千条档案时避免为 isNotEmpty() 拖全表（含大文本列） */
+    @Query("SELECT EXISTS(SELECT 1 FROM cached_entries LIMIT 1)")
+    suspend fun hasAny(): Boolean
+
     @Query("SELECT * FROM cached_entries WHERE local_id = :localId LIMIT 1")
     suspend fun getEntryByLocalId(localId: Long): CachedEntryEntity?
 
@@ -54,6 +58,10 @@ interface TransactionDao {
     @Query("SELECT * FROM cached_transactions WHERE sync_status != 'PENDING_DELETE' ORDER BY occurred_at DESC")
     suspend fun getAllTransactions(): List<CachedTransactionEntity>
 
+    /** 只判「有没有数据」，同 [hasAny] 于 EntryDao 的说明 */
+    @Query("SELECT EXISTS(SELECT 1 FROM cached_transactions LIMIT 1)")
+    suspend fun hasAny(): Boolean
+
     @Query("SELECT * FROM cached_transactions WHERE local_id = :localId LIMIT 1")
     suspend fun getTransactionByLocalId(localId: Long): CachedTransactionEntity?
 
@@ -94,6 +102,21 @@ interface OutboxDao {
     @Query("SELECT * FROM outbox_events WHERE failed_at IS NULL ORDER BY created_at ASC")
     suspend fun getAllPendingEvents(): List<OutboxEventEntity>
 
+    /**
+     * 按 (entity_type, local_target_id, action) 查找事件——**含失败态**。
+     *
+     * 编辑未同步条目时必须用它而不是 [getAllPendingEvents]：
+     * 若该条目的 CREATE 事件此前已进入失败态（pending 查询会把它过滤掉），
+     * 按旧写法会「本地行已更新、载荷却没改写」，重试后旧内容被推上服务器，
+     * 再被服务器旧值覆盖回来——用户编辑静默丢失。
+     */
+    @Query(
+        "SELECT * FROM outbox_events WHERE entity_type = :entityType " +
+            "AND local_target_id = :localTargetId AND action = :action " +
+            "ORDER BY created_at ASC LIMIT 1"
+    )
+    suspend fun findEventByTarget(entityType: String, localTargetId: Long, action: String): OutboxEventEntity?
+
     @Query("SELECT * FROM outbox_events WHERE failed_at IS NOT NULL ORDER BY failed_at DESC")
     suspend fun getFailedEvents(): List<OutboxEventEntity>
 
@@ -115,9 +138,6 @@ interface OutboxDao {
     @Query("DELETE FROM outbox_events WHERE entity_type = :entityType AND local_target_id = :localTargetId")
     suspend fun deleteByLocalTarget(entityType: String, localTargetId: Long)
 
-    @Query("DELETE FROM outbox_events WHERE entity_type = :entityType AND server_target_id = :serverTargetId")
-    suspend fun deleteByServerTarget(entityType: String, serverTargetId: Long)
-
     @Query("DELETE FROM outbox_events")
     suspend fun clearAll()
 
@@ -129,9 +149,6 @@ interface OutboxDao {
     suspend fun markFailed(eventId: String, failedAt: String, error: String?)
 
     /** 用户点「重试」：清空失败态与重试计数，重新进入待发队列。 */
-    @Query("UPDATE outbox_events SET failed_at = NULL, last_error = NULL, retry_count = 0 WHERE event_id = :eventId")
-    suspend fun resetFailed(eventId: String)
-
     @Query("UPDATE outbox_events SET failed_at = NULL, last_error = NULL, retry_count = 0 WHERE failed_at IS NOT NULL")
     suspend fun resetAllFailed()
 }
@@ -141,14 +158,8 @@ interface ProjectDao {
     @Query("SELECT * FROM cached_projects ORDER BY `order` ASC, id DESC")
     fun getAllProjectsFlow(): Flow<List<CachedProjectEntity>>
 
-    @Query("SELECT * FROM cached_projects ORDER BY `order` ASC, id DESC")
-    suspend fun getAllProjects(): List<CachedProjectEntity>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(projects: List<CachedProjectEntity>)
-
-    @Query("DELETE FROM cached_projects WHERE id = :id")
-    suspend fun deleteById(id: Long)
 
     @Query("DELETE FROM cached_projects")
     suspend fun clearAll()
@@ -159,14 +170,8 @@ interface WishDao {
     @Query("SELECT * FROM cached_wishes ORDER BY id DESC")
     fun getAllWishesFlow(): Flow<List<CachedWishEntity>>
 
-    @Query("SELECT * FROM cached_wishes ORDER BY id DESC")
-    suspend fun getAllWishes(): List<CachedWishEntity>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(wishes: List<CachedWishEntity>)
-
-    @Query("DELETE FROM cached_wishes WHERE id = :id")
-    suspend fun deleteById(id: Long)
 
     @Query("DELETE FROM cached_wishes")
     suspend fun clearAll()
@@ -177,14 +182,8 @@ interface FootprintDao {
     @Query("SELECT * FROM cached_footprints ORDER BY visited_at DESC")
     fun getAllFootprintsFlow(): Flow<List<CachedFootprintEntity>>
 
-    @Query("SELECT * FROM cached_footprints ORDER BY visited_at DESC")
-    suspend fun getAllFootprints(): List<CachedFootprintEntity>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(footprints: List<CachedFootprintEntity>)
-
-    @Query("DELETE FROM cached_footprints WHERE id = :id")
-    suspend fun deleteById(id: Long)
 
     @Query("DELETE FROM cached_footprints")
     suspend fun clearAll()

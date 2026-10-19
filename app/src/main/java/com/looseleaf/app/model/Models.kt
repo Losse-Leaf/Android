@@ -1,5 +1,6 @@
 package com.looseleaf.app.model
 
+import androidx.compose.runtime.Immutable
 import com.looseleaf.app.utils.FormatUtils
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -15,9 +16,6 @@ data class APIEnvelope<T>(
 )
 
 @Serializable
-data class EmptyPayload(val empty: String? = null)
-
-@Serializable
 data class DeleteResponse(
     val deleted: Boolean? = null,
     val purged: Boolean? = null
@@ -26,6 +24,7 @@ data class DeleteResponse(
 /**
  * 生活记录一级母体 (LifeEntry) - docs/backend.md §5.2
  */
+@Immutable
 @Serializable
 data class LifeEntry(
     val id: Long,
@@ -52,6 +51,7 @@ data class LifeEntry(
 /**
  * 多媒体附件实体 (Attachment)
  */
+@Immutable
 @Serializable
 data class Attachment(
     val id: Long = 0,
@@ -71,6 +71,7 @@ data class Attachment(
 /**
  * 记账明细 (Transaction) - 金额严格为 int64 分
  */
+@Immutable
 @Serializable
 data class Transaction(
     val id: Long,
@@ -161,6 +162,7 @@ data class SiteConfig(
 /**
  * 造物与项目 (Project)
  */
+@Immutable
 @Serializable
 data class Project(
     val id: Long,
@@ -193,6 +195,7 @@ data class CreateProjectRequest(
 /**
  * 心愿 (Wish)
  */
+@Immutable
 @Serializable
 data class Wish(
     val id: Long,
@@ -260,6 +263,7 @@ data class ResolveWishRequest(
 /**
  * 足迹 (Footprint) - 严格对齐 backend/internal/models/models.go
  */
+@Immutable
 @Serializable
 data class Footprint(
     val id: Long,
@@ -330,15 +334,16 @@ data class ProvinceVisitedCity(
     @SerialName("visit_count") val visitCount: Int = 1
 )
 
+@Immutable
 @Serializable
 data class ProvinceMemoryDrawerResponse(
-    val adcode: String = "",
+    // 后端省份抽屉返回的键是 province_adcode（backend footprints.go），必须显式映射，
+    // 否则 ignoreUnknownKeys 会把字段静默丢弃、adcode 永远为空
+    @SerialName("province_adcode") val adcode: String = "",
     @SerialName("province_name") val provinceName: String = "",
-    @SerialName("province_short") val provinceShort: String = "",
     val footprints: List<Footprint> = emptyList(),
     @SerialName("visited_cities") val visitedCities: List<ProvinceVisitedCity> = emptyList(),
     val entries: List<LifeEntry> = emptyList(),
-    val photos: List<Attachment> = emptyList(),
     @SerialName("visit_stats") val visitStats: CityVisitStats = CityVisitStats(),
     @SerialName("ledger_summary") val ledgerSummary: CityDrawerLedgerSummary = CityDrawerLedgerSummary()
 )
@@ -715,16 +720,7 @@ data class PairTicketResponse(
     @SerialName("expires_at") val expiresAt: String = "",
     @SerialName("expires_in_seconds") val expiresInSeconds: Int = 300,
     @SerialName("qr_payload") val qrPayload: String = "",
-    @SerialName("qr_code_data_url") val qrCodeDataUrl: String = "",
-    val candidates: List<NetworkCandidate>? = null
-)
-
-@Serializable
-data class NetworkCandidate(
-    val type: String = "",
-    val label: String = "",
-    val ip: String = "",
-    val url: String = ""
+    @SerialName("qr_code_data_url") val qrCodeDataUrl: String = ""
 )
 
 @Serializable

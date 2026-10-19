@@ -51,7 +51,7 @@ android/
 │   ├── build.gradle.kts                   # 模块构建配置 (Compose, Room, WorkManager, OkHttp)
 │   ├── src/
 │   │   ├── main/
-│   │   │   ├── AndroidManifest.xml        # 清单声明、权限与小组件 Receiver
+│   │   │   ├── AndroidManifest.xml        # 清单声明、权限与深链 intent-filter（无小组件 Receiver）
 │   │   │   ├── java/com/looseleaf/app/
 │   │   │   │   ├── LooseLeafApp.kt        # Application 根实例与后台工作器配置
 │   │   │   │   ├── MainActivity.kt        # FragmentActivity、Edge-to-Edge 沉浸与底部导航
@@ -73,7 +73,7 @@ android/
 │   │   │   │   │   ├── projectswishes/    # 造物、心愿与山川足迹 (ProjectsWishesScreen)
 │   │   │   │   │   └── stream/            # 时光手账时间流 (StreamScreen)
 │   │   │   │   ├── utils/                 # FlexTime 弹性时间、分位整型转换与 375 城市字典
-│   │   │   └── res/                       # 布局 XML、小组件配置与 Mipmap 图标
+│   │   │   └── res/                       # values 主题与 xml（FileProvider 路径、快捷方式）、Mipmap 图标
 │   │   └── test/                          # 单元测试 (FormatUtilsTest, CityDictionaryTest 等)
 │   └── proguard-rules.pro
 ├── gradle/
@@ -94,7 +94,7 @@ android/
 ### 1. 环境需求
 - **JDK**：OpenJDK 17 或 21
 - **Android SDK**：API Level 35 (Compile), API Level 26+ (Min)
-- **开发工具**：Android Studio Koala / Ladybug / Meerkat 或 IntelliJ IDEA
+- **开发工具**：Android Studio Ladybug (2024.2.1) 及以上（AGP 8.7 最低要求）或 IntelliJ IDEA
 
 ### 2. 命令行构建
 
@@ -119,7 +119,7 @@ chmod +x gradlew
 本项目内置了基于 **Compose Multiplatform Desktop** 的桌面交互预览视窗（`:desktop` 模块）：
 - **零 Android SDK 依赖**：无需安装庞大的 Android SDK 或配置模拟器，只要有 JDK 17 即可秒级在 macOS 原生运行；
 - **全机型拟真边框体验**：内置标准手机（390×844）、超长屏（392×892）、紧凑小屏（360×640）、折叠屏内屏展开（680×840）与平板模式（780×960）；
-- **版式预览（Mock）**：四端界面在 `desktop/Main.kt` 中是**独立重写的 Mock**，只用于检查版式与配色，
+- **版式预览（Mock）**：五个预览界面在 `desktop/Main.kt` 中是**独立重写的 Mock**，只用于检查版式与配色，
   不是 App 真实运行时的 Composable（真实界面依赖 Context / Room / Coil，无法在桌面 JVM 跑）。
 
 ```bash

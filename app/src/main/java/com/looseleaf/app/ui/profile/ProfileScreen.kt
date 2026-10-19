@@ -295,7 +295,7 @@ fun ProfileScreen(
                                     modifier = Modifier
                                         .size(64.dp)
                                         .clip(CircleShape)
-                                        .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.4f)),
+                                        .background(colors.inkPrimary.copy(alpha = 0.6f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     CircularProgressIndicator(

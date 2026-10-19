@@ -38,6 +38,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -69,6 +71,13 @@ fun SquareQrScannerView(
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         )
+    }
+
+    // 从系统设置页授权后返回时必须重查权限，否则永远停留在「需要相机权限」页
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        hasCameraPermission = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -165,7 +174,7 @@ fun SquareQrScannerView(
                 .fillMaxWidth()
                 .height(320.dp)
                 .clip(RoundedCornerShape(4.dp))
-                .background(Color.Black)
+                .background(colors.cameraViewfinderBg)
                 .clickable {
                     // 点击取景框触发中心对焦
                     try {
@@ -440,8 +449,21 @@ private fun decodeQrFromImage(image: ImageProxy, reader: MultiFormatReader): Str
  */
 private fun decodeQrFromUri(context: Context, uri: Uri): String? {
     return try {
+        // 必须降采样：相册里可能是一亿像素的长截图，全尺寸解码 + IntArray(w*h)
+        // 直接把堆打爆（1e8 px ≈ 400MB）。二维码在 1080px 内识别绰绰有余。
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, bounds)
+        }
+        val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
+        var sampleSize = 1
+        while (maxDim / (sampleSize * 2) >= 1080) sampleSize *= 2
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.RGB_565
+        }
         val bitmap = context.contentResolver.openInputStream(uri)?.use { inputStream ->
-            BitmapFactory.decodeStream(inputStream)
+            BitmapFactory.decodeStream(inputStream, null, options)
         } ?: return null
         val width = bitmap.width
         val height = bitmap.height

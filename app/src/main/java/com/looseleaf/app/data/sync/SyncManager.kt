@@ -68,6 +68,9 @@ class SyncManager private constructor(private val context: Context) {
         /** 增量游标回退窗口，避免「同一秒内多条更新」被 since 过滤掉（重复行由 upsert 吸收） */
         private const val CURSOR_OVERLAP_SECONDS = 120L
 
+        /** project/wish 这类没有本地行的事件用 -1 哨兵，绝不能用 0（会误删全表同类事件） */
+        const val LOCAL_TARGET_ID_NONE = -1L
+
         @Volatile
         private var instance: SyncManager? = null
 
@@ -95,7 +98,7 @@ class SyncManager private constructor(private val context: Context) {
         context.getSharedPreferences(SYNC_PREFS_NAME, Context.MODE_PRIVATE)
     }
 
-    // 观察待同步队列总数 (0ms 内存缓存)
+    // 观察待同步队列总数 (数据量极小，保持 Eagerly 让徽标即时生效)
     val pendingEventCountFlow: StateFlow<Int> = database.outboxDao().getPendingEventCountFlow()
         .catch { emit(0) }
         .flowOn(Dispatchers.Default)
@@ -107,40 +110,43 @@ class SyncManager private constructor(private val context: Context) {
         .flowOn(Dispatchers.Default)
         .stateIn(scope, SharingStarted.Eagerly, 0)
 
+    // 以下五个档案流改用 WhileSubscribed(5000)：Eagerly 会让 Room InvalidationTracker
+    // 在没有任何界面订阅时也持续观察六张表，并把每行 attachmentsJson 反序列化——
+    // 息屏/后台同步期间纯耗电。5000ms 粘性窗口保证切 Tab 不重建。
     // 观察全量生活档案 (合并本地乐观与云端权威，后台 Default 线程反序列化，0ms 即刻上屏杜绝白屏闪烁)
     val entriesFlow: StateFlow<List<LifeEntry>> = database.entryDao().getAllEntriesFlow()
         .catch { emit(emptyList()) }
         .map { entities ->
             entities.map { it.toDomainModel(json) }
-        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
+        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // 观察全量记账明细 (合并本地乐观与云端权威，0ms 内存态直出)
     val transactionsFlow: StateFlow<List<Transaction>> = database.transactionDao().getAllTransactionsFlow()
         .catch { emit(emptyList()) }
         .map { entities ->
             entities.map { it.toTransaction() }
-        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
+        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // 观察全量造物项目 (离线缓存即时上屏)
     val projectsFlow: StateFlow<List<Project>> = database.projectDao().getAllProjectsFlow()
         .catch { emit(emptyList()) }
         .map { entities ->
             entities.map { it.toProject() }
-        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
+        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // 观察全量三维心愿 (离线缓存即时上屏)
     val wishesFlow: StateFlow<List<Wish>> = database.wishDao().getAllWishesFlow()
         .catch { emit(emptyList()) }
         .map { entities ->
             entities.map { it.toWish(json) }
-        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
+        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // 观察全量山川足迹 (离线缓存即时上屏)
     val footprintsFlow: StateFlow<List<Footprint>> = database.footprintDao().getAllFootprintsFlow()
         .catch { emit(emptyList()) }
         .map { entities ->
             entities.map { it.toFootprint(json) }
-        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
+        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * 将压制后的相纸字节保存至离线发件箱目录
@@ -385,23 +391,30 @@ class SyncManager private constructor(private val context: Context) {
                     )
                 )
             } else {
-                // 尚未同步至云端的本地条目，更新其对应的 CREATE 事件载荷
-                val pending = database.outboxDao().getAllPendingEvents()
-                val createEvent = pending.firstOrNull {
-                    it.localTargetId == entity.localId && it.action == "CREATE"
-                }
-                if (createEvent != null) {
-                    if (createEvent.entityType == "entry") {
-                        database.outboxDao().insert(
-                            createEvent.copy(payload = json.encodeToString(req))
-                        )
-                    } else if (createEvent.entityType == "media_entry") {
+                // 尚未同步至云端的本地条目，改写其 CREATE 事件载荷。
+                // 必须用含失败态的查找：若 CREATE 事件已进失败态而按 pending 找，
+                // 会出现「本地行已更新、载荷没改写」，重试后旧内容被推上去再被覆盖回来。
+                val createEvent = database.outboxDao().findEventByTarget(
+                    entityType = "entry",
+                    localTargetId = entity.localId,
+                    action = "CREATE"
+                ) ?: database.outboxDao().findEventByTarget(
+                    entityType = "media_entry",
+                    localTargetId = entity.localId,
+                    action = "CREATE"
+                )
+                when {
+                    createEvent == null -> Unit
+                    createEvent.entityType == "media_entry" -> {
                         val oldPayload = json.decodeFromString<OfflineMediaEntryPayload>(createEvent.payload)
                         val newPayload = oldPayload.copy(req = req)
                         database.outboxDao().insert(
                             createEvent.copy(payload = json.encodeToString(newPayload))
                         )
                     }
+                    else -> database.outboxDao().insert(
+                        createEvent.copy(payload = json.encodeToString(req))
+                    )
                 }
             }
         }
@@ -548,10 +561,12 @@ class SyncManager private constructor(private val context: Context) {
                     )
                 )
             } else {
-                val pending = database.outboxDao().getAllPendingEvents()
-                val createEvent = pending.firstOrNull {
-                    it.entityType == "transaction" && it.localTargetId == entity.localId && it.action == "CREATE"
-                }
+                // 与 updateEntryOptimistic 同理：必须含失败态，否则编辑会静默丢失
+                val createEvent = database.outboxDao().findEventByTarget(
+                    entityType = "transaction",
+                    localTargetId = entity.localId,
+                    action = "CREATE"
+                )
                 if (createEvent != null) {
                     database.outboxDao().insert(
                         createEvent.copy(payload = json.encodeToString(req))
@@ -671,15 +686,13 @@ class SyncManager private constructor(private val context: Context) {
      */
     suspend fun pullRemoteData(forceFull: Boolean = false): Result<Unit> = pullMutex.withLock {
         kotlin.runCatching {
-            flushOutboxNow()
-
+            // 不在这里内联 flush：多图上传可能要几十秒，会把「下拉刷新」卡死在发件箱上。
+            // 每次入队都已 scheduleSync()，Worker 受网络约束自会跑；此处只做拉取。
             val failures = mutableListOf<String>()
-
             // ---------- 2. 生活档案 ----------
-            val currentLocalEntries = database.entryDao().getAllEntries()
             val entriesCursor = syncPrefs.getString(KEY_ENTRIES_CURSOR, null)
             val useIncrementalEntries =
-                !forceFull && currentLocalEntries.isNotEmpty() && !entriesCursor.isNullOrBlank()
+                !forceFull && database.entryDao().hasAny() && !entriesCursor.isNullOrBlank()
 
             val remoteEntries = mutableListOf<LifeEntry>()
             var entriesComplete = true
@@ -694,7 +707,9 @@ class SyncManager private constructor(private val context: Context) {
                     )
                     remoteEntries.addAll(resp.entries)
                     pages++
-                    if (resp.entries.size < 100 || remoteEntries.size >= resp.total) break
+                    // 只用「不满页」做终止条件：resp.total 是 COUNT 快照，
+                    // 并发写入会偏小，导致 size >= total 提前 break 漏拉后续页
+                    if (resp.entries.size < 100) break
                     page++
                 }
                 if (pages >= MAX_PAGES) {
@@ -718,10 +733,9 @@ class SyncManager private constructor(private val context: Context) {
             }
 
             // ---------- 3. 记账流水 ----------
-            val currentLocalTxs = database.transactionDao().getAllTransactions()
             val txCursor = syncPrefs.getString(KEY_TX_CURSOR, null)
             val useIncrementalTxs =
-                !forceFull && currentLocalTxs.isNotEmpty() && !txCursor.isNullOrBlank()
+                !forceFull && database.transactionDao().hasAny() && !txCursor.isNullOrBlank()
 
             val remoteTxs = mutableListOf<Transaction>()
             var txsComplete = true
@@ -803,6 +817,11 @@ class SyncManager private constructor(private val context: Context) {
                 val suffix = if (authExpired) "（设备凭据已失效，请重新扫码配对）" else ""
                 throw IllegalStateException(failures.joinToString("；") + suffix)
             }
+        }.also { result ->
+            // runCatching 会把 CancellationException 转成 Result.failure 吞掉，
+            // 违背结构化并发——用户离开页面导致的取消必须继续向上传播
+            val ex = result.exceptionOrNull()
+            if (ex is CancellationException) throw ex
         }
     }
 
@@ -818,29 +837,37 @@ class SyncManager private constructor(private val context: Context) {
             }
         }
 
-        // 全量拉取：清理服务端已不存在、且本地已同步的行，并收口历史重复行
+        // 全量拉取：收口历史重复行，并清理「服务端已不存在」的已同步行。
+        // 收口必须发生在读映射之前，否则 upsert 会把已删除的重复行再插回来。
         if (!incremental) {
             database.entryDao().deleteDuplicateServerIds()
-            for (local in database.entryDao().getAllEntries()) {
-                val serverId = local.serverId
-                if (local.syncStatus == "SYNCED" && serverId != null && serverId !in remoteIds) {
+        }
+
+        // 一次读全表建映射，删除判断与 upsert 复用同一份数据（几千条时避免反复拖全表）
+        val localByServerId = database.entryDao().getAllEntries()
+            .mapNotNull { entity -> entity.serverId?.let { it to entity } }
+            .toMap()
+
+        if (!incremental) {
+            for ((serverId, local) in localByServerId) {
+                if (local.syncStatus == "SYNCED" && serverId !in remoteIds) {
                     database.entryDao().deleteByServerId(serverId)
                 }
             }
         }
 
-        // 一次读全表做映射，避免每条远端记录都查一次库（几千条时是几千次 SQL）
-        val localByServerId = database.entryDao().getAllEntries()
-            .mapNotNull { entity -> entity.serverId?.let { it to entity } }
-            .toMap()
-
+        // 构建批量列表后一次性 insertAll：单事务 N 条 INSERT 改为一次批量执行
+        val toUpsert = mutableListOf<CachedEntryEntity>()
         for (item in activeRemote) {
             val existing = localByServerId[item.id]
             if (existing != null && existing.syncStatus != "SYNCED") {
                 // 本地有待推送修改：绝不覆盖正文，等发件箱把它送上去
                 continue
             }
-            database.entryDao().insert(item.toCacheEntity(existing?.localId ?: 0, json))
+            toUpsert += item.toCacheEntity(existing?.localId ?: 0, json)
+        }
+        if (toUpsert.isNotEmpty()) {
+            database.entryDao().insertAll(toUpsert)
         }
     }
 
@@ -857,24 +884,30 @@ class SyncManager private constructor(private val context: Context) {
 
         if (!incremental) {
             database.transactionDao().deleteDuplicateServerIds()
-            for (local in database.transactionDao().getAllTransactions()) {
-                val serverId = local.serverId
-                if (local.syncStatus == "SYNCED" && serverId != null && serverId !in remoteIds) {
-                    database.transactionDao().deleteByServerId(serverId)
-                }
-            }
         }
 
         val localByServerId = database.transactionDao().getAllTransactions()
             .mapNotNull { entity -> entity.serverId?.let { it to entity } }
             .toMap()
 
+        if (!incremental) {
+            for ((serverId, local) in localByServerId) {
+                if (local.syncStatus == "SYNCED" && serverId !in remoteIds) {
+                    database.transactionDao().deleteByServerId(serverId)
+                }
+            }
+        }
+
+        val toUpsert = mutableListOf<CachedTransactionEntity>()
         for (item in activeRemote) {
             val existing = localByServerId[item.id]
             if (existing != null && existing.syncStatus != "SYNCED") {
                 continue
             }
-            database.transactionDao().insert(item.toCacheEntity(existing?.localId ?: 0))
+            toUpsert += item.toCacheEntity(existing?.localId ?: 0)
+        }
+        if (toUpsert.isNotEmpty()) {
+            database.transactionDao().insertAll(toUpsert)
         }
     }
 
@@ -974,7 +1007,10 @@ class SyncManager private constructor(private val context: Context) {
                 entityType = entityType,
                 action = action,
                 payload = payload,
-                localTargetId = 0,
+                // 注意：这类事件（project/wish）没有本地行，不能用 0——
+                // deleteByLocalTarget 按 (entity_type, local_target_id) 删除，
+                // 0 会命中全部同类事件。用 -1 哨兵值并在注释里锁死这一约定。
+                localTargetId = LOCAL_TARGET_ID_NONE,
                 serverTargetId = serverTargetId
             )
         )
@@ -989,17 +1025,33 @@ class SyncManager private constructor(private val context: Context) {
             "entry" -> {
                 when (event.action) {
                     "CREATE" -> {
-                        val req = json.decodeFromString<CreateEntryRequest>(event.payload)
-                        val serverEntry = apiClient.createEntry(req)
-                        database.entryDao().markSynced(event.localTargetId, serverEntry.id)
+                        // 投递前复核本地行仍在：用户可能刚删掉这条未同步记录，
+                        // 而事件列表是 Worker 启动时快照的——跳过投递直接消费事件，
+                        // 避免服务器出现一条本机永远删不掉的幽灵档案。
+                        val stillThere = database.entryDao().getEntryByLocalId(event.localTargetId) != null
+                        if (stillThere) {
+                            val req = json.decodeFromString<CreateEntryRequest>(event.payload)
+                            val serverEntry = apiClient.createEntry(req)
+                            database.entryDao().markSynced(event.localTargetId, serverEntry.id)
+                        }
                         database.outboxDao().delete(event)
                     }
                     "UPDATE" -> {
                         val targetId = event.serverTargetId
                         if (targetId != null && targetId > 0) {
-                            val req = json.decodeFromString<CreateEntryRequest>(event.payload)
-                            val serverEntry = apiClient.updateEntry(targetId, req)
-                            database.entryDao().markSynced(event.localTargetId, serverEntry.id)
+                            try {
+                                val req = json.decodeFromString<CreateEntryRequest>(event.payload)
+                                val serverEntry = apiClient.updateEntry(targetId, req)
+                                database.entryDao().markSynced(event.localTargetId, serverEntry.id)
+                            } catch (e: APIException) {
+                                // 服务端已删（网页/其他设备）：本地修改已无处可去，
+                                // 与 DELETE 同样宽容地消费事件，而不是反复重试进失败态
+                                if (e.code == 404) {
+                                    database.entryDao().deleteByLocalId(event.localTargetId)
+                                } else {
+                                    throw e
+                                }
+                            }
                         }
                         database.outboxDao().delete(event)
                     }
@@ -1093,10 +1145,13 @@ class SyncManager private constructor(private val context: Context) {
                         database.entryDao().markSynced(event.localTargetId, serverEntry.id)
                     }
 
+                    // 先删事件、后删本地文件：若中途崩溃，重试时事件已不在，
+                    // 顶多留下一个孤儿文件（可被清理），绝不出现「文件没了但事件还在」
+                    // → 上传必失败 → 反复重试 10 次进失败态的死局。
+                    database.outboxDao().delete(event)
                     for (f in tempFiles) {
                         runCatching { f.delete() }
                     }
-                    database.outboxDao().delete(event)
                 } else {
                     database.outboxDao().delete(event)
                 }
@@ -1104,17 +1159,29 @@ class SyncManager private constructor(private val context: Context) {
             "transaction" -> {
                 when (event.action) {
                     "CREATE" -> {
-                        val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
-                        val serverTx = apiClient.createTransaction(req)
-                        database.transactionDao().markSynced(event.localTargetId, serverTx.id)
+                        // 与 entry CREATE 同理：先复核本地行仍在，避免幽灵建档
+                        val stillThere = database.transactionDao().getTransactionByLocalId(event.localTargetId) != null
+                        if (stillThere) {
+                            val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
+                            val serverTx = apiClient.createTransaction(req)
+                            database.transactionDao().markSynced(event.localTargetId, serverTx.id)
+                        }
                         database.outboxDao().delete(event)
                     }
                     "UPDATE" -> {
                         val targetServerId = event.serverTargetId
                         if (targetServerId != null && targetServerId > 0) {
-                            val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
-                            apiClient.updateTransaction(targetServerId, req)
-                            database.transactionDao().markSynced(event.localTargetId, targetServerId)
+                            try {
+                                val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
+                                apiClient.updateTransaction(targetServerId, req)
+                                database.transactionDao().markSynced(event.localTargetId, targetServerId)
+                            } catch (e: APIException) {
+                                if (e.code == 404) {
+                                    database.transactionDao().deleteByLocalId(event.localTargetId)
+                                } else {
+                                    throw e
+                                }
+                            }
                         }
                         database.outboxDao().delete(event)
                     }
@@ -1228,33 +1295,6 @@ class SyncManager private constructor(private val context: Context) {
                     "未知事件类型：${event.entityType}/${event.action}"
                 )
             }
-        }
-    }
-
-    /**
-     * 尽力而为地清一次发件箱。
-     *
-     * 用 tryLock 而不是 withLock：后台正在上传一组相纸时可能要几十秒，
-     * 下拉刷新不该被它堵住；上传本身由 OutboxSyncWorker 负责，这里跳过不影响可靠性。
-     */
-    suspend fun flushOutboxNow() {
-        if (!outboxMutex.tryLock()) {
-            Log.d(TAG, "Outbox busy (worker running), skip inline flush")
-            return
-        }
-        try {
-            val pending = database.outboxDao().getAllPendingEvents()
-            if (pending.isEmpty()) return
-
-            for (event in pending) {
-                try {
-                    processOutboxEvent(event)
-                } catch (e: Exception) {
-                    Log.w(TAG, "flushOutboxNow error on event ${event.eventId}: ${e.message}")
-                }
-            }
-        } finally {
-            outboxMutex.unlock()
         }
     }
 }

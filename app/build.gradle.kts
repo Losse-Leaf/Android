@@ -95,6 +95,8 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
+    // ProcessLifecycleOwner：区分「应用切后台」与「Activity 被系统相机/相册临时盖住」
+    implementation("androidx.lifecycle:lifecycle-process:2.8.6")
     implementation("androidx.activity:activity-compose:1.9.3")
 
     // Jetpack Compose

@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   build-release:
-    name: Build Release APK & Bundle
+    name: Build Release APK
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -38,6 +38,19 @@ jobs:
           if [ "$TAG" != "$VERSION" ]; then
             echo "::error title=版本不一致::tag v$TAG 与 app/build.gradle.kts 的 versionName $VERSION 不一致，更新器会判断错版本"
             exit 1
+          fi
+
+      # 发布流水线必须自带质量门禁：tag 触发不经过 main 的 CI，
+      # 没有这一步，未经测试与静态检查的代码可以直接产出签名发布包
+      - name: Run Unit Tests & Lint (release gate)
+        run: |
+          set +e
+          ./gradlew testDebugUnitTest :app:lintDebug --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_gate.log 2>&1
+          EXIT_CODE=$?
+          cat gradle_gate.log
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "::error title=门禁未通过::单测或 lint 存在失败，禁止发布"
+            exit $EXIT_CODE
           fi
 
       - name: Build Release APK
@@ -70,7 +83,9 @@ jobs:
       - name: Package Artifact
         run: |
           mkdir -p release-artifacts
-          cp app/build/outputs/apk/release/app-release.apk "release-artifacts/LooseLeaf-${{ github.ref_name }}.apk" 2>/dev/null || cp app/build/outputs/apk/release/*.apk "release-artifacts/LooseLeaf-${{ github.ref_name }}.apk"
+          # 产物缺失即失败：兜底 cp *.apk 会把任意 APK 冠上正式发布名
+          test -f app/build/outputs/apk/release/app-release.apk || { echo "::error title=产物缺失::app-release.apk 不存在"; exit 1; }
+          cp app/build/outputs/apk/release/app-release.apk "release-artifacts/LooseLeaf-${{ github.ref_name }}.apk"
           ls -la release-artifacts/
 
       - name: Upload Artifact
@@ -78,6 +93,7 @@ jobs:
         with:
           name: LooseLeaf-Android-${{ github.ref_name }}
           path: release-artifacts/*.apk
+          retention-days: 30
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')

@@ -98,6 +98,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 /** 进程级一次性标记：避免每次进入时间流都请求 GitHub Releases */
 private var updateCheckedThisProcess = false
@@ -129,7 +131,13 @@ fun StreamScreen(
     val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var selectedFilter by rememberSaveable { mutableStateOf("all") }
     var isRefreshing by remember { mutableStateOf(false) }
-    var cloudUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
+    // 更新横幅走 JSON 持久化（ReleaseInfo 含非 Saveable 字段）：旋转后不再永久消失
+    var cloudUpdateJson by rememberSaveable { mutableStateOf<String?>(null) }
+    val cloudUpdate: ReleaseInfo? = remember(cloudUpdateJson) {
+        cloudUpdateJson?.let {
+            runCatching { Json { ignoreUnknownKeys = true }.decodeFromString<ReleaseInfo>(it) }.getOrNull()
+        }
+    }
 
     // 那年今日状态
     var remoteOnThisDay by remember { mutableStateOf<List<LifeEntry>>(emptyList()) }
@@ -143,16 +151,20 @@ fun StreamScreen(
     var showQuickNoteDialog by remember { mutableStateOf(false) }
     var entryToDelete by remember { mutableStateOf<LifeEntry?>(null) }
 
+    // 失败事件处置弹窗（重试 / 放弃）
+    var showFailedEventsDialog by remember { mutableStateOf(false) }
+
     // 单条档案详情与编辑弹窗状态
     var selectedEntryForDetail by remember { mutableStateOf<LifeEntry?>(null) }
     var lightboxPhoto by remember { mutableStateOf<Pair<String, String?>?>(null) }
 
     // 更新检查：整个进程只查一次，失败静默（避免每次切 Tab 都打 GitHub API）
     LaunchedEffect(Unit) {
-        if (!updateCheckedThisProcess) {
+        if (!updateCheckedThisProcess && cloudUpdate == null) {
             updateCheckedThisProcess = true
             when (val res = UpdateChecker.checkForUpdates()) {
-                is UpdateCheckResult.HasUpdate -> cloudUpdate = res.release
+                is UpdateCheckResult.HasUpdate ->
+                    cloudUpdateJson = Json { ignoreUnknownKeys = true }.encodeToString(res.release)
                 else -> Unit
             }
         }
@@ -244,10 +256,12 @@ fun StreamScreen(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(colors.accentWarm.copy(alpha = 0.12f))
-                                .clickable {
+                                .clickable(role = Role.Button) {
                                     scope.launch {
-                                        ArchiveToastManager.show("正在同步发件箱 ($pendingCount 项待重放)…")
-                                        syncManager.pullRemoteData()
+                                        // 徽标文案是「待同步」：点击应立即推进发件箱（排队 Worker），
+                                        // 而不是拉一整轮远端数据
+                                        ArchiveToastManager.show("发件箱已重新排队，联网后自动上传 ($pendingCount 项待重放)")
+                                        syncManager.scheduleSync()
                                     }
                                 }
                                 .padding(horizontal = 6.dp, vertical = 3.dp)
@@ -276,10 +290,9 @@ fun StreamScreen(
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(colors.accentWarm.copy(alpha = 0.18f))
                                 .clickable(role = Role.Button) {
-                                    scope.launch {
-                                        ArchiveToastManager.show("正在重试 $failedCount 条失败记录…")
-                                        syncManager.retryFailedEvents()
-                                    }
+                                    // 弹二选一而不是直接重试：永久 4xx / 重试耗尽的事件
+                                    // 只会再失败一轮，用户必须有一条「放弃」的出路
+                                    showFailedEventsDialog = true
                                 }
                                 .padding(horizontal = 6.dp, vertical = 3.dp)
                         ) {
@@ -291,7 +304,7 @@ fun StreamScreen(
                             )
                             Spacer(modifier = Modifier.width(3.dp))
                             Text(
-                                text = "同步失败 $failedCount · 重试",
+                                text = "同步失败 $failedCount",
                                 fontSize = 10.sp,
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 color = colors.accentWarm
@@ -629,6 +642,54 @@ fun StreamScreen(
                 },
                 onPhotoClick = { url, meta ->
                     lightboxPhoto = url to meta
+                }
+            )
+        }
+
+        // 失败事件处置：重试或放弃（放弃仅移除发件箱事件，本地记录保留）
+        if (showFailedEventsDialog) {
+            AlertDialog(
+                onDismissRequest = { showFailedEventsDialog = false },
+                title = {
+                    Text(
+                        "处置 $failedCount 条失败记录",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif
+                    )
+                },
+                text = {
+                    Text(
+                        "重试会清空失败态并重新排队；放弃则移除这些发件箱事件" +
+                            "（本地记录与「待同步」标记保留，便于排查）。",
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 13.sp
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showFailedEventsDialog = false
+                        scope.launch {
+                            ArchiveToastManager.show("正在重试 $failedCount 条失败记录…")
+                            syncManager.retryFailedEvents()
+                        }
+                    }) {
+                        Text("全部重试", color = colors.accentWarm)
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = {
+                            showFailedEventsDialog = false
+                            scope.launch {
+                                syncManager.discardFailedEvents()
+                                ArchiveToastManager.show("已放弃失败事件；本地记录保留")
+                            }
+                        }) {
+                            Text("放弃", color = colors.inkMuted)
+                        }
+                        TextButton(onClick = { showFailedEventsDialog = false }) {
+                            Text("暂不处理", color = colors.inkMuted)
+                        }
+                    }
                 }
             )
         }
@@ -1108,7 +1169,8 @@ private fun EntryDetailSheetDialog(
                                             Icon(
                                                 imageVector = Icons.Outlined.Close,
                                                 contentDescription = "撕除此照片",
-                                                tint = Color.White,
+                                                // 深底角标上的撕除图标：取反色语义而非裸白
+                                                tint = colors.archivePaper,
                                                 modifier = Modifier.size(12.dp)
                                             )
                                         }
@@ -1698,7 +1760,9 @@ private fun LifeActivityHeatmap(
     }
 
     val weeksCount = 52
-    val calWeeks = remember(weeksCount) {
+    // key 必须含 entries：固定用常量 52 会让日期网格在数据刷新后不重算；
+    // 组合进入时 remember 自然重算，跨天由下一次重组覆盖
+    val calWeeks = remember(entries) {
         val today = LocalDate.now(FormatUtils.BeijingZone)
         val list = mutableListOf<List<Pair<String, Boolean>>>()
         for (w in (0 until weeksCount).reversed()) {
@@ -2350,6 +2414,19 @@ private fun QuickNoteSheet(
     var attachedPhotos by remember { mutableStateOf<List<AttachedPhotoItem>>(emptyList()) }
     var isProcessingPhoto by remember { mutableStateOf(false) }
 
+    // 未提交就关闭速记抽屉：清掉已落盘的压缩图，避免 outbox_media 无限堆积孤儿文件
+    // （DarkroomScreen 有同样的 DisposableEffect 清理，这里此前漏了）
+    var noteSubmitted by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) {
+        onDispose {
+            if (!noteSubmitted) {
+                attachedPhotos.forEach { photo ->
+                    runCatching { photo.savedFile.delete() }
+                }
+            }
+        }
+    }
+
     LaunchedEffect(projects) {
         if (selectedProjectId == null && projects.isNotEmpty()) {
             selectedProjectId = projects.first().id
@@ -2457,6 +2534,11 @@ private fun QuickNoteSheet(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 9)
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
+            // 满额时给明确反馈，而不是静默丢掉多选的图
+            if (attachedPhotos.size >= 9) {
+                ArchiveToastManager.show("相纸已满 9 张，请先移除后再装入", isError = true)
+                return@rememberLauncherForActivityResult
+            }
             scope.launch {
                 isProcessingPhoto = true
                 try {
@@ -2775,6 +2857,8 @@ private fun QuickNoteSheet(
                                         )
                                     }
                                 }
+                                // 提交成功：接管相纸文件所有权，关闭抽屉时不再清理
+                                noteSubmitted = true
                                 onSuccess()
                             } catch (e: Exception) {
                                 ArchiveToastManager.show("归册失败: ${e.message}", isError = true)

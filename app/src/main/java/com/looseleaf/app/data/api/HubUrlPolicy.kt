@@ -18,8 +18,8 @@ object HubUrlPolicy {
         data class Rejected(val reason: String) : Verdict()
     }
 
-    /** 归一化：去空白、去末尾斜杠。保留原始 scheme，不做协议补全。 */
-    fun normalize(raw: String): String = raw.trim().removeSuffix("/")
+    /** 归一化：去空白、剥掉全部末尾斜杠。保留原始 scheme，不做协议补全。 */
+    fun normalize(raw: String): String = raw.trim().trimEnd('/')
 
     fun validate(raw: String): Verdict {
         val normalized = normalize(raw)
@@ -52,9 +52,26 @@ object HubUrlPolicy {
         val host = rawHost.removePrefix("[").removeSuffix("]").lowercase()
         if (host == "localhost" || host == "::1" || host == "0.0.0.0") return true
         if (host.endsWith(".local") || host.endsWith(".lan") || host.endsWith(".home.arpa")) return true
-        // IPv6 链路本地 / 唯一本地地址
-        if (host.startsWith("fe80:") || host.startsWith("fc") || host.startsWith("fd")) return true
+        if (isLinkLocalOrUniqueLocalIpv6(host)) return true
         return isPrivateIpv4(host)
+    }
+
+    /**
+     * IPv6 链路本地 / 唯一本地地址判定。
+     *
+     * 必须按「地址段」判断而不是对裸字符串做 startsWith：
+     * `fc00::/7` 是唯一本地段，但 `fc2.com`、`fdn.com` 这类公网域名同样以 fc/fd 开头，
+     * 早先用 `startsWith("fc")` 会把它们误判成内网，从而放行明文 HTTP。
+     */
+    private fun isLinkLocalOrUniqueLocalIpv6(host: String): Boolean {
+        if (host == "::1") return true
+        // 链路本地 fe80::/10 与唯一本地 fc00::/7 都写成 8 组十六进制、含至少一个冒号
+        if (!host.contains(':')) return false
+        val firstGroup = host.substringBefore(':')
+        if (firstGroup.length != 4) return false
+        if (firstGroup.any { it !in "0123456789abcdef" }) return false
+        val value = firstGroup.toIntOrNull(16) ?: return false
+        return value in 0xfe80..0xfebf || value in 0xfc00..0xfdff
     }
 
     private fun isPrivateIpv4(host: String): Boolean {

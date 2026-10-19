@@ -43,4 +43,27 @@ class HubUrlPolicyTest {
         val verdict = HubUrlPolicy.validate("https://archive.example.com/")
         assertEquals("https://archive.example.com", (verdict as HubUrlPolicy.Verdict.Allowed).url)
     }
+
+    @Test
+    fun testMultipleTrailingSlashesStripped() {
+        // 只剥一条尾斜杠会拼出 //api/v1/... 双斜杠路径
+        val verdict = HubUrlPolicy.validate("http://192.168.1.5:8088//")
+        assertEquals("http://192.168.1.5:8088", (verdict as HubUrlPolicy.Verdict.Allowed).url)
+    }
+
+    @Test
+    fun testPublicHostNamesStartingWithFcFdRejected() {
+        // 早先用裸字符串 startsWith("fc") 判定 IPv6，会把公网域名误判成内网而放行明文 HTTP
+        assertTrue(HubUrlPolicy.validate("http://fc2.com:8088") is HubUrlPolicy.Verdict.Rejected)
+        assertTrue(HubUrlPolicy.validate("http://fcbarcelona.com") is HubUrlPolicy.Verdict.Rejected)
+        assertTrue(HubUrlPolicy.validate("http://fdn.com") is HubUrlPolicy.Verdict.Rejected)
+    }
+
+    @Test
+    fun testRealIpv6PrivateRangesAllowed() {
+        assertTrue(HubUrlPolicy.validate("http://[fe80::1]:8088") is HubUrlPolicy.Verdict.Allowed)
+        assertTrue(HubUrlPolicy.validate("http://[fc00::1]:8088") is HubUrlPolicy.Verdict.Allowed)
+        assertTrue(HubUrlPolicy.validate("http://[fd12:3456::1]") is HubUrlPolicy.Verdict.Allowed)
+        assertTrue(HubUrlPolicy.validate("http://[::1]:8088") is HubUrlPolicy.Verdict.Allowed)
+    }
 }

@@ -25,6 +25,8 @@ data class ArchiveColors(
     val featuredGold: Color,
     val featuredGoldBg: Color,
     val featuredGoldBorder: Color,
+    /** 相机取景框的纯黑衬底：Preview surface 外的 letterbox 必须是绝对黑，两种模式共用 */
+    val cameraViewfinderBg: Color = Color(0xFF000000),
     val isDark: Boolean = false
 )
 

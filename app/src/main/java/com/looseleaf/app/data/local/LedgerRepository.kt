@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
 val DefaultExpenseCategories = listOf("餐饮", "交通", "购物", "娱乐", "住房", "学习", "医疗", "其他")
@@ -54,16 +55,20 @@ object LedgerRepository {
             val expense = allCats.filter { it.scope == "expense" }.map { it.name }
             val income = allCats.filter { it.scope == "income" }.map { it.name }
             val payments = allCats.filter { it.scope == "payment" }.map { it.name }
-            _snapshot.value = _snapshot.value.copy(
-                expenseCategories = expense.ifEmpty { DefaultExpenseCategories },
-                incomeCategories = income.ifEmpty { DefaultIncomeCategories },
-                paymentMethods = payments.ifEmpty { DefaultPaymentMethods }
-            )
+            // 用原子 update 而不是 read-modify-write：
+            // Ledger 与 Stream 同时 refreshAll 时，后写者不应覆盖前者的分类结果
+            _snapshot.update {
+                it.copy(
+                    expenseCategories = expense.ifEmpty { DefaultExpenseCategories },
+                    incomeCategories = income.ifEmpty { DefaultIncomeCategories },
+                    paymentMethods = payments.ifEmpty { DefaultPaymentMethods }
+                )
+            }
             categoriesLoadedNow = true
         }
 
         runCatching {
-            _snapshot.value = _snapshot.value.copy(creditChannels = apiClient.fetchCreditChannels())
+            _snapshot.update { it.copy(creditChannels = apiClient.fetchCreditChannels()) }
         }
 
         refreshAssets(apiClient, showSpinner)
@@ -74,14 +79,14 @@ object LedgerRepository {
     suspend fun refreshAssets(apiClient: APIClient, showSpinner: Boolean = false) =
         withContext(Dispatchers.IO) {
             if (showSpinner || _snapshot.value.assetsOverview == null) {
-                _snapshot.value = _snapshot.value.copy(isLoadingAssets = true)
+                _snapshot.update { it.copy(isLoadingAssets = true) }
             }
             runCatching { apiClient.fetchAssetsOverview() }
                 .onSuccess { overview ->
-                    _snapshot.value = _snapshot.value.copy(assetsOverview = overview, isLoadingAssets = false)
+                    _snapshot.update { it.copy(assetsOverview = overview, isLoadingAssets = false) }
                 }
                 .onFailure {
-                    _snapshot.value = _snapshot.value.copy(isLoadingAssets = false)
+                    _snapshot.update { it.copy(isLoadingAssets = false) }
                 }
         }
 

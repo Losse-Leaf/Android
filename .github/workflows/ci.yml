@@ -29,10 +29,15 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Verify Zero Hardcoded Hex Colors in UI Code
+      - name: Verify Zero Hardcoded Colors in UI Code
         run: |
-          if grep -rnE 'Color\(0x[0-9A-Fa-f]{8}\)' app/src/main/java/com/looseleaf/app/ui/ | grep -v "Color.Transparent"; then
-            echo "Found hardcoded hex color literal in UI code! Use LooseLeafTheme.colors semantic tokens instead."
+          # 色值唯一定义处是 theme/Color.kt；UI 层不允许任何硬编码颜色
+          # （十六进制字面量、Color.White/Black/Gray 等具名常量、Color.parseColor 均在内）
+          VIOLATIONS=$(grep -rnE 'Color\(0x[0-9A-Fa-f]{8}\)|Color\.(White|Black|Gray|Red|Green|Blue|Yellow|Cyan|Magenta|LightGray|DarkGray)\b|Color\.parseColor' \
+            app/src/main/java/com/looseleaf/app/ui/ | grep -v "Color.Transparent" || true)
+          if [ -n "$VIOLATIONS" ]; then
+            echo "$VIOLATIONS"
+            echo "Found hardcoded color literal in UI code! Use LooseLeafTheme.colors semantic tokens instead."
             exit 1
           fi
 

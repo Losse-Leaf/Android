@@ -90,46 +90,44 @@ fun StorageBackupSheetDialog(
             isOperating = true
             ArchiveToastManager.show("正在下载「${b.filename}」…")
             runCatching {
-                val resolver = context.contentResolver
-                val isScoped = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, b.filename)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "application/zip")
-                    if (isScoped) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    // Q+ 走 MediaStore Downloads：无需任何存储权限，IS_PENDING 防半截文件
+                    val resolver = context.contentResolver
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, b.filename)
+                        put(MediaStore.MediaColumns.MIME_TYPE, "application/zip")
                         put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
                         // 先隐藏，写完再转为可见；失败时不会留下半截文件
                         put(MediaStore.MediaColumns.IS_PENDING, 1)
                     }
-                }
-                val uri = resolver.insert(
-                    if (isScoped) MediaStore.Downloads.EXTERNAL_CONTENT_URI
-                    else MediaStore.Files.getContentUri("external"),
-                    contentValues
-                )
-                if (uri != null) {
+                    val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                        ?: throw IllegalStateException("无法写入系统下载目录")
                     try {
                         resolver.openOutputStream(uri)?.use { os ->
                             apiClient.downloadBackupTo(b.filename, os)
                         } ?: throw IllegalStateException("无法写入系统下载目录")
-                        if (isScoped) {
-                            resolver.update(
-                                uri,
-                                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
-                                null,
-                                null
-                            )
-                        }
+                        resolver.update(
+                            uri,
+                            ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                            null,
+                            null
+                        )
                     } catch (e: Exception) {
                         runCatching { resolver.delete(uri, null, null) }
                         throw e
                     }
+                    ArchiveToastManager.show("已保存至系统下载目录：${b.filename}")
                 } else {
-                    val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+                    // pre-Q 若写 MediaStore.Files 需要 WRITE_EXTERNAL_STORAGE 运行时授权
+                    // （insert 抛 SecurityException 而非返回 null，原兜底根本不会触发），
+                    // 为不引入额外权限，直接写应用专属下载目录（免权限、用户可经文件管理器访问）
+                    val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                        ?: context.filesDir
                     File(downloadDir, b.filename).outputStream().use { os ->
                         apiClient.downloadBackupTo(b.filename, os)
                     }
+                    ArchiveToastManager.show("已保存至应用下载目录：Android/data/${context.packageName}/files/Download")
                 }
-                ArchiveToastManager.show("已保存至系统下载目录：${b.filename}")
             }.onFailure { err ->
                 ArchiveToastManager.show("下载快照失败: ${err.message}", isError = true)
             }

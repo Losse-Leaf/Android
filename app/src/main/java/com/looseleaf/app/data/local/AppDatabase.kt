@@ -34,6 +34,100 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var instance: AppDatabase? = null
 
+        /**
+         * 2 → 6：跨越 v3/v4/v5 三个大版本的兜底迁移。
+         *
+         * 背景：v1.2.x 出厂的是 DB version 2，而 v1.2 时代 exportSchema=false、
+         * 没有留下 schema 档案，1→2、2→3 的迁移在 git 历史里也从未存在。
+         * 若不补这条路，停留在 v1.2.x 的安装直接升级到当前版本时，
+         * Room 会抛 `A migration from 2 to 6 was required but not found` 并陷入启动崩溃循环。
+         *
+         * v2 是上古 beta schema（无 exportSchema、字段远少于现在），保留旧数据的代价
+         * 远高于收益，因此这里直接清空六张表并按 6.json 的 DDL 重建到 v6。
+         * 未同步的发件箱事件会一并丢失——这正是不升级就一直停留在旧版本、升级即重建的代价，
+         * 总比整个应用不可用要好。
+         */
+        val MIGRATION_2_6 = object : Migration(2, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val tables = listOf(
+                    "cached_entries",
+                    "cached_transactions",
+                    "outbox_events",
+                    "cached_projects",
+                    "cached_wishes",
+                    "cached_footprints"
+                )
+                tables.forEach { db.execSQL("DROP TABLE IF EXISTS `$it`") }
+
+                // 以下 DDL 与 app/schemas/.../6.json 逐字段一致；改动 schema 时必须同步更新这里
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `cached_entries` (" +
+                        "`local_id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`server_id` INTEGER, `type` TEXT NOT NULL, `title` TEXT NOT NULL, " +
+                        "`content` TEXT NOT NULL, `occurred_at` TEXT NOT NULL, `location` TEXT, " +
+                        "`city_code` TEXT, `city_name` TEXT, `featured` INTEGER, `project_id` INTEGER, " +
+                        "`wish_id` INTEGER, `footprint_id` INTEGER, `attachments_json` TEXT NOT NULL, " +
+                        "`sync_status` TEXT NOT NULL, `created_at` TEXT NOT NULL)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cached_entries_occurred_at` ON `cached_entries` (`occurred_at`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cached_entries_server_id` ON `cached_entries` (`server_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cached_entries_sync_status` ON `cached_entries` (`sync_status`)")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `cached_transactions` (" +
+                        "`local_id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `server_id` INTEGER, " +
+                        "`amount` INTEGER NOT NULL, `type` TEXT NOT NULL, `category` TEXT NOT NULL, " +
+                        "`title` TEXT NOT NULL, `note` TEXT, `payment_method` TEXT, " +
+                        "`occurred_at` TEXT NOT NULL, `city_code` TEXT, `wish_id` INTEGER, " +
+                        "`footprint_id` INTEGER, `is_installment` INTEGER NOT NULL, " +
+                        "`installment_channel_code` TEXT, `installment_total_amount` INTEGER, " +
+                        "`installment_months` INTEGER, `installment_monthly_pay` INTEGER, " +
+                        "`installment_remain_months` INTEGER, `repayment_day` INTEGER, " +
+                        "`sync_status` TEXT NOT NULL, `created_at` TEXT NOT NULL)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cached_transactions_occurred_at` ON `cached_transactions` (`occurred_at`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cached_transactions_server_id` ON `cached_transactions` (`server_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cached_transactions_sync_status` ON `cached_transactions` (`sync_status`)")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `outbox_events` (" +
+                        "`event_id` TEXT NOT NULL, `entity_type` TEXT NOT NULL, `action` TEXT NOT NULL, " +
+                        "`payload` TEXT NOT NULL, `local_target_id` INTEGER NOT NULL, " +
+                        "`server_target_id` INTEGER, `retry_count` INTEGER NOT NULL, " +
+                        "`failed_at` TEXT, `last_error` TEXT, `created_at` TEXT NOT NULL, " +
+                        "PRIMARY KEY(`event_id`))"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_outbox_events_created_at` ON `outbox_events` (`created_at`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_outbox_events_entity_type` ON `outbox_events` (`entity_type`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_outbox_events_failed_at` ON `outbox_events` (`failed_at`)")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `cached_projects` (" +
+                        "`id` INTEGER NOT NULL, `title` TEXT NOT NULL, `subtitle` TEXT, `description` TEXT, " +
+                        "`story` TEXT, `category` TEXT, `status` TEXT, `github_url` TEXT, " +
+                        "`featured` INTEGER, `order` INTEGER, `updated_at` TEXT, PRIMARY KEY(`id`))"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `cached_wishes` (" +
+                        "`id` INTEGER NOT NULL, `title` TEXT NOT NULL, `kind` TEXT NOT NULL, `note` TEXT, " +
+                        "`spec` TEXT, `city_code` TEXT, `city_name` TEXT, `budget` INTEGER NOT NULL, " +
+                        "`actual_cost` INTEGER NOT NULL, `resolution_type` TEXT, `actual_title` TEXT, " +
+                        "`status` TEXT NOT NULL, `target_date` TEXT, `fulfilled_at` TEXT, `gear_id` TEXT, " +
+                        "`attachments_json` TEXT NOT NULL, `updated_at` TEXT, PRIMARY KEY(`id`))"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `cached_footprints` (" +
+                        "`id` INTEGER NOT NULL, `city_code` TEXT NOT NULL, `city_name` TEXT NOT NULL, " +
+                        "`title` TEXT, `visited_at` TEXT, `departed_at` TEXT, `note` TEXT, " +
+                        "`life_entry_id` INTEGER, `wish_id` INTEGER, `attachments_json` TEXT NOT NULL, " +
+                        "`entries_count` INTEGER, `total_spent` INTEGER, `transaction_count` INTEGER, " +
+                        "`updated_at` TEXT, PRIMARY KEY(`id`))"
+                )
+            }
+        }
+
         /** 只在列不存在时执行 ADD COLUMN，避免重复迁移直接崩库。 */
         private fun addColumnIfMissing(
             db: SupportSQLiteDatabase,
@@ -142,7 +236,7 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DB_NAME
             )
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_2_6, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 // 只在「降级安装」时清库；版本前进时缺迁移宁可显式失败，也不静默抹掉未同步数据。
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()

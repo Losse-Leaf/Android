@@ -287,9 +287,17 @@ fun LedgerScreen(
                     IconButton(
                         onClick = {
                             scope.launch {
-                                syncManager.pullRemoteData()
-                                reloadCategoriesAndAssets(force = true)
-                                ArchiveToastManager.show("账簿与资产已对齐")
+                                // 用户主动对齐必须区分成败：失败只弹「已对齐」是撒谎
+                                val result = syncManager.pullRemoteData()
+                                if (result.isSuccess) {
+                                    reloadCategoriesAndAssets(force = true)
+                                    ArchiveToastManager.show("账簿与资产已对齐")
+                                } else {
+                                    ArchiveToastManager.show(
+                                        "对齐失败: ${result.exceptionOrNull()?.message ?: "网络异常"}",
+                                        isError = true
+                                    )
+                                }
                             }
                         }
                     ) {
@@ -817,6 +825,9 @@ fun LedgerScreen(
                             editingTransaction = null
                             ArchiveToastManager.show("已保存账目修订")
                         }
+                    } else {
+                        // 非法输入（如「一百二十」）换算成 0 时必须提示，否则用户以为按钮坏了
+                        ArchiveToastManager.show("金额格式不正确，请输入有效数字", isError = true)
                     }
                 }
             ) {
@@ -1143,6 +1154,8 @@ fun LedgerScreen(
                                     apiClient.deleteGearAsset(gear.id)
                                     LedgerRepository.refreshAssets(apiClient)
                                     ArchiveToastManager.show("已彻底删除该设备记录")
+                                }.onFailure {
+                                    ArchiveToastManager.show("删除失败: ${it.message}", isError = true)
                                 }
                                 sellingGearItem = null
                             }
@@ -2012,6 +2025,9 @@ private fun CreditChannelsManagerDialog(
                                                 runCatching {
                                                     apiClient.deleteCreditChannel(ch.id)
                                                     onChannelsChanged()
+                                                    ArchiveToastManager.show("已删除信贷渠道「${ch.name}」")
+                                                }.onFailure {
+                                                    ArchiveToastManager.show("删除失败: ${it.message}", isError = true)
                                                 }
                                             }
                                         },
@@ -2189,6 +2205,9 @@ private fun CategoriesManagerDialog(
                                                     apiClient.deleteCategoryOption(cat.id)
                                                     loadCats()
                                                     onCategoriesChanged()
+                                                    ArchiveToastManager.show("已删除分类「${cat.name}」")
+                                                }.onFailure {
+                                                    ArchiveToastManager.show("删除失败: ${it.message}", isError = true)
                                                 }
                                             }
                                         },

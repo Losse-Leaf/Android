@@ -40,13 +40,6 @@ sealed class UpdateCheckResult {
     data class Error(val message: String) : UpdateCheckResult()
 }
 
-sealed class InAppDownloadState {
-    object Idle : InAppDownloadState()
-    data class Downloading(val progress: Float, val downloadedBytes: Long, val totalBytes: Long) : InAppDownloadState()
-    data class ReadyToInstall(val apkFile: File) : InAppDownloadState()
-    data class Failed(val error: String) : InAppDownloadState()
-}
-
 object UpdateChecker {
     private const val TAG = "UpdateChecker"
     const val REPO = "Losse-Leaf/Android"
@@ -176,6 +169,10 @@ object UpdateChecker {
 
             val buffer = ByteArray(8192)
             var downloadedBytes = 0L
+            // 进度节流：每个 8KB 块都回调会以每秒数百次的频率驱动 state 重组，
+            // 下载期间 UI 线程被刷爆。进度变化 ≥2% 或距上次回调 ≥200ms 才发一次。
+            var lastNotifiedProgress = -1f
+            var lastNotifiedAt = 0L
 
             inputStream.use { input ->
                 outputStream.use { output ->
@@ -187,8 +184,15 @@ object UpdateChecker {
                         val progress = if (totalBytes > 0) {
                             downloadedBytes.toFloat() / totalBytes.toFloat()
                         } else 0f
-                        onProgress(progress, downloadedBytes, totalBytes)
+                        val now = System.currentTimeMillis()
+                        if (progress - lastNotifiedProgress >= 0.02f || now - lastNotifiedAt >= 200) {
+                            lastNotifiedProgress = progress
+                            lastNotifiedAt = now
+                            onProgress(progress, downloadedBytes, totalBytes)
+                        }
                     }
+                    // 收尾必须发一次 100%，否则节流可能让最终进度停在 98%
+                    onProgress(1f, downloadedBytes, totalBytes)
                     output.flush()
                 }
             }

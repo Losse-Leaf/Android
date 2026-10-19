@@ -30,8 +30,7 @@ fun ArchiveConfirmDialog(
     dismissText: String = "取消",
     isDestructive: Boolean = false,
     onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-    extraContent: (@Composable () -> Unit)? = null
+    onDismiss: () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
     val cardShape = RoundedCornerShape(4.dp)
@@ -86,11 +85,6 @@ fun ArchiveConfirmDialog(
                         lineHeight = 21.sp,
                         color = colors.inkSecondary
                     )
-                }
-
-                if (extraContent != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    extraContent()
                 }
 
                 Spacer(modifier = Modifier.height(22.dp))

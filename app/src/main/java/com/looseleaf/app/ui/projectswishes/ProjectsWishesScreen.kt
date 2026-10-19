@@ -331,10 +331,12 @@ fun ProjectsWishesScreen(
                                                 )
                                             )
                                             else -> {
+                                                // isSaveEnabled 已保证足迹页 cityName 非空（L270），
+                                                // 不需要「杭州」类魔法兜底；cityCode 与 cityName 同源由城市选择器写入
                                                 apiClient.createFootprint(
                                                     CreateFootprintRequest(
-                                                        cityCode = fpCityCode.ifBlank { "330100" },
-                                                        cityName = fpCityName.ifBlank { "杭州市" },
+                                                        cityCode = fpCityCode,
+                                                        cityName = fpCityName,
                                                         title = inputThird.trim().takeIf { it.isNotBlank() },
                                                         visitedAt = FormatUtils.toBeijingIsoString(fpVisitedAt),
                                                         departedAt = if (fpIsMultiDay) FormatUtils.toBeijingIsoString(fpDepartedAt) else null,
@@ -668,10 +670,12 @@ fun ProjectsWishesScreen(
 
         selectedDrawerFootprint?.let { foot ->
             var drawerData by remember(foot.cityCode) { mutableStateOf<CityMemoryDrawerResponse?>(null) }
+            var drawerError by remember(foot.cityCode) { mutableStateOf<String?>(null) }
             LaunchedEffect(foot.cityCode) {
+                drawerError = null
                 runCatching {
                     drawerData = apiClient.fetchCityMemoryDrawer(foot.cityCode)
-                }
+                }.onFailure { drawerError = it.message ?: "网络异常" }
             }
             ArchiveBottomSheet(
                 onDismissRequest = { selectedDrawerFootprint = null },
@@ -681,12 +685,31 @@ fun ProjectsWishesScreen(
             ) {
                 val d = drawerData
                 if (d == null) {
-                    Text(
-                        text = "正在检索属地散页与旅途消费…",
-                        fontSize = 12.sp,
-                        color = colors.inkMuted,
-                        modifier = Modifier.padding(vertical = 16.dp)
-                    )
+                    // 区分 loading / error：断网时不能永远停在「正在检索」
+                    if (drawerError != null) {
+                        Text(
+                            text = "属地检索失败：$drawerError · 点此重试",
+                            fontSize = 12.sp,
+                            color = colors.accentWarm,
+                            modifier = Modifier
+                                .padding(vertical = 16.dp)
+                                .clickable(role = Role.Button) {
+                                    drawerError = null
+                                    scope.launch {
+                                        runCatching {
+                                            drawerData = apiClient.fetchCityMemoryDrawer(foot.cityCode)
+                                        }.onFailure { drawerError = it.message ?: "网络异常" }
+                                    }
+                                }
+                        )
+                    } else {
+                        Text(
+                            text = "正在检索属地散页与旅途消费…",
+                            fontSize = 12.sp,
+                            color = colors.inkMuted,
+                            modifier = Modifier.padding(vertical = 16.dp)
+                        )
+                    }
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(
@@ -1443,15 +1466,22 @@ private fun ProvinceMemoryDrawerBottomSheet(
     onDismiss: () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
+    val scope = rememberCoroutineScope()
     var drawerData by remember(adcode) { mutableStateOf<ProvinceMemoryDrawerResponse?>(null) }
     var isLoading by remember(adcode) { mutableStateOf(true) }
+    var drawerError by remember(adcode) { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(adcode) {
+    suspend fun loadDrawer() {
         isLoading = true
+        drawerError = null
         runCatching {
             drawerData = apiClient.fetchProvinceMemoryDrawer(adcode)
-        }
+        }.onFailure { drawerError = it.message ?: "网络异常" }
         isLoading = false
+    }
+
+    LaunchedEffect(adcode) {
+        loadDrawer()
     }
 
     ArchiveBottomSheet(
@@ -1461,7 +1491,17 @@ private fun ProvinceMemoryDrawerBottomSheet(
         onActionClick = onDismiss
     ) {
         val d = drawerData
-        if (isLoading || d == null) {
+        if (drawerError != null && d == null) {
+            // 失败态可重试，不再永远停在「正在聚合」
+            Text(
+                text = "全省行迹检索失败：$drawerError · 点此重试",
+                fontSize = 12.sp,
+                color = colors.accentWarm,
+                modifier = Modifier
+                    .padding(vertical = 16.dp)
+                    .clickable(role = Role.Button) { scope.launch { loadDrawer() } }
+            )
+        } else if (isLoading || d == null) {
             Text("正在聚合全省行迹票根与属地手记…", fontSize = 12.sp, color = colors.inkMuted, modifier = Modifier.padding(vertical = 16.dp))
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

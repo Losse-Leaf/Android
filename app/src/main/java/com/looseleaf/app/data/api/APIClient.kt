@@ -18,7 +18,6 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import java.io.IOException
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 class APIException(val code: Int, override val message: String) : Exception("[$code] $message")
@@ -47,7 +46,20 @@ class APIClient private constructor(private val context: Context) {
         encodeDefaults = true
     }
 
-    private val etagCache = ConcurrentHashMap<String, String>()
+    /**
+     * R2 预签名直传专用客户端：直传对象存储用于超大视频 / RAW 底片，
+     * 90s 的 callTimeout 会在慢网下掐断合法上传，因此这里关闭整体超时。
+     */
+    private val uploadClient: OkHttpClient by lazy {
+        okHttpClient.newBuilder()
+            .callTimeout(0, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
+            .build()
+    }
+
+    @Volatile
+    private var cachedBaseUrl: String? = null
 
     val okHttpClient: OkHttpClient by lazy {
         val builder = OkHttpClient.Builder()
@@ -85,8 +97,6 @@ class APIClient private constructor(private val context: Context) {
             .readTimeout(120, TimeUnit.SECONDS)
             .build()
     }
-
-    private var cachedBaseUrl: String? = null
 
     var baseUrl: String
         get() {
@@ -131,17 +141,30 @@ class APIClient private constructor(private val context: Context) {
         path: String,
         method: String = "GET",
         queryParams: Map<String, String>? = null,
-        body: RequestBody? = null,
-        useETag: Boolean = false
+        body: RequestBody? = null
     ): Pair<Request, String> {
         val normPath = if (path.startsWith("/")) path else "/$path"
         val httpUrlBuilder = (baseUrl + normPath).let { url ->
-            val builder = url.toHttpUrlOrNull()?.newBuilder()
+            val parsed = url.toHttpUrlOrNull()?.newBuilder()
                 ?: throw IllegalArgumentException("Invalid URL: $url")
-            queryParams?.forEach { (k, v) ->
-                builder.addQueryParameter(k, v)
+            // 路径段可能含文件名（备份下载、抽屉编码）等非安全字符，
+            // 用 addPathSegment 逐个编码，避免 toHttpUrlOrNull 直接返 null
+            val rawSegments = normPath.split('/').filter { it.isNotEmpty() }
+            if (rawSegments.isNotEmpty()) {
+                val rebuilt = parsed.build().newBuilder()
+                rebuilt.encodedPath("")
+                rawSegments.forEach { rebuilt.addPathSegment(it) }
+                val withPath = rebuilt.build()
+                val finalBuilder = withPath.newBuilder()
+                queryParams?.forEach { (k, v) ->
+                    finalBuilder.addQueryParameter(k, v)
+                }
+                return@let finalBuilder.build()
             }
-            builder.build()
+            queryParams?.forEach { (k, v) ->
+                parsed.addQueryParameter(k, v)
+            }
+            parsed.build()
         }
 
         val requestBuilder = Request.Builder()
@@ -149,16 +172,14 @@ class APIClient private constructor(private val context: Context) {
 
         val token = tokenProvider?.invoke()
         if (!token.isNullOrBlank()) {
-            requestBuilder.header("Authorization", "Bearer $token")
+            // docs/backend.md §六：两种请求头等效，只发一种即可，避免重复
             requestBuilder.header("X-Device-Token", token)
         }
+        // 客户端标识，便于后端审计与排障（docs/backend.md §六）
+        requestBuilder.header("X-Client-Platform", "android")
+        requestBuilder.header("X-Client-Version", BuildConfig.VERSION_NAME)
 
         val cacheKey = httpUrlBuilder.toString()
-        if (useETag && method == "GET") {
-            etagCache[cacheKey]?.let { etag ->
-                requestBuilder.header("If-None-Match", etag)
-            }
-        }
 
         when (method) {
             "POST" -> requestBuilder.post(body ?: "".toRequestBody("application/json".toMediaType()))
@@ -174,60 +195,53 @@ class APIClient private constructor(private val context: Context) {
         path: String,
         method: String = "GET",
         queryParams: Map<String, String>? = null,
-        body: RequestBody? = null,
-        useETag: Boolean = false
+        body: RequestBody? = null
     ): T = withContext(Dispatchers.IO) {
-        val (request, cacheKey) = buildRequest(path, method, queryParams, body, useETag)
+        val (request, _) = buildRequest(path, method, queryParams, body)
         val response = try {
             okHttpClient.newCall(request).execute()
         } catch (e: IOException) {
             throw APIException(-1, "网络连接异常: ${e.message}")
         }
 
-        response.use { resp ->
-            if (resp.code == 304) {
-                throw APIException(304, "数据未变更 (304)")
-            }
-
-            resp.header("ETag")?.let { newEtag ->
-                if (newEtag.isNotBlank()) etagCache[cacheKey] = newEtag
-            }
-
-            val bodyString = resp.body?.string() ?: ""
-
-            if (resp.code == 401) {
-                throw APIException(401, "设备凭据未授权或已失效，请重新扫码配对")
-            }
-
-            val envelope = try {
-                json.decodeFromString<APIEnvelope<T>>(bodyString)
-            } catch (e: Exception) {
-                if (!resp.isSuccessful) {
-                    throw APIException(resp.code, "服务器响应异常: HTTP ${resp.code}")
-                }
-                throw APIException(-2, "数据解析失败: ${e.message}")
-            }
-
-            if (envelope.code !in 200..299) {
-                throw APIException(envelope.code, envelope.message)
-            }
-
-            envelope.data ?: throw APIException(envelope.code, "业务返回数据为空")
-        }
-    }
-
-    // MARK: - 1. 系统与探针
-
-    suspend fun checkHealth(): Boolean = withContext(Dispatchers.IO) {
-        val (request, _) = buildRequest("/api/health")
+        // 「读响应体」同样可能抛 IOException（连接在读头后中断、读超时、callTimeout 触发）。
+        // 必须统一转成 APIException(-1)，否则调用方的
+        // 「网络不可达 → 入发件箱离线补发」分支（catch APIException）会被裸 IOException 穿透，
+        // 造物/心愿这类用户输入就会既没创建成功、也没进队列，直接丢失。
         try {
-            okHttpClient.newCall(request).execute().use { it.isSuccessful }
-        } catch (_: Exception) {
-            false
+            response.use { resp ->
+                if (resp.code == 304) {
+                    // 客户端不再发送 If-None-Match，服务端理论上不会返 304；留作兜底
+                    throw APIException(304, "数据未变更 (304)")
+                }
+
+                val bodyString = resp.body?.string() ?: ""
+
+                if (resp.code == 401) {
+                    throw APIException(401, "设备凭据未授权或已失效，请重新扫码配对")
+                }
+
+                val envelope = try {
+                    json.decodeFromString<APIEnvelope<T>>(bodyString)
+                } catch (e: Exception) {
+                    if (!resp.isSuccessful) {
+                        throw APIException(resp.code, "服务器响应异常: HTTP ${resp.code}")
+                    }
+                    throw APIException(-2, "数据解析失败: ${e.message}")
+                }
+
+                if (envelope.code !in 200..299) {
+                    throw APIException(envelope.code, envelope.message)
+                }
+
+                envelope.data ?: throw APIException(envelope.code, "业务返回数据为空")
+            }
+        } catch (e: IOException) {
+            throw APIException(-1, "网络连接异常: ${e.message}")
         }
     }
 
-    // MARK: - 2. 鉴权与设备配对
+    // MARK: - 1. 鉴权与设备配对
 
     suspend fun confirmPairing(
         ticket: String,
@@ -297,15 +311,15 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/profile", "PUT", body = body)
     }
 
+    /**
+     * 拉取分类字典。服务端在传入 scope 时已按 scope 过滤
+     * （backend/internal/handlers/categories.go），客户端不再二次 filter——
+     * 重复过滤一旦后端语义变化就会静默丢数据。
+     */
     suspend fun fetchCategories(scope: String? = null): List<CategoryOption> {
         val params = if (!scope.isNullOrBlank()) mapOf("scope" to scope) else null
         val resp: CategoriesResponse = executeEnvelopeRequest("/api/v1/categories", "GET", queryParams = params)
-        return if (!scope.isNullOrBlank()) resp.items.filter { it.scope == scope } else resp.items
-    }
-
-    suspend fun fetchCategoriesResponse(scope: String? = null): CategoriesResponse {
-        val params = if (!scope.isNullOrBlank()) mapOf("scope" to scope) else null
-        return executeEnvelopeRequest("/api/v1/categories", "GET", queryParams = params)
+        return resp.items
     }
 
     suspend fun addCategoryOption(scope: String, name: String, sortOrder: Int? = null): CategoryOption {
@@ -560,7 +574,12 @@ class APIClient private constructor(private val context: Context) {
             .url(uploadUrl)
             .put(requestBody)
             .build()
-        val response = okHttpClient.newCall(putRequest).execute()
+        // 直传对象存储用于超大视频 / RAW 底片，不能用主客户端 90s 的 callTimeout
+        val response = try {
+            uploadClient.newCall(putRequest).execute()
+        } catch (e: IOException) {
+            throw APIException(-1, "网络连接异常: ${e.message}")
+        }
         response.use {
             if (!it.isSuccessful) {
                 throw APIException(it.code, "R2 存储直传失败: HTTP ${it.code}")
@@ -595,27 +614,31 @@ class APIClient private constructor(private val context: Context) {
         } catch (e: IOException) {
             throw APIException(-1, "网络连接异常: ${e.message}")
         }
-        response.use { resp ->
-            val bodyString = resp.body?.string() ?: ""
-            val envelope = try {
-                json.decodeFromString<APIEnvelope<UnifiedUploadResponse>>(bodyString)
-            } catch (e: Exception) {
-                throw APIException(resp.code, "文件上传响应解析失败: ${e.message}")
+        try {
+            response.use { resp ->
+                val bodyString = resp.body?.string() ?: ""
+                val envelope = try {
+                    json.decodeFromString<APIEnvelope<UnifiedUploadResponse>>(bodyString)
+                } catch (e: Exception) {
+                    throw APIException(resp.code, "文件上传响应解析失败: ${e.message}")
+                }
+                if (!resp.isSuccessful || envelope.code !in 200..299 || envelope.data == null) {
+                    throw APIException(envelope.code, envelope.message)
+                }
+                val res = envelope.data
+                Attachment(
+                    id = res.attachmentId,
+                    objectKey = res.objectKey,
+                    originalFilename = res.filename,
+                    mimeType = res.mimeType,
+                    size = res.size,
+                    width = res.width,
+                    height = res.height,
+                    url = res.url
+                )
             }
-            if (!resp.isSuccessful || envelope.code !in 200..299 || envelope.data == null) {
-                throw APIException(envelope.code, envelope.message)
-            }
-            val res = envelope.data
-            Attachment(
-                id = res.attachmentId,
-                objectKey = res.objectKey,
-                originalFilename = res.filename,
-                mimeType = res.mimeType,
-                size = res.size,
-                width = res.width,
-                height = res.height,
-                url = res.url
-            )
+        } catch (e: IOException) {
+            throw APIException(-1, "网络连接异常: ${e.message}")
         }
     }
 
@@ -679,16 +702,20 @@ class APIClient private constructor(private val context: Context) {
         } catch (e: IOException) {
             throw APIException(-1, "网络连接异常: ${e.message}")
         }
-        response.use { res ->
-            if (!res.isSuccessful) {
-                throw APIException(res.code, "下载备份失败 (HTTP ${res.code})")
+        try {
+            response.use { res ->
+                if (!res.isSuccessful) {
+                    throw APIException(res.code, "下载备份失败 (HTTP ${res.code})")
+                }
+                val body = res.body ?: throw APIException(-1, "备份文件数据为空")
+                body.byteStream().use { input ->
+                    input.copyTo(outputStream, bufferSize = 64 * 1024)
+                }
+                outputStream.flush()
+                body.contentLength().takeIf { it > 0 } ?: 0L
             }
-            val body = res.body ?: throw APIException(-1, "备份文件数据为空")
-            body.byteStream().use { input ->
-                input.copyTo(outputStream, bufferSize = 64 * 1024)
-            }
-            outputStream.flush()
-            body.contentLength().takeIf { it > 0 } ?: 0L
+        } catch (e: IOException) {
+            throw APIException(-1, "网络连接异常: ${e.message}")
         }
     }
 }

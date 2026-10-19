@@ -1,6 +1,8 @@
 package com.looseleaf.app.ui.darkroom
 
 import android.Manifest
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -21,6 +23,8 @@ import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.looseleaf.app.darkroom.ExtractedExif
 import com.looseleaf.app.darkroom.ImagePipeline
 import com.looseleaf.app.darkroom.ProcessedImageResult
 import com.looseleaf.app.data.api.APIClient
@@ -49,7 +54,6 @@ import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.*
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.io.File
@@ -61,6 +65,42 @@ private data class DarkroomPhotoSlot(
     val processed: ProcessedImageResult,
     val savedOutboxFile: File? = null
 )
+
+/** LocalDateTime 走 ISO 字符串持久化，补记的历史时刻不会因旋转被悄悄改成「现在」。 */
+private val BeijingDateTimeSaver: Saver<LocalDateTime, String> = Saver(
+    save = { it.format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME) },
+    restore = {
+        runCatching { LocalDateTime.parse(it) }
+            .getOrDefault(LocalDateTime.now(FormatUtils.BeijingZone))
+    }
+)
+
+/**
+ * 从落盘的相纸文件恢复槽位（旋转 / 进程死亡后的重建）。
+ * EXIF 元数据不重建（原始 Uri 已不可得），这点损失远好于
+ * 「旋转一下整个槽位连同相纸一起被清空」。
+ */
+private fun restoreSlotFromPath(path: String): DarkroomPhotoSlot? {
+    val file = File(path)
+    if (!file.exists()) return null
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    runCatching {
+        file.inputStream().use { stream ->
+            BitmapFactory.decodeStream(stream, null, bounds)
+        }
+    }
+    return DarkroomPhotoSlot(
+        previewUri = "file://$path",
+        processed = ProcessedImageResult(
+            compressedBytes = runCatching { file.readBytes() }.getOrDefault(ByteArray(0)),
+            width = bounds.outWidth.coerceAtLeast(1),
+            height = bounds.outHeight.coerceAtLeast(1),
+            mimeType = "image/jpeg",
+            exif = ExtractedExif()
+        ),
+        savedOutboxFile = file
+    )
+}
 
 /**
  * 随行暗房与现场拍照记录界面 (DarkroomScreen) - docs/mobile.md §3.2
@@ -78,6 +118,9 @@ fun DarkroomScreen(
     val syncManager = remember { SyncManager.getInstance(context) }
 
     var photoSlots by remember { mutableStateOf<List<DarkroomPhotoSlot>>(emptyList()) }
+    // 已落盘相纸的路径：旋转 / 进程死亡后据此重建 photoSlots（DarkroomPhotoSlot 本身含
+    // ByteArray 等不可保存类型，整槽位走 Saver 代价高且易碎）
+    var persistedSlotPaths by rememberSaveable { mutableStateOf(listOf<String>()) }
     var activeSlotIndex by remember { mutableStateOf(0) }
     var isProcessing by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
@@ -92,7 +135,19 @@ fun DarkroomScreen(
     var selectedCityCode by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedCityName by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedType by rememberSaveable { mutableStateOf("life") }
-    var darkroomOccurredAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
+    var darkroomOccurredAt by rememberSaveable(stateSaver = BeijingDateTimeSaver) {
+        mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone))
+    }
+
+    // 槽位变化即同步路径快照；photoSlots 为空时清空快照（用户手动移除相纸的语义）
+    persistedSlotPaths = photoSlots.mapNotNull { it.savedOutboxFile?.absolutePath }
+
+    // 旋转 / 进程死亡恢复：组合进入且尚无槽位时，从落盘路径一次性重建
+    LaunchedEffect(Unit) {
+        if (photoSlots.isEmpty() && persistedSlotPaths.isNotEmpty()) {
+            photoSlots = persistedSlotPaths.mapNotNull { restoreSlotFromPath(it) }
+        }
+    }
 
     val fetchCurrentLocation: () -> Unit = {
         scope.launch {
@@ -641,6 +696,10 @@ fun DarkroomScreen(
                                     cityCode = cityCode,
                                     cityName = cityName
                                 )
+                                // 「入队即接管文件所有权」：必须在 await 前置位。
+                                // 若放到 createMediaEntryOffline 之后，用户在保存过程中离开暗房，
+                                // onDispose 会删掉文件，Room 里留下引用已删文件的记录 → 上传永久失败。
+                                entrySubmitted = true
                                 syncManager.createMediaEntryOffline(
                                     localImageFilePath = firstMedia.filePath,
                                     mimeType = firstMedia.mimeType,
@@ -650,6 +709,7 @@ fun DarkroomScreen(
                                     additionalMediaFiles = savedFiles.drop(1)
                                 )
                             } else {
+                                entrySubmitted = true
                                 syncManager.createEntryOptimistic(
                                     type = entryType,
                                     title = finalTitle,
@@ -660,10 +720,11 @@ fun DarkroomScreen(
                                     cityName = cityName
                                 )
                             }
-                            entrySubmitted = true
                             ArchiveToastManager.show("已装裱归入生活时间流")
                             onEntrySaved()
                         } catch (e: Exception) {
+                            // 归档失败：收回接管标记，让 onDispose 正常清理相纸
+                            entrySubmitted = false
                             ArchiveToastManager.show("归档异常: ${e.message}", isError = true)
                         } finally {
                             isSaving = false

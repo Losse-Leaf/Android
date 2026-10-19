@@ -160,12 +160,11 @@ fun PaperBadge(
     text: String,
     modifier: Modifier = Modifier,
     containerColor: Color? = null,
-    textColor: Color? = null,
-    isPendingSync: Boolean = false
+    textColor: Color? = null
 ) {
     val colors = LooseLeafTheme.colors
-    val bg = containerColor ?: if (isPendingSync) colors.accentWarm.copy(alpha = 0.12f) else colors.archiveSubtle
-    val fg = textColor ?: if (isPendingSync) colors.accentWarm else colors.inkSecondary
+    val bg = containerColor ?: colors.archiveSubtle
+    val fg = textColor ?: colors.inkSecondary
     val shape = RoundedCornerShape(2.dp)
 
     Row(
@@ -176,16 +175,6 @@ fun PaperBadge(
             .border(0.5.dp, colors.borderDivider, shape)
             .padding(horizontal = 8.dp, vertical = 3.dp)
     ) {
-        if (isPendingSync) {
-            Box(
-                modifier = Modifier
-                    .width(6.dp)
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(colors.accentWarm)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-        }
         Text(
             text = text,
             fontFamily = ArchiveFontFamilies.EditorialSerif,
@@ -228,7 +217,6 @@ fun PaperTextField(
     label: String? = null,
     isUnderline: Boolean = false,
     singleLine: Boolean = true,
-    minLines: Int = 1,
     enabled: Boolean = true,
     textStyle: TextStyle? = null,
     trailingIcon: (@Composable () -> Unit)? = null,
@@ -309,7 +297,6 @@ fun PaperTextField(
                         onValueChange = onValueChange,
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = singleLine,
-                        minLines = minLines,
                         enabled = enabled,
                         textStyle = effectiveTextStyle,
                         cursorBrush = SolidColor(colors.accentWarm),

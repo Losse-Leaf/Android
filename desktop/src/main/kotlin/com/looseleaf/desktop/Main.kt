@@ -225,7 +225,9 @@ fun DeviceStudioApp() {
             Spacer(modifier = Modifier.weight(1f))
 
             Text(
-                text = "Loose-Leaf Core v1.2.0 · 散页移动端工作室",
+                // 版本标注改为「设计预览工具」口径，不再冒充 App 版本
+                // （App 版本以 app/build.gradle.kts 的 versionName 为唯一事实源）
+                text = "Loose-Leaf Device Studio · 散页移动端设计预览（Mock，非真实运行时）",
                 fontSize = 10.sp,
                 color = textMuted,
                 textAlign = TextAlign.Center,
