@@ -35,7 +35,6 @@ import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
-import com.looseleaf.app.ui.darkroom.DarkroomScreen
 import com.looseleaf.app.ui.ledger.LedgerScreen
 import com.looseleaf.app.ui.pairing.PairingScreen
 import com.looseleaf.app.ui.profile.ProfileScreen
@@ -256,11 +255,7 @@ class MainActivity : FragmentActivity() {
                     ) {
                         saveableStateHolder.SaveableStateProvider(currentRoute) {
                             when (currentRoute) {
-                                "stream" -> StreamScreen(
-                                    onNavigateToDarkroom = {
-                                        currentRoute = "darkroom"
-                                    }
-                                )
+                                "stream" -> StreamScreen()
                                 "ledger" -> LedgerScreen()
                                 "footprints" -> ProjectsWishesScreen(initialTab = 2)
                                 "projects" -> ProjectsWishesScreen(initialTab = 0)
@@ -269,11 +264,6 @@ class MainActivity : FragmentActivity() {
                                         isPaired = false
                                     },
                                     onDarkroomModeChanged = onDarkroomModeChanged
-                                )
-                                "darkroom" -> DarkroomScreen(
-                                    onEntrySaved = {
-                                        currentRoute = "stream"
-                                    }
                                 )
                             }
                         }

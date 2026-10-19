@@ -20,7 +20,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AutoStories
-import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Delete
@@ -63,7 +62,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import android.Manifest
 import android.net.Uri
-import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
 import com.looseleaf.app.darkroom.ImagePipeline
 import com.looseleaf.app.darkroom.ProcessedImageResult
@@ -114,7 +112,6 @@ private const val HEATMAP_CELL_DP = 12
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StreamScreen(
-    onNavigateToDarkroom: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -542,20 +539,6 @@ fun StreamScreen(
                             fontSize = 15.sp,
                             color = colors.inkMuted
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(
-                            onClick = onNavigateToDarkroom,
-                            shape = RoundedCornerShape(2.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = colors.archiveSubtle,
-                                contentColor = colors.inkPrimary
-                            ),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(
-                                brush = SolidColor(colors.borderDivider)
-                            )
-                        ) {
-                            Text("开启随行暗房捕捉", fontFamily = ArchiveFontFamilies.EditorialSerif)
-                        }
                     }
                 }
             } else {
@@ -1111,7 +1094,7 @@ private fun EntryDetailSheetDialog(
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "暗房直传中…",
+                                        text = "上传中…",
                                         fontFamily = ArchiveFontFamilies.MonoScale,
                                         fontSize = 11.sp,
                                         color = colors.accentWarm
@@ -2472,63 +2455,6 @@ private fun QuickNoteSheet(
         }
     }
 
-    // 相机直拍
-    var pendingCameraFile by remember { mutableStateOf<File?>(null) }
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
-    ) { success ->
-        val file = pendingCameraFile
-        if (success && file != null && file.exists() && file.length() > 0) {
-            scope.launch {
-                isProcessingPhoto = true
-                try {
-                    val uri = Uri.fromFile(file)
-                    val processed = withContext(Dispatchers.IO) {
-                        ImagePipeline.processImage(context, uri)
-                    }
-                    val savedFile = withContext(Dispatchers.IO) {
-                        syncManager.saveCompressedImageToOutboxDir(processed.compressedBytes)
-                    }
-                    val fileUri = "file://${savedFile.absolutePath}"
-                    val newPhoto = AttachedPhotoItem(previewUri = fileUri, processed = processed, savedFile = savedFile)
-                    attachedPhotos = (attachedPhotos + newPhoto).take(9)
-
-                    // EXIF 自动回溯
-                    if (noteTitle.isBlank()) {
-                        noteTitle = "现场快门 · " + (processed.exif.model ?: "胶片相纸")
-                    }
-                    if (noteCityCode.isNullOrBlank()) {
-                        val inferredCode = processed.exif.inferredCityCode
-                        val inferredCity = processed.exif.inferredCityName ?: inferredCode?.let { CityDictionary.cityNameForCode(it) }
-                        if (!inferredCode.isNullOrBlank()) {
-                            noteCityCode = inferredCode
-                            noteCityName = inferredCity
-                        }
-                    }
-                    if (noteLocation.isBlank()) {
-                        val inferredCity = processed.exif.inferredCityName ?: processed.exif.inferredCityCode?.let { CityDictionary.cityNameForCode(it) }
-                        if (!inferredCity.isNullOrBlank()) {
-                            noteLocation = inferredCity
-                        }
-                    }
-                    processed.exif.dateTimeOriginal?.let { raw ->
-                        runCatching { noteOccurredAt = FormatUtils.parseToLocalDateTime(raw) }
-                    }
-                    ArchiveToastManager.show("相纸已装裱")
-                } catch (e: Exception) {
-                    ArchiveToastManager.show("快门相纸装裱失败: ${e.message}", isError = true)
-                } finally {
-                    isProcessingPhoto = false
-                    runCatching { file.delete() }
-                    pendingCameraFile = null
-                }
-            }
-        } else {
-            runCatching { file?.delete() }
-            pendingCameraFile = null
-        }
-    }
-
     // 相册加选
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 9)
@@ -2628,6 +2554,7 @@ private fun QuickNoteSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight(0.85f)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
@@ -2918,25 +2845,6 @@ private fun QuickNoteSheet(
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 TextButton(
                                     onClick = {
-                                        val dir = File(context.cacheDir, "camera").apply { mkdirs() }
-                                        val f = File(dir, "snap_${System.currentTimeMillis()}.jpg")
-                                        pendingCameraFile = f
-                                        val u = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
-                                        cameraLauncher.launch(u)
-                                    },
-                                    contentPadding = PaddingValues(0.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.CameraAlt,
-                                        contentDescription = null,
-                                        tint = colors.accentWarm,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text("快门直拍", fontSize = 11.5.sp, color = colors.accentWarm)
-                                }
-                                TextButton(
-                                    onClick = {
                                         galleryLauncher.launch(
                                             androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                         )
@@ -3046,61 +2954,29 @@ private fun QuickNoteSheet(
                             }
                         }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Button(
+                            onClick = {
+                                galleryLauncher.launch(
+                                    androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = colors.archivePaper,
+                                contentColor = colors.inkPrimary
+                            ),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(colors.borderDivider)),
+                            shape = RoundedCornerShape(3.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.fillMaxWidth().height(34.dp)
                         ) {
-                            Button(
-                                onClick = {
-                                    val dir = File(context.cacheDir, "camera").apply { mkdirs() }
-                                    val f = File(dir, "snap_${System.currentTimeMillis()}.jpg")
-                                    pendingCameraFile = f
-                                    val u = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
-                                    cameraLauncher.launch(u)
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = colors.archivePaper,
-                                    contentColor = colors.inkPrimary
-                                ),
-                                border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(colors.borderDivider)),
-                                shape = RoundedCornerShape(3.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                modifier = Modifier.weight(1f).height(34.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.CameraAlt,
-                                    contentDescription = null,
-                                    tint = colors.accentWarm,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("快门直拍", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.BodySans)
-                            }
-
-                            Button(
-                                onClick = {
-                                    galleryLauncher.launch(
-                                        androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = colors.archivePaper,
-                                    contentColor = colors.inkPrimary
-                                ),
-                                border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(colors.borderDivider)),
-                                shape = RoundedCornerShape(3.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                modifier = Modifier.weight(1f).height(34.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.PhotoLibrary,
-                                    contentDescription = null,
-                                    tint = colors.accentWarm,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("相册装裱", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.BodySans)
-                            }
+                            Icon(
+                                imageVector = Icons.Outlined.PhotoLibrary,
+                                contentDescription = null,
+                                tint = colors.accentWarm,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("相册装裱", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.BodySans)
                         }
                     }
 
