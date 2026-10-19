@@ -83,7 +83,8 @@ data class CachedTransactionEntity(
     tableName = "outbox_events",
     indices = [
         Index(value = ["created_at"]),
-        Index(value = ["entity_type"])
+        Index(value = ["entity_type"]),
+        Index(value = ["failed_at"])
     ]
 )
 data class OutboxEventEntity(
@@ -95,6 +96,10 @@ data class OutboxEventEntity(
     @ColumnInfo(name = "local_target_id") val localTargetId: Long = 0,
     @ColumnInfo(name = "server_target_id") val serverTargetId: Long? = null,
     @ColumnInfo(name = "retry_count") val retryCount: Int = 0,
+    /** 进入失败态的时间。非空表示该事件已停止自动重试，等待用户手动重试或放弃。 */
+    @ColumnInfo(name = "failed_at") val failedAt: String? = null,
+    /** 最后一次失败原因，用于诊断与展示。 */
+    @ColumnInfo(name = "last_error") val lastError: String? = null,
     @ColumnInfo(name = "created_at") val createdAt: String = FormatUtils.beijingNowIsoString()
 )
 

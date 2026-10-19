@@ -11,6 +11,7 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.Locale
 import kotlin.coroutines.resume
@@ -23,6 +24,9 @@ import kotlin.coroutines.resume
  * - 地点提供点选芯片，避免强制手工输入
  */
 object LocationHelper {
+
+    private const val LOCATION_TIMEOUT_MS = 8_000L
+    private const val LAST_KNOWN_MAX_AGE_MS = 5 * 60_000L
 
     data class ResolvedLocation(
         val cityCode: String?,
@@ -56,9 +60,18 @@ object LocationHelper {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
             ?: return@withContext null
 
-        val location = getBestLastKnownLocation(locationManager)
-            ?: requestSingleLocationUpdate(locationManager)
-            ?: return@withContext null
+        val lastKnown = getBestLastKnownLocation(locationManager)
+        val isStale = lastKnown == null ||
+            System.currentTimeMillis() - lastKnown.time > LAST_KNOWN_MAX_AGE_MS
+
+        val location = if (isStale) {
+            // 单次定位可能永远等不到回调（室内 / GPS 未锁定），必须设超时
+            withTimeoutOrNull(LOCATION_TIMEOUT_MS) {
+                requestSingleLocationUpdate(locationManager)
+            } ?: lastKnown
+        } else {
+            lastKnown
+        } ?: return@withContext null
 
         resolveLocationDetails(context, location)
     }
@@ -69,20 +82,27 @@ object LocationHelper {
             LocationManager.NETWORK_PROVIDER,
             LocationManager.PASSIVE_PROVIDER
         )
-        var bestLocation: Location? = null
+        val candidates = mutableListOf<Location>()
         for (provider in providers) {
             try {
-                if (locationManager.isProviderEnabled(provider)) {
-                    val loc = locationManager.getLastKnownLocation(provider) ?: continue
-                    if (bestLocation == null || loc.time > bestLocation.time) {
-                        bestLocation = loc
-                    }
-                }
+                if (!locationManager.isProviderEnabled(provider)) continue
+                val loc = locationManager.getLastKnownLocation(provider) ?: continue
+                if (loc.isMockLocation()) continue
+                candidates.add(loc)
             } catch (_: SecurityException) {
             } catch (_: Exception) {
             }
         }
-        return bestLocation
+        // 同一时间片内取精度更高的那个；不同时间取更新的
+        return candidates.maxWithOrNull(compareBy<Location>({ it.time }, { -it.accuracy }))
+    }
+
+    private fun Location.isMockLocation(): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) isMock else @Suppress("DEPRECATION") isFromMockProvider
+        } catch (_: Exception) {
+            false
+        }
     }
 
     @Suppress("DEPRECATION")

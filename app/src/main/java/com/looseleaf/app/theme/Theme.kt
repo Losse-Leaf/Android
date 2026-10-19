@@ -1,6 +1,7 @@
 package com.looseleaf.app.theme
 
 import android.app.Activity
+import android.graphics.drawable.ColorDrawable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -23,6 +24,7 @@ object LooseLeafTheme {
         get() = LocalArchiveColors.current
 }
 
+@Suppress("DEPRECATION")
 @Composable
 fun LooseLeafTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -57,6 +59,11 @@ fun LooseLeafTheme(
         SideEffect {
             val window = (view.context as? Activity)?.window
             if (window != null) {
+                // Android 15（targetSdk 35）强制 edge-to-edge，statusBarColor 实际已失效：
+                // 用窗口背景托住系统栏区域，暗房模式才不会出现「亮底 + 浅色图标」。
+                window.setBackgroundDrawable(
+                    ColorDrawable(archiveColors.archivePaper.toArgb())
+                )
                 window.statusBarColor = archiveColors.archivePaper.toArgb()
                 window.navigationBarColor = archiveColors.archivePaper.toArgb()
                 val controller = WindowCompat.getInsetsController(window, view)

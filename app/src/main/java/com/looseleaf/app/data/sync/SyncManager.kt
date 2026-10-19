@@ -3,6 +3,7 @@ package com.looseleaf.app.data.sync
 import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -61,6 +62,12 @@ class SyncManager private constructor(private val context: Context) {
         private const val KEY_ENTRIES_CURSOR = "last_entries_sync_cursor"
         private const val KEY_TX_CURSOR = "last_tx_sync_cursor"
 
+        /** 单次拉取的分页上限。200 页 ≈ 2 万条记录，足够覆盖多年档案，同时仍能防止死循环 */
+        private const val MAX_PAGES = 200
+
+        /** 增量游标回退窗口，避免「同一秒内多条更新」被 since 过滤掉（重复行由 upsert 吸收） */
+        private const val CURSOR_OVERLAP_SECONDS = 120L
+
         @Volatile
         private var instance: SyncManager? = null
 
@@ -81,12 +88,21 @@ class SyncManager private constructor(private val context: Context) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     val outboxMutex = Mutex()
 
+    /** 拉取互斥：连续下拉/切 Tab 不会并发清库或重复插入 */
+    private val pullMutex = Mutex()
+
     private val syncPrefs by lazy {
         context.getSharedPreferences(SYNC_PREFS_NAME, Context.MODE_PRIVATE)
     }
 
     // 观察待同步队列总数 (0ms 内存缓存)
     val pendingEventCountFlow: StateFlow<Int> = database.outboxDao().getPendingEventCountFlow()
+        .catch { emit(0) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(scope, SharingStarted.Eagerly, 0)
+
+    // 观察进入失败态、等待用户处置的事件数
+    val failedEventCountFlow: StateFlow<Int> = database.outboxDao().getFailedEventCountFlow()
         .catch { emit(0) }
         .flowOn(Dispatchers.Default)
         .stateIn(scope, SharingStarted.Eagerly, 0)
@@ -132,7 +148,13 @@ class SyncManager private constructor(private val context: Context) {
     fun saveCompressedImageToOutboxDir(bytes: ByteArray): File {
         val outboxDir = File(context.filesDir, "outbox_media").apply { mkdirs() }
         val targetFile = File(outboxDir, "img_${UUID.randomUUID()}.jpg")
-        targetFile.writeBytes(bytes)
+        try {
+            targetFile.writeBytes(bytes)
+        } catch (e: Exception) {
+            // 写一半失败会留下残缺文件，必须清掉，否则又变成孤儿
+            runCatching { targetFile.delete() }
+            throw e
+        }
         return targetFile
     }
 
@@ -215,27 +237,30 @@ class SyncManager private constructor(private val context: Context) {
             syncStatus = "PENDING_CREATE",
             createdAt = FormatUtils.beijingNowIsoString()
         )
-        val localId = database.entryDao().insert(entryEntity)
-
-        val primaryItem = allItems.firstOrNull()
-        val payloadObj = OfflineMediaEntryPayload(
-            localImageFilePath = primaryItem?.filePath ?: localImageFilePath,
-            mimeType = primaryItem?.mimeType ?: mimeType,
-            width = primaryItem?.width ?: width,
-            height = primaryItem?.height ?: height,
-            files = allItems,
-            req = req
-        )
-
-        val event = OutboxEventEntity(
-            eventId = UUID.randomUUID().toString(),
-            entityType = "media_entry",
-            action = "CREATE",
-            payload = json.encodeToString(payloadObj),
-            localTargetId = localId,
-            serverTargetId = null
-        )
-        database.outboxDao().insert(event)
+        // 本地记录与发件箱事件必须同事务落库：中途崩溃不能留下「永远 PENDING 却无事件」的孤儿
+        val localId = database.withTransaction {
+            val id = database.entryDao().insert(entryEntity)
+            val primaryItem = allItems.firstOrNull()
+            val payloadObj = OfflineMediaEntryPayload(
+                localImageFilePath = primaryItem?.filePath ?: localImageFilePath,
+                mimeType = primaryItem?.mimeType ?: mimeType,
+                width = primaryItem?.width ?: width,
+                height = primaryItem?.height ?: height,
+                files = allItems,
+                req = req
+            )
+            database.outboxDao().insert(
+                OutboxEventEntity(
+                    eventId = UUID.randomUUID().toString(),
+                    entityType = "media_entry",
+                    action = "CREATE",
+                    payload = json.encodeToString(payloadObj),
+                    localTargetId = id,
+                    serverTargetId = null
+                )
+            )
+            id
+        }
 
         scheduleSync()
         localId
@@ -277,8 +302,6 @@ class SyncManager private constructor(private val context: Context) {
             syncStatus = "PENDING_CREATE",
             createdAt = FormatUtils.beijingNowIsoString()
         )
-        val localId = database.entryDao().insert(entryEntity)
-
         val req = CreateEntryRequest(
             type = type,
             title = title,
@@ -293,15 +316,21 @@ class SyncManager private constructor(private val context: Context) {
             wishId = wishId,
             footprintId = footprintId
         )
-        val event = OutboxEventEntity(
-            eventId = UUID.randomUUID().toString(),
-            entityType = "entry",
-            action = "CREATE",
-            payload = json.encodeToString(req),
-            localTargetId = localId,
-            serverTargetId = null
-        )
-        database.outboxDao().insert(event)
+
+        val localId = database.withTransaction {
+            val id = database.entryDao().insert(entryEntity)
+            database.outboxDao().insert(
+                OutboxEventEntity(
+                    eventId = UUID.randomUUID().toString(),
+                    entityType = "entry",
+                    action = "CREATE",
+                    payload = json.encodeToString(req),
+                    localTargetId = id,
+                    serverTargetId = null
+                )
+            )
+            id
+        }
 
         scheduleSync()
         return localId
@@ -341,31 +370,32 @@ class SyncManager private constructor(private val context: Context) {
             footprintId = req.footprintId ?: entity.footprintId,
             syncStatus = newSyncStatus
         )
-        database.entryDao().update(updatedEntity)
+        database.withTransaction {
+            database.entryDao().update(updatedEntity)
 
-        if (entity.serverId != null && entity.serverId > 0) {
-            val event = OutboxEventEntity(
-                eventId = UUID.randomUUID().toString(),
-                entityType = "entry",
-                action = "UPDATE",
-                payload = json.encodeToString(req),
-                localTargetId = entity.localId,
-                serverTargetId = entity.serverId
-            )
-            database.outboxDao().insert(event)
-        } else {
-            // 尚未同步至云端的本地条目，更新其对应的 CREATE 事件载荷
-            val pending = database.outboxDao().getAllPendingEvents()
-            val createEvent = pending.firstOrNull {
-                it.localTargetId == entity.localId && it.action == "CREATE"
-            }
-            if (createEvent != null) {
-                if (createEvent.entityType == "entry") {
-                    database.outboxDao().insert(
-                        createEvent.copy(payload = json.encodeToString(req))
+            if (entity.serverId != null && entity.serverId > 0) {
+                database.outboxDao().insert(
+                    OutboxEventEntity(
+                        eventId = UUID.randomUUID().toString(),
+                        entityType = "entry",
+                        action = "UPDATE",
+                        payload = json.encodeToString(req),
+                        localTargetId = entity.localId,
+                        serverTargetId = entity.serverId
                     )
-                } else if (createEvent.entityType == "media_entry") {
-                    runCatching {
+                )
+            } else {
+                // 尚未同步至云端的本地条目，更新其对应的 CREATE 事件载荷
+                val pending = database.outboxDao().getAllPendingEvents()
+                val createEvent = pending.firstOrNull {
+                    it.localTargetId == entity.localId && it.action == "CREATE"
+                }
+                if (createEvent != null) {
+                    if (createEvent.entityType == "entry") {
+                        database.outboxDao().insert(
+                            createEvent.copy(payload = json.encodeToString(req))
+                        )
+                    } else if (createEvent.entityType == "media_entry") {
                         val oldPayload = json.decodeFromString<OfflineMediaEntryPayload>(createEvent.payload)
                         val newPayload = oldPayload.copy(req = req)
                         database.outboxDao().insert(
@@ -424,8 +454,6 @@ class SyncManager private constructor(private val context: Context) {
             syncStatus = "PENDING_CREATE",
             createdAt = FormatUtils.beijingNowIsoString()
         )
-        val localId = database.transactionDao().insert(txEntity)
-
         val req = CreateTransactionRequest(
             amount = amountCents,
             type = type,
@@ -445,15 +473,21 @@ class SyncManager private constructor(private val context: Context) {
             installmentRemainMonths = installmentRemainMonths,
             repaymentDay = repaymentDay
         )
-        val event = OutboxEventEntity(
-            eventId = UUID.randomUUID().toString(),
-            entityType = "transaction",
-            action = "CREATE",
-            payload = json.encodeToString(req),
-            localTargetId = localId,
-            serverTargetId = null
-        )
-        database.outboxDao().insert(event)
+
+        val localId = database.withTransaction {
+            val id = database.transactionDao().insert(txEntity)
+            database.outboxDao().insert(
+                OutboxEventEntity(
+                    eventId = UUID.randomUUID().toString(),
+                    entityType = "transaction",
+                    action = "CREATE",
+                    payload = json.encodeToString(req),
+                    localTargetId = id,
+                    serverTargetId = null
+                )
+            )
+            id
+        }
 
         scheduleSync()
         return localId
@@ -499,27 +533,30 @@ class SyncManager private constructor(private val context: Context) {
             repaymentDay = req.repaymentDay,
             syncStatus = newSyncStatus
         )
-        database.transactionDao().update(updatedEntity)
+        database.withTransaction {
+            database.transactionDao().update(updatedEntity)
 
-        if (entity.serverId != null && entity.serverId > 0) {
-            val event = OutboxEventEntity(
-                eventId = UUID.randomUUID().toString(),
-                entityType = "transaction",
-                action = "UPDATE",
-                payload = json.encodeToString(req),
-                localTargetId = entity.localId,
-                serverTargetId = entity.serverId
-            )
-            database.outboxDao().insert(event)
-        } else {
-            val pending = database.outboxDao().getAllPendingEvents()
-            val createEvent = pending.firstOrNull {
-                it.entityType == "transaction" && it.localTargetId == entity.localId && it.action == "CREATE"
-            }
-            if (createEvent != null) {
+            if (entity.serverId != null && entity.serverId > 0) {
                 database.outboxDao().insert(
-                    createEvent.copy(payload = json.encodeToString(req))
+                    OutboxEventEntity(
+                        eventId = UUID.randomUUID().toString(),
+                        entityType = "transaction",
+                        action = "UPDATE",
+                        payload = json.encodeToString(req),
+                        localTargetId = entity.localId,
+                        serverTargetId = entity.serverId
+                    )
                 )
+            } else {
+                val pending = database.outboxDao().getAllPendingEvents()
+                val createEvent = pending.firstOrNull {
+                    it.entityType == "transaction" && it.localTargetId == entity.localId && it.action == "CREATE"
+                }
+                if (createEvent != null) {
+                    database.outboxDao().insert(
+                        createEvent.copy(payload = json.encodeToString(req))
+                    )
+                }
             }
         }
 
@@ -537,21 +574,40 @@ class SyncManager private constructor(private val context: Context) {
                 ?: database.entryDao().getEntryByLocalId(idOrLocalId)
         } ?: return
 
-        if (entity.serverId != null && entity.serverId > 0) {
-            val event = OutboxEventEntity(
-                eventId = UUID.randomUUID().toString(),
-                entityType = "entry",
-                action = "DELETE",
-                payload = "{}",
-                localTargetId = entity.localId,
-                serverTargetId = entity.serverId
-            )
-            database.outboxDao().insert(event)
+        // 未同步的图文条目：连 filesDir/outbox_media 里的相纸一起清理，避免删了记录留下孤儿文件
+        val orphanMediaPaths = if (entity.serverId == null) {
+            database.outboxDao().getAllPendingEvents()
+                .filter { it.entityType == "media_entry" && it.localTargetId == entity.localId }
+                .flatMap { event ->
+                    runCatching {
+                        json.decodeFromString<OfflineMediaEntryPayload>(event.payload).files
+                    }.getOrDefault(emptyList())
+                }
+                .map { it.filePath }
+                .filter { it.isNotBlank() }
         } else {
-            database.outboxDao().deleteByLocalTarget("entry", entity.localId)
-            database.outboxDao().deleteByLocalTarget("media_entry", entity.localId)
+            emptyList()
         }
-        database.entryDao().deleteByLocalId(entity.localId)
+
+        database.withTransaction {
+            if (entity.serverId != null && entity.serverId > 0) {
+                database.outboxDao().insert(
+                    OutboxEventEntity(
+                        eventId = UUID.randomUUID().toString(),
+                        entityType = "entry",
+                        action = "DELETE",
+                        payload = "{}",
+                        localTargetId = entity.localId,
+                        serverTargetId = entity.serverId
+                    )
+                )
+            } else {
+                database.outboxDao().deleteByLocalTarget("entry", entity.localId)
+                database.outboxDao().deleteByLocalTarget("media_entry", entity.localId)
+            }
+            database.entryDao().deleteByLocalId(entity.localId)
+        }
+        orphanMediaPaths.forEach { path -> runCatching { File(path).delete() } }
         scheduleSync()
     }
 
@@ -566,20 +622,23 @@ class SyncManager private constructor(private val context: Context) {
                 ?: database.transactionDao().getTransactionByLocalId(idOrLocalId)
         } ?: return
 
-        if (entity.serverId != null && entity.serverId > 0) {
-            val event = OutboxEventEntity(
-                eventId = UUID.randomUUID().toString(),
-                entityType = "transaction",
-                action = "DELETE",
-                payload = "{}",
-                localTargetId = entity.localId,
-                serverTargetId = entity.serverId
-            )
-            database.outboxDao().insert(event)
-        } else {
-            database.outboxDao().deleteByLocalTarget("transaction", entity.localId)
+        database.withTransaction {
+            if (entity.serverId != null && entity.serverId > 0) {
+                database.outboxDao().insert(
+                    OutboxEventEntity(
+                        eventId = UUID.randomUUID().toString(),
+                        entityType = "transaction",
+                        action = "DELETE",
+                        payload = "{}",
+                        localTargetId = entity.localId,
+                        serverTargetId = entity.serverId
+                    )
+                )
+            } else {
+                database.outboxDao().deleteByLocalTarget("transaction", entity.localId)
+            }
+            database.transactionDao().deleteByLocalId(entity.localId)
         }
-        database.transactionDao().deleteByLocalId(entity.localId)
         scheduleSync()
     }
 
@@ -602,287 +661,240 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     /**
-     * 从后端拉取最新数据（支持 ?since= 增量游标与软删除 deleted_at 对齐），
-     * 并在单一 Room 事务内合并本地缓存 (保留未同步项与本地 EXIF camera)
+     * 从后端拉取最新数据（支持 ?since= 增量游标与软删除 deleted_at 对齐）。
+     *
+     * 合并原则（不再整表 clearAll 重插）：
+     * 1. 本地未同步（PENDING_*）的行内容永远优先，服务端版本不覆盖；
+     * 2. 已同步行按 serverId upsert，保留 localId，避免发件箱事件指向失效主键；
+     * 3. 只有「服务端已软删」或「全量拉取中缺失」的已同步行才真正删除；
+     * 4. 任一分段失败都不推进该分段的游标，避免永久漏数据。
      */
-    suspend fun pullRemoteData(forceFull: Boolean = false): Result<Unit> = kotlin.runCatching {
-        // 1. 同步发件箱
-        flushOutboxNow()
+    suspend fun pullRemoteData(forceFull: Boolean = false): Result<Unit> = pullMutex.withLock {
+        kotlin.runCatching {
+            flushOutboxNow()
 
-        // 2. 拉取生活档案 (增量或全量)
-        val currentLocalEntries = database.entryDao().getAllEntries()
-        val entriesCursor = syncPrefs.getString(KEY_ENTRIES_CURSOR, null)
-        val useIncrementalEntries = !forceFull && currentLocalEntries.isNotEmpty() && !entriesCursor.isNullOrBlank()
+            val failures = mutableListOf<String>()
 
-        val remoteEntries = mutableListOf<LifeEntry>()
-        var currentEntriesPage = 1
-        val entriesPageSize = 100
-        while (true) {
-            val resp = apiClient.fetchEntries(
-                page = currentEntriesPage,
-                pageSize = entriesPageSize,
-                since = if (useIncrementalEntries) entriesCursor else null
-            )
-            remoteEntries.addAll(resp.entries)
-            if (resp.entries.size < entriesPageSize || remoteEntries.size >= resp.total) {
-                break
-            }
-            currentEntriesPage++
-        }
+            // ---------- 2. 生活档案 ----------
+            val currentLocalEntries = database.entryDao().getAllEntries()
+            val entriesCursor = syncPrefs.getString(KEY_ENTRIES_CURSOR, null)
+            val useIncrementalEntries =
+                !forceFull && currentLocalEntries.isNotEmpty() && !entriesCursor.isNullOrBlank()
 
-        database.withTransaction {
-            val currentLocal = database.entryDao().getAllEntries()
-
-            if (useIncrementalEntries) {
-                for (remote in remoteEntries) {
-                    if (!remote.deletedAt.isNullOrBlank()) {
-                        database.entryDao().deleteByServerId(remote.id)
-                    } else {
-                        val existing = database.entryDao().getEntryByServerId(remote.id)
-                        val entity = CachedEntryEntity(
-                            localId = existing?.localId ?: 0,
-                            serverId = remote.id,
-                            type = remote.type,
-                            title = remote.title,
-                            content = remote.content,
-                            occurredAt = remote.occurredAt,
-                            location = remote.location,
-                            cityCode = remote.cityCode,
-                            cityName = remote.cityName,
-                            featured = remote.featured,
-                            projectId = remote.projectId,
-                            wishId = remote.wishId,
-                            footprintId = remote.footprintId,
-                            attachmentsJson = json.encodeToString(remote.attachments),
-                            syncStatus = "SYNCED",
-                            createdAt = remote.createdAt ?: remote.occurredAt
-                        )
-                        database.entryDao().insert(entity)
-                    }
-                }
-            } else {
-                val activeRemote = remoteEntries.filter { it.deletedAt.isNullOrBlank() }
-                val remoteIds = activeRemote.map { it.id }.toSet()
-                val pendingEntries = currentLocal.filter {
-                    it.syncStatus != "SYNCED" && (it.serverId == null || it.serverId !in remoteIds)
-                }
-
-                val newEntities = activeRemote.map { remote ->
-                    CachedEntryEntity(
-                        localId = 0,
-                        serverId = remote.id,
-                        type = remote.type,
-                        title = remote.title,
-                        content = remote.content,
-                        occurredAt = remote.occurredAt,
-                        location = remote.location,
-                        cityCode = remote.cityCode,
-                        cityName = remote.cityName,
-                        featured = remote.featured,
-                        projectId = remote.projectId,
-                        wishId = remote.wishId,
-                        footprintId = remote.footprintId,
-                        attachmentsJson = json.encodeToString(remote.attachments),
-                        syncStatus = "SYNCED",
-                        createdAt = remote.createdAt ?: remote.occurredAt
+            val remoteEntries = mutableListOf<LifeEntry>()
+            var entriesComplete = true
+            try {
+                var page = 1
+                var pages = 0
+                while (pages < MAX_PAGES) {
+                    val resp = apiClient.fetchEntries(
+                        page = page,
+                        pageSize = 100,
+                        since = if (useIncrementalEntries) cursorForRequest(entriesCursor) else null
                     )
+                    remoteEntries.addAll(resp.entries)
+                    pages++
+                    if (resp.entries.size < 100 || remoteEntries.size >= resp.total) break
+                    page++
                 }
-
-                database.entryDao().clearAll()
-                database.entryDao().insertAll(pendingEntries + newEntities)
+                if (pages >= MAX_PAGES) {
+                    throw IllegalStateException("分页超过 $MAX_PAGES 页，本次拉取已中止")
+                }
+            } catch (e: Exception) {
+                entriesComplete = false
+                failures += "生活档案：${e.message}"
             }
-        }
 
-        val maxEntryUpdated = remoteEntries
-            .mapNotNull { it.deletedAt?.takeIf { d -> d.isNotBlank() } ?: it.updatedAt }
-            .maxOrNull()
-        if (!maxEntryUpdated.isNullOrBlank()) {
-            syncPrefs.edit().putString(KEY_ENTRIES_CURSOR, maxEntryUpdated).apply()
-        } else if (entriesCursor.isNullOrBlank()) {
-            syncPrefs.edit().putString(KEY_ENTRIES_CURSOR, FormatUtils.beijingNowIsoString()).apply()
-        }
-
-        // 3. 拉取记账记录 (增量或全量)
-        val currentLocalTxs = database.transactionDao().getAllTransactions()
-        val txCursor = syncPrefs.getString(KEY_TX_CURSOR, null)
-        val useIncrementalTxs = !forceFull && currentLocalTxs.isNotEmpty() && !txCursor.isNullOrBlank()
-
-        val remoteTxs = mutableListOf<Transaction>()
-        val txLimit = 200
-        var currentTxOffset = 0
-        while (true) {
-            val batch = apiClient.fetchTransactions(
-                since = if (useIncrementalTxs) txCursor else null,
-                limit = txLimit,
-                offset = if (currentTxOffset > 0) currentTxOffset else null
-            )
-            remoteTxs.addAll(batch)
-            if (batch.size < txLimit) {
-                break
+            if (entriesComplete) {
+                database.withTransaction { mergeEntries(remoteEntries, useIncrementalEntries) }
+                val maxEntryUpdated = maxUpdatedCursor(
+                    remoteEntries.flatMap { listOfNotNull(it.updatedAt, it.deletedAt) }
+                )
+                if (maxEntryUpdated != null) {
+                    syncPrefs.edit().putString(KEY_ENTRIES_CURSOR, maxEntryUpdated).apply()
+                } else if (entriesCursor.isNullOrBlank()) {
+                    syncPrefs.edit().putString(KEY_ENTRIES_CURSOR, FormatUtils.beijingNowIsoString()).apply()
+                }
             }
-            currentTxOffset += batch.size
-        }
 
-        database.withTransaction {
-            val localTxs = database.transactionDao().getAllTransactions()
-            if (useIncrementalTxs) {
-                for (remote in remoteTxs) {
-                    if (!remote.deletedAt.isNullOrBlank()) {
-                        database.transactionDao().deleteByServerId(remote.id)
-                    } else {
-                        val existing = database.transactionDao().getTransactionByServerId(remote.id)
-                        val entity = CachedTransactionEntity(
-                            localId = existing?.localId ?: 0,
-                            serverId = remote.id,
-                            amount = remote.amount,
-                            type = remote.type,
-                            category = remote.category,
-                            title = remote.title,
-                            note = remote.note,
-                            paymentMethod = remote.paymentMethod,
-                            occurredAt = remote.occurredAt,
-                            cityCode = remote.cityCode,
-                            wishId = remote.wishId,
-                            footprintId = remote.footprintId,
-                            isInstallment = remote.isInstallment ?: false,
-                            installmentChannelCode = remote.installmentChannelCode,
-                            installmentTotalAmount = remote.installmentTotalAmount,
-                            installmentMonths = remote.installmentMonths,
-                            installmentMonthlyPay = remote.installmentMonthlyPay,
-                            installmentRemainMonths = remote.installmentRemainMonths,
-                            repaymentDay = remote.repaymentDay,
-                            syncStatus = "SYNCED",
-                            createdAt = remote.createdAt ?: remote.occurredAt
-                        )
-                        database.transactionDao().insert(entity)
-                    }
-                }
-            } else {
-                val activeRemoteTxs = remoteTxs.filter { it.deletedAt.isNullOrBlank() }
-                val remoteTxIds = activeRemoteTxs.map { it.id }.toSet()
-                val pendingTxs = localTxs.filter {
-                    it.syncStatus != "SYNCED" && (it.serverId == null || it.serverId !in remoteTxIds)
-                }
+            // ---------- 3. 记账流水 ----------
+            val currentLocalTxs = database.transactionDao().getAllTransactions()
+            val txCursor = syncPrefs.getString(KEY_TX_CURSOR, null)
+            val useIncrementalTxs =
+                !forceFull && currentLocalTxs.isNotEmpty() && !txCursor.isNullOrBlank()
 
-                val newTxEntities = activeRemoteTxs.map { remote ->
-                    CachedTransactionEntity(
-                        localId = 0,
-                        serverId = remote.id,
-                        amount = remote.amount,
-                        type = remote.type,
-                        category = remote.category,
-                        title = remote.title,
-                        note = remote.note,
-                        paymentMethod = remote.paymentMethod,
-                        occurredAt = remote.occurredAt,
-                        cityCode = remote.cityCode,
-                        wishId = remote.wishId,
-                        footprintId = remote.footprintId,
-                        isInstallment = remote.isInstallment ?: false,
-                        installmentChannelCode = remote.installmentChannelCode,
-                        installmentTotalAmount = remote.installmentTotalAmount,
-                        installmentMonths = remote.installmentMonths,
-                        installmentMonthlyPay = remote.installmentMonthlyPay,
-                        installmentRemainMonths = remote.installmentRemainMonths,
-                        repaymentDay = remote.repaymentDay,
-                        syncStatus = "SYNCED",
-                        createdAt = remote.createdAt ?: remote.occurredAt
+            val remoteTxs = mutableListOf<Transaction>()
+            var txsComplete = true
+            try {
+                var offset = 0
+                var pages = 0
+                while (pages < MAX_PAGES) {
+                    val batch = apiClient.fetchTransactions(
+                        since = if (useIncrementalTxs) cursorForRequest(txCursor) else null,
+                        limit = 200,
+                        offset = if (offset > 0) offset else null
                     )
+                    remoteTxs.addAll(batch)
+                    pages++
+                    if (batch.size < 200) break
+                    offset += batch.size
                 }
-
-                database.transactionDao().clearAll()
-                database.transactionDao().insertAll(pendingTxs + newTxEntities)
+                if (pages >= MAX_PAGES) {
+                    throw IllegalStateException("分页超过 $MAX_PAGES 页，本次拉取已中止")
+                }
+            } catch (e: Exception) {
+                txsComplete = false
+                failures += "记账流水：${e.message}"
             }
-        }
 
-        val maxTxUpdated = remoteTxs
-            .mapNotNull { it.deletedAt?.takeIf { d -> d.isNotBlank() } ?: it.updatedAt }
-            .maxOrNull()
-        if (!maxTxUpdated.isNullOrBlank()) {
-            syncPrefs.edit().putString(KEY_TX_CURSOR, maxTxUpdated).apply()
-        } else if (txCursor.isNullOrBlank()) {
-            syncPrefs.edit().putString(KEY_TX_CURSOR, FormatUtils.beijingNowIsoString()).apply()
-        }
-
-        // 4. 同步造物、心愿与山川足迹至离线 Room 数据库
-        runCatching {
-            val remoteProjects = apiClient.fetchProjects()
-            database.projectDao().clearAll()
-            database.projectDao().insertAll(remoteProjects.map {
-                CachedProjectEntity(
-                    id = it.id,
-                    title = it.title,
-                    subtitle = it.subtitle,
-                    description = it.description,
-                    story = it.story,
-                    category = it.category,
-                    status = it.status,
-                    githubUrl = it.githubUrl,
-                    featured = it.featured,
-                    order = it.order,
-                    updatedAt = it.updatedAt
+            if (txsComplete) {
+                database.withTransaction { mergeTransactions(remoteTxs, useIncrementalTxs) }
+                val maxTxUpdated = maxUpdatedCursor(
+                    remoteTxs.flatMap { listOfNotNull(it.updatedAt, it.deletedAt) }
                 )
-            })
-        }
-        runCatching {
-            val allWishes = mutableListOf<Wish>()
-            var wishPage = 1
-            val wishPageSize = 100
-            while (true) {
-                val wishes = apiClient.fetchWishes(page = wishPage, pageSize = wishPageSize)
-                allWishes.addAll(wishes)
-                if (wishes.size < wishPageSize) break
-                wishPage++
+                if (maxTxUpdated != null) {
+                    syncPrefs.edit().putString(KEY_TX_CURSOR, maxTxUpdated).apply()
+                } else if (txCursor.isNullOrBlank()) {
+                    syncPrefs.edit().putString(KEY_TX_CURSOR, FormatUtils.beijingNowIsoString()).apply()
+                }
             }
-            database.wishDao().clearAll()
-            database.wishDao().insertAll(allWishes.map {
-                CachedWishEntity(
-                    id = it.id,
-                    title = it.title,
-                    kind = it.kind ?: "item",
-                    note = it.note,
-                    spec = it.spec,
-                    cityCode = it.cityCode,
-                    cityName = it.cityName,
-                    budget = it.budget,
-                    actualCost = it.actualCost,
-                    resolutionType = it.resolutionType,
-                    actualTitle = it.actualTitle,
-                    status = it.status,
-                    targetDate = it.targetDate,
-                    fulfilledAt = it.fulfilledAt,
-                    gearId = it.gearId,
-                    attachmentsJson = json.encodeToString(it.attachments),
-                    updatedAt = it.updatedAt
-                )
-            })
-        }
-        runCatching {
-            val remoteFootprints = apiClient.fetchFootprints()
-            database.footprintDao().clearAll()
-            database.footprintDao().insertAll(remoteFootprints.map {
-                CachedFootprintEntity(
-                    id = it.id,
-                    cityCode = it.cityCode,
-                    cityName = it.cityName,
-                    title = it.title,
-                    visitedAt = it.visitedAt,
-                    departedAt = it.departedAt,
-                    note = it.note,
-                    lifeEntryId = it.lifeEntryId,
-                    wishId = it.wishId,
-                    attachmentsJson = json.encodeToString(it.attachments),
-                    entriesCount = it.entriesCount,
-                    totalSpent = it.totalSpent,
-                    transactionCount = it.transactionCount,
-                    updatedAt = it.updatedAt
-                )
-            })
+
+            // ---------- 4. 造物 / 心愿 / 足迹（只读缓存，走整表替换） ----------
+            try {
+                val remoteProjects = apiClient.fetchProjects()
+                database.withTransaction {
+                    database.projectDao().clearAll()
+                    database.projectDao().insertAll(remoteProjects.map { it.toCacheEntity() })
+                }
+            } catch (e: Exception) {
+                failures += "造物：${e.message}"
+            }
+
+            try {
+                val allWishes = mutableListOf<Wish>()
+                var wishPage = 1
+                while (wishPage <= MAX_PAGES) {
+                    val wishes = apiClient.fetchWishes(page = wishPage, pageSize = 100)
+                    allWishes.addAll(wishes)
+                    if (wishes.size < 100) break
+                    wishPage++
+                }
+                if (wishPage > MAX_PAGES) throw IllegalStateException("心愿分页超限")
+                database.withTransaction {
+                    database.wishDao().clearAll()
+                    database.wishDao().insertAll(allWishes.map { it.toCacheEntity(json) })
+                }
+            } catch (e: Exception) {
+                failures += "心愿：${e.message}"
+            }
+
+            try {
+                val remoteFootprints = apiClient.fetchFootprints()
+                database.withTransaction {
+                    database.footprintDao().clearAll()
+                    database.footprintDao().insertAll(remoteFootprints.map { it.toCacheEntity(json) })
+                }
+            } catch (e: Exception) {
+                failures += "足迹：${e.message}"
+            }
+
+            if (failures.isNotEmpty()) {
+                val authExpired = failures.any { it.contains("401") }
+                val suffix = if (authExpired) "（设备凭据已失效，请重新扫码配对）" else ""
+                throw IllegalStateException(failures.joinToString("；") + suffix)
+            }
         }
     }
 
+    /** 增量/全量共用的档案合并；未同步的本地行内容优先。 */
+    private suspend fun mergeEntries(remote: List<LifeEntry>, incremental: Boolean) {
+        val activeRemote = remote.filter { it.deletedAt.isNullOrBlank() }
+        val remoteIds = activeRemote.map { it.id }.toSet()
+
+        // 服务端已软删除 → 本地一并移除
+        for (item in remote) {
+            if (!item.deletedAt.isNullOrBlank()) {
+                database.entryDao().deleteByServerId(item.id)
+            }
+        }
+
+        // 全量拉取：清理服务端已不存在、且本地已同步的行，并收口历史重复行
+        if (!incremental) {
+            database.entryDao().deleteDuplicateServerIds()
+            for (local in database.entryDao().getAllEntries()) {
+                val serverId = local.serverId
+                if (local.syncStatus == "SYNCED" && serverId != null && serverId !in remoteIds) {
+                    database.entryDao().deleteByServerId(serverId)
+                }
+            }
+        }
+
+        // 一次读全表做映射，避免每条远端记录都查一次库（几千条时是几千次 SQL）
+        val localByServerId = database.entryDao().getAllEntries()
+            .mapNotNull { entity -> entity.serverId?.let { it to entity } }
+            .toMap()
+
+        for (item in activeRemote) {
+            val existing = localByServerId[item.id]
+            if (existing != null && existing.syncStatus != "SYNCED") {
+                // 本地有待推送修改：绝不覆盖正文，等发件箱把它送上去
+                continue
+            }
+            database.entryDao().insert(item.toCacheEntity(existing?.localId ?: 0, json))
+        }
+    }
+
+    /** 记账流水合并，规则与档案一致。 */
+    private suspend fun mergeTransactions(remote: List<Transaction>, incremental: Boolean) {
+        val activeRemote = remote.filter { it.deletedAt.isNullOrBlank() }
+        val remoteIds = activeRemote.map { it.id }.toSet()
+
+        for (item in remote) {
+            if (!item.deletedAt.isNullOrBlank()) {
+                database.transactionDao().deleteByServerId(item.id)
+            }
+        }
+
+        if (!incremental) {
+            database.transactionDao().deleteDuplicateServerIds()
+            for (local in database.transactionDao().getAllTransactions()) {
+                val serverId = local.serverId
+                if (local.syncStatus == "SYNCED" && serverId != null && serverId !in remoteIds) {
+                    database.transactionDao().deleteByServerId(serverId)
+                }
+            }
+        }
+
+        val localByServerId = database.transactionDao().getAllTransactions()
+            .mapNotNull { entity -> entity.serverId?.let { it to entity } }
+            .toMap()
+
+        for (item in activeRemote) {
+            val existing = localByServerId[item.id]
+            if (existing != null && existing.syncStatus != "SYNCED") {
+                continue
+            }
+            database.transactionDao().insert(item.toCacheEntity(existing?.localId ?: 0))
+        }
+    }
+
+    /** 游标只认「能解析成时间」的值，并按绝对时刻取最大，避免字符串比较在混合时区下失效。 */
+    private fun maxUpdatedCursor(values: List<String?>): String? =
+        values.mapNotNull { FormatUtils.parseOccurredInstantOrNull(it) }
+            .maxOrNull()
+            ?.let { FormatUtils.toBeijingIsoString(it) }
+
+    /** 请求时把游标回退一个窗口，抵消「同一秒多条更新」与时钟偏差。 */
+    private fun cursorForRequest(cursor: String?): String? =
+        FormatUtils.parseOccurredInstantOrNull(cursor)
+            ?.minusSeconds(CURSOR_OVERLAP_SECONDS)
+            ?.let { FormatUtils.toBeijingIsoString(it) }
+
     /**
-     * 立即调度发件箱同步
+     * 立即调度发件箱同步。
+     *
+     * 用 APPEND_OR_REPLACE 而不是 REPLACE：连续编辑不会取消正在上传的 worker，
+     * 避免「相纸已传到 R2、却来不及建档」留下孤儿对象。
      */
     fun scheduleSync() {
         val constraints = Constraints.Builder()
@@ -891,13 +903,82 @@ class SyncManager private constructor(private val context: Context) {
 
         val syncRequest = OneTimeWorkRequestBuilder<OutboxSyncWorker>()
             .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, java.util.concurrent.TimeUnit.SECONDS)
             .build()
 
         workManager.enqueueUniqueWork(
             OutboxSyncWorker.WORK_NAME,
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             syncRequest
         )
+    }
+
+    /** 解绑设备时取消排队的同步任务，避免拿着已失效的 token 反复重试 */
+    fun cancelScheduledSync() {
+        workManager.cancelUniqueWork(OutboxSyncWorker.WORK_NAME)
+    }
+
+    /** 用户手动重试所有失败事件：清空失败态，重新排队。 */
+    fun retryFailedEvents() {
+        scope.launch {
+            database.outboxDao().resetAllFailed()
+            scheduleSync()
+        }
+    }
+
+    /** 放弃所有失败事件：仅停止重试，本地记录与 PENDING 标记保留，便于排查。 */
+    fun discardFailedEvents() {
+        scope.launch {
+            database.outboxDao().getFailedEvents().forEach { database.outboxDao().deleteById(it.eventId) }
+        }
+    }
+
+    /**
+     * 在线直连创建造物；网络不可达时入发件箱，联网后自动补发。
+     * 返回 true 表示「已离线排队」。
+     */
+    suspend fun createProjectOrQueue(req: CreateProjectRequest): Boolean = try {
+        withContext(Dispatchers.IO) { apiClient.createProject(req) }
+        false
+    } catch (e: APIException) {
+        if (e.code == -1) {
+            enqueueSimpleEvent("project", "CREATE", json.encodeToString(req), 0)
+            true
+        } else {
+            throw e
+        }
+    }
+
+    /** 在线直连许愿；网络不可达时入发件箱。返回 true 表示已离线排队。 */
+    suspend fun createWishOrQueue(req: CreateWishRequest): Boolean = try {
+        withContext(Dispatchers.IO) { apiClient.createWish(req) }
+        false
+    } catch (e: APIException) {
+        if (e.code == -1) {
+            enqueueSimpleEvent("wish", "CREATE", json.encodeToString(req), 0)
+            true
+        } else {
+            throw e
+        }
+    }
+
+    private suspend fun enqueueSimpleEvent(
+        entityType: String,
+        action: String,
+        payload: String,
+        serverTargetId: Long
+    ) {
+        database.outboxDao().insert(
+            OutboxEventEntity(
+                eventId = UUID.randomUUID().toString(),
+                entityType = entityType,
+                action = action,
+                payload = payload,
+                localTargetId = 0,
+                serverTargetId = serverTargetId
+            )
+        )
+        scheduleSync()
     }
 
     /**
@@ -983,6 +1064,11 @@ class SyncManager private constructor(private val context: Context) {
                     val mergedAttachmentIds = (
                         (payload.req.attachmentIds ?: emptyList()) + uploadedAttachments.map { it.id }
                     ).distinct()
+
+                    if (uploadedAttachments.size < itemsToUpload.size) {
+                        // 相纸文件被清理/丢失：不要把「缺图条目」悄悄传上去
+                        throw IllegalStateException("本地相纸文件缺失，无法完成上传")
+                    }
 
                     val finalReq = payload.req.copy(
                         attachmentIds = mergedAttachmentIds.takeIf { it.isNotEmpty() }
@@ -1135,21 +1221,40 @@ class SyncManager private constructor(private val context: Context) {
                 }
             }
             else -> {
-                database.outboxDao().delete(event)
+                // 未知事件类型不再静默删除：标记失败并保留原始载荷，交给用户处置
+                database.outboxDao().markFailed(
+                    event.eventId,
+                    FormatUtils.beijingNowIsoString(),
+                    "未知事件类型：${event.entityType}/${event.action}"
+                )
             }
         }
     }
 
-    suspend fun flushOutboxNow() = outboxMutex.withLock {
-        val pending = database.outboxDao().getAllPendingEvents()
-        if (pending.isEmpty()) return@withLock
+    /**
+     * 尽力而为地清一次发件箱。
+     *
+     * 用 tryLock 而不是 withLock：后台正在上传一组相纸时可能要几十秒，
+     * 下拉刷新不该被它堵住；上传本身由 OutboxSyncWorker 负责，这里跳过不影响可靠性。
+     */
+    suspend fun flushOutboxNow() {
+        if (!outboxMutex.tryLock()) {
+            Log.d(TAG, "Outbox busy (worker running), skip inline flush")
+            return
+        }
+        try {
+            val pending = database.outboxDao().getAllPendingEvents()
+            if (pending.isEmpty()) return
 
-        for (event in pending) {
-            try {
-                processOutboxEvent(event)
-            } catch (e: Exception) {
-                Log.w(TAG, "flushOutboxNow error on event ${event.eventId}: ${e.message}")
+            for (event in pending) {
+                try {
+                    processOutboxEvent(event)
+                } catch (e: Exception) {
+                    Log.w(TAG, "flushOutboxNow error on event ${event.eventId}: ${e.message}")
+                }
             }
+        } finally {
+            outboxMutex.unlock()
         }
     }
 }
@@ -1271,3 +1376,99 @@ fun CachedFootprintEntity.toFootprint(json: Json): Footprint {
         updatedAt = updatedAt
     )
 }
+
+// ---------- 服务端模型 → Room 缓存实体（统一 upsert 入口，避免各处手抄字段漂移） ----------
+
+fun LifeEntry.toCacheEntity(localId: Long, json: Json): CachedEntryEntity = CachedEntryEntity(
+    localId = localId,
+    serverId = id,
+    type = type,
+    title = title,
+    content = content,
+    occurredAt = occurredAt,
+    location = location,
+    cityCode = cityCode,
+    cityName = cityName,
+    featured = featured,
+    projectId = projectId,
+    wishId = wishId,
+    footprintId = footprintId,
+    attachmentsJson = json.encodeToString(attachments),
+    syncStatus = "SYNCED",
+    createdAt = createdAt ?: occurredAt
+)
+
+fun Transaction.toCacheEntity(localId: Long): CachedTransactionEntity = CachedTransactionEntity(
+    localId = localId,
+    serverId = id,
+    amount = amount,
+    type = type,
+    category = category,
+    title = title,
+    note = note,
+    paymentMethod = paymentMethod,
+    occurredAt = occurredAt,
+    cityCode = cityCode,
+    wishId = wishId,
+    footprintId = footprintId,
+    isInstallment = isInstallment ?: false,
+    installmentChannelCode = installmentChannelCode,
+    installmentTotalAmount = installmentTotalAmount,
+    installmentMonths = installmentMonths,
+    installmentMonthlyPay = installmentMonthlyPay,
+    installmentRemainMonths = installmentRemainMonths,
+    repaymentDay = repaymentDay,
+    syncStatus = "SYNCED",
+    createdAt = createdAt ?: occurredAt
+)
+
+fun Project.toCacheEntity(): CachedProjectEntity = CachedProjectEntity(
+    id = id,
+    title = title,
+    subtitle = subtitle,
+    description = description,
+    story = story,
+    category = category,
+    status = status,
+    githubUrl = githubUrl,
+    featured = featured,
+    order = order,
+    updatedAt = updatedAt
+)
+
+fun Wish.toCacheEntity(json: Json): CachedWishEntity = CachedWishEntity(
+    id = id,
+    title = title,
+    kind = kind ?: "item",
+    note = note,
+    spec = spec,
+    cityCode = cityCode,
+    cityName = cityName,
+    budget = budget,
+    actualCost = actualCost,
+    resolutionType = resolutionType,
+    actualTitle = actualTitle,
+    status = status,
+    targetDate = targetDate,
+    fulfilledAt = fulfilledAt,
+    gearId = gearId,
+    attachmentsJson = json.encodeToString(attachments),
+    updatedAt = updatedAt
+)
+
+fun Footprint.toCacheEntity(json: Json): CachedFootprintEntity = CachedFootprintEntity(
+    id = id,
+    cityCode = cityCode,
+    cityName = cityName,
+    title = title,
+    visitedAt = visitedAt,
+    departedAt = departedAt,
+    note = note,
+    lifeEntryId = lifeEntryId,
+    wishId = wishId,
+    attachmentsJson = json.encodeToString(attachments),
+    entriesCount = entriesCount,
+    totalSpent = totalSpent,
+    transactionCount = transactionCount,
+    updatedAt = updatedAt
+)

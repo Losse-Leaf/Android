@@ -2,6 +2,7 @@ package com.looseleaf.app.updater
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -20,6 +21,7 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 data class ReleaseInfo(
@@ -27,7 +29,9 @@ data class ReleaseInfo(
     val versionName: String,
     val body: String,
     val apkUrl: String,
-    val publishedAt: String
+    val publishedAt: String,
+    /** GitHub Release 资产自带的 sha256 摘要（若上游提供），下载后强制校验 */
+    val apkSha256: String? = null
 )
 
 sealed class UpdateCheckResult {
@@ -97,12 +101,17 @@ object UpdateChecker {
 
                 if (isVersionGreaterThan(cleanRemoteTag, cleanLocalTag)) {
                     var apkDownloadUrl: String? = null
+                    var apkDigest: String? = null
                     for (asset in assets) {
                         val assetObj = asset.jsonObject
                         val name = assetObj["name"]?.jsonPrimitive?.content ?: ""
                         val downloadUrl = assetObj["browser_download_url"]?.jsonPrimitive?.content ?: ""
                         if (name.endsWith(".apk", ignoreCase = true)) {
                             apkDownloadUrl = downloadUrl
+                            // GitHub 资产摘要格式为 "sha256:<hex>"
+                            apkDigest = assetObj["digest"]?.jsonPrimitive?.content
+                                ?.removePrefix("sha256:")
+                                ?.takeIf { it.length == 64 }
                             break
                         }
                     }
@@ -114,7 +123,8 @@ object UpdateChecker {
                         versionName = cleanRemoteTag,
                         body = releaseBody,
                         apkUrl = finalUrl,
-                        publishedAt = publishedAt
+                        publishedAt = publishedAt,
+                        apkSha256 = apkDigest
                     )
                     Log.i(TAG, "Found newer version: $cleanRemoteTag (current: $cleanLocalTag)")
                     return@withContext UpdateCheckResult.HasUpdate(releaseInfo)
@@ -129,12 +139,14 @@ object UpdateChecker {
     }
 
     /**
-     * 应用内流式高速下载 APK（带实时进度回调，完全绕过外部浏览器）
+     * 应用内流式高速下载 APK（带实时进度回调，完全绕过外部浏览器）。
+     * 若上游 Release 提供了 sha256 摘要，下载完成后强制校验；不一致立即删除并报错。
      */
     suspend fun downloadApkStream(
         context: Context,
         apkUrl: String,
         versionName: String,
+        expectedSha256: String? = null,
         onProgress: (progress: Float, downloadedBytes: Long, totalBytes: Long) -> Unit
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
@@ -160,6 +172,7 @@ object UpdateChecker {
 
             val inputStream = body.byteStream()
             val outputStream = FileOutputStream(apkFile)
+            val digest = MessageDigest.getInstance("SHA-256")
 
             val buffer = ByteArray(8192)
             var downloadedBytes = 0L
@@ -169,6 +182,7 @@ object UpdateChecker {
                     var bytesRead: Int
                     while (input.read(buffer).also { bytesRead = it } != -1) {
                         output.write(buffer, 0, bytesRead)
+                        digest.update(buffer, 0, bytesRead)
                         downloadedBytes += bytesRead
                         val progress = if (totalBytes > 0) {
                             downloadedBytes.toFloat() / totalBytes.toFloat()
@@ -179,15 +193,79 @@ object UpdateChecker {
                 }
             }
 
+            if (!expectedSha256.isNullOrBlank()) {
+                val actual = digest.digest().joinToString("") { "%02x".format(it) }
+                if (!actual.equals(expectedSha256, ignoreCase = true)) {
+                    apkFile.delete()
+                    throw IOException("安装包校验失败（SHA-256 不匹配），已删除下载文件")
+                }
+            }
+
             apkFile
         }
     }
 
     /**
-     * 直接调起系统安装器安装 APK（支持 FileProvider 与 Android 8.0+ 未知应用安装意图）
+     * 判断下载到的 APK 是否与当前已安装应用使用同一签名。
+     *
+     * 发布密钥沿用仓库内原钥（alias looseleaf），正常情况下同钥应当直接放行；
+     * 这道校验是兜底——一旦出现签名不一致（误换了签名的包 / 包被篡改），
+     * 明确告知用户「需卸载重装」，而不是让系统安装器抛一个看不懂的错误。
      */
-    fun installApk(context: Context, apkFile: File) {
-        if (!apkFile.exists()) return
+    fun isSignedByCurrentApp(context: Context, apkFile: File): Boolean {
+        return try {
+            val pm = context.packageManager
+            val archiveInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pm.getPackageArchiveInfo(
+                    apkFile.absolutePath,
+                    PackageManager.GET_SIGNING_CERTIFICATES
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNATURES)
+            } ?: return false
+
+            val archiveCerts: List<ByteArray> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                archiveInfo.signingInfo?.apkContentsSigners?.map { it.toByteArray() }.orEmpty()
+            } else {
+                @Suppress("DEPRECATION")
+                archiveInfo.signatures?.map { it.toByteArray() }.orEmpty()
+            }
+
+            val selfInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES)
+            }
+            val selfCerts: List<ByteArray> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                selfInfo.signingInfo?.apkContentsSigners?.map { it.toByteArray() }.orEmpty()
+            } else {
+                @Suppress("DEPRECATION")
+                selfInfo.signatures?.map { it.toByteArray() }.orEmpty()
+            }
+
+            archiveCerts.isNotEmpty() && archiveCerts.any { candidate ->
+                selfCerts.any { it.contentEquals(candidate) }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Signature check failed: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * 直接调起系统安装器安装 APK（支持 FileProvider 与 Android 8.0+ 未知应用安装意图）。
+     * 返回值：true 表示已拉起安装流程；false 表示签名不一致 / 文件异常，调用方需提示用户。
+     */
+    fun installApk(context: Context, apkFile: File): Boolean {
+        if (!apkFile.exists()) return false
+
+        if (!isSignedByCurrentApp(context, apkFile)) {
+            Log.w(TAG, "APK signature does not match installed app; reinstall required")
+            return false
+        }
+
         try {
             // Android 8.0+ 检查未知来源安装权限
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -197,7 +275,7 @@ object UpdateChecker {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     }
                     context.startActivity(intent)
-                    return
+                    return true
                 }
             }
 
@@ -212,18 +290,21 @@ object UpdateChecker {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(installIntent)
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Failed launching package installer: ${e.message}", e)
             openDownloadPage(context, apkFile.absolutePath)
+            return false
         }
     }
 
     /**
-     * 语义版本对比 (如 1.0.1 > 1.0.0)
+     * 语义版本对比 (如 1.0.1 > 1.0.0)。
+     * 每段只取前导数字：`1.4.6-beta` 视为 `1.4.6`，不会因为后缀整段变成 0。
      */
     fun isVersionGreaterThan(remote: String, local: String): Boolean {
-        val rParts = remote.split(".").mapNotNull { it.toIntOrNull() }
-        val lParts = local.split(".").mapNotNull { it.toIntOrNull() }
+        val rParts = parseVersion(remote)
+        val lParts = parseVersion(local)
         val maxLen = maxOf(rParts.size, lParts.size)
 
         for (i in 0 until maxLen) {
@@ -234,6 +315,11 @@ object UpdateChecker {
         }
         return false
     }
+
+    private fun parseVersion(version: String): List<Int> =
+        version.removePrefix("v").trim()
+            .split(".")
+            .map { part -> part.takeWhile(Char::isDigit).toIntOrNull() ?: 0 }
 
     /**
      * 兜底调起浏览器下载

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.looseleaf.app.data.api.APIClient
+import com.looseleaf.app.data.local.LedgerRepository
 import com.looseleaf.app.data.local.ProfileRepository
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.SyncManager
@@ -84,8 +86,8 @@ fun ProfileScreen(
 
     val cachedProfile = remember { ProfileRepository.getProfile(context) }
     val cachedSiteConfig = remember { ProfileRepository.getSiteConfig(context) }
-    val repoProfile by ProfileRepository.profileState.collectAsState()
-    val repoSiteConfig by ProfileRepository.siteConfigState.collectAsState()
+    val repoProfile by ProfileRepository.profileState.collectAsStateWithLifecycle()
+    val repoSiteConfig by ProfileRepository.siteConfigState.collectAsStateWithLifecycle()
 
     var profile by remember(repoProfile) { mutableStateOf(repoProfile ?: cachedProfile) }
     var siteConfig by remember(repoSiteConfig) { mutableStateOf(repoSiteConfig ?: cachedSiteConfig) }
@@ -876,13 +878,19 @@ fun ProfileScreen(
                             val res = UpdateChecker.downloadApkStream(
                                 context = context,
                                 apkUrl = update.apkUrl,
-                                versionName = update.versionName
+                                versionName = update.versionName,
+                                expectedSha256 = update.apkSha256
                             ) { p, _, _ ->
                                 downloadProgress = p
                             }
                             isDownloading = false
                             res.onSuccess { f ->
-                                UpdateChecker.installApk(context, f)
+                                if (!UpdateChecker.installApk(context, f)) {
+                                    ArchiveToastManager.show(
+                                        "安装包签名与已装版本不一致，需先做服务端备份再卸载重装",
+                                        isError = true
+                                    )
+                                }
                             }.onFailure { err ->
                                 ArchiveToastManager.show("下载失败: ${err.message}", isError = true)
                             }
@@ -904,8 +912,18 @@ fun ProfileScreen(
                             if (!currentDeviceId.isNullOrBlank()) {
                                 runCatching { apiClient.revokeDevice(currentDeviceId) }
                             }
+                            syncManager.cancelScheduledSync()
                             runCatching { syncManager.clearAllLocalData() }
                             credentialStore.clearCredentials()
+                            ProfileRepository.clearCache(context)
+                            LedgerRepository.clear()
+                            // 解绑必须清掉可还原内容的本地痕迹：图片缓存与已下载安装包
+                            runCatching {
+                                File(context.cacheDir, "image_cache").deleteRecursively()
+                                context.getExternalFilesDir(null)?.let { dir ->
+                                    File(dir, "Download").deleteRecursively()
+                                }
+                            }
                             onUnpair()
                         }
                     },

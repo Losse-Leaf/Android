@@ -5,6 +5,13 @@ import androidx.compose.ui.unit.Density
 import org.jetbrains.skia.EncodedImageFormat
 import java.io.File
 
+/**
+ * 设计预览截图器。
+ *
+ * 注意：这里渲染的是 Main.kt 中的 **Mock 界面**，不是 App 的真实 Composable
+ * （真实界面依赖 Android Context / Room / Coil，无法在桌面 JVM 直接跑）。
+ * 因此它只能用于检查版式与配色，不能当作回归测试或「UI 自检」。
+ */
 object SnapshotRunner {
     fun renderToPng(
         widthDp: Int,
@@ -31,7 +38,7 @@ object SnapshotRunner {
 
     @JvmStatic
     fun main(args: Array<String>) {
-        println("Starting headless UI self-check snapshots across all screens...")
+        println("Starting mock preview snapshots across all screens...")
         val outDir = File("build/snapshots")
 
         val p392 = File(outDir, "profile_standard_392.png")

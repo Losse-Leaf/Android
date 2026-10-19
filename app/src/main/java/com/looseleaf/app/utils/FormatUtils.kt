@@ -71,8 +71,8 @@ object FormatUtils {
      */
     fun parseToLocalDateTime(raw: String?): LocalDateTime {
         if (raw.isNullOrBlank()) return LocalDateTime.now(BeijingZone)
-        return runCatching { parseOccurredInstant(raw).atZone(BeijingZone).toLocalDateTime() }
-            .getOrElse { LocalDateTime.now(BeijingZone) }
+        return parseOccurredInstantOrNull(raw)?.atZone(BeijingZone)?.toLocalDateTime()
+            ?: LocalDateTime.now(BeijingZone)
     }
 
     /**
@@ -80,7 +80,7 @@ object FormatUtils {
      */
     fun parseToLocalDateTimeOrNull(raw: String?): LocalDateTime? {
         if (raw.isNullOrBlank()) return null
-        return runCatching { parseOccurredInstant(raw).atZone(BeijingZone).toLocalDateTime() }.getOrNull()
+        return parseOccurredInstantOrNull(raw)?.atZone(BeijingZone)?.toLocalDateTime()
     }
 
     /**
@@ -111,17 +111,45 @@ object FormatUtils {
     }
 
     /**
-     * 将用户输入的元金额安全换算为整型分 (严格执行四舍五入，杜绝浮点精度丢失)
+     * 将用户输入的元金额安全换算为整型分。
+     * 全程按字符串解析，不经过 Double：避免 "4.35 * 100 = 434.999…" 这类浮点尾差，
+     * 也避免超大金额在 2^53 之后丢精度。第三位小数按四舍五入处理。
      */
     fun yuanStringToCents(yuanString: String): Long {
-        val cleaned = yuanString.trim().replace("¥", "").replace("￥", "").replace(",", "")
-        if (cleaned.isBlank()) return 0L
-        return try {
-            val d = cleaned.toDouble()
-            (d * 100.0).roundToLong()
-        } catch (_: Exception) {
-            0L
+        var cleaned = yuanString.trim()
+            .replace("¥", "")
+            .replace("￥", "")
+            .replace(",", "")
+            .replace(" ", "")
+        if (cleaned.isEmpty()) return 0L
+
+        var negative = false
+        if (cleaned.startsWith("-")) {
+            negative = true
+            cleaned = cleaned.substring(1)
+        } else if (cleaned.startsWith("+")) {
+            cleaned = cleaned.substring(1)
         }
+        if (cleaned.isEmpty()) return 0L
+
+        val parts = cleaned.split(".")
+        if (parts.size > 2) return 0L
+        val integerPart = parts[0].ifEmpty { "0" }
+        val fractionRaw = parts.getOrElse(1) { "" }
+        if (integerPart.length > 15) return 0L
+        if (integerPart.any { !it.isDigit() }) return 0L
+        if (fractionRaw.any { !it.isDigit() }) return 0L
+
+        var cents = (integerPart.toLongOrNull() ?: return 0L) * 100
+        val head = fractionRaw.take(2).padEnd(2, '0')
+        var fraction = head.toLongOrNull() ?: 0L
+        if (fractionRaw.length >= 3 && fractionRaw[2] >= '5') fraction += 1
+        if (fraction >= 100) {
+            cents += 100
+            fraction -= 100
+        }
+        val total = cents + fraction
+        return if (negative) -total else total
     }
 
     /**
@@ -132,13 +160,15 @@ object FormatUtils {
     }
 
     /**
-     * 弹性时间解析器 (FlexTime)：支持 ISO8601、RFC3339、HTML5、纸本点号格式与纯日期格式
+     * 弹性时间解析器 (FlexTime)：支持 ISO8601、RFC3339、HTML5、纸本点号格式与纯日期格式。
+     * 解析失败返回 null，由调用方决定「显示原文」还是「回退当前时间」，
+     * 绝不在解析层默默把一条旧记录改成今天。
      */
-    fun parseOccurredInstant(raw: String): Instant {
-        val trimmed = raw.trim()
-        if (trimmed.isEmpty()) return Instant.now()
+    fun parseOccurredInstantOrNull(raw: String?): Instant? {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isEmpty()) return null
 
-        // 1. 优先尝试带时区偏移的标准 ISO 格式
+        // 1. 带时区偏移的标准 ISO 格式
         for (p in OffsetFormatters) {
             try {
                 return Instant.from(p.parse(trimmed))
@@ -167,20 +197,24 @@ object FormatUtils {
             }
         }
 
-        return Instant.now()
+        return null
     }
 
     /**
+     * 弹性时间解析器（兜底版）：无法解析时返回当前时刻。
+     * 仅用于「确实需要一个时间」的场景（如排序键），展示与编辑请用 OrNull 版本。
+     */
+    fun parseOccurredInstant(raw: String): Instant =
+        parseOccurredInstantOrNull(raw) ?: Instant.now()
+
+    /**
      * 格式化展示为 YYYY.MM.DD
+     * 解析失败时原样返回，绝不把一条脏数据悄悄显示成「今天」。
      */
     fun formatDisplayDate(rawIso: String?): String {
         if (rawIso.isNullOrBlank()) return ""
-        return try {
-            val inst = parseOccurredInstant(rawIso)
-            DisplayDateFormatter.format(inst.atZone(BeijingZone))
-        } catch (_: Exception) {
-            rawIso
-        }
+        val inst = parseOccurredInstantOrNull(rawIso) ?: return rawIso
+        return DisplayDateFormatter.format(inst.atZone(BeijingZone))
     }
 
     fun formatDate(rawIso: String?): String = formatDisplayDate(rawIso)
@@ -191,12 +225,8 @@ object FormatUtils {
      */
     fun formatDisplayDateTime(rawIso: String?): String {
         if (rawIso.isNullOrBlank()) return ""
-        return try {
-            val inst = parseOccurredInstant(rawIso)
-            DisplayDateTimeFormatter.format(inst.atZone(BeijingZone))
-        } catch (_: Exception) {
-            rawIso
-        }
+        val inst = parseOccurredInstantOrNull(rawIso) ?: return rawIso
+        return DisplayDateTimeFormatter.format(inst.atZone(BeijingZone))
     }
 
     /**
@@ -204,25 +234,19 @@ object FormatUtils {
      */
     fun formatDisplayTime(rawIso: String?): String {
         if (rawIso.isNullOrBlank()) return ""
-        return try {
-            val inst = parseOccurredInstant(rawIso)
-            DisplayTimeFormatter.format(inst.atZone(BeijingZone))
-        } catch (_: Exception) {
-            ""
-        }
+        val inst = parseOccurredInstantOrNull(rawIso) ?: return ""
+        return DisplayTimeFormatter.format(inst.atZone(BeijingZone))
     }
 
     /**
      * 计算两条记录在北京时间下的自然日相隔天数 (用于岁月留白刻度 14 天判定)
      */
     fun calculateDaysBetween(earlierIso: String, laterIso: String): Long {
-        return try {
-            val d1 = parseOccurredInstant(earlierIso).atZone(BeijingZone).toLocalDate()
-            val d2 = parseOccurredInstant(laterIso).atZone(BeijingZone).toLocalDate()
-            kotlin.math.abs(ChronoUnit.DAYS.between(d1, d2))
-        } catch (_: Exception) {
-            0L
-        }
+        val e = parseOccurredInstantOrNull(earlierIso) ?: return 0L
+        val l = parseOccurredInstantOrNull(laterIso) ?: return 0L
+        val d1 = e.atZone(BeijingZone).toLocalDate()
+        val d2 = l.atZone(BeijingZone).toLocalDate()
+        return kotlin.math.abs(ChronoUnit.DAYS.between(d1, d2))
     }
 
     data class ParsedQuickTransaction(
@@ -244,7 +268,7 @@ object FormatUtils {
             val rest = match.groupValues[2].trim()
 
             val isIncome = numStr.startsWith("+")
-            val cents = (kotlin.math.abs(numStr.toDoubleOrNull() ?: 0.0) * 100).roundToLong()
+            val cents = kotlin.math.abs(yuanStringToCents(numStr))
 
             var category = inferCategoryFromText(rest)
             val title = if (rest.isNotBlank()) rest else category

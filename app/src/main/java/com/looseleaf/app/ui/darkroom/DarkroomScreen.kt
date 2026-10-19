@@ -81,6 +81,8 @@ fun DarkroomScreen(
     var activeSlotIndex by remember { mutableStateOf(0) }
     var isProcessing by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
+    /** 是否已经成功归册：未归册就离开暗房，需要清理已落盘的相纸，避免孤儿文件 */
+    var entrySubmitted by remember { mutableStateOf(false) }
     var lightboxPhotoUrl by remember { mutableStateOf<String?>(null) }
     var lightboxMetadata by remember { mutableStateOf<String?>(null) }
 
@@ -116,15 +118,20 @@ fun DarkroomScreen(
     }
 
     LaunchedEffect(Unit) {
+        // 已授权才静默补全；未授权由用户点「使用当前定位」时再申请，避免一进页面弹权限框
         if (LocationHelper.hasLocationPermission(context)) {
             fetchCurrentLocation()
-        } else {
-            locationPermissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                )
-            )
+        }
+    }
+
+    // 未归册就离开暗房：删掉已压制的相纸，避免 filesDir/outbox_media 无限堆积
+    DisposableEffect(Unit) {
+        onDispose {
+            if (!entrySubmitted) {
+                photoSlots.forEach { slot ->
+                    runCatching { slot.savedOutboxFile?.delete() }
+                }
+            }
         }
     }
 
@@ -132,7 +139,7 @@ fun DarkroomScreen(
     var pendingCaptureFile by remember { mutableStateOf<File?>(null) }
     var pendingCaptureUri by remember { mutableStateOf<Uri?>(null) }
 
-    // 1. 现场快门全像素直拍启动器 (TakePicture + FileProvider 4K 全高清原片)
+    // 1. 现场快门直拍（原片写入 cache/camera 作为一次性中转，压制完成后立即删除）
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
@@ -173,7 +180,7 @@ fun DarkroomScreen(
                         }
                     }
                     processed.exif.dateTimeOriginal?.let { raw ->
-                        runCatching { darkroomOccurredAt = FormatUtils.parseToLocalDateTime(raw) }
+                        FormatUtils.parseToLocalDateTimeOrNull(raw)?.let { darkroomOccurredAt = it }
                     }
                     ArchiveToastManager.show("胶片显影完成，已装入暗房")
                 } catch (e: Exception) {
@@ -219,17 +226,28 @@ fun DarkroomScreen(
                 try {
                     val targetUris = uris.take(9 - photoSlots.size)
                     val semaphore = Semaphore(2)
-                    val added = withContext(Dispatchers.IO) {
+                    val results = withContext(Dispatchers.IO) {
                         targetUris.map { uri ->
                             async {
                                 semaphore.withPermit {
-                                    val res = ImagePipeline.processImage(context, uri)
-                                    val savedFile = syncManager.saveCompressedImageToOutboxDir(res.compressedBytes)
-                                    val fileUri = "file://${savedFile.absolutePath}"
-                                    DarkroomPhotoSlot(previewUri = fileUri, processed = res, savedOutboxFile = savedFile)
+                                    // 单张失败不拖垮整批；成功的那几张仍然保留在槽位里
+                                    runCatching {
+                                        val res = ImagePipeline.processImage(context, uri)
+                                        val savedFile = syncManager.saveCompressedImageToOutboxDir(res.compressedBytes)
+                                        DarkroomPhotoSlot(
+                                            previewUri = "file://${savedFile.absolutePath}",
+                                            processed = res,
+                                            savedOutboxFile = savedFile
+                                        )
+                                    }
                                 }
                             }
                         }.awaitAll()
+                    }
+                    val added = results.mapNotNull { it.getOrNull() }
+                    val failedCount = results.count { it.isFailure }
+                    if (failedCount > 0) {
+                        ArchiveToastManager.show("$failedCount 张胶片压制失败，已跳过", isError = true)
                     }
                     if (added.isNotEmpty()) {
                         val firstRes = added.first().processed
@@ -257,7 +275,7 @@ fun DarkroomScreen(
                             }
                         }
                         firstRes.exif.dateTimeOriginal?.let { raw ->
-                            runCatching { darkroomOccurredAt = FormatUtils.parseToLocalDateTime(raw) }
+                            FormatUtils.parseToLocalDateTimeOrNull(raw)?.let { darkroomOccurredAt = it }
                         }
                         val merged = (photoSlots + added).take(9)
                         photoSlots = merged
@@ -389,10 +407,11 @@ fun DarkroomScreen(
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
                                         .padding(2.dp)
-                                        .size(18.dp)
-                                        .clip(RoundedCornerShape(9.dp))
+                                        // 18dp 的点击区在拇指下几乎点不中；放大到 28dp 并保留视觉圆点
+                                        .size(28.dp)
+                                        .clip(RoundedCornerShape(14.dp))
                                         .background(colors.archivePaper.copy(alpha = 0.85f))
-                                        .clickable {
+                                        .clickable(role = androidx.compose.ui.semantics.Role.Button) {
                                             val next = photoSlots.toMutableList().also { it.removeAt(idx) }
                                             photoSlots = next
                                             activeSlotIndex = activeSlotIndex.coerceAtMost((next.size - 1).coerceAtLeast(0))
@@ -403,7 +422,7 @@ fun DarkroomScreen(
                                         imageVector = Icons.Outlined.Close,
                                         contentDescription = "移除",
                                         tint = colors.inkPrimary,
-                                        modifier = Modifier.size(12.dp)
+                                        modifier = Modifier.size(14.dp)
                                     )
                                 }
                             }
@@ -545,6 +564,34 @@ fun DarkroomScreen(
                         onValueChange = { locationText = it },
                         placeholder = "具体地点 (选填)…"
                     )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            onClick = {
+                                if (LocationHelper.hasLocationPermission(context)) {
+                                    fetchCurrentLocation()
+                                } else {
+                                    locationPermissionLauncher.launch(
+                                        arrayOf(
+                                            Manifest.permission.ACCESS_FINE_LOCATION,
+                                            Manifest.permission.ACCESS_COARSE_LOCATION
+                                        )
+                                    )
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                        ) {
+                            Text(
+                                text = "使用当前定位",
+                                fontFamily = ArchiveFontFamilies.BodySans,
+                                fontSize = 11.sp,
+                                color = colors.accentWarm
+                            )
+                        }
+                    }
                 }
             }
 
@@ -613,6 +660,7 @@ fun DarkroomScreen(
                                     cityName = cityName
                                 )
                             }
+                            entrySubmitted = true
                             ArchiveToastManager.show("已装裱归入生活时间流")
                             onEntrySaved()
                         } catch (e: Exception) {

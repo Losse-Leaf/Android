@@ -3,8 +3,10 @@ package com.looseleaf.app.darkroom
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import com.looseleaf.app.data.api.APIClient
@@ -66,8 +68,10 @@ data class ProcessedImageResult(
 
 object ImagePipeline {
     private const val TAG = "ImagePipeline"
-    private const val MAX_EDGE = 2048 // 2K 高清视网膜级 (取代 3840 4K，体积缩减 88%，上传提速 8~10 倍)
-    private const val JPEG_QUALITY = 82 // 视觉无损高压缩比
+    /** 最长边约束：2048px（并非 4K；旧注释与 README 中的 3840/85%/WebP 已不成立） */
+    private const val MAX_EDGE = 2048
+    /** JPEG 质量 82，视觉接近无损，体积约为原图 8%~15% */
+    private const val JPEG_QUALITY = 82
 
     /**
      * 读取图片 EXIF 信息
@@ -117,9 +121,9 @@ object ImagePipeline {
     /**
      * 端侧智能压制管线：
      * 1. 提取 EXIF
-     * 2. 约束最大边至 3840px (4K)
-     * 3. 自动根据 EXIF 方向纠正旋转
-     * 4. 85% 质量 JPEG / WebP 编码压缩
+     * 2. 约束最大边至 2048px
+     * 3. 自动根据 EXIF 方向纠正旋转（API 28+ 由 ImageDecoder 完成）
+     * 4. 82% 质量 JPEG 编码压缩
      */
     suspend fun processImage(
         context: Context,
@@ -127,63 +131,80 @@ object ImagePipeline {
     ): ProcessedImageResult = withContext(Dispatchers.IO) {
         val exif = extractExif(context, uri)
 
-        // 1. 读取原始尺寸
-        val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, boundsOptions)
-        }
-
-        var origW = boundsOptions.outWidth
-        var origH = boundsOptions.outHeight
-        if (origW <= 0 || origH <= 0) {
-            throw IllegalArgumentException("无法解码图片尺寸")
-        }
-
-        // 计算采样率 (确保解码阶段即降低内存占用与计算耗时)
-        var sampleSize = 1
-        while (origW / (sampleSize * 2) >= MAX_EDGE || origH / (sampleSize * 2) >= MAX_EDGE) {
-            sampleSize *= 2
-        }
-
-        // 2. 解码 Bitmap
-        val decodeOptions = BitmapFactory.Options().apply {
-            inSampleSize = sampleSize
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-        val rawBitmap = context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, decodeOptions)
-        } ?: throw IllegalStateException("Bitmap 解码失败")
-
-        // 3. 读取方向并纠正
-        val orientation = try {
+        // 解码 Bitmap。
+        // API 28+ 用 ImageDecoder 精确设定目标尺寸（同时自动处理 EXIF 方向），
+        // 避免 BitmapFactory 只能按 2 的幂采样、导致解码峰值翻倍（48MP 图曾接近 48MB）。
+        val usesImageDecoder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+        val rawBitmap: Bitmap = if (usesImageDecoder) {
+            val source = ImageDecoder.createSource(context.contentResolver, uri)
+            ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                val maxDim = max(info.size.width, info.size.height)
+                if (maxDim > MAX_EDGE) {
+                    val scale = MAX_EDGE.toFloat() / maxDim
+                    decoder.setTargetSize(
+                        (info.size.width * scale).roundToInt().coerceAtLeast(1),
+                        (info.size.height * scale).roundToInt().coerceAtLeast(1)
+                    )
+                }
+            }
+        } else {
+            // 旧路径必须先读原始尺寸才能算采样率；API 28+ 由 ImageDecoder 自己处理，无需多开一次流
+            val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             context.contentResolver.openInputStream(uri)?.use {
-                ExifInterface(it).getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION,
-                    ExifInterface.ORIENTATION_NORMAL
-                )
-            } ?: ExifInterface.ORIENTATION_NORMAL
-        } catch (_: Exception) {
-            ExifInterface.ORIENTATION_NORMAL
+                BitmapFactory.decodeStream(it, null, boundsOptions)
+            }
+            val origW = boundsOptions.outWidth
+            val origH = boundsOptions.outHeight
+            if (origW <= 0 || origH <= 0) {
+                throw IllegalArgumentException("无法解码图片尺寸")
+            }
+
+            var sampleSize = 1
+            while (origW / (sampleSize * 2) >= MAX_EDGE || origH / (sampleSize * 2) >= MAX_EDGE) {
+                sampleSize *= 2
+            }
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, decodeOptions)
+            } ?: throw IllegalStateException("Bitmap 解码失败")
         }
 
+        // 3. 方向纠正：ImageDecoder 已按 EXIF 自动旋转，这里只处理旧路径
         val matrix = Matrix()
-        when (orientation) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
-            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
-            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
-            ExifInterface.ORIENTATION_TRANSPOSE -> {
-                matrix.postRotate(90f)
-                matrix.postScale(-1f, 1f)
+        if (!usesImageDecoder) {
+            val orientation = try {
+                context.contentResolver.openInputStream(uri)?.use {
+                    ExifInterface(it).getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_NORMAL
+                    )
+                } ?: ExifInterface.ORIENTATION_NORMAL
+            } catch (_: Exception) {
+                ExifInterface.ORIENTATION_NORMAL
             }
-            ExifInterface.ORIENTATION_TRANSVERSE -> {
-                matrix.postRotate(270f)
-                matrix.postScale(-1f, 1f)
+
+            when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+                ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+                ExifInterface.ORIENTATION_TRANSPOSE -> {
+                    matrix.postRotate(90f)
+                    matrix.postScale(-1f, 1f)
+                }
+                ExifInterface.ORIENTATION_TRANSVERSE -> {
+                    matrix.postRotate(270f)
+                    matrix.postScale(-1f, 1f)
+                }
             }
         }
 
-        // 缩放至最大边 2048 (QHD 视网膜级，文件体积控制在 400KB~700KB)
+        // 旧路径按 2 的幂采样，可能仍大于目标边长，补一次缩放
         val currentMax = max(rawBitmap.width, rawBitmap.height)
         if (currentMax > MAX_EDGE) {
             val scale = MAX_EDGE.toFloat() / currentMax
@@ -198,7 +219,7 @@ object ImagePipeline {
             rawBitmap
         }
 
-        // 4. 压缩为 82% 质量 JPEG (预分配 512KB 缓冲区，减少 14 次内部扩容与 GC 抖动)
+        // 4. 压缩为 82% 质量 JPEG
         val outStream = ByteArrayOutputStream(512 * 1024)
         rotatedBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, outStream)
         val bytes = outStream.toByteArray()

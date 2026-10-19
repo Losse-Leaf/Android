@@ -15,10 +15,12 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.data.api.APIClient
@@ -65,9 +68,9 @@ fun ProjectsWishesScreen(
     val syncManager = remember { com.looseleaf.app.data.sync.SyncManager.getInstance(context) }
 
     var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) } // 0: 造物, 1: 心愿, 2: 足迹
-    val projects by syncManager.projectsFlow.collectAsState()
-    val wishes by syncManager.wishesFlow.collectAsState()
-    val footprints by syncManager.footprintsFlow.collectAsState()
+    val projects by syncManager.projectsFlow.collectAsStateWithLifecycle()
+    val wishes by syncManager.wishesFlow.collectAsStateWithLifecycle()
+    val footprints by syncManager.footprintsFlow.collectAsStateWithLifecycle()
 
     var hasInitializedProjectsWishes by rememberSaveable { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
@@ -87,13 +90,10 @@ fun ProjectsWishesScreen(
             isLoading = true
         }
         loadError = null
-        try {
-            syncManager.pullRemoteData()
-        } catch (e: Exception) {
-            loadError = e.message
-        } finally {
-            isLoading = false
-        }
+        // pullRemoteData 自身返回 Result，不会抛异常；必须读 Result 才能拿到失败原因
+        syncManager.pullRemoteData()
+            .onFailure { loadError = it.message ?: "同步失败" }
+        isLoading = false
     }
 
     LaunchedEffect(hasInitializedProjectsWishes) {
@@ -192,6 +192,38 @@ fun ProjectsWishesScreen(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+
+            // 同步失败不再只写进一个没人读的 state：给出可见的重试入口
+            loadError?.let { message ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(colors.accentWarm.copy(alpha = 0.10f))
+                        .clickable(role = Role.Button) {
+                            scope.launch { reloadAll(forceLoading = true) }
+                        }
+                        .padding(horizontal = 10.dp, vertical = 7.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ErrorOutline,
+                        contentDescription = null,
+                        tint = colors.accentWarm,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "同步未完成：$message · 点此重试",
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 11.sp,
+                        color = colors.accentWarm,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
 
             if (isLoading && projects.isEmpty() && wishes.isEmpty() && footprints.isEmpty()) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.weight(1f).fillMaxWidth()) {

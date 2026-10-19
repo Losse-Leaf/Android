@@ -1,8 +1,10 @@
 package com.looseleaf.app.ui.stream
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,6 +25,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.History
@@ -39,10 +42,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,13 +59,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import android.Manifest
 import android.net.Uri
 import androidx.core.content.FileProvider
+import androidx.fragment.app.FragmentActivity
 import com.looseleaf.app.darkroom.ImagePipeline
 import com.looseleaf.app.darkroom.ProcessedImageResult
 import com.looseleaf.app.data.api.APIClient
+import com.looseleaf.app.data.security.BiometricHelper
+import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.OfflineMediaFileItem
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.model.AlmanacSummaryResponse
@@ -86,6 +99,12 @@ import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
 
+/** 进程级一次性标记：避免每次进入时间流都请求 GitHub Releases */
+private var updateCheckedThisProcess = false
+
+/** 热力图单元格步长（dp） */
+private const val HEATMAP_CELL_DP = 12
+
 /**
  * 生活时间流主展厅 (StreamScreen) - docs/mobile.md §3 & docs/ecosystem.md §4.1
  * 承载生命之流母体记录，支持相纸画廊、那年今日回响、年度生活年鉴、详情查阅与行内修订、岁月留白切线
@@ -101,9 +120,11 @@ fun StreamScreen(
     val colors = LooseLeafTheme.colors
     val apiClient = remember { APIClient.getInstance(context) }
     val syncManager = remember { SyncManager.getInstance(context) }
+    val credentialStore = remember { CredentialStore.getInstance(context) }
 
-    val entries by syncManager.entriesFlow.collectAsState()
-    val pendingCount by syncManager.pendingEventCountFlow.collectAsState()
+    val entries by syncManager.entriesFlow.collectAsStateWithLifecycle()
+    val pendingCount by syncManager.pendingEventCountFlow.collectAsStateWithLifecycle()
+    val failedCount by syncManager.failedEventCountFlow.collectAsStateWithLifecycle()
 
     val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var selectedFilter by rememberSaveable { mutableStateOf("all") }
@@ -113,7 +134,6 @@ fun StreamScreen(
     // 那年今日状态
     var remoteOnThisDay by remember { mutableStateOf<List<LifeEntry>>(emptyList()) }
     var isOnThisDayExpanded by rememberSaveable { mutableStateOf(true) }
-    var hasInitializedStream by rememberSaveable { mutableStateOf(false) }
 
     // 年度年鉴弹窗状态
     var showAlmanacDialog by remember { mutableStateOf(false) }
@@ -127,22 +147,20 @@ fun StreamScreen(
     var selectedEntryForDetail by remember { mutableStateOf<LifeEntry?>(null) }
     var lightboxPhoto by remember { mutableStateOf<Pair<String, String?>?>(null) }
 
-    LaunchedEffect(hasInitializedStream) {
-        if (!hasInitializedStream) {
-            launch {
-                when (val res = UpdateChecker.checkForUpdates()) {
-                    is UpdateCheckResult.HasUpdate -> cloudUpdate = res.release
-                    else -> {}
-                }
+    // 更新检查：整个进程只查一次，失败静默（避免每次切 Tab 都打 GitHub API）
+    LaunchedEffect(Unit) {
+        if (!updateCheckedThisProcess) {
+            updateCheckedThisProcess = true
+            when (val res = UpdateChecker.checkForUpdates()) {
+                is UpdateCheckResult.HasUpdate -> cloudUpdate = res.release
+                else -> Unit
             }
-            launch {
-                runCatching {
-                    val resp = apiClient.fetchOnThisDay()
-                    remoteOnThisDay = resp.entries
-                }
-            }
-            hasInitializedStream = true
         }
+    }
+
+    // 那年今日：每次进入时间流都向服务端对齐一次
+    LaunchedEffect(Unit) {
+        runCatching { remoteOnThisDay = apiClient.fetchOnThisDay().entries }
     }
 
     // 合并云端那年今日与本地往年同月同日条目
@@ -151,7 +169,7 @@ fun StreamScreen(
             remoteOnThisDay
         } else {
             val today = LocalDate.now(FormatUtils.BeijingZone)
-            val todayMonthDay = String.format("%02d.%02d", today.monthValue, today.dayOfMonth)
+            val todayMonthDay = String.format(java.util.Locale.US, "%02d.%02d", today.monthValue, today.dayOfMonth)
             val thisYearPrefix = "${today.year}."
             entries.filter { entry ->
                 val formatted = FormatUtils.formatDisplayDate(entry.occurredAt)
@@ -243,6 +261,37 @@ fun StreamScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "待同步 $pendingCount",
+                                fontSize = 10.sp,
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                color = colors.accentWarm
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+
+                    if (failedCount > 0) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(colors.accentWarm.copy(alpha = 0.18f))
+                                .clickable(role = Role.Button) {
+                                    scope.launch {
+                                        ArchiveToastManager.show("正在重试 $failedCount 条失败记录…")
+                                        syncManager.retryFailedEvents()
+                                    }
+                                }
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ErrorOutline,
+                                contentDescription = null,
+                                tint = colors.accentWarm,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "同步失败 $failedCount · 重试",
                                 fontSize = 10.sp,
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 color = colors.accentWarm
@@ -383,7 +432,16 @@ fun StreamScreen(
 
                     if (downloadedFile != null) {
                         Button(
-                            onClick = { UpdateChecker.installApk(context, downloadedFile!!) },
+                            onClick = {
+                                downloadedFile?.let { file ->
+                                    if (!UpdateChecker.installApk(context, file)) {
+                                        ArchiveToastManager.show(
+                                            "安装包签名与已装版本不一致，需先做服务端备份再卸载重装",
+                                            isError = true
+                                        )
+                                    }
+                                }
+                            },
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                             shape = RoundedCornerShape(2.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
@@ -406,14 +464,21 @@ fun StreamScreen(
                                     val res = UpdateChecker.downloadApkStream(
                                         context = context,
                                         apkUrl = update.apkUrl,
-                                        versionName = update.versionName
+                                        versionName = update.versionName,
+                                        expectedSha256 = update.apkSha256
                                     ) { p, _, _ ->
                                         downloadProgress = p
                                     }
                                     isDownloading = false
                                     res.onSuccess { f ->
                                         downloadedFile = f
-                                        UpdateChecker.installApk(context, f)
+                                        val launched = UpdateChecker.installApk(context, f)
+                                        if (!launched) {
+                                            ArchiveToastManager.show(
+                                                "安装包签名与已装版本不一致，需先做服务端备份再卸载重装",
+                                                isError = true
+                                            )
+                                        }
                                     }.onFailure { err ->
                                         ArchiveToastManager.show("下载失败: ${err.message}", isError = true)
                                     }
@@ -576,13 +641,33 @@ fun StreamScreen(
                 confirmText = "确认撕除",
                 isDestructive = true,
                 onConfirm = {
-                    scope.launch {
-                        syncManager.deleteEntry(entry.id)
-                        ArchiveToastManager.show("已撕除记录")
-                        entryToDelete = null
-                        if (selectedEntryForDetail?.id == entry.id) {
-                            selectedEntryForDetail = null
+                    // docs/mobile.md §3.4：删除重要日记需要生物识别二次确认
+                    val performDelete: () -> Unit = {
+                        scope.launch {
+                            syncManager.deleteEntry(entry.id)
+                            ArchiveToastManager.show("已撕除记录")
+                            entryToDelete = null
+                            if (selectedEntryForDetail?.id == entry.id) {
+                                selectedEntryForDetail = null
+                            }
                         }
+                    }
+                    val activity = context as? FragmentActivity
+                    if (credentialStore.isBiometricsEnabled && activity != null &&
+                        BiometricHelper.canAuthenticate(activity)
+                    ) {
+                        BiometricHelper.authenticate(
+                            activity = activity,
+                            title = "验证以撕除记录",
+                            subtitle = "删除私人档案需要二次身份确认",
+                            onSuccess = { performDelete() },
+                            onError = { msg ->
+                                ArchiveToastManager.show(msg, isError = true)
+                                entryToDelete = null
+                            }
+                        )
+                    } else {
+                        performDelete()
                     }
                 },
                 onDismiss = { entryToDelete = null }
@@ -762,7 +847,10 @@ private fun EntryDetailSheetDialog(
                         editAttachments = editAttachments + att
                     }
                 } catch (e: Exception) {
-                    ArchiveToastManager.show("相纸照片上传失败: ${e.message ?: "网络异常"}")
+                    ArchiveToastManager.show(
+                        "相纸追加需要联网（当前离线或服务不可达）：${e.message ?: "网络异常"}",
+                        isError = true
+                    )
                 } finally {
                     isUploadingPhoto = false
                 }
@@ -810,7 +898,8 @@ private fun EntryDetailSheetDialog(
                                 title = entry.title,
                                 content = entry.content,
                                 occurredAt = entry.occurredAt,
-                                location = cityName,
+                                // 精选只改 featured，不得把「西湖区龙井村」这类精确地点覆盖成城市名
+                                location = entry.location,
                                 cityCode = code,
                                 cityName = cityName,
                                 projectId = entry.projectId,
@@ -1286,7 +1375,7 @@ private fun AlmanacDialog(
                         color = colors.accentWarm
                     )
                 } else if (summary != null) {
-                    val data = summary!!
+                    val data = summary ?: AlmanacSummaryResponse()
 
                     // 第一幕：岁月卷首
                     AlmanacChapterSection(
@@ -1604,10 +1693,8 @@ private fun LifeActivityHeatmap(
     var isExpanded by rememberSaveable { mutableStateOf(false) }
 
     val dateCountMap = remember(entries) {
-        entries.groupingBy {
-            val d = it.occurredAt
-            if (d.length >= 10) d.substring(0, 10).replace("-", ".") else ""
-        }.eachCount()
+        // 统一按北京时间归日：直接截 occurredAt 前 10 位，在 UTC 串（…T20:00Z）上会偏到前一天
+        entries.groupingBy { FormatUtils.formatDisplayDate(it.occurredAt) }.eachCount()
     }
 
     val weeksCount = 52
@@ -1619,7 +1706,7 @@ private fun LifeActivityHeatmap(
             for (d in 0 until 7) {
                 val daysAgo = w * 7 + (6 - d)
                 val targetDate = today.minusDays(daysAgo.toLong())
-                val key = String.format("%04d.%02d.%02d", targetDate.year, targetDate.monthValue, targetDate.dayOfMonth)
+                val key = String.format(java.util.Locale.US, "%04d.%02d.%02d", targetDate.year, targetDate.monthValue, targetDate.dayOfMonth)
                 days.add(key to (daysAgo == 0))
             }
             list.add(days)
@@ -1678,37 +1765,60 @@ private fun LifeActivityHeatmap(
 
         if (isExpanded) {
             Spacer(modifier = Modifier.height(8.dp))
+            val cellDp = HEATMAP_CELL_DP.dp
+            val gapDp = 3.dp
+            val stepDp = cellDp + gapDp
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
             ) {
-                for (week in calWeeks) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(3.dp),
-                        modifier = Modifier.padding(horizontal = 1.5.dp)
-                    ) {
-                        for ((dateKey, isToday) in week) {
+                // 364 个可点击 Box 改为一次 Canvas 绘制：组合节点从 364 降到 1
+                Canvas(
+                    modifier = Modifier
+                        .width(stepDp * calWeeks.size)
+                        .height(stepDp * 7)
+                        .pointerInput(calWeeks, dateCountMap) {
+                            detectTapGestures { offset ->
+                                val step = stepDp.toPx()
+                                val col = (offset.x / step).toInt()
+                                val row = (offset.y / step).toInt()
+                                val week = calWeeks.getOrNull(col) ?: return@detectTapGestures
+                                val (dateKey, _) = week.getOrNull(row) ?: return@detectTapGestures
+                                val count = dateCountMap[dateKey] ?: 0
+                                ArchiveToastManager.show(
+                                    "$dateKey: ${if (count > 0) "$count 篇手记" else "静默留白"}"
+                                )
+                            }
+                        }
+                ) {
+                    val step = stepDp.toPx()
+                    val cell = cellDp.toPx()
+                    val radius = CornerRadius(1.5.dp.toPx())
+                    calWeeks.forEachIndexed { col, week ->
+                        week.forEachIndexed { row, (dateKey, isToday) ->
                             val count = dateCountMap[dateKey] ?: 0
-                            val cellColor = when {
+                            val topLeft = Offset(col * step, row * step)
+                            val cellSize = Size(cell, cell)
+                            val fill = when {
                                 count >= 3 -> colors.accentWarm
                                 count == 2 -> colors.accentWarm.copy(alpha = 0.65f)
                                 count == 1 -> colors.accentWarm.copy(alpha = 0.35f)
                                 else -> colors.archivePaper
                             }
-                            Box(
-                                modifier = Modifier
-                                    .size(9.dp)
-                                    .clip(RoundedCornerShape(1.5.dp))
-                                    .background(cellColor)
-                                    .border(
-                                        width = if (isToday) 0.8.dp else 0.3.dp,
-                                        color = if (isToday) colors.accentWarm else colors.borderDivider.copy(alpha = 0.6f),
-                                        shape = RoundedCornerShape(1.5.dp)
-                                    )
-                                    .clickable {
-                                        ArchiveToastManager.show("$dateKey: ${if (count > 0) "$count 篇手记" else "静默留白"}")
-                                    }
+                            drawRoundRect(
+                                color = fill,
+                                topLeft = topLeft,
+                                size = cellSize,
+                                cornerRadius = radius
+                            )
+                            drawRoundRect(
+                                color = if (isToday) colors.accentWarm
+                                else colors.borderDivider.copy(alpha = 0.6f),
+                                topLeft = topLeft,
+                                size = cellSize,
+                                cornerRadius = radius,
+                                style = Stroke(width = if (isToday) 0.8.dp.toPx() else 0.3.dp.toPx())
                             )
                         }
                     }
@@ -2198,8 +2308,8 @@ private fun QuickNoteSheet(
     val scope = rememberCoroutineScope()
     val colors = LooseLeafTheme.colors
 
-    val projects by syncManager.projectsFlow.collectAsState()
-    val footprints by syncManager.footprintsFlow.collectAsState()
+    val projects by syncManager.projectsFlow.collectAsStateWithLifecycle()
+    val footprints by syncManager.footprintsFlow.collectAsStateWithLifecycle()
 
     var noteType by remember { mutableStateOf("life") } // "life", "travel", "project", "wish"
 
@@ -2629,16 +2739,20 @@ private fun QuickNoteSheet(
                                                 status = projStatus,
                                                 githubUrl = projGithubUrl.trim().takeIf { it.isNotBlank() }
                                             )
-                                            withContext(Dispatchers.IO) {
-                                                apiClient.createProject(req)
-                                                syncManager.pullRemoteData()
+                                            val queued = withContext(Dispatchers.IO) {
+                                                val q = syncManager.createProjectOrQueue(req)
+                                                if (!q) syncManager.pullRemoteData()
+                                                q
                                             }
-                                            ArchiveToastManager.show("新造物「${projTitle.trim()}」已成功立项")
+                                            ArchiveToastManager.show(
+                                                if (queued) "当前离线，已排队；联网后自动立项"
+                                                else "新造物「${projTitle.trim()}」已成功立项"
+                                            )
                                         }
                                     }
 
                                     "wish" -> {
-                                        val budgetCents = (wishBudgetYuan.toDoubleOrNull()?.let { (it * 100).toLong() }) ?: 0L
+                                        val budgetCents = FormatUtils.yuanStringToCents(wishBudgetYuan)
                                         val targetIso = wishTargetDate?.atStartOfDay()?.let { FormatUtils.toBeijingIsoString(it) }
                                         val req = CreateWishRequest(
                                             title = wishTitle.trim(),
@@ -2650,11 +2764,15 @@ private fun QuickNoteSheet(
                                             budget = budgetCents,
                                             targetDate = targetIso
                                         )
-                                        withContext(Dispatchers.IO) {
-                                            apiClient.createWish(req)
-                                            syncManager.pullRemoteData()
+                                        val queued = withContext(Dispatchers.IO) {
+                                            val q = syncManager.createWishOrQueue(req)
+                                            if (!q) syncManager.pullRemoteData()
+                                            q
                                         }
-                                        ArchiveToastManager.show("心愿「${wishTitle.trim()}」已封存入册")
+                                        ArchiveToastManager.show(
+                                            if (queued) "当前离线，已排队；联网后自动封存"
+                                            else "心愿「${wishTitle.trim()}」已封存入册"
+                                        )
                                     }
                                 }
                                 onSuccess()

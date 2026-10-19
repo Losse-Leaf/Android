@@ -14,22 +14,19 @@ android {
         applicationId = "com.looseleaf.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 27
-        versionName = "1.4.6"
+        versionCode = 28
+        versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        vectorDrawables {
-            useSupportLibrary = true
-        }
     }
 
     signingConfigs {
         create("release") {
+            // 沿用仓库内的原发布密钥（alias looseleaf），保证 1.4.x 可以直接覆盖升级
             storeFile = file("release.keystore")
             storePassword = "looseleaf_archive"
             keyAlias = "looseleaf"
             keyPassword = "looseleaf_archive"
-            enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
         }
@@ -37,12 +34,13 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -83,6 +81,11 @@ android {
     }
 }
 
+ksp {
+    // 导出 Room schema，供迁移对比与 MigrationTestHelper 使用
+    arg("room.schemaLocation", "${projectDir.absolutePath}/schemas")
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.02")
     implementation(composeBom)
@@ -92,7 +95,6 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.activity:activity-compose:1.9.3")
 
     // Jetpack Compose
@@ -103,9 +105,6 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-
-    // Navigation
-    implementation("androidx.navigation:navigation-compose:2.8.3")
 
     // Kotlinx Serialization & Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
@@ -128,7 +127,10 @@ dependencies {
 
     // Security & Biometrics
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
-    implementation("androidx.biometric:biometric:1.2.0-alpha05")
+    implementation("androidx.biometric:biometric:1.1.0")
+
+    // 启动性能：接收云端下发的 Baseline Profile
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
 
     // Camera & EXIF
     implementation("androidx.camera:camera-camera2:1.4.0")

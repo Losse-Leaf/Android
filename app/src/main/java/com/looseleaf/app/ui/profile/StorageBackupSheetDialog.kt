@@ -90,27 +90,44 @@ fun StorageBackupSheetDialog(
             isOperating = true
             ArchiveToastManager.show("正在下载「${b.filename}」…")
             runCatching {
-                val bytes = apiClient.downloadBackup(b.filename)
                 val resolver = context.contentResolver
+                val isScoped = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
                 val contentValues = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, b.filename)
                     put(MediaStore.MediaColumns.MIME_TYPE, "application/zip")
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    if (isScoped) {
                         put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                        // 先隐藏，写完再转为可见；失败时不会留下半截文件
+                        put(MediaStore.MediaColumns.IS_PENDING, 1)
                     }
                 }
                 val uri = resolver.insert(
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Downloads.EXTERNAL_CONTENT_URI else MediaStore.Files.getContentUri("external"),
+                    if (isScoped) MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                    else MediaStore.Files.getContentUri("external"),
                     contentValues
                 )
                 if (uri != null) {
-                    resolver.openOutputStream(uri)?.use { os ->
-                        os.write(bytes)
+                    try {
+                        resolver.openOutputStream(uri)?.use { os ->
+                            apiClient.downloadBackupTo(b.filename, os)
+                        } ?: throw IllegalStateException("无法写入系统下载目录")
+                        if (isScoped) {
+                            resolver.update(
+                                uri,
+                                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                                null,
+                                null
+                            )
+                        }
+                    } catch (e: Exception) {
+                        runCatching { resolver.delete(uri, null, null) }
+                        throw e
                     }
                 } else {
                     val downloadDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
-                    val targetFile = File(downloadDir, b.filename)
-                    targetFile.writeBytes(bytes)
+                    File(downloadDir, b.filename).outputStream().use { os ->
+                        apiClient.downloadBackupTo(b.filename, os)
+                    }
                 }
                 ArchiveToastManager.show("已保存至系统下载目录：${b.filename}")
             }.onFailure { err ->
@@ -302,7 +319,7 @@ fun StorageBackupSheetDialog(
                                         }
 
                                         Spacer(modifier = Modifier.height(3.dp))
-                                        val mbSize = String.format("%.2f MB", b.size.toDouble() / (1024 * 1024))
+                                        val mbSize = String.format(java.util.Locale.US, "%.2f MB", b.size.toDouble() / (1024 * 1024))
                                         Text(
                                             text = "$mbSize · ${b.createdAt.take(19).replace("T", " ")}",
                                             fontFamily = ArchiveFontFamilies.MonoScale,

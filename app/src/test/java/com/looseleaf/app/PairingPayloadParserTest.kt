@@ -33,4 +33,14 @@ class PairingPayloadParserTest {
         assertEquals("https://api.looseleaf.space", parsed!!.hubUrl)
         assertEquals("pair_tk_cloud123", parsed.ticket)
     }
+
+    @Test
+    fun testParsePercentEncodedHub() {
+        // 二维码里常见百分号编码的 hub 参数
+        val raw = "looseleaf://pair?hub=http%3A%2F%2F192.168.1.100%3A8088&ticket=pair_tk_enc"
+        val parsed = PairingPayloadParser.parse(raw)
+        assertNotNull(parsed)
+        assertEquals("http://192.168.1.100:8088", parsed!!.hubUrl)
+        assertEquals("pair_tk_enc", parsed.ticket)
+    }
 }

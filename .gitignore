@@ -21,3 +21,6 @@ Captures
 *.class
 .jdk*
 *.jdk
+
+# Kotlin 会话缓存
+/.kotlin/

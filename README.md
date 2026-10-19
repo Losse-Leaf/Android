@@ -16,13 +16,13 @@
 
 2. **极速触觉记账小键盘 (`Tactile Ledger Keypad`)**
    - **单拇指热区与盲打大键位**：4x3 拟物微隆起大键位，单键高度 $\ge 60\text{dp}$。
-   - **细腻物理触感反馈 (`Physical Haptics`)**：点击键帽触发轻微打字机震动，点击「盖章记下」触发木印章打击感重震。
+   - **按键压印反馈**：按下即变色阶与微压印；物理触觉在 v1.4.5 移除，恢复计划见 `docs/mobile.md` §3.6。
    - **分位整型存储 (`Cents Standard`)**：货币金额严格以 `Long` 整型“分”流转，彻底告别浮点精度漂移。
    - **类目光谱横滑栏**：餐饮、交通、购物、娱乐等八大自然大地色谱标签，结合时段智能推荐常用类目。
 
 3. **随行暗房与端侧智能压制管线 (`Image Pipeline & R2 Upload`)**
    - **EXIF 全自动提取**：自动读取相机机型、镜头、焦距、光圈、快门、ISO 及经纬度，智能匹配地级行政区代码。
-   - **端侧 4K 降采样**：最长边约束至 3840px，85% JPEG/WebP 压缩，将 15MB~25MB 直拍照无损精简至 1.8MB~2.5MB。
+   - **端侧降采样**：最长边约束至 2048px、JPEG 质量 82，将 15MB~25MB 直拍照压到约 0.3MB~0.7MB。
    - **Cloudflare R2 预签名直传**：预签名凭证直传对象存储桶，零服务器应用带宽占用；无 R2 环境自动回退统一中转通道。
 
 4. **离线优先发件箱调度引擎 (`Offline-First Outbox`)**
@@ -34,12 +34,12 @@
    - **KeyStore 硬件加密存储**：凭据由 `Android KeyStore` 配合 `EncryptedSharedPreferences` 托管。
    - **生物识别守护 (`BiometricPrompt`)**：支持面容、指纹与系统凭据保护，敏感财务柱状图默认模糊遮罩。
 
-6. **主屏与锁屏小组件 (`App Widgets`)**
-   - **城市印记与状态小组件 (2x2)**：动态呈现主理人常居城市、自白信条与今日收支刻度（全数据动态拉取，严禁前端写死）。
-   - **桌面快捷小组件**：单触直达触觉记账键盘或随行暗房。
+6. **桌面快捷方式（已实现）与小组件（规划中）**
+   - **应用快捷方式**：长按图标直达「记一笔」或「随行暗房」（`res/xml/shortcuts.xml`）。
+   - **主屏 / 锁屏小组件**：尚未实现，见 `docs/mobile.md` §3.5 的 Glance 规划。
 
-7. **程序化拟真声学引擎 (`AudioEngine`)**
-   - 基于 `AudioTrack` 纯算法实时合成机械快门声、纸张翻转声与铅字击打声，零音频文件依赖。
+7. **无音频依赖**
+   - v1.4.5 起移除了程序化声学与触觉引擎，App 不申请 `VIBRATE`、不持有音频焦点。
 
 ---
 
@@ -55,14 +55,13 @@ android/
 │   │   │   ├── java/com/looseleaf/app/
 │   │   │   │   ├── LooseLeafApp.kt        # Application 根实例与后台工作器配置
 │   │   │   │   ├── MainActivity.kt        # FragmentActivity、Edge-to-Edge 沉浸与底部导航
-│   │   │   │   ├── audio/                 # 程序化声学合成引擎 (AudioEngine)
 │   │   │   │   ├── darkroom/              # 端侧图片压制管线与 EXIF 提取 (ImagePipeline)
 │   │   │   │   ├── data/
 │   │   │   │   │   ├── api/               # OkHttp 4 + Kotlinx Serialization 网络客户端 (APIClient)
-│   │   │   │   │   ├── local/             # Room 数据库、实体类与 DAO
+│   │   │   │   │   │                      # HubUrlPolicy：公网地址强制 HTTPS
+│   │   │   │   │   ├── local/             # Room 数据库、实体类、DAO 与账本/档案缓存仓储
 │   │   │   │   │   ├── security/          # KeyStore 凭据存储与生物识别守护
 │   │   │   │   │   └── sync/              # 离线发件箱 WorkManager 与同步管理器 (SyncManager)
-│   │   │   │   ├── haptics/               # 物理触觉马达驱动 (HapticsEngine)
 │   │   │   │   ├── model/                 # 领域模型与 DTO 信封
 │   │   │   │   ├── theme/                 # 大地色盘 (Color.kt)、排版 (Typography.kt) 与主题
 │   │   │   │   ├── ui/                    # Jetpack Compose 视图层
@@ -74,7 +73,6 @@ android/
 │   │   │   │   │   ├── projectswishes/    # 造物、心愿与山川足迹 (ProjectsWishesScreen)
 │   │   │   │   │   └── stream/            # 时光手账时间流 (StreamScreen)
 │   │   │   │   ├── utils/                 # FlexTime 弹性时间、分位整型转换与 375 城市字典
-│   │   │   │   └── widget/                # Android 桌面小组件提供器
 │   │   │   └── res/                       # 布局 XML、小组件配置与 Mipmap 图标
 │   │   └── test/                          # 单元测试 (FormatUtilsTest, CityDictionaryTest 等)
 │   └── proguard-rules.pro
@@ -121,7 +119,8 @@ chmod +x gradlew
 本项目内置了基于 **Compose Multiplatform Desktop** 的桌面交互预览视窗（`:desktop` 模块）：
 - **零 Android SDK 依赖**：无需安装庞大的 Android SDK 或配置模拟器，只要有 JDK 17 即可秒级在 macOS 原生运行；
 - **全机型拟真边框体验**：内置标准手机（390×844）、超长屏（392×892）、紧凑小屏（360×640）、折叠屏内屏展开（680×840）与平板模式（780×960）；
-- **全交互场景模拟**：支持棉纸与暗房主题无缝切换、刘海遮罩、IME 软键盘弹出安全区模拟，并可实时交互试玩触觉小键盘、时间流、心愿与展台。
+- **版式预览（Mock）**：四端界面在 `desktop/Main.kt` 中是**独立重写的 Mock**，只用于检查版式与配色，
+  不是 App 真实运行时的 Composable（真实界面依赖 Context / Room / Coil，无法在桌面 JVM 跑）。
 
 ```bash
 # 在 macOS 终端直接启动桌面预览工坊
@@ -131,6 +130,15 @@ chmod +x gradlew
 ### 4. 连接后端数据中枢
 - **Android 模拟器**：默认访问宿主机地址为 `http://10.0.2.2:8088`。
 - **真机局域网调试**：在 App 首次启动的「设备入网」界面，将中枢 Hub 地址改为局域网 IP（例如 `http://192.168.1.100:8088`）或 Tailscale 节点（例如 `http://100.112.108.52:8088`），使用相机扫描 Web 管理后台的配对二维码即可一键入网。
+
+---
+
+## 发布签名
+
+发布包使用仓库内 `app/release.keystore`（alias `looseleaf`），CI 直接以它签名，
+`./gradlew assembleRelease` 产出的就是可覆盖安装的正式包。
+
+应用内更新会比对下载 APK 与已装应用的签名；不一致时提示「需卸载重装」，避免系统安装器抛裸错误。
 
 ---
 

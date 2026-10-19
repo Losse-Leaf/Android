@@ -15,8 +15,9 @@ import androidx.compose.ui.unit.sp
  * - 等宽刻度 (Monospace Scale): JetBrains Mono -> 系统等宽
  */
 object ArchiveFontFamilies {
-    val EditorialSerif: FontFamily = FontFamily.Default
-    val BodySans: FontFamily = FontFamily.Default
+    // 衬线 / 无衬线必须在字形上真的不同，否则「纸本编辑体」只是名义上的
+    val EditorialSerif: FontFamily = FontFamily.Serif
+    val BodySans: FontFamily = FontFamily.SansSerif
     val MonoScale: FontFamily = FontFamily.Monospace
 }
 

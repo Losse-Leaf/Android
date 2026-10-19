@@ -2,6 +2,7 @@ package com.looseleaf.app.data.api
 
 import android.content.Context
 import android.util.Log
+import com.looseleaf.app.BuildConfig
 import com.looseleaf.app.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -28,6 +29,7 @@ class APIClient private constructor(private val context: Context) {
         private const val TAG = "APIClient"
         private const val PREFS_NAME = "looseleaf_api_prefs"
         private const val KEY_BASE_URL = "hub_base_url"
+        private const val DEFAULT_BASE_URL = "http://10.0.2.2:8088"
 
         @Volatile
         private var instance: APIClient? = null
@@ -48,38 +50,58 @@ class APIClient private constructor(private val context: Context) {
     private val etagCache = ConcurrentHashMap<String, String>()
 
     val okHttpClient: OkHttpClient by lazy {
-        val logging = HttpLoggingInterceptor { message ->
-            Log.d(TAG, message)
-        }.apply {
-            level = HttpLoggingInterceptor.Level.BASIC
-        }
-
-        val dispatcher = Dispatcher().apply {
-            maxRequests = 64
-            maxRequestsPerHost = 16
-        }
-
-        val connectionPool = ConnectionPool(16, 5, TimeUnit.MINUTES)
-
-        OkHttpClient.Builder()
-            .dispatcher(dispatcher)
-            .connectionPool(connectionPool)
+        val builder = OkHttpClient.Builder()
+            .dispatcher(Dispatcher().apply {
+                maxRequests = 64
+                maxRequestsPerHost = 16
+            })
+            .connectionPool(ConnectionPool(16, 5, TimeUnit.MINUTES))
             .protocols(listOf(Protocol.HTTP_2, Protocol.HTTP_1_1))
             .retryOnConnectionFailure(true)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
-            .addInterceptor(logging)
+            // 防止「卡住但不报错」的连接长期占用协程
+            .callTimeout(90, TimeUnit.SECONDS)
+
+        // release 包绝不打印请求日志（URL 里含对象键、设备查询串）
+        if (BuildConfig.DEBUG) {
+            builder.addInterceptor(
+                HttpLoggingInterceptor { message -> Log.d(TAG, message) }.apply {
+                    level = HttpLoggingInterceptor.Level.BASIC
+                }
+            )
+        }
+        builder.build()
+    }
+
+    /**
+     * 备份下载专用客户端：整体 callTimeout 关闭、读超时放宽。
+     * 主客户端 90s 的 callTimeout 会把大体积快照（几百 MB）在慢网下直接掐断。
+     */
+    private val downloadClient: OkHttpClient by lazy {
+        okHttpClient.newBuilder()
+            .callTimeout(0, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
             .build()
     }
 
+    private var cachedBaseUrl: String? = null
+
     var baseUrl: String
         get() {
+            cachedBaseUrl?.let { return it }
             val sp = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            return sp.getString(KEY_BASE_URL, "http://10.0.2.2:8088") ?: "http://10.0.2.2:8088"
+            val stored = sp.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
+            cachedBaseUrl = stored
+            return stored
         }
         set(value) {
-            val cleaned = value.trim().removeSuffix("/")
+            val cleaned = when (val verdict = HubUrlPolicy.validate(value)) {
+                is HubUrlPolicy.Verdict.Allowed -> verdict.url
+                is HubUrlPolicy.Verdict.Rejected -> throw IllegalArgumentException(verdict.reason)
+            }
+            cachedBaseUrl = cleaned
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putString(KEY_BASE_URL, cleaned)
@@ -643,10 +665,17 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/system/backup/restore", "POST", body = body)
     }
 
-    suspend fun downloadBackup(filename: String): ByteArray = withContext(Dispatchers.IO) {
+    /**
+     * 流式下载全量快照到调用方提供的 OutputStream。
+     * 不再把整个 ZIP 读进 ByteArray——大备份（含媒体元数据）会直接把设备打爆。
+     */
+    suspend fun downloadBackupTo(
+        filename: String,
+        outputStream: java.io.OutputStream
+    ): Long = withContext(Dispatchers.IO) {
         val (request, _) = buildRequest("/api/v1/system/backup/download/$filename", "GET")
         val response = try {
-            okHttpClient.newCall(request).execute()
+            downloadClient.newCall(request).execute()
         } catch (e: IOException) {
             throw APIException(-1, "网络连接异常: ${e.message}")
         }
@@ -654,7 +683,12 @@ class APIClient private constructor(private val context: Context) {
             if (!res.isSuccessful) {
                 throw APIException(res.code, "下载备份失败 (HTTP ${res.code})")
             }
-            res.body?.bytes() ?: throw APIException(-1, "备份文件数据为空")
+            val body = res.body ?: throw APIException(-1, "备份文件数据为空")
+            body.byteStream().use { input ->
+                input.copyTo(outputStream, bufferSize = 64 * 1024)
+            }
+            outputStream.flush()
+            body.contentLength().takeIf { it > 0 } ?: 0L
         }
     }
 }

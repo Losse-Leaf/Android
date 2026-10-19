@@ -19,7 +19,8 @@ compose.desktop {
         nativeDistributions {
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Dmg)
             packageName = "LooseLeafDeviceStudio"
-            packageVersion = "1.2.0"
+            // 与 app 模块版本保持一致；这里只是设计预览工具，不参与发布
+            packageVersion = "1.5.0"
         }
     }
 }

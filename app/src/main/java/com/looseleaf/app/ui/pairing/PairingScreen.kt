@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.data.api.APIClient
+import com.looseleaf.app.data.api.HubUrlPolicy
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
@@ -58,6 +59,10 @@ fun PairingScreen(
     var pastedLinkInput by remember { mutableStateOf("") }
     var isConnecting by remember { mutableStateOf(false) }
 
+    // 来自外部深链 / 二维码的待确认配对请求
+    var pendingLinkPayload by remember { mutableStateOf<String?>(null) }
+    var pendingLinkHub by remember { mutableStateOf("") }
+
     // 握手成功后的设备信息
     var pairedDeviceId by remember { mutableStateOf("") }
     var pairedHubUrl by remember { mutableStateOf("") }
@@ -67,15 +72,34 @@ fun PairingScreen(
 
     fun executeHandshake(rawPayload: String) {
         if (isConnecting) return
+
+        if (!credentialStore.isSecureStorageAvailable) {
+            ArchiveToastManager.show(
+                "本机密钥库不可用，无法安全保存设备凭据；请检查系统安全设置后重试",
+                isError = true
+            )
+            return
+        }
+
         val parsed = PairingPayloadParser.parse(rawPayload)
         if (parsed == null) {
             ArchiveToastManager.show("无法识别该配对链接，请确认是否包含中枢地址与工单号", isError = true)
             return
         }
 
+        when (val verdict = HubUrlPolicy.validate(parsed.hubUrl)) {
+            is HubUrlPolicy.Verdict.Rejected -> {
+                ArchiveToastManager.show(verdict.reason, isError = true)
+                return
+            }
+            is HubUrlPolicy.Verdict.Allowed -> Unit
+        }
+
         scope.launch {
             isConnecting = true
+            val previousBaseUrl = apiClient.baseUrl
             try {
+                // 只在握手期间临时指向目标中枢；失败则回滚，避免把 App 永久指到一个连不上的地址
                 apiClient.baseUrl = parsed.hubUrl
 
                 val defaultModel = Build.MODEL ?: "Android"
@@ -86,7 +110,6 @@ fun PairingScreen(
                     deviceModel = defaultModel
                 )
 
-                // 暂存凭据
                 credentialStore.deviceToken = resp.deviceToken
                 credentialStore.deviceId = resp.deviceId
                 credentialStore.deviceName = resp.deviceName.ifBlank { chosenName }
@@ -94,9 +117,15 @@ fun PairingScreen(
                 pairedHubUrl = resp.hubUrl ?: parsed.hubUrl
                 customDeviceName = resp.deviceName.ifBlank { chosenName }
 
-                // 进入下一页面：设备展示名称定制页
+                // 服务端若返回了规范化地址，按同一套策略校验后再落库
+                val canonicalHub = resp.hubUrl?.takeIf { it.isNotBlank() }
+                if (!canonicalHub.isNullOrBlank() && canonicalHub != parsed.hubUrl) {
+                    runCatching { apiClient.baseUrl = canonicalHub }
+                }
+
                 currentStep = 1
             } catch (e: Exception) {
+                runCatching { apiClient.baseUrl = previousBaseUrl }
                 ArchiveToastManager.show("连接数据中枢失败: ${e.message}", isError = true)
             } finally {
                 isConnecting = false
@@ -105,8 +134,16 @@ fun PairingScreen(
     }
 
     LaunchedEffect(initialPayload) {
-        if (!initialPayload.isNullOrBlank()) {
-            executeHandshake(initialPayload)
+        val raw = initialPayload
+        if (!raw.isNullOrBlank()) {
+            // 外部深链一律先确认：不允许「点开链接就静默改绑中枢」
+            val parsed = PairingPayloadParser.parse(raw)
+            if (parsed == null) {
+                ArchiveToastManager.show("无法识别该配对链接", isError = true)
+            } else {
+                pendingLinkPayload = raw
+                pendingLinkHub = parsed.hubUrl
+            }
         }
     }
 
@@ -404,5 +441,19 @@ fun PairingScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+
+    // 外部深链的二次确认：只有明确点击「确认配对」才交换设备凭据
+    pendingLinkPayload?.let { raw ->
+        ArchiveConfirmDialog(
+            title = "确认配对到该中枢？",
+            content = "外部链接请求将本机绑定到：\n$pendingLinkHub\n\n确认后才会交换设备凭据。若这不是你的中枢地址，请直接取消。",
+            confirmText = "确认配对",
+            onConfirm = {
+                pendingLinkPayload = null
+                executeHandshake(raw)
+            },
+            onDismiss = { pendingLinkPayload = null }
+        )
     }
 }

@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  只暴露真正需要共享的两类路径：
+  - camera：现场快门的临时原片（TakePicture 写入）
+  - downloads / Download：应用内更新下载的 APK
+  不再提供 all_files / all_cache —— FileProvider 不需要整目录授权。
+-->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <external-cache-path name="apk_downloads" path="downloads" />
+    <cache-path name="camera_photos" path="camera" />
     <cache-path name="internal_apk" path="downloads" />
     <external-files-path name="apk_files" path="Download" />
-    <files-path name="internal_files" path="downloads" />
-    <cache-path name="camera_photos" path="camera" />
-    <cache-path name="all_cache" path="." />
-    <files-path name="all_files" path="." />
 </paths>

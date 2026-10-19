@@ -5,6 +5,10 @@ on:
     tags: [ "v*" ]
   workflow_dispatch:
 
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-release:
     name: Build Release APK & Bundle
@@ -25,6 +29,17 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Verify tag matches app versionName
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
+          echo "tag=$TAG versionName=$VERSION"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error title=版本不一致::tag v$TAG 与 app/build.gradle.kts 的 versionName $VERSION 不一致，更新器会判断错版本"
+            exit 1
+          fi
+
       - name: Build Release APK
         run: |
           set +e
@@ -39,6 +54,17 @@ jobs:
             ENCODED_ERR=$(echo "$ERR_SUMMARY" | sed 's/%/%25/g' | sed 's/\r/%0D/g' | sed 's/\n/%0A/g')
             echo "::error title=Kotlin Compile Error::$ENCODED_ERR"
             exit $EXIT_CODE
+          fi
+
+      - name: Verify APK is signed
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -f "$APK" || { echo "::error title=产物缺失::未找到 $APK"; exit 1; }
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | tail -n 1)
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$APK"
+          else
+            echo "::warning title=跳过签名校验::未找到 apksigner"
           fi
 
       - name: Package Artifact
@@ -58,6 +84,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release-artifacts/*.apk
+          generate_release_notes: true
           body: |
-            散页 (Loose Leaf) Android 原生移动端正式发布产物（已签名）。
-            支持端侧随行暗房 4K 压制直传、极速触觉记账大键盘、离线优先发件箱、KeyStore/生物识别与桌面小组件。
+            散页 (Loose Leaf) Android 正式发布产物（已签名，可直接覆盖安装同签名旧版）。
+
+            APK 已启用 R8 与资源收缩；下方变更记录由本仓库提交自动生成。
+            应用内更新会校验 APK 的 SHA-256 与签名，签名不一致时会提示「需卸载重装」。

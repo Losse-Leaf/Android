@@ -37,6 +37,13 @@ interface EntryDao {
 
     @Query("DELETE FROM cached_entries")
     suspend fun clearAll()
+
+    /** 旧版增量合并可能给同一个 server_id 插过重复行，全量同步时收口到最早的一行 */
+    @Query(
+        "DELETE FROM cached_entries WHERE server_id IS NOT NULL AND local_id NOT IN " +
+            "(SELECT MIN(local_id) FROM cached_entries WHERE server_id IS NOT NULL GROUP BY server_id)"
+    )
+    suspend fun deleteDuplicateServerIds()
 }
 
 @Dao
@@ -73,15 +80,28 @@ interface TransactionDao {
 
     @Query("DELETE FROM cached_transactions")
     suspend fun clearAll()
+
+    /** 同 cached_entries：收口历史遗留的重复 server_id */
+    @Query(
+        "DELETE FROM cached_transactions WHERE server_id IS NOT NULL AND local_id NOT IN " +
+            "(SELECT MIN(local_id) FROM cached_transactions WHERE server_id IS NOT NULL GROUP BY server_id)"
+    )
+    suspend fun deleteDuplicateServerIds()
 }
 
 @Dao
 interface OutboxDao {
-    @Query("SELECT * FROM outbox_events ORDER BY created_at ASC")
+    @Query("SELECT * FROM outbox_events WHERE failed_at IS NULL ORDER BY created_at ASC")
     suspend fun getAllPendingEvents(): List<OutboxEventEntity>
 
-    @Query("SELECT COUNT(*) FROM outbox_events")
+    @Query("SELECT * FROM outbox_events WHERE failed_at IS NOT NULL ORDER BY failed_at DESC")
+    suspend fun getFailedEvents(): List<OutboxEventEntity>
+
+    @Query("SELECT COUNT(*) FROM outbox_events WHERE failed_at IS NULL")
     fun getPendingEventCountFlow(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM outbox_events WHERE failed_at IS NOT NULL")
+    fun getFailedEventCountFlow(): Flow<Int>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(event: OutboxEventEntity)
@@ -95,11 +115,25 @@ interface OutboxDao {
     @Query("DELETE FROM outbox_events WHERE entity_type = :entityType AND local_target_id = :localTargetId")
     suspend fun deleteByLocalTarget(entityType: String, localTargetId: Long)
 
+    @Query("DELETE FROM outbox_events WHERE entity_type = :entityType AND server_target_id = :serverTargetId")
+    suspend fun deleteByServerTarget(entityType: String, serverTargetId: Long)
+
     @Query("DELETE FROM outbox_events")
     suspend fun clearAll()
 
     @Query("UPDATE outbox_events SET retry_count = retry_count + 1 WHERE event_id = :eventId")
     suspend fun incrementRetry(eventId: String)
+
+    /** 进入失败态：停止自动重试，但保留事件与原始载荷，等待用户处置。 */
+    @Query("UPDATE outbox_events SET failed_at = :failedAt, last_error = :error, retry_count = retry_count + 1 WHERE event_id = :eventId")
+    suspend fun markFailed(eventId: String, failedAt: String, error: String?)
+
+    /** 用户点「重试」：清空失败态与重试计数，重新进入待发队列。 */
+    @Query("UPDATE outbox_events SET failed_at = NULL, last_error = NULL, retry_count = 0 WHERE event_id = :eventId")
+    suspend fun resetFailed(eventId: String)
+
+    @Query("UPDATE outbox_events SET failed_at = NULL, last_error = NULL, retry_count = 0 WHERE failed_at IS NOT NULL")
+    suspend fun resetAllFailed()
 }
 
 @Dao

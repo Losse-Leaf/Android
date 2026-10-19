@@ -79,11 +79,15 @@ object PairingPayloadParser {
         for (p in pairs) {
             val parts = p.split('=', limit = 2)
             if (parts.size == 2 && parts[0].trim().equals(key, ignoreCase = true)) {
-                return parts[1].trim()
+                return decode(parts[1].trim())
             }
         }
         return null
     }
+
+    /** 二维码里的 URL 常常是百分号编码的（http%3A%2F%2F…），必须先解码再判断协议 */
+    private fun decode(value: String): String =
+        runCatching { java.net.URLDecoder.decode(value, "UTF-8") }.getOrDefault(value)
 
     private fun extractOrigin(url: String): String? {
         val schemeEnd = url.indexOf("://")
@@ -93,6 +97,6 @@ object PairingPayloadParser {
     }
 
     private fun cleanHubUrl(raw: String): String {
-        return raw.trim().removeSuffix("/")
+        return decode(raw).trim().removeSuffix("/")
     }
 }

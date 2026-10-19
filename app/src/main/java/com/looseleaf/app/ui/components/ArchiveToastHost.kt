@@ -19,9 +19,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
 
 data class ArchiveToastMessage(
     val text: String,
@@ -48,12 +50,15 @@ fun ArchiveToastHost(
 ) {
     val colors = LooseLeafTheme.colors
     var currentMessage by remember { mutableStateOf<ArchiveToastMessage?>(null) }
+    var dismissJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(Unit) {
         ArchiveToastManager.messages.collect { msg ->
+            // 新消息立即顶掉旧消息，而不是排队等上一条 2.2 秒播完
+            dismissJob?.cancel()
             currentMessage = msg
-            delay(msg.durationMs)
-            if (currentMessage == msg) {
+            dismissJob = launch {
+                delay(msg.durationMs)
                 currentMessage = null
             }
         }

@@ -8,22 +8,26 @@ import com.looseleaf.app.ui.components.ArchiveToastHost
 import com.looseleaf.app.ui.components.ArchiveToastManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.looseleaf.app.data.security.BiometricHelper
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.theme.ArchiveFontFamilies
@@ -37,6 +41,12 @@ import com.looseleaf.app.ui.stream.StreamScreen
 
 class MainActivity : FragmentActivity() {
 
+    companion object {
+        /** 进程内解锁态：旋转屏幕重建 Activity 时无需再次验证，切到后台则立即失效 */
+        @Volatile
+        private var sessionUnlocked = false
+    }
+
     private lateinit var credentialStore: CredentialStore
     private var requestedRouteState = mutableStateOf<String?>(null)
     private var pendingDeepLinkPayloadState = mutableStateOf<String?>(null)
@@ -47,9 +57,12 @@ class MainActivity : FragmentActivity() {
 
         credentialStore = CredentialStore.getInstance(this)
 
-        requestedRouteState.value = intent?.getStringExtra("shortcut_route")
-        intent?.data?.toString()?.takeIf { it.startsWith("looseleaf://") }?.let {
-            pendingDeepLinkPayloadState.value = it
+        // 只在「首次创建」时消费 Intent：否则旋转屏幕会把用户拽回快捷方式指定的 Tab
+        if (savedInstanceState == null) {
+            requestedRouteState.value = intent?.getStringExtra("shortcut_route")
+            intent?.data?.toString()?.takeIf { it.startsWith("looseleaf://") }?.let {
+                pendingDeepLinkPayloadState.value = it
+            }
         }
 
         setContent {
@@ -57,7 +70,7 @@ class MainActivity : FragmentActivity() {
 
             LooseLeafTheme(darkTheme = isDarkTheme) {
                 var isPaired by remember { mutableStateOf(credentialStore.isPaired()) }
-                var currentRoute by remember {
+                var currentRoute by rememberSaveable {
                     mutableStateOf(requestedRouteState.value ?: "stream")
                 }
 
@@ -73,7 +86,9 @@ class MainActivity : FragmentActivity() {
                 // 生物识别保护触发
                 val canAuth = remember { BiometricHelper.canAuthenticate(this@MainActivity) }
                 var isUnlocked by remember {
-                    mutableStateOf(!credentialStore.isBiometricsEnabled || !canAuth)
+                    mutableStateOf(
+                        sessionUnlocked || !credentialStore.isBiometricsEnabled || !canAuth
+                    )
                 }
 
                 fun requestBiometricUnlock() {
@@ -82,7 +97,10 @@ class MainActivity : FragmentActivity() {
                             activity = this@MainActivity,
                             title = "散页身份验证",
                             subtitle = "验证面容或指纹以解锁散页随行手账",
-                            onSuccess = { isUnlocked = true },
+                            onSuccess = {
+                                sessionUnlocked = true
+                                isUnlocked = true
+                            },
                             onError = { /* 保持锁屏门禁态 */ }
                         )
                     } else {
@@ -90,9 +108,17 @@ class MainActivity : FragmentActivity() {
                     }
                 }
 
-                LaunchedEffect(isPaired) {
+                // 冷启动 / 切回前台都要重新验证（docs/mobile.md §3.4）
+                LifecycleEventEffect(Lifecycle.Event.ON_START) {
                     if (isPaired && !isUnlocked) {
                         requestBiometricUnlock()
+                    }
+                }
+                LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+                    // 旋转屏幕导致的销毁不算「离开应用」
+                    if (!isChangingConfigurations && credentialStore.isBiometricsEnabled) {
+                        sessionUnlocked = false
+                        isUnlocked = false
                     }
                 }
 
@@ -101,6 +127,7 @@ class MainActivity : FragmentActivity() {
                     PairingScreen(
                         initialPayload = deepLinkPayload,
                         onPairingSuccess = {
+                            sessionUnlocked = true
                             isPaired = true
                             isUnlocked = true
                             pendingDeepLinkPayloadState.value = null
@@ -275,7 +302,11 @@ fun LooseLeafBottomBar(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable { onRouteSelected(tab.route) }
+                        .selectable(
+                            selected = isSelected,
+                            role = Role.Tab,
+                            onClick = { onRouteSelected(tab.route) }
+                        )
                         .padding(horizontal = 14.dp, vertical = 4.dp)
                 ) {
                     Icon(

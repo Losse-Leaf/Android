@@ -5,6 +5,11 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-test:
@@ -55,11 +60,33 @@ jobs:
           path: app/build/reports/tests/
           retention-days: 7
 
-      - name: Build Desktop Preview Studio (Compose Multiplatform)
+      - name: Lint (errors fail the build)
+        run: ./gradlew :app:lintDebug --no-daemon
+
+      - name: Upload Lint Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.html
+          retention-days: 7
+
+      - name: Compile Desktop Mock Preview Studio (preview only, not a UI self-check)
         run: ./gradlew :desktop:classes --no-daemon
 
       - name: Build Release APK
         run: ./gradlew assembleRelease --no-daemon -Pkotlin.compiler.execution.strategy=in-process
+
+      - name: Verify Release APK is signed
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -f "$APK" || { echo "::error title=产物缺失::未找到 $APK"; exit 1; }
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | tail -n 1)
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$APK"
+          else
+            echo "::warning title=跳过签名校验::未找到 apksigner"
+          fi
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

@@ -16,14 +16,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.looseleaf.app.data.local.DefaultExpenseCategories
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.theme.SpectrumColors
 import com.looseleaf.app.utils.FormatUtils
 import java.time.LocalTime
-
-val DefaultExpenseCategories = listOf("餐饮", "交通", "购物", "娱乐", "住房", "学习", "医疗", "其他")
-val DefaultIncomeCategories = listOf("薪资", "奖金", "二手回血", "稿费与创作", "投资收益", "其他收入")
 
 /**
  * 分类胶囊横滑栏 (Category Pills Bar) - docs/mobile.md §3.1
@@ -45,7 +43,7 @@ fun CategoryPills(
     ) {
         for (cat in categories) {
             val isSelected = cat == selectedCategory
-            val spectrumColor = SpectrumColors.colorForCategory(cat)
+            val spectrumColor = SpectrumColors.colorForCategory(cat, LooseLeafTheme.colors.isDark)
             CategoryPillItem(
                 category = cat,
                 isSelected = isSelected,

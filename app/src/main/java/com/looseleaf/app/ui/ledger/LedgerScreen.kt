@@ -29,10 +29,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.security.BiometricHelper
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.SyncManager
+import com.looseleaf.app.data.local.LedgerRepository
 import com.looseleaf.app.model.*
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
@@ -65,15 +67,19 @@ fun LedgerScreen(
     val credentialStore = remember { CredentialStore.getInstance(context) }
     val apiClient = remember { APIClient.getInstance(context) }
 
-    val transactions by syncManager.transactionsFlow.collectAsState()
+    val transactions by syncManager.transactionsFlow.collectAsStateWithLifecycle()
+
+    // 分类 / 支付方式 / 信贷渠道 / 资产大盘的生命周期与进程一致，切 Tab 不再丢状态
+    val ledgerSnapshot by LedgerRepository.snapshot.collectAsStateWithLifecycle()
+    val expenseCategories = ledgerSnapshot.expenseCategories
+    val incomeCategories = ledgerSnapshot.incomeCategories
+    val paymentMethods = ledgerSnapshot.paymentMethods
+    val creditChannels = ledgerSnapshot.creditChannels
+    val assetsOverview = ledgerSnapshot.assetsOverview
+    val isLoadingAssets = ledgerSnapshot.isLoadingAssets
 
     // 0: 极速记账, 1: 账单流水, 2: 资产与信贷
     var selectedTab by rememberSaveable { mutableStateOf(0) }
-
-    var expenseCategories by remember { mutableStateOf(DefaultExpenseCategories) }
-    var incomeCategories by remember { mutableStateOf(DefaultIncomeCategories) }
-    var paymentMethods by remember { mutableStateOf(listOf("微信支付", "支付宝", "银行卡", "现金")) }
-    var creditChannels by remember { mutableStateOf<List<CreditChannel>>(emptyList()) }
 
     // 记账输入状态
     var inputAmountString by rememberSaveable { mutableStateOf("0") }
@@ -84,7 +90,6 @@ fun LedgerScreen(
     var selectedCityCode by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedCityName by rememberSaveable { mutableStateOf<String?>(null) }
     var txOccurredAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
-    var hasInitializedLedger by rememberSaveable { mutableStateOf(false) }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -100,22 +105,31 @@ fun LedgerScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (selectedCityCode.isNullOrBlank()) {
-            if (LocationHelper.hasLocationPermission(context)) {
-                val loc = LocationHelper.getCurrentLocation(context)
-                if (loc != null && !loc.cityCode.isNullOrBlank()) {
-                    selectedCityCode = loc.cityCode
-                    selectedCityName = loc.cityName
-                }
-            } else {
-                locationPermissionLauncher.launch(
-                    arrayOf(
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    )
+    fun applyLocation(loc: LocationHelper.ResolvedLocation?) {
+        if (loc != null && !loc.cityCode.isNullOrBlank()) {
+            selectedCityCode = loc.cityCode
+            selectedCityName = loc.cityName
+        }
+    }
+
+    fun requestCurrentLocation() {
+        if (LocationHelper.hasLocationPermission(context)) {
+            scope.launch { applyLocation(LocationHelper.getCurrentLocation(context)) }
+        } else {
+            // 只有用户主动点「定位」时才申请权限
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
                 )
-            }
+            )
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        // 已授权则静默补全；未授权不再一进页面就弹系统权限框
+        if (selectedCityCode.isNullOrBlank() && LocationHelper.hasLocationPermission(context)) {
+            applyLocation(LocationHelper.getCurrentLocation(context))
         }
     }
 
@@ -125,9 +139,6 @@ fun LedgerScreen(
     var installmentMonths by remember { mutableStateOf(12) }
     var repaymentDay by remember { mutableStateOf(10) }
 
-    // 资产大盘数据
-    var assetsOverview by remember { mutableStateOf<AssetsOverview?>(null) }
-    var isLoadingAssets by remember { mutableStateOf(false) }
     var isPrivacyMasked by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
 
     // 对话框状态
@@ -143,39 +154,22 @@ fun LedgerScreen(
         mutableStateOf(YearMonth.now(FormatUtils.BeijingZone))
     }
 
-    suspend fun reloadCategoriesAndAssets(forceLoadingSpinner: Boolean = false) {
-        runCatching {
-            val allCats = apiClient.fetchCategories()
-            val exp = allCats.filter { it.scope == "expense" }.map { it.name }
-            if (exp.isNotEmpty()) expenseCategories = exp
-            val inc = allCats.filter { it.scope == "income" }.map { it.name }
-            if (inc.isNotEmpty()) incomeCategories = inc
-            val pay = allCats.filter { it.scope == "payment" }.map { it.name }
-            if (pay.isNotEmpty()) {
-                paymentMethods = pay
-                if (selectedPaymentMethod !in pay) selectedPaymentMethod = pay.first()
-            }
+    suspend fun reloadCategoriesAndAssets(
+        forceLoadingSpinner: Boolean = false,
+        force: Boolean = false
+    ) {
+        LedgerRepository.refreshAll(apiClient, force = force, showSpinner = forceLoadingSpinner)
+        val latest = LedgerRepository.snapshot.value
+        if (latest.paymentMethods.isNotEmpty() && selectedPaymentMethod !in latest.paymentMethods) {
+            selectedPaymentMethod = latest.paymentMethods.first()
         }
-        runCatching {
-            creditChannels = apiClient.fetchCreditChannels()
-            if (creditChannels.isNotEmpty() && creditChannels.none { it.code == installmentChannelCode }) {
-                installmentChannelCode = creditChannels.first().code
-            }
-        }
-        runCatching {
-            if (forceLoadingSpinner || assetsOverview == null) {
-                isLoadingAssets = true
-            }
-            assetsOverview = apiClient.fetchAssetsOverview()
-            isLoadingAssets = false
+        if (latest.creditChannels.isNotEmpty() && latest.creditChannels.none { it.code == installmentChannelCode }) {
+            installmentChannelCode = latest.creditChannels.first().code
         }
     }
 
-    LaunchedEffect(hasInitializedLedger) {
-        if (!hasInitializedLedger) {
-            reloadCategoriesAndAssets(forceLoadingSpinner = false)
-            hasInitializedLedger = true
-        }
+    LaunchedEffect(Unit) {
+        reloadCategoriesAndAssets(forceLoadingSpinner = false)
     }
 
     val activeCategories = if (selectedType == "income") incomeCategories else expenseCategories
@@ -294,7 +288,7 @@ fun LedgerScreen(
                         onClick = {
                             scope.launch {
                                 syncManager.pullRemoteData()
-                                reloadCategoriesAndAssets()
+                                reloadCategoriesAndAssets(force = true)
                                 ArchiveToastManager.show("账簿与资产已对齐")
                             }
                         }
@@ -520,6 +514,29 @@ fun LedgerScreen(
                                     },
                                     placeholder = "选择城市…"
                                 )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    TextButton(
+                                        onClick = { requestCurrentLocation() },
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.MyLocation,
+                                            contentDescription = null,
+                                            tint = colors.accentWarm,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "使用当前定位",
+                                            fontFamily = ArchiveFontFamilies.BodySans,
+                                            fontSize = 11.sp,
+                                            color = colors.accentWarm
+                                        )
+                                    }
+                                }
 
                                 // 支出模式下的分期支持开关
                                 if (selectedType == "expense") {
@@ -653,10 +670,9 @@ fun LedgerScreen(
                         // 记入账本提交按钮
                         TerracottaStampButton(
                             text = "记入账本",
-                            enabled = inputAmountString != "0" && inputAmountString.toDoubleOrNull() != 0.0,
+                            enabled = FormatUtils.yuanStringToCents(inputAmountString) > 0,
                             onClick = {
-                                val amountDouble = inputAmountString.toDoubleOrNull() ?: 0.0
-                                val amountCents = (amountDouble * 100.0).roundToLong()
+                                val amountCents = FormatUtils.yuanStringToCents(inputAmountString)
                                 if (amountCents <= 0) return@TerracottaStampButton
 
                                 val title = if (noteText.isNotBlank()) noteText.trim() else selectedCategory
@@ -700,9 +716,26 @@ fun LedgerScreen(
                         onMonthChange = { selectedYearMonth = it },
                         onEdit = { editingTransaction = it },
                         onDelete = { tx ->
-                            scope.launch {
-                                syncManager.deleteTransaction(tx.id)
-                                ArchiveToastManager.show("已删除记账明细")
+                            val performDelete: () -> Unit = {
+                                scope.launch {
+                                    syncManager.deleteTransaction(tx.id)
+                                    ArchiveToastManager.show("已删除记账明细")
+                                    LedgerRepository.refreshAssets(apiClient)
+                                }
+                            }
+                            val activity = context as? FragmentActivity
+                            if (credentialStore.isBiometricsEnabled && activity != null &&
+                                BiometricHelper.canAuthenticate(activity)
+                            ) {
+                                BiometricHelper.authenticate(
+                                    activity = activity,
+                                    title = "验证以删除账目",
+                                    subtitle = "删除收支记录需要二次身份确认",
+                                    onSuccess = { performDelete() },
+                                    onError = { msg -> ArchiveToastManager.show(msg, isError = true) }
+                                )
+                            } else {
+                                performDelete()
                             }
                         },
                         modifier = Modifier.weight(1f)
@@ -957,7 +990,7 @@ fun LedgerScreen(
                     scope.launch {
                         runCatching {
                             apiClient.updateLiquidBalance(cents)
-                            assetsOverview = apiClient.fetchAssetsOverview()
+                            LedgerRepository.refreshAssets(apiClient)
                             ArchiveToastManager.show("流动资金底数已校准")
                         }
                         showCalibrateBalanceDialog = false
@@ -1008,7 +1041,7 @@ fun LedgerScreen(
                                     createTransaction = isAutoTx && cents > 0
                                 )
                             )
-                            assetsOverview = apiClient.fetchAssetsOverview()
+                            LedgerRepository.refreshAssets(apiClient)
                             syncManager.pullRemoteData()
                             ArchiveToastManager.show("装备已入库")
                         }
@@ -1073,7 +1106,7 @@ fun LedgerScreen(
                                     note = sellNote.trim()
                                 )
                             )
-                            assetsOverview = apiClient.fetchAssetsOverview()
+                            LedgerRepository.refreshAssets(apiClient)
                             syncManager.pullRemoteData()
                             ArchiveToastManager.show("已变卖归档并入账")
                         }
@@ -1108,7 +1141,7 @@ fun LedgerScreen(
                             scope.launch {
                                 runCatching {
                                     apiClient.deleteGearAsset(gear.id)
-                                    assetsOverview = apiClient.fetchAssetsOverview()
+                                    LedgerRepository.refreshAssets(apiClient)
                                     ArchiveToastManager.show("已彻底删除该设备记录")
                                 }
                                 sellingGearItem = null
@@ -1129,7 +1162,7 @@ fun LedgerScreen(
                 apiClient = apiClient,
                 onDismiss = { showCreditChannelsDialog = false },
                 onChannelsChanged = {
-                    scope.launch { reloadCategoriesAndAssets() }
+                    scope.launch { reloadCategoriesAndAssets(force = true) }
                 }
             )
         }
@@ -1140,7 +1173,7 @@ fun LedgerScreen(
                 apiClient = apiClient,
                 onDismiss = { showCategoriesManagerDialog = false },
                 onCategoriesChanged = {
-                    scope.launch { reloadCategoriesAndAssets() }
+                    scope.launch { reloadCategoriesAndAssets(force = true) }
                 }
             )
         }
@@ -1165,8 +1198,8 @@ private fun TransactionsLedgerTab(
 
     // 过滤属于选中年月的明细
     val monthTransactions = remember(transactions, selectedYearMonth) {
-        val targetPrefix = String.format("%04d-%02d", selectedYearMonth.year, selectedYearMonth.monthValue)
-        val targetDotPrefix = String.format("%04d.%02d", selectedYearMonth.year, selectedYearMonth.monthValue)
+        val targetPrefix = String.format(java.util.Locale.US, "%04d-%02d", selectedYearMonth.year, selectedYearMonth.monthValue)
+        val targetDotPrefix = String.format(java.util.Locale.US, "%04d.%02d", selectedYearMonth.year, selectedYearMonth.monthValue)
         transactions.filter { tx ->
             tx.occurredAt.startsWith(targetPrefix) || tx.occurredAt.startsWith(targetDotPrefix)
         }
@@ -1288,7 +1321,7 @@ private fun TransactionsLedgerTab(
                                     modifier = Modifier
                                         .weight(weight)
                                         .fillMaxHeight()
-                                        .background(SpectrumColors.colorForCategory(cat))
+                                        .background(SpectrumColors.colorForCategory(cat, LooseLeafTheme.colors.isDark))
                                 )
                             }
                         }
@@ -1309,7 +1342,7 @@ private fun TransactionsLedgerTab(
                                         modifier = Modifier
                                             .size(6.dp)
                                             .clip(RoundedCornerShape(3.dp))
-                                            .background(SpectrumColors.colorForCategory(cat))
+                                            .background(SpectrumColors.colorForCategory(cat, LooseLeafTheme.colors.isDark))
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
@@ -1347,7 +1380,7 @@ private fun TransactionsLedgerTab(
                 val isIncome = tx.type == "income"
                 val sign = if (isIncome) "+" else "-"
                 val displayAmount = if (isPrivacyMasked) "****" else "$sign${FormatUtils.centsToYuanString(tx.amount)}"
-                val spectrum = SpectrumColors.colorForCategory(tx.category)
+                val spectrum = SpectrumColors.colorForCategory(tx.category, LooseLeafTheme.colors.isDark)
 
                 PaperCard(
                     modifier = Modifier
