@@ -24,3 +24,9 @@ Captures
 
 # Kotlin 会话缓存
 /.kotlin/
+
+# 发布签名密钥 (MOB-P2-57)：口令与密钥文件都不进仓库
+# 发布流水线从 GitHub Secret（LOOSELEAF_KEYSTORE_BASE64）解出密钥
+app/release.keystore
+*.keystore
+*.jks
