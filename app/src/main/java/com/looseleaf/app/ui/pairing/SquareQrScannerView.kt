@@ -218,6 +218,8 @@ fun SquareQrScannerView(
                         }
 
                         var lastScannedTime = 0L
+                        // 帧缓冲区在 Analyzer 生命周期内复用，不再每帧分配 ~1MB+
+                        val frameScratch = QrFrameScratch()
 
                         imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
                             val now = System.currentTimeMillis()
@@ -226,7 +228,7 @@ fun SquareQrScannerView(
                                 return@setAnalyzer
                             }
 
-                            val result = decodeQrFromImage(imageProxy, multiFormatReader)
+                            val result = decodeQrFromImage(imageProxy, multiFormatReader, frameScratch)
                             if (!result.isNullOrBlank()) {
                                 lastScannedTime = now
                                 imageProxy.close()
@@ -363,61 +365,87 @@ fun SquareQrScannerView(
 }
 
 /**
+ * 扫码帧的复用缓冲区（AOPT-09a）。
+ *
+ * 每帧 1280×720 时原实现要新建 ~1.8MB 的 ByteArray，30fps 下每秒约 55MB 临时分配，
+ * 未识别阶段会被 GC 追着跑。缓冲区按最大帧尺寸惰性扩容后长期复用。
+ */
+private class QrFrameScratch {
+    var yBytes: ByteArray = ByteArray(0)
+    var rotBytes: ByteArray = ByteArray(0)
+
+    fun ensure(size: Int) {
+        if (yBytes.size < size) yBytes = ByteArray(size)
+        if (rotBytes.size < size) rotBytes = ByteArray(size)
+    }
+}
+
+/**
  * 从 CameraX 图像帧解码二维码：
  * 1. 严格跳过硬件 rowStride padding（解决 vivo/小米/华为画面斜向拉丝错位）
- * 2. 依据传感器旋转角度（0/90/180/270）执行正交旋转
- * 3. 双重二值化（HybridBinarizer + GlobalHistogramBinarizer 防屏幕反光）
+ * 2. 只取画面中央正方形 ROI（取景框区域），计算量降低约 44%
+ * 3. 依据传感器旋转角度（0/90/180/270）执行正交旋转
+ * 4. 双重二值化（HybridBinarizer + GlobalHistogramBinarizer 防屏幕反光）
  */
-private fun decodeQrFromImage(image: ImageProxy, reader: MultiFormatReader): String? {
+private fun decodeQrFromImage(
+    image: ImageProxy,
+    reader: MultiFormatReader,
+    scratch: QrFrameScratch = QrFrameScratch()
+): String? {
     val plane = image.planes[0]
     val buffer = plane.buffer
     val rowStride = plane.rowStride
-    val width = image.width
-    val height = image.height
+    val fullWidth = image.width
+    val fullHeight = image.height
 
-    // 1. 去除硬件 rowStride 对齐填充
-    val yBytes = ByteArray(width * height)
-    val rowBuffer = ByteArray(width)
-    for (row in 0 until height) {
-        buffer.position(row * rowStride)
-        buffer.get(yBytes, row * width, width)
+    // 中央正方形 ROI：与 1:1 取景框一致，二维码一定在框内
+    val side = minOf(fullWidth, fullHeight)
+    val offX = (fullWidth - side) / 2
+    val offY = (fullHeight - side) / 2
+    scratch.ensure(side * side)
+    val yBytes = scratch.yBytes
+
+    // 1. 去除硬件 rowStride 对齐填充，仅拷贝中央方块
+    for (row in 0 until side) {
+        buffer.position((row + offY) * rowStride + offX)
+        buffer.get(yBytes, row * side, side)
     }
 
     val rotation = image.imageInfo.rotationDegrees
 
-    // 2. 依据旋转角度校正像素数组
+    // 2. 依据旋转角度校正像素数组（side × side，复用 rot 缓冲）
     val (rotatedBytes, rotW, rotH) = when (rotation) {
         90 -> {
-            val rot = ByteArray(width * height)
+            val rot = scratch.rotBytes
             var i = 0
-            for (x in 0 until width) {
-                for (y in height - 1 downTo 0) {
-                    rot[i++] = yBytes[y * width + x]
+            for (x in 0 until side) {
+                for (y in side - 1 downTo 0) {
+                    rot[i++] = yBytes[y * side + x]
                 }
             }
-            Triple(rot, height, width)
+            Triple(rot, side, side)
         }
         270 -> {
-            val rot = ByteArray(width * height)
+            val rot = scratch.rotBytes
             var i = 0
-            for (x in width - 1 downTo 0) {
-                for (y in 0 until height) {
-                    rot[i++] = yBytes[y * width + x]
+            for (x in side - 1 downTo 0) {
+                for (y in 0 until side) {
+                    rot[i++] = yBytes[y * side + x]
                 }
             }
-            Triple(rot, height, width)
+            Triple(rot, side, side)
         }
         180 -> {
-            val rot = ByteArray(width * height)
+            val rot = scratch.rotBytes
             var i = 0
-            for (y in height - 1 downTo 0) {
-                for (x in width - 1 downTo 0) {
-                    rot[i++] = yBytes[y * width + x]
+            for (y in side - 1 downTo 0) {
+                for (x in side - 1 downTo 0) {
+                    rot[i++] = yBytes[y * side + x]
                 }
             }
-            Triple(rot, width, height)
+            Triple(rot, side, side)
         }
-        else -> Triple(yBytes, width, height)
+        else -> Triple(yBytes, side, side)
     }
 
     // 3. 执行识别 (双重二值化重试机制，大幅提升在电脑屏幕与反光环境下的识别率)

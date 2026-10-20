@@ -238,42 +238,6 @@ object ImagePipeline {
     }
 
     /**
-     * 处理现场相机快门直拍 Bitmap
-     */
-    suspend fun processCapturedBitmap(
-        bitmap: Bitmap,
-        deviceModel: String? = android.os.Build.MODEL
-    ): ProcessedImageResult = withContext(Dispatchers.IO) {
-        val currentMax = max(bitmap.width, bitmap.height)
-        val scaledBitmap = if (currentMax > MAX_EDGE) {
-            val scale = MAX_EDGE.toFloat() / currentMax
-            val matrix = Matrix().apply { postScale(scale, scale) }
-            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true).also {
-                if (it !== bitmap) bitmap.recycle()
-            }
-        } else {
-            bitmap
-        }
-        val outStream = ByteArrayOutputStream(512 * 1024)
-        scaledBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, outStream)
-        val bytes = outStream.toByteArray()
-        val finalWidth = scaledBitmap.width
-        val finalHeight = scaledBitmap.height
-        if (scaledBitmap !== bitmap) scaledBitmap.recycle()
-
-        ProcessedImageResult(
-            compressedBytes = bytes,
-            width = finalWidth,
-            height = finalHeight,
-            mimeType = "image/jpeg",
-            exif = ExtractedExif(
-                make = android.os.Build.MANUFACTURER?.uppercase(),
-                model = deviceModel ?: "现场快门直拍"
-            )
-        )
-    }
-
-    /**
      * 执行统一媒体直传与多重降级管线：
      * 1. 尝试请求 POST /api/v1/uploads/presign 获取直传授权
      * 2. 执行 HTTP PUT 直传 R2 存储桶

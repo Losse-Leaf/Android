@@ -44,6 +44,7 @@ import coil.request.ImageRequest
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.local.LedgerRepository
 import com.looseleaf.app.data.local.ProfileRepository
+import com.looseleaf.app.data.security.AppearanceMode
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.model.CuratorProfile
@@ -75,7 +76,7 @@ import java.io.ByteArrayOutputStream
 fun ProfileScreen(
     onUnpair: () -> Unit,
     modifier: Modifier = Modifier,
-    onDarkroomModeChanged: (Boolean) -> Unit = {}
+    onAppearanceModeChanged: (AppearanceMode) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -92,7 +93,7 @@ fun ProfileScreen(
     var profile by remember(repoProfile) { mutableStateOf(repoProfile ?: cachedProfile) }
     var siteConfig by remember(repoSiteConfig) { mutableStateOf(repoSiteConfig ?: cachedSiteConfig) }
     var localAvatarPreviewUri by remember { mutableStateOf<Uri?>(null) }
-    var isDarkroomMode by remember { mutableStateOf(credentialStore.isDarkroomMode) }
+    var appearanceMode by remember { mutableStateOf(credentialStore.appearanceMode) }
     var isBiometricsEnabled by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
     var showUnpairDialog by remember { mutableStateOf(false) }
     var showStorageBackupDialog by remember { mutableStateOf(false) }
@@ -689,24 +690,48 @@ fun ProfileScreen(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                            Text("深色纸墨外观 (Dark Theme)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
-                            Text("碳黑宣纸底色与暗房安全灯赤红", fontSize = 11.sp, color = colors.inkMuted)
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text("纸墨外观 (Appearance)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
+                        Text("跟随系统 / 暖色棉纸 / 暗房安全灯，三态可切", fontSize = 11.sp, color = colors.inkMuted)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val options = listOf(
+                                AppearanceMode.SYSTEM to "跟随系统",
+                                AppearanceMode.PAPER to "暖色棉纸",
+                                AppearanceMode.DARKROOM to "暗房"
+                            )
+                            options.forEach { (mode, label) ->
+                                val selected = appearanceMode == mode
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (selected) colors.accentWarm else colors.archiveSubtle)
+                                        .border(
+                                            0.5.dp,
+                                            if (selected) colors.accentWarm else colors.borderDivider,
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable {
+                                            appearanceMode = mode
+                                            credentialStore.appearanceMode = mode
+                                            onAppearanceModeChanged(mode)
+                                        }
+                                        .padding(vertical = 7.dp)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                        fontSize = 12.sp,
+                                        color = if (selected) colors.archivePaper else colors.inkSecondary
+                                    )
+                                }
+                            }
                         }
-                        Switch(
-                            checked = isDarkroomMode,
-                            onCheckedChange = {
-                                isDarkroomMode = it
-                                credentialStore.isDarkroomMode = it
-                                onDarkroomModeChanged(it)
-                            },
-                            colors = SwitchDefaults.colors(checkedThumbColor = colors.accentWarm, checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f))
-                        )
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))

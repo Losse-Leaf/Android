@@ -7,6 +7,13 @@ import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
+/** 外观三态（AOPT-08c）：跟随系统 / 暖色棉纸 / 暗房安全灯 */
+enum class AppearanceMode {
+    SYSTEM,
+    PAPER,
+    DARKROOM
+}
+
 /**
  * 本机凭据保险箱 (CredentialStore)
  *
@@ -29,6 +36,7 @@ class CredentialStore private constructor(context: Context) {
         private const val KEY_DEVICE_NAME = "device_name"
         private const val KEY_BIOMETRICS_ENABLED = "biometrics_enabled"
         private const val KEY_DARKROOM_MODE = "darkroom_mode"
+        private const val KEY_APPEARANCE_MODE = "appearance_mode"
         private const val KEY_CACHED_PROFILE = "cached_profile_json"
         private const val KEY_CACHED_SITE_CONFIG = "cached_site_config_json"
 
@@ -139,6 +147,32 @@ class CredentialStore private constructor(context: Context) {
         get() = settings.getBoolean(KEY_DARKROOM_MODE, false)
         set(value) {
             settings.edit().putBoolean(KEY_DARKROOM_MODE, value).apply()
+        }
+
+    /**
+     * 外观三态（AOPT-08c）：跟随系统 / 暖色棉纸 / 暗房安全灯。
+     *
+     * 存储上仍以 isDarkroomMode 布尔为事实源并追加 mode 键：
+     * 旧版只写了布尔值，读取时若 mode 键缺失则按布尔回退，升级用户外观不跳变。
+     */
+    var appearanceMode: AppearanceMode
+        get() {
+            val raw = settings.getString(KEY_APPEARANCE_MODE, null)
+            if (raw != null) {
+                return runCatching { AppearanceMode.valueOf(raw) }.getOrDefault(AppearanceMode.SYSTEM)
+            }
+            return if (settings.getBoolean(KEY_DARKROOM_MODE, false)) {
+                AppearanceMode.DARKROOM
+            } else {
+                AppearanceMode.PAPER
+            }
+        }
+        set(value) {
+            settings.edit()
+                .putString(KEY_APPEARANCE_MODE, value.name)
+                // 同步旧布尔键，保证未读取新键的代码路径行为一致
+                .putBoolean(KEY_DARKROOM_MODE, value == AppearanceMode.DARKROOM)
+                .apply()
         }
 
     var cachedProfileJson: String?

@@ -105,6 +105,8 @@ fun createArchiveTypography(colors: ArchiveColors): Typography {
             fontWeight = FontWeight.Medium,
             fontSize = 14.sp,
             lineHeight = 18.sp,
+            // tnum：等宽表格数字，保证金额列严格对齐（AOPT-08c）
+            fontFeatureSettings = "tnum",
             color = colors.inkPrimary
         ),
         labelMedium = TextStyle(
@@ -112,6 +114,7 @@ fun createArchiveTypography(colors: ArchiveColors): Typography {
             fontWeight = FontWeight.Normal,
             fontSize = 12.sp,
             lineHeight = 16.sp,
+            fontFeatureSettings = "tnum",
             color = colors.inkSecondary
         ),
         labelSmall = TextStyle(
@@ -119,6 +122,7 @@ fun createArchiveTypography(colors: ArchiveColors): Typography {
             fontWeight = FontWeight.Normal,
             fontSize = 10.sp,
             lineHeight = 14.sp,
+            fontFeatureSettings = "tnum",
             color = colors.inkMuted
         )
     )

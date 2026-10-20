@@ -36,11 +36,13 @@ import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -172,31 +174,17 @@ fun StreamScreen(
         runCatching { remoteOnThisDay = apiClient.fetchOnThisDay().entries }
     }
 
-    // 合并云端那年今日与本地往年同月同日条目
-    val onThisDayEntries = remember(entries, remoteOnThisDay) {
-        if (remoteOnThisDay.isNotEmpty()) {
-            remoteOnThisDay
-        } else {
-            val today = LocalDate.now(FormatUtils.BeijingZone)
-            val todayMonthDay = String.format(java.util.Locale.US, "%02d.%02d", today.monthValue, today.dayOfMonth)
-            val thisYearPrefix = "${today.year}."
-            entries.filter { entry ->
-                val formatted = FormatUtils.formatDisplayDate(entry.occurredAt)
-                formatted.length >= 10 &&
-                    !formatted.startsWith(thisYearPrefix) &&
-                    formatted.substring(5, 10) == todayMonthDay
-            }
-        }
+    // 合并云端那年今日与本地往年同月同日条目：
+    // 本地匹配已在 SyncManager 的 Default 线程管道里完成（AOPT-03c），此处只做选择
+    val localOnThisDay by syncManager.localOnThisDayFlow.collectAsStateWithLifecycle()
+    val onThisDayEntries = remember(localOnThisDay, remoteOnThisDay) {
+        remoteOnThisDay.ifEmpty { localOnThisDay }
     }
 
     var selectedYear by rememberSaveable { mutableStateOf<Int?>(null) }
 
-    val availableYears = remember(entries) {
-        entries.mapNotNull { entry ->
-            val date = entry.occurredAt
-            if (date.length >= 4) date.substring(0, 4).toIntOrNull() else null
-        }.distinct().sortedDescending()
-    }
+    // 年份列表同样来自后台派生流，不在 composition 里遍历全表
+    val availableYears by syncManager.availableYearsFlow.collectAsStateWithLifecycle()
 
     val filteredEntries = remember(entries, selectedFilter, selectedYear) {
         var list = entries
@@ -206,6 +194,37 @@ fun StreamScreen(
             }
         }
         list.filter { entryMatchesFilter(it, selectedFilter) }
+    }
+
+    // 把「与上一条的间隔天数」一次性算好：LazyColumn 滚动期只读字段，
+    // 不再每条都在主线程解析两次 ISO 时间串（AOPT-03b）
+    val streamRows = remember(filteredEntries) {
+        filteredEntries.mapIndexed { index, entry ->
+            StreamRowItem(
+                entry = entry,
+                gapDays = if (index == 0) 0L else FormatUtils.calculateDaysBetween(
+                    entry.occurredAt,
+                    filteredEntries[index - 1].occurredAt
+                )
+            )
+        }
+    }
+
+    // 下拉刷新与顶栏按钮共用的同步动作（AOPT-06）
+    val refreshArchive: () -> Unit = {
+        if (!isRefreshing) {
+            scope.launch {
+                isRefreshing = true
+                val res = syncManager.pullRemoteData()
+                runCatching { remoteOnThisDay = apiClient.fetchOnThisDay().entries }
+                isRefreshing = false
+                if (res.isSuccess) {
+                    ArchiveToastManager.show("档案已增量同步")
+                } else {
+                    ArchiveToastManager.show(res.exceptionOrNull()?.message ?: "同步未完成", isError = true)
+                }
+            }
+        }
     }
 
     NoiseBackground(modifier = modifier) {
@@ -245,7 +264,7 @@ fun StreamScreen(
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     if (pendingCount > 0) {
                         Row(
@@ -315,28 +334,14 @@ fun StreamScreen(
                         onClick = {
                             showSearchDialog = true
                         },
-                        modifier = Modifier.size(32.dp)
+                        // 40dp 而非 32dp：右上角本就是单手最难触达的盲区，热区不能再缩
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Search,
                             contentDescription = "检索",
                             tint = colors.inkPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    // + 记随笔入口
-                    IconButton(
-                        onClick = {
-                            showQuickNoteDialog = true
-                        },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Edit,
-                            contentDescription = "记随笔",
-                            tint = colors.accentWarm,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
@@ -345,40 +350,26 @@ fun StreamScreen(
                         onClick = {
                             showAlmanacDialog = true
                         },
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.AutoStories,
                             contentDescription = "年度年鉴",
                             tint = colors.inkPrimary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
                     // 同步刷新按钮
                     IconButton(
-                        onClick = {
-                            scope.launch {
-                                isRefreshing = true
-                                val res = syncManager.pullRemoteData()
-                                runCatching {
-                                    remoteOnThisDay = apiClient.fetchOnThisDay().entries
-                                }
-                                isRefreshing = false
-                                if (res.isSuccess) {
-                                    ArchiveToastManager.show("档案已增量同步")
-                                } else {
-                                    ArchiveToastManager.show(res.exceptionOrNull()?.message ?: "同步未完成", isError = true)
-                                }
-                            }
-                        },
-                        modifier = Modifier.size(32.dp)
+                        onClick = refreshArchive,
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Refresh,
                             contentDescription = "同步刷新",
                             tint = if (isRefreshing) colors.accentWarm else colors.inkSecondary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -542,13 +533,24 @@ fun StreamScreen(
                     }
                 }
             } else {
-                LazyColumn(
-                    state = listState,
+                // 原生下拉刷新手势（AOPT-06）：列表滚到顶继续下拉即可同步，
+                // 不再依赖右上角那颗 40dp 图标
+                PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = refreshArchive,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                ) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
                         .padding(horizontal = 16.dp),
-                    contentPadding = PaddingValues(top = 10.dp, bottom = 84.dp)
+                    // 外层 Scaffold 已按 LooseLeafBottomBar 扣除 innerPadding；
+                    // 这里的底部留白专门留给右下角「记随笔」浮动印章（56dp FAB + 16dp 边距 + 16dp 呼吸），
+                    // 否则滚到底时最后一张卡片会被 FAB 压住
+                    contentPadding = PaddingValues(top = 10.dp, bottom = 88.dp)
                 ) {
                     // 52周时光生活刻度热力图
                     item(key = "life_activity_heatmap") {
@@ -575,27 +577,28 @@ fun StreamScreen(
                         }
                     }
 
-                    itemsIndexed(
-                        items = filteredEntries,
-                        key = { _, entry -> entry.id }
-                    ) { index, entry ->
+                    // 滚动期的日期解析全部预计算：原来在 itemsIndexed 渲染块里
+                    // 每条都要解析两次 ISO 字符串，快速滑动时主线程出现帧毛刺（AOPT-03b）
+                    items(
+                        items = streamRows,
+                        key = { row -> row.entry.id },
+                        contentType = { row ->
+                            if (row.entry.attachments.isEmpty()) "text_entry" else "media_entry"
+                        }
+                    ) { row ->
                         // 岁月留白刻度：若与上一条时间跨度 >= 14 天，自动插入切线
-                        if (index > 0) {
-                            val prev = filteredEntries[index - 1]
-                            val daysBetween = FormatUtils.calculateDaysBetween(entry.occurredAt, prev.occurredAt)
-                            if (daysBetween >= 14) {
-                                TemporalGapSeparator(days = daysBetween)
-                            }
+                        if (row.gapDays >= 14) {
+                            TemporalGapSeparator(days = row.gapDays)
                         }
 
                         StreamEntryCard(
-                            entry = entry,
+                            entry = row.entry,
                             apiClient = apiClient,
                             onClick = {
-                                selectedEntryForDetail = entry
+                                selectedEntryForDetail = row.entry
                             },
                             onDelete = {
-                                entryToDelete = entry
+                                entryToDelete = row.entry
                             },
                             onPhotoClick = { url, meta ->
                                 lightboxPhoto = url to meta
@@ -604,7 +607,33 @@ fun StreamScreen(
                         )
                     }
                 }
+                }
             }
+        }
+
+        // 「记随笔」纸上浮动印章：右下角单手拇指热区，替代原顶栏右上角 32dp 图标
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 20.dp)
+                .size(56.dp)
+                .shadow(
+                    elevation = 6.dp,
+                    shape = CircleShape,
+                    spotColor = colors.frameShadowSpot,
+                    ambientColor = colors.frameShadowAmbient
+                )
+                .clip(CircleShape)
+                .background(colors.accentWarm)
+                .clickable(role = Role.Button) { showQuickNoteDialog = true }
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Edit,
+                contentDescription = "记随笔",
+                tint = colors.archivePaper,
+                modifier = Modifier.size(24.dp)
+            )
         }
 
         // 单条记录详情与编辑 Sheet/Dialog
@@ -630,51 +659,89 @@ fun StreamScreen(
         }
 
         // 失败事件处置：重试或放弃（放弃仅移除发件箱事件，本地记录保留）
+        // 统一为纸墨 Dialog（AOPT-08b）：原 Material3 AlertDialog 的圆角/排版与全站不一致
         if (showFailedEventsDialog) {
-            AlertDialog(
+            Dialog(
                 onDismissRequest = { showFailedEventsDialog = false },
-                title = {
-                    Text(
-                        "处置 $failedCount 条失败记录",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif
-                    )
-                },
-                text = {
-                    Text(
-                        "重试会清空失败态并重新排队；放弃则移除这些发件箱事件" +
-                            "（本地记录与「待同步」标记保留，便于排查）。",
-                        fontFamily = ArchiveFontFamilies.BodySans,
-                        fontSize = 13.sp
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        showFailedEventsDialog = false
-                        scope.launch {
-                            ArchiveToastManager.show("正在重试 $failedCount 条失败记录…")
-                            syncManager.retryFailedEvents()
-                        }
-                    }) {
-                        Text("全部重试", color = colors.accentWarm)
-                    }
-                },
-                dismissButton = {
-                    Row {
-                        TextButton(onClick = {
-                            showFailedEventsDialog = false
-                            scope.launch {
-                                syncManager.discardFailedEvents()
-                                ArchiveToastManager.show("已放弃失败事件；本地记录保留")
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = true
+                )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(28.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 380.dp)
+                            .shadow(
+                                elevation = 8.dp,
+                                shape = RoundedCornerShape(4.dp),
+                                spotColor = colors.frameShadowSpot,
+                                ambientColor = colors.frameShadowAmbient
+                            )
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(colors.archivePaper)
+                            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 22.dp, vertical = 20.dp)
+                    ) {
+                        Text(
+                            text = "处置 $failedCount 条失败记录",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 18.sp,
+                            color = colors.inkPrimary
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "重试会清空失败态并重新排队；放弃则移除这些发件箱事件" +
+                                "（本地记录与「待同步」标记保留，便于排查）。点卡片外部可稍后处理。",
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp,
+                            color = colors.inkSecondary
+                        )
+                        Spacer(modifier = Modifier.height(18.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(onClick = {
+                                showFailedEventsDialog = false
+                                scope.launch {
+                                    syncManager.discardFailedEvents()
+                                    ArchiveToastManager.show("已放弃失败事件；本地记录保留")
+                                }
+                            }) {
+                                Text("放弃", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp, color = colors.inkMuted)
                             }
-                        }) {
-                            Text("放弃", color = colors.inkMuted)
-                        }
-                        TextButton(onClick = { showFailedEventsDialog = false }) {
-                            Text("暂不处理", color = colors.inkMuted)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Button(
+                                onClick = {
+                                    showFailedEventsDialog = false
+                                    scope.launch {
+                                        ArchiveToastManager.show("正在重试 $failedCount 条失败记录…")
+                                        syncManager.retryFailedEvents()
+                                    }
+                                },
+                                shape = RoundedCornerShape(2.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.accentWarm,
+                                    contentColor = colors.archivePaper
+                                )
+                            ) {
+                                Text("全部重试", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp)
+                            }
                         }
                     }
                 }
-            )
+            }
         }
 
         // 撕除确认弹窗
@@ -2337,6 +2404,16 @@ private fun GlobalSearchDialog(
     }
 }
 
+/**
+ * 时间流列表行：把「距上一条的天数」预计算进不可变行对象，
+ * 让 LazyColumn 滚动期只做字段读取（AOPT-03b）。
+ */
+@Immutable
+private data class StreamRowItem(
+    val entry: LifeEntry,
+    val gapDays: Long
+)
+
 private data class AttachedPhotoItem(
     val previewUri: String,
     val processed: ProcessedImageResult,
@@ -2358,18 +2435,37 @@ private fun QuickNoteSheet(
     val projects by syncManager.projectsFlow.collectAsStateWithLifecycle()
     val footprints by syncManager.footprintsFlow.collectAsStateWithLifecycle()
 
-    var noteType by remember { mutableStateOf("life") } // "life", "travel", "project", "wish"
+    // 草稿防丢（AOPT-07b）：标题/正文/类型/属地绑定到 SharedPreferences，
+    // 意外下拉关闭或按返回键后重新打开自动恢复；提交成功才清空
+    val draftPrefs = remember {
+        context.getSharedPreferences("quick_note_draft", android.content.Context.MODE_PRIVATE)
+    }
+
+    var noteType by remember {
+        mutableStateOf(draftPrefs.getString("type", "life") ?: "life")
+    } // "life", "travel", "project", "wish"
 
     // 日常与通用手记字段
-    var noteTitle by remember { mutableStateOf("") }
-    var noteContent by remember { mutableStateOf("") }
-    var noteCityCode by remember { mutableStateOf<String?>(null) }
-    var noteCityName by remember { mutableStateOf<String?>(null) }
-    var noteLocation by remember { mutableStateOf("") }
+    var noteTitle by remember { mutableStateOf(draftPrefs.getString("title", "").orEmpty()) }
+    var noteContent by remember { mutableStateOf(draftPrefs.getString("content", "").orEmpty()) }
+    var noteCityCode by remember { mutableStateOf(draftPrefs.getString("city_code", null)) }
+    var noteCityName by remember { mutableStateOf(draftPrefs.getString("city_name", null)) }
+    var noteLocation by remember { mutableStateOf(draftPrefs.getString("location", "").orEmpty()) }
     var isLocating by remember { mutableStateOf(false) }
     var noteFeatured by remember { mutableStateOf(false) }
     var noteOccurredAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
     var isSubmitting by remember { mutableStateOf(false) }
+
+    LaunchedEffect(noteType, noteTitle, noteContent, noteCityCode, noteCityName, noteLocation) {
+        draftPrefs.edit()
+            .putString("type", noteType)
+            .putString("title", noteTitle)
+            .putString("content", noteContent)
+            .putString("city_code", noteCityCode)
+            .putString("city_name", noteCityName)
+            .putString("location", noteLocation)
+            .apply()
+    }
 
     // 游历专属字段
     var selectedFootprintId by remember { mutableStateOf<Long?>(null) }
@@ -2784,8 +2880,9 @@ private fun QuickNoteSheet(
                                         )
                                     }
                                 }
-                                // 提交成功：接管相纸文件所有权，关闭抽屉时不再清理
+                                // 提交成功：接管相纸文件所有权，关闭抽屉时不再清理；草稿同时清空
                                 noteSubmitted = true
+                                draftPrefs.edit().clear().apply()
                                 onSuccess()
                             } catch (e: Exception) {
                                 ArchiveToastManager.show("归册失败: ${e.message}", isError = true)

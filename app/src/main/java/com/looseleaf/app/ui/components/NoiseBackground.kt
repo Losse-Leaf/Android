@@ -1,21 +1,30 @@
 package com.looseleaf.app.ui.components
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.PointMode
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ImageShader
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import com.looseleaf.app.theme.LooseLeafTheme
-import kotlin.random.Random
+import java.util.Random
 
 /**
- * 纸张微噪点与护眼背景 (Noise Paper Background)
- * 模拟手工棉纸纤维质感，根据浅色/暗房模式自适应点阵渲染
- * 深度优化：采用 drawWithCache 仅在尺寸变更时计算一次点阵，彻底消除每帧 200+ 临时对象分配造成的 GC 掉帧
+ * 宣纸纤维噪点底纹 (Noise Background)
+ *
+ * 原实现每次绘制随机撒 200 个 1.5px 的点——在 2K 屏（约 460 万像素）上覆盖率仅 0.004%，
+ * 肉眼完全看不出纸感。现改为一次性生成 128×128 的确定性噪点瓦片，
+ * 用 ImageShader 平铺整屏（对齐 macOS 端 NoiseBackground.swift 的瓦片思路，AOPT-08a）：
+ * 纹理密度与屏幕分辨率解耦，且只需一次 drawRect。
  */
 @Composable
 fun NoiseBackground(
@@ -23,34 +32,39 @@ fun NoiseBackground(
     content: @Composable BoxScope.() -> Unit
 ) {
     val colors = LooseLeafTheme.colors
-    val grainColor = colors.grainColor
+    val grainArgb = colors.grainColor.toArgb()
+    val tile = remember(grainArgb) { buildNoiseTile(grainArgb) }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(colors.archivePaper)
             .drawWithCache {
-                val w = size.width
-                val h = size.height
-                val points = ArrayList<Offset>(200)
-                if (w > 0 && h > 0) {
-                    val rng = Random(42)
-                    for (i in 0 until 200) {
-                        points.add(Offset(rng.nextFloat() * w, rng.nextFloat() * h))
-                    }
-                }
+                val brush = ShaderBrush(
+                    ImageShader(tile, TileMode.Repeated, TileMode.Repeated)
+                )
                 onDrawBehind {
-                    if (points.isNotEmpty()) {
-                        drawPoints(
-                            points = points,
-                            pointMode = PointMode.Points,
-                            color = grainColor,
-                            strokeWidth = 1.5f
-                        )
-                    }
+                    drawRect(brush = brush)
                 }
             }
     ) {
         content()
     }
+}
+
+/**
+ * 生成 128×128 的宣纸纤维噪点瓦片（确定性随机，保证每次启动纹理一致）。
+ * 约 5% 的像素带色，其余透明——平铺后形成细密而不抢戏的纸纤维颗粒。
+ */
+private fun buildNoiseTile(grainArgb: Int): ImageBitmap {
+    val size = 128
+    val pixels = IntArray(size * size)
+    val rng = Random(42L)
+    val grainCount = (size * size * 0.05f).toInt()
+    repeat(grainCount) {
+        pixels[rng.nextInt(size * size)] = grainArgb
+    }
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    bitmap.setPixels(pixels, 0, size, 0, 0, size, size)
+    return bitmap.asImageBitmap()
 }

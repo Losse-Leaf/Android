@@ -148,6 +148,8 @@ fun LedgerScreen(
     var sellingGearItem by remember { mutableStateOf<GearItem?>(null) }
     var showCreditChannelsDialog by remember { mutableStateOf(false) }
     var showCategoriesManagerDialog by remember { mutableStateOf(false) }
+    // 记账附加设置抽屉（日期时刻 / 属地 / 分期）：低频项从首屏收进抽屉（AOPT-01）
+    var showExtrasSheet by remember { mutableStateOf(false) }
 
     // 账单流水筛选月份 (默认当前年月)
     var selectedYearMonth by remember {
@@ -170,6 +172,24 @@ fun LedgerScreen(
 
     LaunchedEffect(Unit) {
         reloadCategoriesAndAssets(forceLoadingSpinner = false)
+    }
+
+    // 账单明细下拉刷新状态（AOPT-06）：必须在 reloadCategoriesAndAssets 之后定义
+    var isRefreshingLedger by remember { mutableStateOf(false) }
+    val refreshLedger: () -> Unit = {
+        if (!isRefreshingLedger) {
+            scope.launch {
+                isRefreshingLedger = true
+                val res = syncManager.pullRemoteData()
+                reloadCategoriesAndAssets(force = true)
+                isRefreshingLedger = false
+                if (res.isSuccess) {
+                    ArchiveToastManager.show("账目已同步")
+                } else {
+                    ArchiveToastManager.show(res.exceptionOrNull()?.message ?: "同步未完成", isError = true)
+                }
+            }
+        }
     }
 
     val activeCategories = if (selectedType == "income") incomeCategories else expenseCategories
@@ -366,10 +386,19 @@ fun LedgerScreen(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .imePadding()
-                                .verticalScroll(rememberScrollState())
                                 .padding(horizontal = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            // 上半区（金额 / 备注 / 低频元数据）吸收剩余高度，极小屏可滚动；
+                            // 下半区（分类 + 键盘 + 盖章）固定锚定拇指热区——
+                            // 记账不再需要先下滑页面才能点到「记入账本」（AOPT-01）
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                         // 金额与属性装裱卡片
                         PaperCard(
                             modifier = Modifier.fillMaxWidth(),
@@ -481,7 +510,7 @@ fun LedgerScreen(
                                 PaperTextField(
                                     value = noteText,
                                     onValueChange = { noteText = it },
-                                    placeholder = "备注…",
+                                    placeholder = "备注…（可写「42.5 午餐」自动拆解）",
                                     isUnderline = true,
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
@@ -489,7 +518,7 @@ fun LedgerScreen(
                                         if (noteText.isNotBlank()) {
                                             TextButton(
                                                 onClick = {
-                                                    val parsed = FormatUtils.parseNaturalTransactionInput(noteText)
+                                                    val parsed = FormatUtils.parseNaturalTransactionInput(noteText, activeCategories)
                                                     if (parsed.amountCents > 0) {
                                                         inputAmountString = FormatUtils.centsToYuanString(parsed.amountCents, includeSymbol = false)
                                                         selectedType = parsed.type
@@ -505,134 +534,52 @@ fun LedgerScreen(
                                     }
                                 )
 
-                                // 发生时间拆解：独立日期与独立时刻
-                                Spacer(modifier = Modifier.height(6.dp))
-                                PaperDateTimeSplitRow(
-                                    selectedDateTime = txOccurredAt,
-                                    onDateTimeSelected = { txOccurredAt = it }
-                                )
-
-                                Spacer(modifier = Modifier.height(6.dp))
-                                PaperCityPickerField(
-                                    selectedCityCode = selectedCityCode,
-                                    selectedCityName = selectedCityName,
-                                    onCitySelected = { code, name ->
-                                        selectedCityCode = code
-                                        selectedCityName = name
-                                    },
-                                    placeholder = "选择城市…"
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End
-                                ) {
-                                    TextButton(
-                                        onClick = { requestCurrentLocation() },
-                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.MyLocation,
-                                            contentDescription = null,
-                                            tint = colors.accentWarm,
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "使用当前定位",
-                                            fontFamily = ArchiveFontFamilies.BodySans,
-                                            fontSize = 11.sp,
-                                            color = colors.accentWarm
-                                        )
-                                    }
+                                // 自然语言实时预览（AOPT-07a）：备注可被解析且金额尚未输入时给出提示，
+                                // 盖章时自动采纳，避免用户以为「写了 42.5 就能直接提交」
+                                val naturalPreview = remember(noteText, activeCategories) {
+                                    if (noteText.isBlank() || inputAmountString != "0") null
+                                    else FormatUtils.parseNaturalTransactionInput(noteText, activeCategories)
+                                        .takeIf { it.amountCents > 0 }
+                                }
+                                naturalPreview?.let { preview ->
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "识别到 ${FormatUtils.centsToYuanString(preview.amountCents)} · ${preview.category} · 点「盖章」自动采纳",
+                                        fontFamily = ArchiveFontFamilies.MonoScale,
+                                        fontSize = 10.5.sp,
+                                        color = colors.accentMoss
+                                    )
                                 }
 
-                                // 支出模式下的分期支持开关
-                                if (selectedType == "expense") {
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Checkbox(
-                                                checked = isInstallment,
-                                                onCheckedChange = { isInstallment = it },
-                                                colors = CheckboxDefaults.colors(checkedColor = colors.accentWarm)
-                                            )
-                                            Text(
-                                                text = "分期还款入账",
-                                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                                fontSize = 12.sp,
-                                                color = colors.inkPrimary
-                                            )
-                                        }
-
-                                        if (isInstallment) {
-                                            Column(
-                                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                if (creditChannels.isNotEmpty()) {
-                                                    Row(
-                                                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                    ) {
-                                                        creditChannels.forEach { ch ->
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .clip(RoundedCornerShape(8.dp))
-                                                                    .background(if (installmentChannelCode == ch.code) colors.accentWarm else colors.archiveSubtle)
-                                                                    .clickable {
-                                                                        installmentChannelCode = ch.code
-                                                                        repaymentDay = ch.repaymentDay
-                                                                    }
-                                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                            ) {
-                                                                Text(
-                                                                    text = ch.name,
-                                                                    fontSize = 10.sp,
-                                                                    color = if (installmentChannelCode == ch.code) colors.archivePaper else colors.inkSecondary
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                        listOf(3, 6, 12, 24).forEach { m ->
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .clip(RoundedCornerShape(8.dp))
-                                                                    .background(if (installmentMonths == m) colors.accentWarm else colors.archiveSubtle)
-                                                                    .clickable { installmentMonths = m }
-                                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                            ) {
-                                                                Text(
-                                                                    text = "${m}期",
-                                                                    fontSize = 10.sp,
-                                                                    color = if (installmentMonths == m) colors.archivePaper else colors.inkSecondary
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                    Text(
-                                                        text = "每月${repaymentDay}日还款",
-                                                        fontSize = 10.sp,
-                                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                                        color = colors.inkMuted
-                                                    )
-                                                }
-                                            }
-                                        }
+                                // 低频元数据收拢成一行纸签胶囊：日期时刻 / 属地 / 分期。
+                                // 默认只占一行高度，点任一胶囊展开设置抽屉（AOPT-01）
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    LedgerExtraPill(
+                                        text = "🕘 " + FormatUtils.formatLocalDateTimeDisplay(txOccurredAt),
+                                        onClick = { showExtrasSheet = true }
+                                    )
+                                    LedgerExtraPill(
+                                        text = "📍 " + (selectedCityName ?: "未标记属地"),
+                                        onClick = { showExtrasSheet = true }
+                                    )
+                                    if (selectedType == "expense") {
+                                        LedgerExtraPill(
+                                            text = if (isInstallment) "分期 ${installmentMonths} 期" else "一次性",
+                                            highlighted = isInstallment,
+                                            onClick = { showExtrasSheet = true }
+                                        )
                                     }
                                 }
                             }
                         }
+                            }
 
                         // 分类滑动胶囊
                         Row(
@@ -676,23 +623,37 @@ fun LedgerScreen(
                         )
 
                         // 记入账本提交按钮
+                        // 自然语言兜底（AOPT-07a）：金额未敲但备注写得出「42.5 午餐」时，
+                        // 盖章直接采纳解析结果，而不是让按钮一直灰着
+                        val lastChanceParse = remember(noteText, activeCategories, inputAmountString) {
+                            if (inputAmountString != "0") null
+                            else FormatUtils.parseNaturalTransactionInput(noteText, activeCategories)
+                                .takeIf { it.amountCents > 0 }
+                        }
+                        val effectiveCents = FormatUtils.yuanStringToCents(inputAmountString)
+                            .takeIf { it > 0 } ?: lastChanceParse?.amountCents ?: 0L
                         TerracottaStampButton(
                             text = "记入账本",
-                            enabled = FormatUtils.yuanStringToCents(inputAmountString) > 0,
+                            enabled = effectiveCents > 0,
                             onClick = {
-                                val amountCents = FormatUtils.yuanStringToCents(inputAmountString)
+                                val typedCents = FormatUtils.yuanStringToCents(inputAmountString)
+                                val fallback = if (typedCents <= 0) lastChanceParse else null
+                                val amountCents = if (typedCents > 0) typedCents else (fallback?.amountCents ?: 0L)
                                 if (amountCents <= 0) return@TerracottaStampButton
 
-                                val title = if (noteText.isNotBlank()) noteText.trim() else selectedCategory
+                                val finalCategory = fallback?.category ?: selectedCategory
+                                val finalType = fallback?.type ?: selectedType
+                                val finalNote = if (fallback != null) fallback.title else noteText
+                                val title = if (finalNote.isNotBlank()) finalNote.trim() else finalCategory
 
                                 scope.launch {
                                     val monthlyPay = if (isInstallment && installmentMonths > 0) amountCents / installmentMonths else 0L
                                     syncManager.createTransactionOptimistic(
                                         amountCents = amountCents,
-                                        type = selectedType,
-                                        category = selectedCategory,
+                                        type = finalType,
+                                        category = finalCategory,
                                         title = title,
-                                        note = noteText.takeIf { it.isNotBlank() },
+                                        note = finalNote.takeIf { it.isNotBlank() },
                                         paymentMethod = selectedPaymentMethod,
                                         occurredAt = FormatUtils.toBeijingIsoString(txOccurredAt),
                                         cityCode = selectedCityCode,
@@ -704,7 +665,7 @@ fun LedgerScreen(
                                         installmentRemainMonths = installmentMonths.takeIf { isInstallment },
                                         repaymentDay = repaymentDay.takeIf { isInstallment }
                                     )
-                                    ArchiveToastManager.show("已盖印记下: ¥ $inputAmountString")
+                                    ArchiveToastManager.show("已盖印记下: ¥ ${FormatUtils.centsToYuanString(amountCents)}")
                                     clearAll()
                                 }
                             },
@@ -712,11 +673,153 @@ fun LedgerScreen(
                         )
                     }
                 }
-            }
+                    // 记账附加设置抽屉：日期时刻 / 属地 / 分期（AOPT-01 低频项收拢）
+                    if (showExtrasSheet) {
+                        ArchiveBottomSheet(
+                            onDismissRequest = { showExtrasSheet = false },
+                            title = "记账附加设置",
+                            actionButtonText = "完成",
+                            onActionClick = { showExtrasSheet = false }
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text(
+                                    text = "发生时刻",
+                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                    fontSize = 12.sp,
+                                    color = colors.inkMuted
+                                )
+                                PaperDateTimeSplitRow(
+                                    selectedDateTime = txOccurredAt,
+                                    onDateTimeSelected = { txOccurredAt = it }
+                                )
+
+                                PaperDivider()
+
+                                Text(
+                                    text = "属地城市",
+                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                    fontSize = 12.sp,
+                                    color = colors.inkMuted
+                                )
+                                PaperCityPickerField(
+                                    selectedCityCode = selectedCityCode,
+                                    selectedCityName = selectedCityName,
+                                    onCitySelected = { code, name ->
+                                        selectedCityCode = code
+                                        selectedCityName = name
+                                    },
+                                    placeholder = "选择城市…"
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    TextButton(
+                                        onClick = { requestCurrentLocation() },
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.MyLocation,
+                                            contentDescription = null,
+                                            tint = colors.accentWarm,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "使用当前定位",
+                                            fontFamily = ArchiveFontFamilies.BodySans,
+                                            fontSize = 11.sp,
+                                            color = colors.accentWarm
+                                        )
+                                    }
+                                }
+
+                                if (selectedType == "expense") {
+                                    PaperDivider()
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(
+                                            checked = isInstallment,
+                                            onCheckedChange = { isInstallment = it },
+                                            colors = CheckboxDefaults.colors(checkedColor = colors.accentWarm)
+                                        )
+                                        Text(
+                                            text = "分期还款入账",
+                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                            fontSize = 12.sp,
+                                            color = colors.inkPrimary
+                                        )
+                                    }
+                                    if (isInstallment) {
+                                        if (creditChannels.isNotEmpty()) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                creditChannels.forEach { ch ->
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .background(if (installmentChannelCode == ch.code) colors.accentWarm else colors.archiveSubtle)
+                                                            .clickable {
+                                                                installmentChannelCode = ch.code
+                                                                repaymentDay = ch.repaymentDay
+                                                            }
+                                                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = ch.name,
+                                                            fontSize = 10.sp,
+                                                            color = if (installmentChannelCode == ch.code) colors.archivePaper else colors.inkSecondary
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                listOf(3, 6, 12, 24).forEach { m ->
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .background(if (installmentMonths == m) colors.accentWarm else colors.archiveSubtle)
+                                                            .clickable { installmentMonths = m }
+                                                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "${m}期",
+                                                            fontSize = 10.sp,
+                                                            color = if (installmentMonths == m) colors.archivePaper else colors.inkSecondary
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Text(
+                                                text = "每月${repaymentDay}日还款",
+                                                fontSize = 10.sp,
+                                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                                color = colors.inkMuted
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 1 -> {
                     // ==========================================
                     // Tab 1: 账单明细流水与月度汇总光谱
                     // ==========================================
+                    // 下拉刷新（AOPT-06）：账单明细滚到顶继续下拉即同步
+                    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+                        isRefreshing = isRefreshingLedger,
+                        onRefresh = refreshLedger,
+                        modifier = Modifier.weight(1f)
+                    ) {
                     TransactionsLedgerTab(
                         transactions = transactions,
                         isPrivacyMasked = isPrivacyMasked,
@@ -746,8 +849,9 @@ fun LedgerScreen(
                                 performDelete()
                             }
                         },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxSize()
                     )
+                    }
                 }
                 2 -> {
                     // ==========================================
@@ -2093,21 +2197,7 @@ private fun CategoriesManagerDialog(
                         color = colors.inkPrimary
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(
-                            onClick = {
-                                scope.launch {
-                                    runCatching {
-                                        apiClient.resetCategories(selectedScope)
-                                        loadCats()
-                                        onCategoriesChanged()
-                                        ArchiveToastManager.show("已恢复默认分类")
-                                    }
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                        ) {
-                            Text("恢复默认", fontSize = 11.sp, color = colors.inkSecondary)
-                        }
+                        // RC-142 已废除「重置预设」能力，全端不再提供「恢复默认分类」入口
                         IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
                             Icon(Icons.Outlined.Close, contentDescription = "关闭", tint = colors.inkMuted, modifier = Modifier.size(16.dp))
                         }
@@ -2222,5 +2312,37 @@ private fun CategoriesManagerDialog(
                 }
             }
         }
+    }
+}
+
+/**
+ * 记账页低频元数据的紧凑纸签胶囊（AOPT-01）：
+ * 日期时刻 / 属地 / 分期 收拢成一行，点击展开「记账附加设置」抽屉。
+ */
+@Composable
+private fun LedgerExtraPill(
+    text: String,
+    onClick: () -> Unit,
+    highlighted: Boolean = false
+) {
+    val colors = LooseLeafTheme.colors
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (highlighted) colors.accentWarm.copy(alpha = 0.12f) else colors.archiveSubtle)
+            .border(
+                width = 0.5.dp,
+                color = if (highlighted) colors.accentWarm else colors.borderDivider,
+                shape = RoundedCornerShape(10.dp)
+            )
+            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text = text,
+            fontFamily = ArchiveFontFamilies.MonoScale,
+            fontSize = 11.sp,
+            color = if (highlighted) colors.accentWarm else colors.inkSecondary
+        )
     }
 }

@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import com.looseleaf.app.ui.components.ArchiveToastHost
 import com.looseleaf.app.ui.components.ArchiveToastManager
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
@@ -32,6 +33,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.looseleaf.app.data.security.BiometricHelper
 import com.looseleaf.app.data.security.CredentialStore
+import com.looseleaf.app.data.security.AppearanceMode
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
@@ -84,7 +86,14 @@ class MainActivity : FragmentActivity() {
         )
 
         setContent {
-            var isDarkTheme by remember { mutableStateOf(credentialStore.isDarkroomMode) }
+            // 外观三态（AOPT-08c）：跟随系统时由 isSystemInDarkTheme 实时决定
+            var appearanceMode by remember { mutableStateOf(credentialStore.appearanceMode) }
+            val systemInDark = isSystemInDarkTheme()
+            val isDarkTheme = when (appearanceMode) {
+                AppearanceMode.SYSTEM -> systemInDark
+                AppearanceMode.PAPER -> false
+                AppearanceMode.DARKROOM -> true
+            }
 
             LooseLeafTheme(darkTheme = isDarkTheme) {
                 // Toast 宿主挂在最外层：配对页（!isPaired）与锁屏页（!isUnlocked）也有
@@ -93,7 +102,11 @@ class MainActivity : FragmentActivity() {
                 Box(modifier = Modifier.fillMaxSize()) {
                     MainContent(
                         isDarkTheme = isDarkTheme,
-                        onDarkroomModeChanged = { isDarkTheme = it }
+                        appearanceMode = appearanceMode,
+                        onAppearanceModeChanged = { mode ->
+                            credentialStore.appearanceMode = mode
+                            appearanceMode = mode
+                        }
                     )
 
                     // 顶层全局自研纸墨 Toast 通知覆盖层
@@ -106,7 +119,8 @@ class MainActivity : FragmentActivity() {
     @Composable
     private fun MainContent(
         isDarkTheme: Boolean,
-        onDarkroomModeChanged: (Boolean) -> Unit
+        appearanceMode: AppearanceMode,
+        onAppearanceModeChanged: (AppearanceMode) -> Unit
     ) {
         var isPaired by remember { mutableStateOf(credentialStore.isPaired()) }
         var currentRoute by rememberSaveable {
@@ -155,6 +169,31 @@ class MainActivity : FragmentActivity() {
             }
         }
 
+        // 401 全局引导（AOPT-09b）：设备在 Web/Mac 端被吊销时主动提示重新配对，
+        // 而不是让用户对着「同步失败」干瞪眼。Room 中的 outbox 不清空，重配对后自动续传。
+        var showRepairDialog by remember { mutableStateOf(false) }
+        val apiClient = remember { com.looseleaf.app.data.api.APIClient.getInstance(this@MainActivity) }
+        LaunchedEffect(Unit) {
+            apiClient.unauthorizedEvents.collect {
+                if (isPaired) showRepairDialog = true
+            }
+        }
+
+        if (showRepairDialog) {
+            com.looseleaf.app.ui.components.ArchiveConfirmDialog(
+                title = "设备凭据已失效",
+                content = "这台设备已被移出受信任设备组（可能在网页端或 Mac 端被撤销）。" +
+                    "需要重新扫码配对；本机尚未同步的记录会保留，配对成功后自动续传。",
+                confirmText = "重新配对",
+                dismissText = "稍后",
+                onConfirm = {
+                    showRepairDialog = false
+                    isPaired = false
+                },
+                onDismiss = { showRepairDialog = false }
+            )
+        }
+
         if (!isPaired) {
             val deepLinkPayload by pendingDeepLinkPayloadState
             PairingScreen(
@@ -180,6 +219,9 @@ class MainActivity : FragmentActivity() {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    // edge-to-edge 下必须避让状态栏与手势条，否则「隐私守护中」文案
+                    // 会顶到状态栏下方、解锁按钮贴住手势横条
+                    .systemBarsPadding()
                     .background(colors.archivePaper)
                     .padding(32.dp),
                 contentAlignment = Alignment.Center
@@ -253,17 +295,31 @@ class MainActivity : FragmentActivity() {
                             .fillMaxSize()
                             .padding(innerPadding)
                     ) {
-                        saveableStateHolder.SaveableStateProvider(currentRoute) {
+                        // 「足迹」「造物」共用 ProjectsWishesScreen：两者共享同一个
+                        // SaveableState 桶，否则内部 tab 回传导致 route 变化时
+                        // 页面会被重建、内部 tab 被打回 initialTab
+                        val stateKey = if (currentRoute == "footprints") "projects" else currentRoute
+                        // 内部 tab（0 造物 / 1 心愿 / 2 山川）回传，同步底栏高亮
+                        val onSubTabChanged: (Int) -> Unit = { tab ->
+                            currentRoute = if (tab == 2) "footprints" else "projects"
+                        }
+                        saveableStateHolder.SaveableStateProvider(stateKey) {
                             when (currentRoute) {
                                 "stream" -> StreamScreen()
                                 "ledger" -> LedgerScreen()
-                                "footprints" -> ProjectsWishesScreen(initialTab = 2)
-                                "projects" -> ProjectsWishesScreen(initialTab = 0)
+                                "footprints" -> ProjectsWishesScreen(
+                                    initialTab = 2,
+                                    onTabChanged = onSubTabChanged
+                                )
+                                "projects" -> ProjectsWishesScreen(
+                                    initialTab = 0,
+                                    onTabChanged = onSubTabChanged
+                                )
                                 "profile" -> ProfileScreen(
                                     onUnpair = {
                                         isPaired = false
                                     },
-                                    onDarkroomModeChanged = onDarkroomModeChanged
+                                    onAppearanceModeChanged = onAppearanceModeChanged
                                 )
                             }
                         }

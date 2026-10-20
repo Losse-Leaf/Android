@@ -17,6 +17,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -90,6 +92,9 @@ private fun TactileKeyButton(
 ) {
     val colors = LooseLeafTheme.colors
     val shape = RoundedCornerShape(3.dp)
+    // 零权限触觉反馈：LocalHapticFeedback 走系统 HapticFeedbackConstants，
+    // 不需要在 Manifest 声明 VIBRATE（AOPT-05a）
+    val haptics = LocalHapticFeedback.current
 
     Box(
         contentAlignment = Alignment.Center,
@@ -101,8 +106,16 @@ private fun TactileKeyButton(
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(color = colors.accentWarm.copy(alpha = 0.2f)),
-                onClick = onClick,
-                onLongClick = onLongClick
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                },
+                onLongClick = onLongClick?.let {
+                    {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        it()
+                    }
+                }
             )
     ) {
         if (label == "⌫") {

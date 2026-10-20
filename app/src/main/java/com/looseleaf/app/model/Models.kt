@@ -98,6 +98,7 @@ data class Transaction(
     @SerialName("deleted_at") val deletedAt: String? = null
 )
 
+@Immutable
 @Serializable
 data class TransactionSummary(
     val year: Int = 0,
@@ -112,6 +113,7 @@ data class TransactionSummary(
 /**
  * 主理人档案 (CuratorProfile)
  */
+@Immutable
 @Serializable
 data class CuratorProfile(
     val id: Long? = null,
@@ -130,6 +132,7 @@ data class CuratorProfile(
     @SerialName("updated_at") val updatedAt: String? = null
 )
 
+@Immutable
 @Serializable
 data class GearItem(
     val id: String,
@@ -221,6 +224,7 @@ data class Wish(
     @SerialName("updated_at") val updatedAt: String? = null
 )
 
+@Immutable
 @Serializable
 data class WishesListResponse(
     val total: Int = 0,
@@ -297,6 +301,7 @@ data class CreateFootprintRequest(
 /**
  * 城市记忆抽屉 (GET /api/v1/footprints/cities/:city_code/drawer)
  */
+@Immutable
 @Serializable
 data class CityVisitStats(
     @SerialName("total_visits") val totalVisits: Int = 0,
@@ -310,6 +315,7 @@ data class CityDrawerCategoryStat(
     val amount: Long = 0
 )
 
+@Immutable
 @Serializable
 data class CityDrawerLedgerSummary(
     @SerialName("total_spent") val totalSpent: Long = 0,
@@ -317,6 +323,7 @@ data class CityDrawerLedgerSummary(
     val categories: List<CityDrawerCategoryStat> = emptyList()
 )
 
+@Immutable
 @Serializable
 data class CityMemoryDrawerResponse(
     @SerialName("city_code") val cityCode: String = "",
@@ -327,6 +334,7 @@ data class CityMemoryDrawerResponse(
     @SerialName("ledger_summary") val ledgerSummary: CityDrawerLedgerSummary = CityDrawerLedgerSummary()
 )
 
+@Immutable
 @Serializable
 data class ProvinceVisitedCity(
     @SerialName("city_code") val cityCode: String,
@@ -351,6 +359,7 @@ data class ProvinceMemoryDrawerResponse(
 /**
  * 资产大盘与设备库 (GET /api/v1/assets/overview)
  */
+@Immutable
 @Serializable
 data class CreditChannel(
     val id: Long = 0,
@@ -537,18 +546,6 @@ data class CreateCategoryRequest(
 )
 
 @Serializable
-data class UpdateCategoryRequest(
-    val name: String,
-    @SerialName("sort_order") val sortOrder: Int? = null,
-    @SerialName("rename_records") val renameRecords: Boolean? = true
-)
-
-@Serializable
-data class ResetCategoriesRequest(
-    val scope: String = ""
-)
-
-@Serializable
 data class StorageStatus(
     val provider: String = "local",
     val configured: Boolean = false,
@@ -587,6 +584,7 @@ data class StorageMigrateResponse(
     val message: String = ""
 )
 
+@Immutable
 @Serializable
 data class BackupItem(
     val filename: String,

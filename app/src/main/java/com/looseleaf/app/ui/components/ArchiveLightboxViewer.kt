@@ -1,7 +1,9 @@
 package com.looseleaf.app.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -43,6 +45,12 @@ fun ArchiveLightboxViewer(
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
+    // 双击缩放动画（AOPT-05b）：拖拽时由手势直接写 scale，双击时走动画
+    val animatedScale by animateFloatAsState(
+        targetValue = scale,
+        animationSpec = tween(durationMillis = 220),
+        label = "lightbox-scale"
+    )
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -96,15 +104,26 @@ fun ArchiveLightboxViewer(
                             }
                         }
                     }
-                    .clickable {
-                        // 单击退出或重置
-                        if (scale > 1f) {
-                            scale = 1f
-                            offsetX = 0f
-                            offsetY = 0f
-                        } else {
-                            onDismiss()
-                        }
+                    // 手势语义（AOPT-05b）：
+                    // 双击 = 放大到 2.5 倍 / 还原；单击 = 仅在未放大时退出。
+                    // 不再用 clickable——放大后单指拖拽细节时手指抬起会误触发它，图片被瞬间缩回 1f。
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onDoubleTap = {
+                                if (scale > 1.05f) {
+                                    scale = 1f
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                } else {
+                                    scale = 2.5f
+                                }
+                            },
+                            onTap = {
+                                if (scale <= 1.05f) {
+                                    onDismiss()
+                                }
+                            }
+                        )
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -113,7 +132,7 @@ fun ArchiveLightboxViewer(
                     ImageRequest.Builder(context)
                         .data(imageUrl)
                         .crossfade(true)
-                        .memoryCacheKey(imageUrl)
+                        // 不设 memoryCacheKey：让 Coil 按容器尺寸分别缓存缩略图与全屏大图（AOPT-04b）
                         .diskCacheKey(imageUrl)
                         .build()
                 }
@@ -125,8 +144,8 @@ fun ArchiveLightboxViewer(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer(
-                            scaleX = scale,
-                            scaleY = scale,
+                            scaleX = animatedScale,
+                            scaleY = animatedScale,
                             translationX = offsetX,
                             translationY = offsetY
                         )

@@ -66,6 +66,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -119,9 +121,14 @@ fun TerracottaStampButton(
 ) {
     val colors = LooseLeafTheme.colors
     val shape = RoundedCornerShape(2.dp)
+    // 盖章的「沉稳一击」：零权限系统触觉（AOPT-05a）
+    val haptics = LocalHapticFeedback.current
 
     Button(
-        onClick = onClick,
+        onClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            onClick()
+        },
         enabled = enabled,
         shape = shape,
         colors = ButtonDefaults.buttonColors(

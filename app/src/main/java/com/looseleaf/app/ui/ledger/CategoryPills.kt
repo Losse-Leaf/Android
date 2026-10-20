@@ -13,6 +13,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,6 +65,8 @@ private fun CategoryPillItem(
 ) {
     val colors = LooseLeafTheme.colors
     val shape = RoundedCornerShape(16.dp)
+    // 分类切换的轻触反馈（AOPT-05a）
+    val haptics = LocalHapticFeedback.current
 
     val containerBg = if (isSelected) {
         spectrumColor.copy(alpha = 0.15f)
@@ -88,7 +92,10 @@ private fun CategoryPillItem(
             .clip(shape)
             .background(containerBg, shape)
             .border(if (isSelected) 1.dp else 0.5.dp, borderColor, shape)
-            .clickable { onClick() }
+            .clickable {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
             .padding(horizontal = 14.dp, vertical = 7.dp)
     ) {
         // 色谱光点

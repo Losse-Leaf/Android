@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -24,7 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
@@ -50,7 +51,8 @@ fun FilmFrame(
         ImageRequest.Builder(context)
             .data(imageUrl)
             .crossfade(true)
-            .memoryCacheKey(imageUrl)
+            // 不设 memoryCacheKey：Coil 会把目标尺寸并入缓存键，
+            // 手动统一成 imageUrl 会让列表缩略图污染全屏大图的缓存（AOPT-04b）
             .diskCacheKey(imageUrl)
             .build()
     }
@@ -76,11 +78,32 @@ fun FilmFrame(
                 .background(colors.filmMatteBg)
                 .clip(RoundedCornerShape(1.dp))
         ) {
-            AsyncImage(
+            SubcomposeAsyncImage(
                 model = imageRequest,
                 contentDescription = metadataText ?: "Film Photo",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth()
+                // fillMaxSize：外层 Box 固定了宽高比，图片必须撑满整框（原 fillMaxWidth 会留白）
+                modifier = Modifier.fillMaxSize(),
+                loading = {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "暗房显影中…",
+                            fontFamily = ArchiveFontFamilies.MonoScale,
+                            fontSize = 10.sp,
+                            color = colors.inkMuted
+                        )
+                    }
+                },
+                error = {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "相纸载入暂缓",
+                            fontFamily = ArchiveFontFamilies.MonoScale,
+                            fontSize = 10.sp,
+                            color = colors.inkMuted
+                        )
+                    }
+                }
             )
         }
 

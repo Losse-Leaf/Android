@@ -47,6 +47,13 @@ class APIClient private constructor(private val context: Context) {
     }
 
     /**
+     * 设备凭据失效（HTTP 401）广播（AOPT-09b）。
+     * extraBufferCapacity = 1 + tryEmit：后台同步与前台请求可能同时撞上 401，
+     * 不阻塞调用方，也不丢「至少一次」的提示机会。
+     */
+    val unauthorizedEvents = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    /**
      * R2 预签名直传专用客户端：直传对象存储用于超大视频 / RAW 底片，
      * 90s 的 callTimeout 会在慢网下掐断合法上传，因此这里关闭整体超时。
      */
@@ -153,9 +160,9 @@ class APIClient private constructor(private val context: Context) {
             // docs/backend.md §六：两种请求头等效，只发一种即可，避免重复
             requestBuilder.header("X-Device-Token", token)
         }
-        // 客户端标识，便于后端审计与排障（docs/backend.md §六）
-        requestBuilder.header("X-Client-Platform", "android")
-        requestBuilder.header("X-Client-Version", BuildConfig.VERSION_NAME)
+        // 不再发送 X-Client-Platform / X-Client-Version：
+        // docs/backlog.md RC-125 已规定移除后端未消费的这两个自定义头（避免 CORS 预检冲突，
+        // 全端统一口径；Android 原生虽不走 CORS，但规格一致优先）
 
         val cacheKey = httpUrl.toString()
 
@@ -196,6 +203,9 @@ class APIClient private constructor(private val context: Context) {
                 val bodyString = resp.body?.string() ?: ""
 
                 if (resp.code == 401) {
+                    // 401 全局广播（AOPT-09b）：设备可能在 Web/Mac 端被吊销，
+                    // MainActivity 订阅后弹「重新配对」引导；Room 里的 outbox 不清空，重配对后续传
+                    unauthorizedEvents.tryEmit(Unit)
                     throw APIException(401, "设备凭据未授权或已失效，请重新扫码配对")
                 }
 
@@ -306,17 +316,8 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/categories", "POST", body = body)
     }
 
-    suspend fun updateCategoryOption(id: Long, name: String, sortOrder: Int? = null, renameRecords: Boolean = true): CategoryOption {
-        val req = UpdateCategoryRequest(name = name, sortOrder = sortOrder, renameRecords = renameRecords)
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/categories/$id", "PUT", body = body)
-    }
-
-    suspend fun resetCategories(scope: String = ""): CategoriesResponse {
-        val req = ResetCategoriesRequest(scope = scope)
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/categories/reset", "POST", body = body)
-    }
+    // RC-142 分类字典减法：级联重命名（PUT）与重置预设（POST reset）已从全端规格中废除，
+    // 客户端不再保留这两个无调用方的方法
 
     suspend fun deleteCategoryOption(id: Long) {
         executeEnvelopeRequest<DeleteResponse>("/api/v1/categories/$id", "DELETE")

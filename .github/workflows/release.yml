@@ -41,15 +41,27 @@ jobs:
           fi
 
       # 发布流水线必须自带质量门禁：tag 触发不经过 main 的 CI，
-      # 没有这一步，未经测试与静态检查的代码可以直接产出签名发布包
-      - name: Run Unit Tests & Lint (release gate)
+      # 没有这一步，未经测试与静态检查的代码可以直接产出签名发布包。
+      # 单测与 lint 分两步跑：并行的 lintAnalyze 任务偶发与 test 任务抢缓存而误报失败
+      - name: Run Unit Tests (release gate)
         run: |
           set +e
-          ./gradlew testDebugUnitTest :app:lintDebug --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_gate.log 2>&1
+          ./gradlew testDebugUnitTest --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_test.log 2>&1
           EXIT_CODE=$?
-          cat gradle_gate.log
+          cat gradle_test.log
           if [ $EXIT_CODE -ne 0 ]; then
-            echo "::error title=门禁未通过::单测或 lint 存在失败，禁止发布"
+            echo "::error title=门禁未通过::单元测试失败，禁止发布"
+            exit $EXIT_CODE
+          fi
+
+      - name: Run Lint (release gate)
+        run: |
+          set +e
+          ./gradlew :app:lintDebug --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_lint.log 2>&1
+          EXIT_CODE=$?
+          cat gradle_lint.log
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "::error title=门禁未通过::lint 存在 error，禁止发布"
             exit $EXIT_CODE
           fi
 

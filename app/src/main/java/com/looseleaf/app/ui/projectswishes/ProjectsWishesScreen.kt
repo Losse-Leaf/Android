@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Code
@@ -59,7 +60,13 @@ import kotlinx.coroutines.launch
 @Composable
 fun ProjectsWishesScreen(
     modifier: Modifier = Modifier,
-    initialTab: Int = 0
+    initialTab: Int = 0,
+    /**
+     * 内部 tab 切换回传（0 造物 / 1 心愿 / 2 山川）：
+     * 底栏「足迹」「造物」共用本页，必须同步 currentRoute 才不会出现
+     * 「内容已切换、底栏还高亮在旧项」的错位。
+     */
+    onTabChanged: ((Int) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -67,7 +74,9 @@ fun ProjectsWishesScreen(
     val apiClient = remember { APIClient.getInstance(context) }
     val syncManager = remember { com.looseleaf.app.data.sync.SyncManager.getInstance(context) }
 
-    var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) } // 0: 造物, 1: 心愿, 2: 足迹
+    // 不带 initialTab 作 key：从「足迹」切到「造物」时 route 会变化并触发重组，
+    // 若 key 参与 rememberSaveable 会把内部 tab 重置回 initialTab，用户刚点的 tab 被冲掉
+    var selectedTab by rememberSaveable { mutableIntStateOf(initialTab) } // 0: 造物, 1: 心愿, 2: 足迹
     val projects by syncManager.projectsFlow.collectAsStateWithLifecycle()
     val wishes by syncManager.wishesFlow.collectAsStateWithLifecycle()
     val footprints by syncManager.footprintsFlow.collectAsStateWithLifecycle()
@@ -177,6 +186,7 @@ fun ProjectsWishesScreen(
                             .background(if (isSelected) colors.archivePaper else androidx.compose.ui.graphics.Color.Transparent)
                             .clickable {
                                 selectedTab = index
+                                onTabChanged?.invoke(index)
                             }
                             .padding(vertical = 6.dp)
                     ) {
@@ -230,24 +240,31 @@ fun ProjectsWishesScreen(
                     CircularProgressIndicator(color = colors.accentWarm, modifier = Modifier.size(24.dp))
                 }
             } else {
-                when (selectedTab) {
-                    0 -> ProjectsList(
-                        projects = projects,
-                        onProjectClick = { editingProject = it },
-                        modifier = Modifier.weight(1f)
-                    )
-                    1 -> WishesList(
-                        wishes = wishes,
-                        onResolveClick = { resolvingWish = it },
-                        onEditClick = { editingWish = it },
-                        onDeleteClick = { wishToDelete = it },
-                        modifier = Modifier.weight(1f)
-                    )
-                    2 -> FootprintsList(
-                        footprints = footprints,
-                        onFootprintClick = { selectedDrawerFootprint = it },
-                        modifier = Modifier.weight(1f)
-                    )
+                // 下拉刷新（AOPT-06）：三个列表共用同一次全量同步
+                androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+                    isRefreshing = isLoading,
+                    onRefresh = { scope.launch { reloadAll(forceLoading = true) } },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    when (selectedTab) {
+                        0 -> ProjectsList(
+                            projects = projects,
+                            onProjectClick = { editingProject = it },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        1 -> WishesList(
+                            wishes = wishes,
+                            onResolveClick = { resolvingWish = it },
+                            onEditClick = { editingWish = it },
+                            onDeleteClick = { wishToDelete = it },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        2 -> FootprintsList(
+                            footprints = footprints,
+                            onFootprintClick = { selectedDrawerFootprint = it },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
         }
@@ -275,11 +292,17 @@ fun ProjectsWishesScreen(
                 containerColor = colors.archivePaper,
                 dragHandle = null,
                 shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-                modifier = Modifier.imePadding()
+                // navigationBarsPadding（AOPT-02b/08b）：软键盘收起时内容不再被
+                // 系统手势横条压住；ArchiveBottomSheet 一直是这样做的，这里补齐
+                modifier = Modifier
+                    .imePadding()
+                    .navigationBarsPadding()
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(max = 640.dp)
+                        .verticalScroll(rememberScrollState())
                         .padding(horizontal = 20.dp, vertical = 16.dp)
                 ) {
                     // 顶栏：取消 / 标题 / 保存

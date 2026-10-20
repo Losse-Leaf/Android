@@ -258,8 +258,14 @@ object FormatUtils {
 
     /**
      * 自然语言记账解析 (如输入 "42.5 午餐手冲咖啡" 自动拆解)
+     *
+     * @param knownCategories 用户动态分类字典；命中时优先返回字典里的原名，
+     *        避免把「餐饮」这类内置词映射到用户已删除/改名的分类上（AOPT-07a）
      */
-    fun parseNaturalTransactionInput(input: String): ParsedQuickTransaction {
+    fun parseNaturalTransactionInput(
+        input: String,
+        knownCategories: List<String> = emptyList()
+    ): ParsedQuickTransaction {
         val trimmed = input.trim()
         val match = NaturalInputRegex.find(trimmed)
 
@@ -270,7 +276,7 @@ object FormatUtils {
             val isIncome = numStr.startsWith("+")
             val cents = kotlin.math.abs(yuanStringToCents(numStr))
 
-            var category = inferCategoryFromText(rest)
+            val category = inferCategoryFromText(rest, knownCategories)
             val title = if (rest.isNotBlank()) rest else category
 
             return ParsedQuickTransaction(
@@ -288,8 +294,20 @@ object FormatUtils {
         )
     }
 
-    private fun inferCategoryFromText(text: String): String {
+    private fun inferCategoryFromText(
+        text: String,
+        knownCategories: List<String> = emptyList()
+    ): String {
         val lower = text.lowercase(Locale.ROOT)
+
+        // 1. 动态分类字典优先：用户自己建/改的分类名能直接命中
+        if (knownCategories.isNotEmpty()) {
+            val hit = knownCategories.firstOrNull { it.isNotBlank() && text.contains(it) }
+            if (hit != null) return hit
+        }
+
+        // 2. 内置关键词兜底。收入类返回「薪资」而不是「收入」——
+        //    默认收入分类列表是 ["薪资","奖金","二手回血",...]，根本没有叫「收入」的分类
         return when {
             listOf("饭", "餐", "吃", "麦当劳", "肯德基", "咖啡", "茶", "饮", "早点", "午餐", "晚餐", "夜宵", "买菜").any { lower.contains(it) } -> "餐饮"
             listOf("地铁", "打车", "滴滴", "公交", "火车", "高铁", "机票", "加油", "停车", "过路费", "骑行").any { lower.contains(it) } -> "交通"
@@ -298,7 +316,7 @@ object FormatUtils {
             listOf("房租", "水电", "物业", "燃气", "宽带", "话费", "家居").any { lower.contains(it) } -> "住房"
             listOf("书", "课", "学费", "培训", "考试", "订阅", "会员").any { lower.contains(it) } -> "学习"
             listOf("药", "医院", "门诊", "体检", "牙", "检查").any { lower.contains(it) } -> "医疗"
-            listOf("工资", "奖金", "收益", "利息", "分红", "报销", "红包").any { lower.contains(it) } -> "收入"
+            listOf("工资", "奖金", "收益", "利息", "分红", "报销", "红包").any { lower.contains(it) } -> "薪资"
             else -> "其他"
         }
     }

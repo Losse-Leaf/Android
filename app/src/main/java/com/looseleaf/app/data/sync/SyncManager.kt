@@ -120,6 +120,45 @@ class SyncManager private constructor(private val context: Context) {
             entities.map { it.toDomainModel(json) }
         }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * 时间流的可用年份（按 occurredAt 前 4 位）。
+     *
+     * 派生在主线程之外：几千条档案时在 composition 里 remember 全表遍历会阻塞首帧（AOPT-03c）。
+     */
+    val availableYearsFlow: StateFlow<List<Int>> = entriesFlow
+        .map { list ->
+            list.mapNotNull { entry ->
+                entry.occurredAt.takeIf { it.length >= 4 }?.substring(0, 4)?.toIntOrNull()
+            }.distinct().sortedDescending()
+        }
+        .flowOn(Dispatchers.Default)
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * 往年同月同日的本地条目（不含今年），作为「那年今日」服务端结果缺失时的本地兜底。
+     *
+     * formatDisplayDate 需要解析 ISO 时间串，必须离开主线程批量执行（AOPT-03c）。
+     */
+    val localOnThisDayFlow: StateFlow<List<LifeEntry>> = entriesFlow
+        .map { list ->
+            val today = java.time.LocalDate.now(FormatUtils.BeijingZone)
+            val todayMonthDay = String.format(
+                java.util.Locale.US,
+                "%02d.%02d",
+                today.monthValue,
+                today.dayOfMonth
+            )
+            val thisYearPrefix = "${today.year}."
+            list.filter { entry ->
+                val formatted = FormatUtils.formatDisplayDate(entry.occurredAt)
+                formatted.length >= 10 &&
+                    !formatted.startsWith(thisYearPrefix) &&
+                    formatted.substring(5, 10) == todayMonthDay
+            }
+        }
+        .flowOn(Dispatchers.Default)
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // 观察全量记账明细 (合并本地乐观与云端权威，0ms 内存态直出)
     val transactionsFlow: StateFlow<List<Transaction>> = database.transactionDao().getAllTransactionsFlow()
         .catch { emit(emptyList()) }
