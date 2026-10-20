@@ -46,7 +46,8 @@ jobs:
       - name: Run Unit Tests (release gate)
         run: |
           set +e
-          ./gradlew testDebugUnitTest --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_test.log 2>&1
+          # MOB-P1-62：变体化后必须显式点名（testDebugUnitTest 已成歧义任务名）
+          ./gradlew :app:testPublicDebugUnitTest :app:testLanDebugUnitTest --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_test.log 2>&1
           EXIT_CODE=$?
           cat gradle_test.log
           if [ $EXIT_CODE -ne 0 ]; then
@@ -57,7 +58,8 @@ jobs:
       - name: Run Lint (release gate)
         run: |
           set +e
-          ./gradlew :app:lintDebug --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_lint.log 2>&1
+          # MOB-P1-62：lintDebug 同样因变体而歧义，改点名两个变体
+          ./gradlew :app:lintPublicDebug :app:lintLanDebug --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_lint.log 2>&1
           EXIT_CODE=$?
           cat gradle_lint.log
           if [ $EXIT_CODE -ne 0 ]; then
@@ -157,7 +159,20 @@ jobs:
           files: release-artifacts/*.apk
           generate_release_notes: true
           body: |
-            散页 (Loose Leaf) Android 正式发布产物（已签名，可直接覆盖安装同签名旧版）。
+            散页 (Loose Leaf) Android 正式发布产物。
+
+            ⚠️ **本版起签名密钥已轮换**，因此**无法覆盖安装 1.6.1 及更早的版本**
+            （Android 会拒绝签名不一致的覆盖安装）。请按下面的说明升级：
+
+            1. 先在旧版 App 里把改动**同步到中枢**（离线队列清空）——否则卸载会连同
+               未同步的本地改动一起清掉；
+            2. 卸载旧版，安装本版；本地缓存会从中枢自动重新拉取。
+
+            本次提供两个变体，按你的中枢位置选：
+            - `LooseLeaf-<tag>.apk` —— **公网版**：中枢有公网域名，只允许 https；
+            - `LooseLeaf-<tag>.lan.apk` —— **局域网版**：中枢在自家局域网，或经
+              Tailscale / WireGuard 等组网工具异地访问时使用（允许明文访问私有地址）。
+
+            两个变体包名不同、可以并存；App 内更新会按当前变体自动挑选对应安装包。
 
             APK 已启用 R8 与资源收缩；下方变更记录由本仓库提交自动生成。
-            应用内更新会校验 APK 的 SHA-256 与签名，签名不一致时会提示「需卸载重装」。
