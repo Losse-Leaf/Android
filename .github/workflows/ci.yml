@@ -79,8 +79,30 @@ jobs:
       - name: Compile Desktop Mock Preview Studio (preview only, not a UI self-check)
         run: ./gradlew :desktop:classes --no-daemon
 
+      # MOB-P2-57 / MOB-P2-54：签名密钥与口令都不在仓库里，
+      # CI 需要自己从 GitHub Secret 取回（与发布流水线同源）。
+      - name: Restore signing keystore from secret
+        env:
+          LOOSELEAF_KEYSTORE_BASE64: ${{ secrets.LOOSELEAF_KEYSTORE_BASE64 }}
+          LOOSELEAF_STORE_PASSWORD: ${{ secrets.LOOSELEAF_STORE_PASSWORD }}
+          LOOSELEAF_KEY_PASSWORD: ${{ secrets.LOOSELEAF_KEY_PASSWORD }}
+        run: |
+          if [ -z "$LOOSELEAF_KEYSTORE_BASE64" ] || [ -z "$LOOSELEAF_STORE_PASSWORD" ] || [ -z "$LOOSELEAF_KEY_PASSWORD" ]; then
+            echo "::error title=缺少签名凭据::请在仓库 Settings → Secrets and variables → Actions 中添加 LOOSELEAF_KEYSTORE_BASE64 / LOOSELEAF_STORE_PASSWORD / LOOSELEAF_KEY_PASSWORD"
+            exit 1
+          fi
+          echo "$LOOSELEAF_KEYSTORE_BASE64" | base64 --decode > app/release.keystore
+          chmod 600 app/release.keystore
+
       - name: Build Release APK
-        run: ./gradlew assembleRelease --no-daemon -Pkotlin.compiler.execution.strategy=in-process
+        env:
+          LOOSELEAF_STORE_PASSWORD: ${{ secrets.LOOSELEAF_STORE_PASSWORD }}
+          LOOSELEAF_KEY_PASSWORD: ${{ secrets.LOOSELEAF_KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease --no-daemon \
+            -PLOOSELEAF_STORE_PASSWORD="$LOOSELEAF_STORE_PASSWORD" \
+            -PLOOSELEAF_KEY_PASSWORD="$LOOSELEAF_KEY_PASSWORD" \
+            -Pkotlin.compiler.execution.strategy=in-process
 
       - name: Verify Release APK is signed
         run: |

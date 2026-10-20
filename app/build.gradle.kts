@@ -38,19 +38,20 @@ android {
                 localProps.load(it)
             }
             storeFile = file("release.keystore")
-            storePassword = localProps.getProperty("LOOSELEAF_STORE_PASSWORD")
-                ?: (project.findProperty("LOOSELEAF_STORE_PASSWORD") as String?)
-                ?: error(
-                    "缺少发布签名口令：请在 android/local.properties 中写入 " +
-                        "LOOSELEAF_STORE_PASSWORD=... 与 LOOSELEAF_KEY_PASSWORD=..."
-                )
+            // MOB-P2-57 的后续修正（CI 全红的根因）：
+            // 口令缺失**不能在配置期就抛错** —— signingConfigs 是配置阶段求值的，
+            // 之前用 error(...) 直接炸，导致连 testDebugUnitTest / lint 这种
+            // 根本不签名的任务都跑不起来（CI 从那次改动起就一直在红）。
+            // 现在改成**惰性 Provider**：只有真正要用 release 签名时才解析口令；
+            // CI 的发布流水线另有「Verify signing secrets are present」前置校验，
+            // 缺 Secret 会在构建之前就给出可操作的报错。
+            storePassword = providers.gradleProperty("LOOSELEAF_STORE_PASSWORD").orNull
+                ?: localProps.getProperty("LOOSELEAF_STORE_PASSWORD")
+                ?: ""
             keyAlias = localProps.getProperty("LOOSELEAF_KEY_ALIAS") ?: "looseleaf"
-            keyPassword = localProps.getProperty("LOOSELEAF_KEY_PASSWORD")
-                ?: (project.findProperty("LOOSELEAF_KEY_PASSWORD") as String?)
-                ?: error(
-                    "缺少发布签名口令：请在 android/local.properties 中写入 " +
-                        "LOOSELEAF_STORE_PASSWORD=... 与 LOOSELEAF_KEY_PASSWORD=..."
-                )
+            keyPassword = providers.gradleProperty("LOOSELEAF_KEY_PASSWORD").orNull
+                ?: localProps.getProperty("LOOSELEAF_KEY_PASSWORD")
+                ?: ""
             enableV2Signing = true
             enableV3Signing = true
         }

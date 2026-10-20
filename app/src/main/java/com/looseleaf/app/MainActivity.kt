@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.CancellationException
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -423,24 +424,37 @@ class MainActivity : FragmentActivity() {
             // 系统声明了 enableOnBackInvokedCallback="true"，但旧式 BackHandler
             // 没有跟手动画，用户看到的是「松手后瞬间跳转」。
             // PredictiveBackHandler 在 API < 33 上会自动退化为传统 BackHandler，行为一致
-            PredictiveBackHandler {
-                // MOB-P2-73：优先逐级回退到上一个分段；栈空后才回时间流 / 退出
-                when {
-                    routeStack.isNotEmpty() -> {
-                        currentRouteState.value = routeStack.removeAt(routeStack.lastIndex)
-                    }
-                    currentRoute != "stream" -> {
-                        currentRouteState.value = "stream"
-                    }
-                    else -> {
-                        val now = System.currentTimeMillis()
-                        if (now - lastBackPressTime < 2000L) {
-                            finish()
-                        } else {
-                            lastBackPressTime = now
-                            ArchiveToastManager.show("再按一次退出散页")
+            //
+            // MOB-P2-72 的后续修正（CI 的 lint 门禁把它揪了出来）：activity-compose 1.9
+            // 的回调收的是 **Flow<BackEventCompat>**，而且**必须 collect** ——
+            // 不 collect 的话 AndroidX 会直接抛 "You must collect the progress flow"，
+            // 更糟的是整段逻辑会在**手势刚开始**时就跑一遍（松手前就跳走了），跟手动画也没了。
+            //
+            // 官方推荐的结构：collect 正常结束 = 手势**完成**；抛 CancellationException = 手势**取消**。
+            PredictiveBackHandler { progress ->
+                try {
+                    progress.collect { /* 手势进度事件：目前不驱动额外动画，只消费掉 */ }
+                    // 手势完成 —— MOB-P2-73：优先逐级回退到上一个分段；栈空后才回时间流 / 退出
+                    when {
+                        routeStack.isNotEmpty() -> {
+                            currentRouteState.value = routeStack.removeAt(routeStack.lastIndex)
+                        }
+                        currentRoute != "stream" -> {
+                            currentRouteState.value = "stream"
+                        }
+                        else -> {
+                            val now = System.currentTimeMillis()
+                            if (now - lastBackPressTime < 2000L) {
+                                finish()
+                            } else {
+                                lastBackPressTime = now
+                                ArchiveToastManager.show("再按一次退出散页")
+                            }
                         }
                     }
+                } catch (e: CancellationException) {
+                    // 手势被取消（滑回原处）—— 什么都不做
+                    throw e
                 }
             }
 
