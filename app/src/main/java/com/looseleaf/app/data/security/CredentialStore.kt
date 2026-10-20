@@ -40,6 +40,16 @@ class CredentialStore private constructor(context: Context) {
         private const val KEY_CACHED_PROFILE = "cached_profile_json"
         private const val KEY_CACHED_SITE_CONFIG = "cached_site_config_json"
 
+        /**
+         * MOB-P0-10：配对态镜像标记（普通 Prefs，非机密）。
+         * 组合期读取配对态时若去碰 EncryptedSharedPreferences，
+         * 会把 KeyStore 初始化 + 文件 IO 拖到主线程，冷启动首帧直接被阻塞。
+         */
+            private const val KEY_PAIRED_FLAG = "paired_flag"
+
+        /** MOB-P2-45：高对比度模式开关（Android 未公开高对比度 API，故由应用内提供） */
+        private const val KEY_HIGH_CONTRAST = "high_contrast"
+
         @Volatile
         private var instance: CredentialStore? = null
 
@@ -118,10 +128,37 @@ class CredentialStore private constructor(context: Context) {
         if (dirty) editor.apply()
     }
 
+    /**
+     * MOB-P1-39：device_token 的内存镜像。
+     * EncryptedSharedPreferences 每次读取都要做一次 AES-GCM 解密 + Base64，
+     * 而 APIClient 每个 HTTP 请求都会读一次 token ⇒ 白白多出数十次解密。
+     */
+    @Volatile
+    private var cachedDeviceToken: String? = null
+
+    @Volatile
+    private var tokenLoaded = false
+
     var deviceToken: String?
-        get() = securePrefs?.getString(KEY_DEVICE_TOKEN, null)?.takeIf { it.isNotBlank() }
+        get() {
+            if (tokenLoaded) return cachedDeviceToken
+            synchronized(this) {
+                if (!tokenLoaded) {
+                    cachedDeviceToken = securePrefs?.getString(KEY_DEVICE_TOKEN, null)
+                        ?.takeIf { it.isNotBlank() }
+                    tokenLoaded = true
+                }
+            }
+            return cachedDeviceToken
+        }
         set(value) {
+            cachedDeviceToken = value?.takeIf { it.isNotBlank() }
+            tokenLoaded = true
             securePrefs?.edit()?.putString(KEY_DEVICE_TOKEN, value)?.apply()
+            // 同步配对态镜像：让主线程可以零 KeyStore 成本判断「是否已入网」
+            settings.edit()
+                .putBoolean(KEY_PAIRED_FLAG, !value.isNullOrBlank())
+                .apply()
         }
 
     var deviceId: String?
@@ -141,6 +178,16 @@ class CredentialStore private constructor(context: Context) {
         get() = settings.getBoolean(KEY_BIOMETRICS_ENABLED, false)
         set(value) {
             settings.edit().putBoolean(KEY_BIOMETRICS_ENABLED, value).apply()
+        }
+
+    /**
+     * MOB-P2-45：高对比度模式。
+     * 开启后次级文字与分隔线会显著加强对比，便于低视力用户阅读。
+     */
+    var highContrast: Boolean
+        get() = settings.getBoolean(KEY_HIGH_CONTRAST, false)
+        set(value) {
+            settings.edit().putBoolean(KEY_HIGH_CONTRAST, value).apply()
         }
 
     var isDarkroomMode: Boolean
@@ -187,11 +234,26 @@ class CredentialStore private constructor(context: Context) {
             settings.edit().putString(KEY_CACHED_SITE_CONFIG, value).apply()
         }
 
+    /**
+     * 是否已入网。
+     *
+     * MOB-P0-10：正常路径只读普通 Prefs 的镜像标记，**绝不触碰 KeyStore**，
+     * 因此组合期调用不会把加密存储初始化拖到主线程。
+     * 只有升级上来的老设备（还没有镜像标记）才会回退一次安全存储判定，
+     * 并顺手补写镜像，此后不再产生 KeyStore 开销。
+     */
     fun isPaired(): Boolean {
-        return isSecureStorageAvailable && !deviceToken.isNullOrBlank()
+        if (settings.contains(KEY_PAIRED_FLAG)) {
+            return settings.getBoolean(KEY_PAIRED_FLAG, false)
+        }
+        val paired = isSecureStorageAvailable && !deviceToken.isNullOrBlank()
+        settings.edit().putBoolean(KEY_PAIRED_FLAG, paired).apply()
+        return paired
     }
 
     fun clearCredentials() {
+        cachedDeviceToken = null
+        tokenLoaded = true
         securePrefs?.edit()
             ?.remove(KEY_DEVICE_TOKEN)
             ?.remove(KEY_DEVICE_ID)
@@ -201,6 +263,7 @@ class CredentialStore private constructor(context: Context) {
             .remove(KEY_DEVICE_NAME)
             .remove(KEY_CACHED_PROFILE)
             .remove(KEY_CACHED_SITE_CONFIG)
+            .remove(KEY_PAIRED_FLAG)
             .apply()
     }
 }

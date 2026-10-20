@@ -15,9 +15,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.ExpandLess
-import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -44,6 +41,15 @@ import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
 import java.io.File
 import java.time.LocalDate
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import com.looseleaf.app.data.sync.SyncManager
+import androidx.compose.ui.res.painterResource
 
 /** 热力图单格边长（dp），供 LifeActivityHeatmap 与其调用方共享 */
 internal const val HEATMAP_CELL_DP = 12
@@ -72,14 +78,14 @@ internal fun OnThisDayCard(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Outlined.History,
+                        painter = painterResource(R.drawable.ic_history),
                         contentDescription = null,
                         tint = colors.accentWarm,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "那年今日 · 岁月回响 (${entries.size})",
+                        text = stringResource(R.string.stream_entries_text_tpl_01, entries.size),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
                         fontSize = 14.sp,
@@ -87,8 +93,8 @@ internal fun OnThisDayCard(
                     )
                 }
                 Icon(
-                    imageVector = if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                    contentDescription = "展开或收起",
+                    painter = if (isExpanded) painterResource(R.drawable.ic_expand_less) else painterResource(R.drawable.ic_expand_more),
+                    contentDescription = stringResource(R.string.stream_entries_contentDescription_01),
                     tint = colors.accentWarm,
                     modifier = Modifier.size(18.dp)
                 )
@@ -144,45 +150,31 @@ internal fun OnThisDayCard(
     }
 }
 
-/**
- * 自然下渗分类过滤：遵循 docs/README.md §三.8 规范，带城市属地归入游历，带项目归入造物，带心愿归入心愿
- */
-internal fun entryMatchesFilter(entry: LifeEntry, filter: String): Boolean {
-    if (filter == "all") return true
-    val t = entry.type.lowercase()
-    if (filter == "travel") {
-        return t == "travel" || !entry.cityCode.isNullOrBlank()
-    }
-    if (filter == "project") {
-        return t == "project" || (entry.projectId != null && entry.projectId > 0)
-    }
-    if (filter == "wish") {
-        return t == "wish" || (entry.wishId != null && entry.wishId > 0)
-    }
-    if (filter == "daily" || filter == "life") {
-        return (t == "life" || t == "daily") && entry.cityCode.isNullOrBlank() && (entry.projectId == null || entry.projectId <= 0) && (entry.wishId == null || entry.wishId <= 0)
-    }
-    return t == filter
-}
 
 @Composable
 internal fun LifeActivityHeatmap(
-    entries: List<LifeEntry>,
+    // MOB-P1-32：改为接收「按日计数」而不是全量档案 ——
+    // 原先要在组合期对全量条目 groupBy + 每条一次日期解析（2 万条 = 2 万次解析）。
+    dayCounts: Map<String, Int>,
+    totalEntryCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
     var isExpanded by rememberSaveable { mutableStateOf(false) }
 
-    val dateCountMap = remember(entries) {
-        // 统一按北京时间归日：直接截 occurredAt 前 10 位，在 UTC 串（…T20:00Z）上会偏到前一天
-        entries.groupingBy { FormatUtils.formatDisplayDate(it.occurredAt) }.eachCount()
-    }
+    // MOB-P1-32：按日计数由 SQL GROUP BY 提供，主线程零计算
+    val dateCountMap = dayCounts
+    // MOB-P1-80：热力图的无障碍描述（composable 作用域取值）
+    val heatmapDescription = stringResource(
+        R.string.stream_entries_contentDescription_tpl_01,
+        dateCountMap.size
+    )
 
     val weeksCount = 52
-    // key 必须含 entries：固定用常量 52 会让日期网格在数据刷新后不重算；
-    // 组合进入时 remember 自然重算，跨天由下一次重组覆盖
-    val calWeeks = remember(entries) {
-        val today = LocalDate.now(FormatUtils.BeijingZone)
+    // MOB-P0-07：日期网格只依赖「今天」，与 entries 无关 ——
+    // 原先以 entries 为记忆键，导致每次同步后都重跑 364 次 String.format。
+    val today = remember { LocalDate.now(FormatUtils.BeijingZone) }
+    val calWeeks = remember(today) {
         val list = mutableListOf<List<Pair<String, Boolean>>>()
         for (w in (0 until weeksCount).reversed()) {
             val days = mutableListOf<Pair<String, Boolean>>()
@@ -219,14 +211,14 @@ internal fun LifeActivityHeatmap(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "时光生活刻度",
+                    text = stringResource(R.string.stream_entries_text_01),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.inkPrimary
                 )
                 Text(
-                    text = " · 共 ${entries.size} 篇手记",
+                    text = stringResource(R.string.stream_entries_text_tpl_02, totalEntryCount),
                     fontFamily = ArchiveFontFamilies.MonoScale,
                     fontSize = 11.sp,
                     color = colors.inkMuted
@@ -261,6 +253,13 @@ internal fun LifeActivityHeatmap(
                     modifier = Modifier
                         .width(stepDp * calWeeks.size)
                         .height(stepDp * 7)
+                        // MOB-P1-80：热力图原本是「一个 Canvas」，在无障碍树里完全不存在 ——
+                        // 读屏用户既听不到有多少天有记录，也无法聚焦。
+                        // 这里补上整体描述与点击语义（每日计数由 Toast 播报）。
+                        .semantics {
+                            // MOB-P1-80：描述文本必须在 composable 作用域取值（semantics lambda 不是 composable）
+                            contentDescription = heatmapDescription
+                        }
                         .pointerInput(calWeeks, dateCountMap) {
                             detectTapGestures { offset ->
                                 val step = stepDp.toPx()
@@ -390,13 +389,18 @@ internal fun EntryAttachmentsGrid(
 
 @Composable
 internal fun StreamEntryCard(
-    entry: LifeEntry,
+    row: StreamRowItem,
     apiClient: APIClient,
-    onClick: () -> Unit,
-    onDelete: () -> Unit,
+    // MOB-P1-24：回调改为「传实体」的稳定签名 ——
+    // 原先在 items{} 里写 `onClick = { selectedEntryForDetail = row.entry }`，
+    // 每个 item 每次重组都会产生新 lambda ⇒ 卡片参数不稳定 ⇒ 整块 items 无法跳过重组，
+    // 任意一项状态变化都会让屏幕内所有卡片重新组合。
+    onClick: (LifeEntry) -> Unit,
+    onDelete: (LifeEntry) -> Unit,
     onPhotoClick: (String, String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val entry = row.entry
     val colors = LooseLeafTheme.colors
 
     val cardBg = when (entry.type) {
@@ -415,7 +419,7 @@ internal fun StreamEntryCard(
     PaperCard(
         modifier = modifier
             .fillMaxWidth()
-            .clickable { onClick() },
+            .clickable { onClick(entry) },
         backgroundColor = cardBg,
         borderColor = cardBorder
     ) {
@@ -431,7 +435,8 @@ internal fun StreamEntryCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = FormatUtils.formatDisplayDateTime(entry.occurredAt),
+                        // MOB-P0-06：改读预格式化字段，不再每帧解析 ISO 时间串
+                        text = row.displayTime,
                         fontFamily = ArchiveFontFamilies.MonoScale,
                         fontSize = 12.sp,
                         color = colors.inkMuted,
@@ -439,7 +444,7 @@ internal fun StreamEntryCard(
                         softWrap = false
                     )
 
-                    val placeString = listOfNotNull(entry.cityName, entry.location).distinct().filter { it.isNotBlank() }.joinToString(" · ")
+                    val placeString = row.displayPlace
                     if (placeString.isNotBlank()) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Row(
@@ -466,7 +471,7 @@ internal fun StreamEntryCard(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (entry.syncStatus != "SYNCED") {
+                    if (entry.syncStatus != SyncManager.STATUS_SYNCED) {
                         Box(
                             modifier = Modifier
                                 .size(6.dp)
@@ -477,12 +482,12 @@ internal fun StreamEntryCard(
                     }
 
                     IconButton(
-                        onClick = onDelete,
+                        onClick = { onDelete(entry) },
                         modifier = Modifier.size(24.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Delete,
-                            contentDescription = "删除记录",
+                            contentDescription = stringResource(R.string.stream_entries_contentDescription_02),
                             tint = colors.inkMuted.copy(alpha = 0.6f),
                             modifier = Modifier.size(16.dp)
                         )
@@ -510,7 +515,12 @@ internal fun StreamEntryCard(
                     fontFamily = ArchiveFontFamilies.BodySans,
                     fontSize = 14.sp,
                     lineHeight = 22.sp,
-                    color = colors.inkSecondary
+                    color = colors.inkSecondary,
+                    // MOB-P2-41：LazyColumn 以无限高度测量 item ——
+                    // 一条 10000 字的长随笔会撑出 10000px 高的单个 item，
+                    // 造成巨型布局 pass 与滚动掉帧。列表内截断，详情抽屉里再全文展开。
+                    maxLines = 12,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
@@ -534,5 +544,9 @@ internal fun StreamEntryCard(
 @Immutable
 internal data class StreamRowItem(
     val entry: LifeEntry,
-    val gapDays: Long
+    val gapDays: Long,
+    /** MOB-P0-06：预格式化的时间戳 —— 避免滚动期每帧每项重新解析 ISO 字符串 */
+    val displayTime: String,
+    /** MOB-P0-06：预拼接的属地字符串 */
+    val displayPlace: String,
 )

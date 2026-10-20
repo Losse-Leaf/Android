@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import java.io.File
 
 @Database(
     entities = [
@@ -16,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CachedWishEntity::class,
         CachedFootprintEntity::class
     ],
-    version = 6,
+    version = 7,
     // 导出 schema 到 app/schemas，后续迁移必须能和它逐字段对齐
     exportSchema = true
 )
@@ -49,6 +50,9 @@ abstract class AppDatabase : RoomDatabase() {
          */
         val MIGRATION_2_6 = object : Migration(2, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
+                // MOB-P1-50：清库前先把**发件箱**（未同步记录的唯一真相）导出到应用私有目录，
+                // 重建后再回灌 —— 升级不再意味着「未同步的记录永久消失」。
+                val exportedOutbox = exportOutboxBeforeReset(db)
                 val tables = listOf(
                     "cached_entries",
                     "cached_transactions",
@@ -125,6 +129,80 @@ abstract class AppDatabase : RoomDatabase() {
                         "`entries_count` INTEGER, `total_spent` INTEGER, `transaction_count` INTEGER, " +
                         "`updated_at` TEXT, PRIMARY KEY(`id`))"
                 )
+
+                // MOB-P1-50：重建完成后把发件箱回灌（未同步记录得以保留并继续上传）
+                exportedOutbox?.let { restoreOutboxAfterReset(db, it) }
+            }
+        }
+
+        /**
+         * MOB-P1-50：清库前导出未同步的发件箱事件。
+         *
+         * 发件箱的 payload 里存着未同步记录的**完整请求体**，
+         * 因此只要保住发件箱，未同步内容就不会随旧表一起消失。
+         */
+        private fun exportOutboxBeforeReset(db: SupportSQLiteDatabase): List<Array<Any?>>? {
+            return try {
+                val rows = mutableListOf<Array<Any?>>()
+                db.query("SELECT event_id, entity_type, action, payload, local_target_id, server_target_id, retry_count, created_at FROM outbox_events")
+                    .use { c ->
+                        while (c.moveToNext()) {
+                            rows += arrayOf(
+                                c.getString(0),
+                                c.getString(1),
+                                c.getString(2),
+                                c.getString(3),
+                                c.getLong(4),
+                                if (c.isNull(5)) null else c.getLong(5),
+                                c.getInt(6),
+                                c.getString(7)
+                            )
+                        }
+                    }
+                if (rows.isEmpty()) return null
+
+                // 落一份到应用私有目录，作为最后一道保险（即使回灌失败，文件仍在）
+                runCatching {
+                    val dir = File(db.path).parentFile?.parentFile?.resolve("legacy_backup")
+                    if (dir != null) {
+                        dir.mkdirs()
+                        val arr = org.json.JSONArray()
+                        rows.forEach { r ->
+                            arr.put(
+                                org.json.JSONObject().apply {
+                                    put("event_id", r[0]); put("entity_type", r[1]); put("action", r[2])
+                                    put("payload", r[3]); put("local_target_id", r[4])
+                                    put("server_target_id", r[5]); put("retry_count", r[6]); put("created_at", r[7])
+                                }
+                            )
+                        }
+                        File(dir, "outbox_backup.json").writeText(arr.toString())
+                    }
+                }
+                rows
+            } catch (e: Exception) {
+                android.util.Log.w("AppDatabase", "导出旧发件箱失败：${e.message}")
+                null
+            }
+        }
+
+        /** MOB-P1-50：重建完成后回灌发件箱。 */
+        private fun restoreOutboxAfterReset(
+            db: SupportSQLiteDatabase,
+            rows: List<Array<Any?>>
+        ) {
+            try {
+                rows.forEach { r ->
+                    db.execSQL(
+                        "INSERT OR REPLACE INTO outbox_events " +
+                            "(event_id, entity_type, action, payload, local_target_id, server_target_id, retry_count, created_at) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        arrayOf(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7])
+                    )
+                }
+                android.util.Log.i("AppDatabase", "已回灌 ${rows.size} 条未同步发件箱事件")
+            } catch (e: Exception) {
+                android.util.Log.w("AppDatabase", "回灌旧发件箱失败：${e.message}")
             }
         }
 
@@ -222,6 +300,26 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /** 5 → 6：发件箱增加失败态，事件不再被静默删除。 */
+        /**
+         * MOB-P1-46 / MOB-P1-47：补索引（纯加索引，不动任何数据）。
+         * - outbox_events：按 (entity_type, local_target_id, action) 查询是编辑路径的高频操作，
+         *   没有 local_target_id 索引时每次编辑都要全表扫描；
+         * - cached_entries：主列表按 sync_status 过滤 + occurred_at 排序，
+         *   单列索引无法同时覆盖，补一条复合索引。
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_outbox_events_entity_type_local_target_id_action` " +
+                        "ON `outbox_events` (`entity_type`, `local_target_id`, `action`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_cached_entries_sync_status_occurred_at` " +
+                        "ON `cached_entries` (`sync_status`, `occurred_at`)"
+                )
+            }
+        }
+
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 addColumnIfMissing(db, "outbox_events", "failed_at", "ALTER TABLE `outbox_events` ADD COLUMN `failed_at` TEXT")
@@ -236,7 +334,13 @@ abstract class AppDatabase : RoomDatabase() {
                 AppDatabase::class.java,
                 DB_NAME
             )
-                .addMigrations(MIGRATION_2_6, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(
+                    MIGRATION_2_6,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7
+                )
                 // 只在「降级安装」时清库；版本前进时缺迁移宁可显式失败，也不静默抹掉未同步数据。
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()

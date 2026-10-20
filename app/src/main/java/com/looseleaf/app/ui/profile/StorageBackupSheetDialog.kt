@@ -34,6 +34,9 @@ import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.launch
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import androidx.compose.ui.res.painterResource
 
 /**
  * 散页存储配置与全量快照灾备中枢 (Storage & Backup Management Sheet)
@@ -142,9 +145,9 @@ fun StorageBackupSheetDialog(
     // 回滚二次确认弹窗
     backupToRestore?.let { b ->
         ArchiveConfirmDialog(
-            title = "确认回滚恢复快照？",
+            title = stringResource(R.string.storage_backup_sheet_dialog_title_01),
             content = "恢复操作将从备份「${b.filename}」中整库还原数据库，未备份的最新改动将被覆盖，恢复后将自动重载应用。",
-            confirmText = "确认回滚恢复",
+            confirmText = stringResource(R.string.storage_backup_sheet_dialog_confirmText_01),
             isDestructive = true,
             onConfirm = {
                 val target = b.filename
@@ -169,9 +172,9 @@ fun StorageBackupSheetDialog(
     // 删除备份二次确认
     backupToDelete?.let { b ->
         ArchiveConfirmDialog(
-            title = "删除此快照备份？",
+            title = stringResource(R.string.storage_backup_sheet_dialog_title_02),
             content = "确认永久删除备份压缩包「${b.filename}」？删除后无法找回。",
-            confirmText = "确认删除",
+            confirmText = stringResource(R.string.ledger_dialogs_confirmText_01),
             isDestructive = true,
             onConfirm = {
                 val target = b.filename
@@ -193,7 +196,7 @@ fun StorageBackupSheetDialog(
 
     ArchiveBottomSheet(
         onDismissRequest = onDismiss,
-        title = "《存储与灾备中枢》",
+        title = stringResource(R.string.storage_backup_sheet_dialog_title_03),
         actionButtonText = if (selectedTab == 0) "立即备份" else null,
         isActionEnabled = !isOperating && !isLoading,
         onActionClick = {
@@ -254,7 +257,7 @@ fun StorageBackupSheetDialog(
                 // ==================== TAB 0: 全量快照备份 ====================
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "服务端全量 ZIP 快照由 SQLite WAL 数据库及本地元数据打包生成，最多自动轮转保留 7 份：",
+                        text = stringResource(R.string.storage_backup_sheet_dialog_text_01),
                         fontFamily = ArchiveFontFamilies.BodySans,
                         fontSize = 11.5.sp,
                         lineHeight = 18.sp,
@@ -309,7 +312,7 @@ fun StorageBackupSheetDialog(
                                             ) {
                                                 Text(
                                                     text = if (b.storageType == "r2") "R2 云端" else "本地",
-                                                    fontSize = 9.sp,
+                                                    fontSize = 11.sp,
                                                     fontFamily = ArchiveFontFamilies.MonoScale,
                                                     color = if (b.storageType == "r2") colors.accentWarm else colors.inkSecondary
                                                 )
@@ -319,9 +322,9 @@ fun StorageBackupSheetDialog(
                                         Spacer(modifier = Modifier.height(3.dp))
                                         val mbSize = String.format(java.util.Locale.US, "%.2f MB", b.size.toDouble() / (1024 * 1024))
                                         Text(
-                                            text = "$mbSize · ${b.createdAt.take(19).replace("T", " ")}",
+                                            text = stringResource(R.string.storage_backup_sheet_dialog_text_tpl_01, mbSize, b.createdAt.take(19).replace("T", " ")),
                                             fontFamily = ArchiveFontFamilies.MonoScale,
-                                            fontSize = 10.sp,
+                                            fontSize = 11.sp,
                                             color = colors.inkMuted
                                         )
                                     }
@@ -330,7 +333,7 @@ fun StorageBackupSheetDialog(
 
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            text = "下载",
+                                            text = stringResource(R.string.storage_backup_sheet_dialog_text_02),
                                             fontSize = 11.5.sp,
                                             fontFamily = ArchiveFontFamilies.BodySans,
                                             color = colors.inkPrimary,
@@ -341,7 +344,7 @@ fun StorageBackupSheetDialog(
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "回滚",
+                                            text = stringResource(R.string.storage_backup_sheet_dialog_text_03),
                                             fontSize = 11.5.sp,
                                             fontFamily = ArchiveFontFamilies.BodySans,
                                             color = colors.accentWarm,
@@ -352,7 +355,7 @@ fun StorageBackupSheetDialog(
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "删除",
+                                            text = stringResource(R.string.ledger_transactions_tab_contentDescription_03),
                                             fontSize = 11.5.sp,
                                             fontFamily = ArchiveFontFamilies.BodySans,
                                             color = colors.inkMuted,
@@ -382,7 +385,7 @@ fun StorageBackupSheetDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = if (isConfigured) Icons.Outlined.CloudDone else Icons.Outlined.Storage,
+                            painter = if (isConfigured) painterResource(R.drawable.ic_cloud_done) else painterResource(R.drawable.ic_storage),
                             contentDescription = null,
                             tint = if (isConfigured) colors.accentMoss else colors.inkMuted,
                             modifier = Modifier.size(20.dp)
@@ -404,8 +407,8 @@ fun StorageBackupSheetDialog(
                     PaperTextField(
                         value = bucketName,
                         onValueChange = { bucketName = it },
-                        label = "Bucket Name (存储桶名称)",
-                        placeholder = "例如: loose-leaf-media",
+                        label = stringResource(R.string.storage_backup_sheet_dialog_label_01),
+                        placeholder = stringResource(R.string.storage_backup_sheet_dialog_placeholder_01),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -413,8 +416,8 @@ fun StorageBackupSheetDialog(
                     PaperTextField(
                         value = endpoint,
                         onValueChange = { endpoint = it },
-                        label = "S3 Endpoint 或 Cloudflare Account ID",
-                        placeholder = "https://<account_id>.r2.cloudflarestorage.com",
+                        label = stringResource(R.string.storage_backup_sheet_dialog_label_02),
+                        placeholder = stringResource(R.string.storage_backup_sheet_dialog_placeholder_02),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -422,7 +425,7 @@ fun StorageBackupSheetDialog(
                     PaperTextField(
                         value = accessKeyId,
                         onValueChange = { accessKeyId = it },
-                        label = "Access Key ID",
+                        label = stringResource(R.string.storage_backup_sheet_dialog_label_03),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -439,8 +442,8 @@ fun StorageBackupSheetDialog(
                     PaperTextField(
                         value = publicDomain,
                         onValueChange = { publicDomain = it },
-                        label = "公开访问域名 (选填，加速相纸加载)",
-                        placeholder = "https://media.yourdomain.com",
+                        label = stringResource(R.string.storage_backup_sheet_dialog_label_04),
+                        placeholder = stringResource(R.string.storage_backup_sheet_dialog_placeholder_03),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )

@@ -11,10 +11,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,6 +28,9 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import kotlinx.coroutines.launch
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import androidx.compose.ui.res.painterResource
 
 /**
  * 散页免密设备配对与入网界面 (PairingScreen)
@@ -165,7 +164,7 @@ fun PairingScreen(
                 // ==========================================
 
                 Text(
-                    text = "散页 · 随行入网",
+                    text = stringResource(R.string.pairing_screen_text_01),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontWeight = FontWeight.Medium,
                     fontSize = 26.sp,
@@ -174,7 +173,7 @@ fun PairingScreen(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "扫描 Web 展厅管理台的配对二维码，或直接粘贴配对链接",
+                    text = stringResource(R.string.pairing_screen_text_02),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontSize = 13.sp,
                     color = colors.inkSecondary
@@ -208,7 +207,7 @@ fun PairingScreen(
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = if (index == 0) Icons.Outlined.QrCodeScanner else Icons.Outlined.Link,
+                                    painter = if (index == 0) painterResource(R.drawable.ic_qr_code_scanner) else painterResource(R.drawable.ic_link),
                                     contentDescription = null,
                                     tint = if (isSelected) colors.accentWarm else colors.inkMuted,
                                     modifier = Modifier.size(16.dp)
@@ -240,7 +239,7 @@ fun PairingScreen(
                     PaperCard(modifier = Modifier.fillMaxWidth()) {
                         Column {
                             Text(
-                                text = "粘贴配对链接",
+                                text = stringResource(R.string.pairing_screen_text_03),
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                                 fontWeight = FontWeight.Medium,
                                 fontSize = 15.sp,
@@ -248,7 +247,7 @@ fun PairingScreen(
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "粘贴 Web 展厅生成的配对链接：",
+                                text = stringResource(R.string.pairing_screen_text_04),
                                 fontFamily = ArchiveFontFamilies.BodySans,
                                 fontSize = 12.sp,
                                 lineHeight = 18.sp,
@@ -260,7 +259,7 @@ fun PairingScreen(
                             PaperTextEditor(
                                 value = pastedLinkInput,
                                 onValueChange = { pastedLinkInput = it },
-                                placeholder = "looseleaf://pair?hub=...&ticket=...",
+                                placeholder = stringResource(R.string.pairing_screen_placeholder_01),
                                 minHeight = 72.dp,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -282,7 +281,7 @@ fun PairingScreen(
                                 shape = RoundedCornerShape(2.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(Icons.Outlined.ContentPaste, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(painter = painterResource(R.drawable.ic_content_paste), contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("一键读取剪贴板链接", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp)
                             }
@@ -310,7 +309,7 @@ fun PairingScreen(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "正在握手接入数据中枢，请稍候...",
+                            text = stringResource(R.string.pairing_screen_text_05),
                             fontFamily = ArchiveFontFamilies.BodySans,
                             fontSize = 13.sp,
                             color = colors.accentWarm
@@ -325,14 +324,14 @@ fun PairingScreen(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Outlined.CheckCircle,
+                        painter = painterResource(R.drawable.ic_check_circle),
                         contentDescription = null,
                         tint = colors.accentMoss,
                         modifier = Modifier.size(28.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "中枢握手成功！",
+                        text = stringResource(R.string.pairing_screen_text_06),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
                         fontSize = 24.sp,
@@ -342,7 +341,7 @@ fun PairingScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "本设备已获得专属子钥匙授权，现可自定义展示名称",
+                    text = stringResource(R.string.pairing_screen_text_07),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontSize = 13.sp,
                     color = colors.inkSecondary
@@ -354,7 +353,7 @@ fun PairingScreen(
                 PaperCard(modifier = Modifier.fillMaxWidth()) {
                     Column {
                         Text(
-                            text = "授权凭证信息",
+                            text = stringResource(R.string.pairing_screen_text_08),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontWeight = FontWeight.Medium,
                             fontSize = 15.sp,
@@ -386,7 +385,7 @@ fun PairingScreen(
                 PaperCard(modifier = Modifier.fillMaxWidth()) {
                     Column {
                         Text(
-                            text = "本设备展示名称",
+                            text = stringResource(R.string.pairing_screen_text_09),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontWeight = FontWeight.Medium,
                             fontSize = 15.sp,
@@ -394,7 +393,7 @@ fun PairingScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "此名称将展示在 Web 展厅的「受信任设备」列表中，方便您识别与管理",
+                            text = stringResource(R.string.pairing_screen_text_10),
                             fontFamily = ArchiveFontFamilies.BodySans,
                             fontSize = 12.sp,
                             color = colors.inkSecondary
@@ -405,7 +404,7 @@ fun PairingScreen(
                         PaperTextField(
                             value = customDeviceName,
                             onValueChange = { customDeviceName = it },
-                            placeholder = "设备名称",
+                            placeholder = stringResource(R.string.pairing_screen_placeholder_02),
                             isUnderline = true,
                             textStyle = TextStyle(
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
@@ -423,7 +422,7 @@ fun PairingScreen(
 
                 // 完成进入按钮 (同时调用后端 PUT /api/v1/auth/devices/:id 同步自定义设备名称)
                 TerracottaStampButton(
-                    text = "完成设置，进入散页",
+                    text = stringResource(R.string.pairing_screen_text_11),
                     enabled = customDeviceName.isNotBlank(),
                     onClick = {
                         val finalName = customDeviceName.trim()
@@ -446,9 +445,9 @@ fun PairingScreen(
     // 外部深链的二次确认：只有明确点击「确认配对」才交换设备凭据
     pendingLinkPayload?.let { raw ->
         ArchiveConfirmDialog(
-            title = "确认配对到该中枢？",
+            title = stringResource(R.string.pairing_screen_title_01),
             content = "外部链接请求将本机绑定到：\n$pendingLinkHub\n\n确认后才会交换设备凭据。若这不是你的中枢地址，请直接取消。",
-            confirmText = "确认配对",
+            confirmText = stringResource(R.string.pairing_screen_confirmText_01),
             onConfirm = {
                 pendingLinkPayload = null
                 executeHandshake(raw)

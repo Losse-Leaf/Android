@@ -28,17 +28,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDropDown
-import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ChevronLeft
-import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Place
-import androidx.compose.material.icons.outlined.Remove
-import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.ui.platform.LocalContext
 import com.looseleaf.app.utils.FormatUtils
@@ -77,6 +72,33 @@ import androidx.compose.ui.window.Dialog
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.utils.CityDictionary
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.verticalScroll
+import android.os.Build
+import android.view.HapticFeedbackConstants
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.res.painterResource
+
+/**
+ * MOB-P1-25：形状常量提升为顶层单例 ——
+ * RoundedCornerShape 每次新建都会让该节点的绘制参数判定为「已变化」，
+ * 触发绘制流水线重跑；PaperCard 被每张卡片使用，滚动期分配量可观。
+ */
+private val PaperCardShape = RoundedCornerShape(4.dp)
+private val PaperStampShape = RoundedCornerShape(2.dp)
+private val PaperBadgeShape = RoundedCornerShape(2.dp)
+private val PaperFieldShape = RoundedCornerShape(3.dp)
+private val PaperPillShape = RoundedCornerShape(12.dp)
+
 
 /**
  * 手账质感纸张卡片容器
@@ -93,12 +115,13 @@ fun PaperCard(
     val colors = LooseLeafTheme.colors
     val bg = backgroundColor ?: colors.archiveSubtle
     val border = borderColor ?: colors.borderDivider
-    val shape = RoundedCornerShape(cornerRadius)
+    val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(shape)
+            // MOB-P1-26：background(bg, shape) 本身已按形状裁剪，
+            // 再叠一层 clip() 等于同屏每张卡片多做一次形状栅格化。
             .background(bg, shape)
             .border(0.5.dp, border, shape)
             .padding(contentPadding)
@@ -120,13 +143,20 @@ fun TerracottaStampButton(
     height: Dp = 56.dp
 ) {
     val colors = LooseLeafTheme.colors
-    val shape = RoundedCornerShape(2.dp)
+    val shape = PaperStampShape
     // 盖章的「沉稳一击」：零权限系统触觉（AOPT-05a）
     val haptics = LocalHapticFeedback.current
+    // MOB-P2-46：用 LocalView 触发系统触感常量
+    val view = LocalView.current
 
     Button(
         onClick = {
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            // MOB-P2-46：盖章用「确认」触感（API 30+ 有专用常量），与数字键区分
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            } else {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
             onClick()
         },
         enabled = enabled,
@@ -172,7 +202,7 @@ fun PaperBadge(
     val colors = LooseLeafTheme.colors
     val bg = containerColor ?: colors.archiveSubtle
     val fg = textColor ?: colors.inkSecondary
-    val shape = RoundedCornerShape(2.dp)
+    val shape = PaperBadgeShape
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -235,7 +265,7 @@ fun PaperTextField(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val shape = RoundedCornerShape(3.dp)
+    val shape = PaperFieldShape
     val borderColor = if (isFocused) colors.accentWarm else colors.borderDivider
     val borderWidth = if (isFocused) 1.dp else 0.5.dp
     val effectiveTextStyle = (textStyle ?: TextStyle(
@@ -302,7 +332,13 @@ fun PaperTextField(
                     BasicTextField(
                         value = value,
                         onValueChange = onValueChange,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            // MOB-P1-78：标签是外层独立的 Text，语义上没有与输入框关联 ——
+                            // 读屏只会念「编辑框」。这里把标签接成输入框的可访问名称。
+                            .semantics {
+                                if (!label.isNullOrBlank()) contentDescription = label
+                            },
                         singleLine = singleLine,
                         enabled = enabled,
                         textStyle = effectiveTextStyle,
@@ -343,7 +379,7 @@ fun PaperTextEditor(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
-    val shape = RoundedCornerShape(3.dp)
+    val shape = PaperFieldShape
     val borderColor = if (isFocused) colors.accentWarm else colors.borderDivider
     val borderWidth = if (isFocused) 1.dp else 0.5.dp
     val effectiveTextStyle = (textStyle ?: TextStyle(
@@ -383,7 +419,12 @@ fun PaperTextEditor(
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // MOB-P1-78：同上，给富文本编辑器补可访问名称
+                    .semantics {
+                        if (!label.isNullOrBlank()) contentDescription = label
+                    },
                 singleLine = false,
                 enabled = enabled,
                 textStyle = effectiveTextStyle,
@@ -408,7 +449,7 @@ fun PaperFilterPill(
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
-    val shape = RoundedCornerShape(12.dp)
+    val shape = PaperPillShape
     val bg = if (selected) colors.accentWarm.copy(alpha = 0.15f) else colors.archiveSubtle
     val border = if (selected) colors.accentWarm else colors.borderDivider
     val textColor = if (selected) colors.accentWarm else colors.inkSecondary
@@ -418,7 +459,16 @@ fun PaperFilterPill(
             .clip(shape)
             .background(bg, shape)
             .border(if (selected) 1.dp else 0.5.dp, border, shape)
-            .clickable { onClick() }
+            // MOB-P1-77：改为 selectable + 明确角色与选中态 ——
+            // 裸 clickable 时读屏只会念出胶囊文字，听不出「是否已选中」；
+            // 同时把热区下限提到 36dp（原本只有 ~24dp）。
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = onClick
+            )
+            .semantics { stateDescription = if (selected) "已选中" else "" }
+            .defaultMinSize(minHeight = 36.dp)
             .padding(horizontal = 11.dp, vertical = 5.dp)
     ) {
         Text(
@@ -500,7 +550,7 @@ fun PaperCityPickerField(
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Close,
-                        contentDescription = "清除城市",
+                        contentDescription = stringResource(R.string.paper_components_contentDescription_01),
                         tint = colors.inkMuted,
                         modifier = Modifier.size(13.dp)
                     )
@@ -526,7 +576,7 @@ fun PaperCityPickerField(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "选择属地城市",
+                            text = stringResource(R.string.paper_components_text_01),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Medium,
@@ -538,7 +588,7 @@ fun PaperCityPickerField(
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Close,
-                                contentDescription = "关闭",
+                                contentDescription = stringResource(R.string.paper_components_contentDescription_02),
                                 tint = colors.inkMuted,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -550,7 +600,7 @@ fun PaperCityPickerField(
                     PaperTextField(
                         value = searchKeyword,
                         onValueChange = { searchKeyword = it },
-                        placeholder = "搜索城市…",
+                        placeholder = stringResource(R.string.paper_components_placeholder_01),
                         singleLine = true
                     )
 
@@ -631,7 +681,12 @@ fun PaperDatePickerDialog(
             contentPadding = PaddingValues(16.dp)
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // MOB-P1-81：日期弹窗原本没有滚动容器，内容约 390dp ——
+                    // 横屏手机（可用高度 ~320dp）时底部的「确定」按钮直接出屏且无法滚动到。
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // 顶栏：标题与关闭
@@ -642,7 +697,7 @@ fun PaperDatePickerDialog(
                 ) {
                     Column {
                         Text(
-                            text = "时空纪年 · 发生日期",
+                            text = stringResource(R.string.paper_components_text_02),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -657,7 +712,7 @@ fun PaperDatePickerDialog(
                             }
                         }
                         Text(
-                            text = "${tempDate.year}年${tempDate.monthValue}月${tempDate.dayOfMonth}日 · $relativeText",
+                            text = stringResource(R.string.paper_components_text_tpl_01, tempDate.year, tempDate.monthValue, tempDate.dayOfMonth, relativeText),
                             fontFamily = ArchiveFontFamilies.MonoScale,
                             fontSize = 11.5.sp,
                             color = colors.accentWarm
@@ -669,7 +724,7 @@ fun PaperDatePickerDialog(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Close,
-                            contentDescription = "关闭",
+                            contentDescription = stringResource(R.string.paper_components_contentDescription_02),
                             tint = colors.inkMuted,
                             modifier = Modifier.size(16.dp)
                         )
@@ -689,14 +744,14 @@ fun PaperDatePickerDialog(
                         modifier = Modifier.size(28.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.ChevronLeft,
-                            contentDescription = "上一月",
+                            painter = painterResource(R.drawable.ic_chevron_left),
+                            contentDescription = stringResource(R.string.paper_components_contentDescription_03),
                             tint = colors.inkSecondary
                         )
                     }
 
                     Text(
-                        text = "${currentMonth.year} 年 ${currentMonth.monthValue} 月",
+                        text = stringResource(R.string.paper_components_text_tpl_02, currentMonth.year, currentMonth.monthValue),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
                         fontSize = 14.sp,
@@ -708,8 +763,8 @@ fun PaperDatePickerDialog(
                         modifier = Modifier.size(28.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.ChevronRight,
-                            contentDescription = "下一月",
+                            painter = painterResource(R.drawable.ic_chevron_right),
+                            contentDescription = stringResource(R.string.paper_components_contentDescription_04),
                             tint = colors.inkSecondary
                         )
                     }
@@ -767,6 +822,12 @@ fun PaperDatePickerDialog(
                                                 color = if (isCellToday && !isSelected) colors.accentWarm else Color.Transparent,
                                                 shape = RoundedCornerShape(16.dp)
                                             )
+                                            // MOB-P1-61：日期格要能读出完整日期并播报选中态
+                                            .semantics {
+                                                contentDescription = "${cellDate.year}年${cellDate.monthValue}月${cellDate.dayOfMonth}日"
+                                                selected = isSelected
+                                                role = androidx.compose.ui.semantics.Role.RadioButton
+                                            }
                                             .clickable { tempDate = cellDate },
                                         contentAlignment = Alignment.Center
                                     ) {
@@ -845,7 +906,11 @@ fun PaperTimePickerDialog(
             contentPadding = PaddingValues(16.dp)
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // MOB-P1-81：时间弹窗同理（约 380~400dp），横屏下按钮会出屏
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // 顶栏：标题与关闭
@@ -855,7 +920,7 @@ fun PaperTimePickerDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "发生时刻 · 调整时分",
+                        text = stringResource(R.string.paper_components_text_03),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -867,7 +932,7 @@ fun PaperTimePickerDialog(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Close,
-                            contentDescription = "关闭",
+                            contentDescription = stringResource(R.string.paper_components_contentDescription_02),
                             tint = colors.inkMuted,
                             modifier = Modifier.size(16.dp)
                         )
@@ -944,7 +1009,7 @@ fun PaperTimePickerDialog(
                                 onClick = { tempHour = (tempHour + 1) % 24 },
                                 modifier = Modifier.size(28.dp)
                             ) {
-                                Icon(Icons.Outlined.Add, contentDescription = "+1小时", tint = colors.accentWarm, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Outlined.Add, contentDescription = stringResource(R.string.paper_components_contentDescription_05), tint = colors.accentWarm, modifier = Modifier.size(16.dp))
                             }
                             Text(
                                 text = String.format(Locale.US, "%02d", tempHour),
@@ -957,13 +1022,13 @@ fun PaperTimePickerDialog(
                                 onClick = { tempHour = (tempHour - 1 + 24) % 24 },
                                 modifier = Modifier.size(28.dp)
                             ) {
-                                Icon(Icons.Outlined.Remove, contentDescription = "-1小时", tint = colors.accentWarm, modifier = Modifier.size(16.dp))
+                                Icon(painter = painterResource(R.drawable.ic_remove), contentDescription = stringResource(R.string.paper_components_contentDescription_06), tint = colors.accentWarm, modifier = Modifier.size(16.dp))
                             }
-                            Text("时 (00-23)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 9.5.sp, color = colors.inkMuted)
+                            Text("时 (00-23)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
                         }
 
                         Text(
-                            text = ":",
+                            text = stringResource(R.string.paper_components_text_04),
                             fontFamily = ArchiveFontFamilies.MonoScale,
                             fontSize = 32.sp,
                             fontWeight = FontWeight.Bold,
@@ -980,7 +1045,7 @@ fun PaperTimePickerDialog(
                                 onClick = { tempMinute = (tempMinute + 1) % 60 },
                                 modifier = Modifier.size(28.dp)
                             ) {
-                                Icon(Icons.Outlined.Add, contentDescription = "+1分钟", tint = colors.accentWarm, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Outlined.Add, contentDescription = stringResource(R.string.paper_components_contentDescription_07), tint = colors.accentWarm, modifier = Modifier.size(16.dp))
                             }
                             Text(
                                 text = String.format(Locale.US, "%02d", tempMinute),
@@ -993,9 +1058,9 @@ fun PaperTimePickerDialog(
                                 onClick = { tempMinute = (tempMinute - 1 + 60) % 60 },
                                 modifier = Modifier.size(28.dp)
                             ) {
-                                Icon(Icons.Outlined.Remove, contentDescription = "-1分钟", tint = colors.accentWarm, modifier = Modifier.size(16.dp))
+                                Icon(painter = painterResource(R.drawable.ic_remove), contentDescription = stringResource(R.string.paper_components_contentDescription_08), tint = colors.accentWarm, modifier = Modifier.size(16.dp))
                             }
-                            Text("分 (00-59)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 9.5.sp, color = colors.inkMuted)
+                            Text("分 (00-59)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
                         }
                     }
                 }
@@ -1069,14 +1134,14 @@ fun PaperDateField(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Icon(
-                imageVector = Icons.Outlined.CalendarToday,
-                contentDescription = "选择日期",
+                painter = painterResource(R.drawable.ic_calendar_today),
+                contentDescription = stringResource(R.string.paper_components_contentDescription_09),
                 tint = if (!isToday) colors.accentWarm else colors.inkMuted,
                 modifier = Modifier.size(13.dp)
             )
             if (!label.isNullOrBlank()) {
                 Text(
-                    text = "$label：",
+                    text = stringResource(R.string.paper_components_text_tpl_03, label),
                     fontFamily = ArchiveFontFamilies.BodySans,
                     fontSize = 11.sp,
                     color = colors.inkMuted
@@ -1136,14 +1201,14 @@ fun PaperTimeField(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Icon(
-                imageVector = Icons.Outlined.Schedule,
-                contentDescription = "选择时刻",
+                painter = painterResource(R.drawable.ic_schedule),
+                contentDescription = stringResource(R.string.paper_components_contentDescription_10),
                 tint = colors.accentWarm,
                 modifier = Modifier.size(13.dp)
             )
             if (!label.isNullOrBlank()) {
                 Text(
-                    text = "$label：",
+                    text = stringResource(R.string.paper_components_text_tpl_03, label),
                     fontFamily = ArchiveFontFamilies.BodySans,
                     fontSize = 11.sp,
                     color = colors.inkMuted
@@ -1345,7 +1410,7 @@ fun <T> PaperSelectField(
                         ) {
                             Icon(
                                 imageVector = Icons.Outlined.Close,
-                                contentDescription = "关闭",
+                                contentDescription = stringResource(R.string.paper_components_contentDescription_02),
                                 tint = colors.inkMuted,
                                 modifier = Modifier.size(16.dp)
                             )

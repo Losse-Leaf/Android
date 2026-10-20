@@ -432,7 +432,10 @@ data class AddGearAssetRequest(
     @SerialName("purchase_date") val purchaseDate: String? = null,
     @SerialName("payment_method") val paymentMethod: String? = null,
     val note: String? = null,
-    @SerialName("create_transaction") val createTransaction: Boolean = true,
+    // MOB-P1-35：这一项**不能有默认值** —— 客户端默认 true、服务端默认 false，
+    // 若省略（encodeDefaults=false 时 true 会被省掉）就会悄悄少记一笔账。
+    // 去掉默认值后该字段永远随请求下发。
+    @SerialName("create_transaction") val createTransaction: Boolean,
     @SerialName("is_installment") val isInstallment: Boolean = false,
     @SerialName("installment_channel_code") val installmentChannelCode: String? = null,
     @SerialName("installment_total_amount") val installmentTotalAmount: Long? = null,

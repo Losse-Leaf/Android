@@ -51,6 +51,12 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.YearMonth
 import kotlin.math.roundToLong
+import androidx.compose.ui.platform.LocalDensity
+import com.looseleaf.app.ui.components.DraftStore
+import androidx.compose.animation.Crossfade
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import androidx.compose.ui.res.painterResource
 /**
  * 极速触觉记账、账单流水与资产大盘 (LedgerScreen)
  * 三栏架构：0 极速记账 | 1 账单明细 | 2 资产与信贷
@@ -88,7 +94,16 @@ fun LedgerScreen(
     var noteText by rememberSaveable { mutableStateOf("") }
     var selectedCityCode by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedCityName by rememberSaveable { mutableStateOf<String?>(null) }
-    var txOccurredAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
+    // MOB-P1-56：日期/分期等关键状态改用 rememberSaveable ——
+    // 原先用 remember，旋转屏幕（或系统回收后恢复）会把用户手动设好的
+    // 日期、分期开关与期数**全部重置**，用户以为记下的内容与实际不符。
+    // LocalDateTime 不可 Saveable，这里存毫秒时间戳再派生。
+    var txOccurredAtMillis by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
+    val txOccurredAt: LocalDateTime = remember(txOccurredAtMillis) {
+        java.time.Instant.ofEpochMilli(txOccurredAtMillis)
+            .atZone(FormatUtils.BeijingZone)
+            .toLocalDateTime()
+    }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -133,18 +148,22 @@ fun LedgerScreen(
     }
 
     // 分期参数
-    var isInstallment by remember { mutableStateOf(false) }
-    var installmentChannelCode by remember { mutableStateOf("huabei") }
-    var installmentMonths by remember { mutableStateOf(12) }
-    var repaymentDay by remember { mutableStateOf(10) }
+    var isInstallment by rememberSaveable { mutableStateOf(false) }
+    var installmentChannelCode by rememberSaveable { mutableStateOf("huabei") }
+    var installmentMonths by rememberSaveable { mutableStateOf(12) }
+    var repaymentDay by rememberSaveable { mutableStateOf(10) }
 
     var isPrivacyMasked by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
 
     // 对话框状态
     var editingTransaction by remember { mutableStateOf<Transaction?>(null) }
+    // MOB-P0-14：待确认删除的账目
+    var transactionToDelete by remember { mutableStateOf<Transaction?>(null) }
     var showCalibrateBalanceDialog by remember { mutableStateOf(false) }
     var showAddGearDialog by remember { mutableStateOf(false) }
     var sellingGearItem by remember { mutableStateOf<GearItem?>(null) }
+    // MOB-P0-14：待确认彻底删除的装备
+    var gearToDelete by remember { mutableStateOf<GearItem?>(null) }
     var showCreditChannelsDialog by remember { mutableStateOf(false) }
     var showCategoriesManagerDialog by remember { mutableStateOf(false) }
     // 记账附加设置抽屉（日期时刻 / 属地 / 分期）：低频项从首屏收进抽屉（AOPT-01）
@@ -155,11 +174,20 @@ fun LedgerScreen(
         mutableStateOf(YearMonth.now(FormatUtils.BeijingZone))
     }
 
+    // MOB-P1-87：账本各 Tab 此前**没有任何错误态** ——
+    // 拉取失败时列表只是「空着」，用户完全无法区分「真的没有账目」与「没拉到」。
+    var ledgerLoadError by remember { mutableStateOf<String?>(null) }
+    // 生物识别弹窗标题：必须在 composable 作用域取值（onClick lambda 不是 composable）
+    val privacyUnlockTitle = stringResource(R.string.ledger_screen_title_01)
+    val deleteTxBiometricTitle = stringResource(R.string.ledger_screen_title_06)
+
     suspend fun reloadCategoriesAndAssets(
         forceLoadingSpinner: Boolean = false,
         force: Boolean = false
     ) {
-        LedgerRepository.refreshAll(apiClient, force = force, showSpinner = forceLoadingSpinner)
+        ledgerLoadError = runCatching {
+            LedgerRepository.refreshAll(apiClient, force = force, showSpinner = forceLoadingSpinner)
+        }.exceptionOrNull()?.message
         val latest = LedgerRepository.snapshot.value
         if (latest.paymentMethods.isNotEmpty() && selectedPaymentMethod !in latest.paymentMethods) {
             selectedPaymentMethod = latest.paymentMethods.first()
@@ -179,7 +207,7 @@ fun LedgerScreen(
         if (!isRefreshingLedger) {
             scope.launch {
                 isRefreshingLedger = true
-                val res = syncManager.pullRemoteData()
+                val res = syncManager.pullLedgerData()
                 reloadCategoriesAndAssets(force = true)
                 isRefreshingLedger = false
                 if (res.isSuccess) {
@@ -192,6 +220,15 @@ fun LedgerScreen(
     }
 
     val activeCategories = if (selectedType == "income") incomeCategories else expenseCategories
+
+    // MOB-P1-30：自然语言解析原本在「预览」与「提交兜底」两处各做一次
+    // （每次按键解析两遍，且每次都分配 9 个关键词列表）。
+    // 这里合并为**唯一一次**解析结果，由两处共享。
+    val naturalParse = remember(noteText, activeCategories, inputAmountString) {
+        if (noteText.isBlank() || inputAmountString != "0") null
+        else FormatUtils.parseNaturalTransactionInput(noteText, activeCategories)
+            .takeIf { it.amountCents > 0 }
+    }
 
     fun appendDigit(digit: String) {
         if (inputAmountString == "0") {
@@ -234,7 +271,7 @@ fun LedgerScreen(
         isInstallment = false
         selectedCityCode = null
         selectedCityName = null
-        txOccurredAt = LocalDateTime.now(FormatUtils.BeijingZone)
+        txOccurredAtMillis = System.currentTimeMillis()
     }
 
     NoiseBackground(modifier = modifier) {
@@ -257,7 +294,7 @@ fun LedgerScreen(
             ) {
                 Column {
                     Text(
-                        text = "散页 · 口袋账本",
+                        text = stringResource(R.string.ledger_screen_text_01),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
                         fontSize = 20.sp,
@@ -265,7 +302,7 @@ fun LedgerScreen(
                         color = colors.inkPrimary
                     )
                     Text(
-                        text = "生活收支流水与资产中枢",
+                        text = stringResource(R.string.ledger_screen_text_02),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontSize = 11.sp,
                         color = colors.inkMuted
@@ -280,7 +317,7 @@ fun LedgerScreen(
                                 if (act != null && BiometricHelper.canAuthenticate(act)) {
                                     BiometricHelper.authenticate(
                                         activity = act,
-                                        title = "验证以查看账目金额",
+                                        title = privacyUnlockTitle,
                                         subtitle = "使用生物识别解锁敏感收支数字",
                                         onSuccess = { isPrivacyMasked = false },
                                         onError = { msg ->
@@ -296,8 +333,8 @@ fun LedgerScreen(
                         }
                     ) {
                         Icon(
-                            imageVector = if (isPrivacyMasked) Icons.Outlined.Lock else Icons.Outlined.LockOpen,
-                            contentDescription = "隐蔽金额",
+                            painter = if (isPrivacyMasked) painterResource(R.drawable.ic_lock) else painterResource(R.drawable.ic_lock_open),
+                            contentDescription = stringResource(R.string.ledger_screen_contentDescription_01),
                             tint = if (isPrivacyMasked) colors.accentWarm else colors.inkSecondary,
                             modifier = Modifier.size(19.dp)
                         )
@@ -307,7 +344,7 @@ fun LedgerScreen(
                         onClick = {
                             scope.launch {
                                 // 用户主动对齐必须区分成败：失败只弹「已对齐」是撒谎
-                                val result = syncManager.pullRemoteData()
+                                val result = syncManager.pullLedgerData()
                                 if (result.isSuccess) {
                                     reloadCategoriesAndAssets(force = true)
                                     ArchiveToastManager.show("账簿与资产已对齐")
@@ -322,11 +359,45 @@ fun LedgerScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Refresh,
-                            contentDescription = "刷新",
+                            contentDescription = stringResource(R.string.ledger_screen_contentDescription_02),
                             tint = colors.inkSecondary,
                             modifier = Modifier.size(19.dp)
                         )
                     }
+                }
+            }
+
+            // MOB-P1-87：可点击的错误横幅 + 重试（对齐 ProjectsWishesScreen 的既有范式）
+            ledgerLoadError?.let { message ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(colors.accentWarm.copy(alpha = 0.10f))
+                        .border(0.5.dp, colors.accentWarm.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                        .clickable {
+                            scope.launch {
+                                ledgerLoadError = null
+                                reloadCategoriesAndAssets(force = true)
+                            }
+                        }
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_error_outline),
+                        contentDescription = null,
+                        tint = colors.accentWarm,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.ledger_screen_text_03),
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 12.sp,
+                        color = colors.accentWarm
+                    )
                 }
             }
 
@@ -368,7 +439,9 @@ fun LedgerScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            when (selectedTab) {
+            // MOB-P2-64：Tab 切换此前是硬切，加一段短淡入让状态变化可感知
+            Crossfade(targetState = selectedTab, label = stringResource(R.string.ledger_screen_label_01)) { tab ->
+            when (tab) {
                 0 -> {
                     // ==========================================
                     // Tab 0: 极速触觉记账面板 (全机型自适应)
@@ -379,7 +452,22 @@ fun LedgerScreen(
                             .fillMaxWidth()
                     ) {
                         val isCompactHeight = maxHeight < 700.dp
-                        val keypadKeyHeight = if (isCompactHeight) 44.dp else 52.dp
+                        // MOB-P1-76：触控热区下限 48dp（原先紧凑屏降到 44dp，低于系统基线）
+                        val keypadKeyHeight = if (isCompactHeight) 48.dp else 52.dp
+                        // MOB-P1-60：大字体下再压缩一档，保证 4 行键盘 + 盖章按钮始终在屏内
+                        val fontScale = LocalDensity.current.fontScale
+                        val keypadKeyHeightScaled = if (fontScale > 1.2f) {
+                            (keypadKeyHeight.value * (1.2f / fontScale).coerceAtLeast(0.82f)).dp
+                        } else {
+                            keypadKeyHeight
+                        }
+                        // MOB-P0-13：系统键盘可见时收起自定义大键盘。
+                        // 原先两套键盘同屏，且软键盘弹出后 weight(1f) 滚动区被压到 0，
+                        // 固定高度的键盘与「记入账本」按钮被挤到屏幕外 / 键盘之下 → 提交按钮点不到。
+                        // API 30+ 用 isImeVisible 精确判定；API 26~29 走 adjustResize，
+                        // 窗口高度被压缩，此时用可用高度阈值兜底。
+                        val imeVisible = WindowInsets.isImeVisible
+                        val showKeypad = !imeVisible && maxHeight > 420.dp
 
                         Column(
                             modifier = Modifier
@@ -418,7 +506,7 @@ fun LedgerScreen(
                                             .padding(2.dp)
                                     ) {
                                         TypeToggleButton(
-                                            text = "支出",
+                                            text = stringResource(R.string.ledger_screen_text_04),
                                             isSelected = selectedType == "expense",
                                             onClick = {
                                                 selectedType = "expense"
@@ -428,7 +516,7 @@ fun LedgerScreen(
                                             }
                                         )
                                         TypeToggleButton(
-                                            text = "收入",
+                                            text = stringResource(R.string.ledger_screen_text_05),
                                             isSelected = selectedType == "income",
                                             onClick = {
                                                 selectedType = "income"
@@ -509,7 +597,7 @@ fun LedgerScreen(
                                 PaperTextField(
                                     value = noteText,
                                     onValueChange = { noteText = it },
-                                    placeholder = "备注…（可写「42.5 午餐」自动拆解）",
+                                    placeholder = stringResource(R.string.ledger_screen_placeholder_01),
                                     isUnderline = true,
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
@@ -535,15 +623,10 @@ fun LedgerScreen(
 
                                 // 自然语言实时预览（AOPT-07a）：备注可被解析且金额尚未输入时给出提示，
                                 // 盖章时自动采纳，避免用户以为「写了 42.5 就能直接提交」
-                                val naturalPreview = remember(noteText, activeCategories) {
-                                    if (noteText.isBlank() || inputAmountString != "0") null
-                                    else FormatUtils.parseNaturalTransactionInput(noteText, activeCategories)
-                                        .takeIf { it.amountCents > 0 }
-                                }
-                                naturalPreview?.let { preview ->
+                                naturalParse?.let { preview ->
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "识别到 ${FormatUtils.centsToYuanString(preview.amountCents)} · ${preview.category} · 点「盖章」自动采纳",
+                                        text = stringResource(R.string.ledger_screen_text_tpl_01, FormatUtils.centsToYuanString(preview.amountCents), preview.category),
                                         fontFamily = ArchiveFontFamilies.MonoScale,
                                         fontSize = 10.5.sp,
                                         color = colors.accentMoss
@@ -561,11 +644,11 @@ fun LedgerScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     LedgerExtraPill(
-                                        text = "🕘 " + FormatUtils.formatLocalDateTimeDisplay(txOccurredAt),
+                                        text = stringResource(R.string.ledger_screen_text_06) + FormatUtils.formatLocalDateTimeDisplay(txOccurredAt),
                                         onClick = { showExtrasSheet = true }
                                     )
                                     LedgerExtraPill(
-                                        text = "📍 " + (selectedCityName ?: "未标记属地"),
+                                        text = stringResource(R.string.ledger_screen_text_07) + (selectedCityName ?: "未标记属地"),
                                         onClick = { showExtrasSheet = true }
                                     )
                                     if (selectedType == "expense") {
@@ -598,7 +681,7 @@ fun LedgerScreen(
                                 onClick = { showCategoriesManagerDialog = true },
                                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                             ) {
-                                Icon(Icons.Outlined.Tune, contentDescription = null, modifier = Modifier.size(12.dp), tint = colors.accentWarm)
+                                Icon(painter = painterResource(R.drawable.ic_tune), contentDescription = null, modifier = Modifier.size(12.dp), tint = colors.accentWarm)
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text("管理分类", fontSize = 11.5.sp, color = colors.accentWarm)
                             }
@@ -613,26 +696,25 @@ fun LedgerScreen(
                         )
 
                         // 4x3 触觉小键盘 (紧凑自适应高度，单屏无滚动直达)
-                        TactileKeypad(
-                            onDigitClick = { appendDigit(it) },
-                            onDotClick = { appendDot() },
-                            onBackspaceClick = { backspace() },
-                            onClearAll = { clearAll() },
-                            keyHeight = keypadKeyHeight
-                        )
+                        // MOB-P0-13：软键盘可见时隐藏，避免双键盘并存并把提交按钮挤出可触区
+                        if (showKeypad) {
+                            TactileKeypad(
+                                onDigitClick = { appendDigit(it) },
+                                onDotClick = { appendDot() },
+                                onBackspaceClick = { backspace() },
+                                onClearAll = { clearAll() },
+                                keyHeight = keypadKeyHeightScaled
+                            )
+                        }
 
                         // 记入账本提交按钮
                         // 自然语言兜底（AOPT-07a）：金额未敲但备注写得出「42.5 午餐」时，
                         // 盖章直接采纳解析结果，而不是让按钮一直灰着
-                        val lastChanceParse = remember(noteText, activeCategories, inputAmountString) {
-                            if (inputAmountString != "0") null
-                            else FormatUtils.parseNaturalTransactionInput(noteText, activeCategories)
-                                .takeIf { it.amountCents > 0 }
-                        }
+                        val lastChanceParse = naturalParse?.takeIf { it.amountCents > 0 }
                         val effectiveCents = FormatUtils.yuanStringToCents(inputAmountString)
                             .takeIf { it > 0 } ?: lastChanceParse?.amountCents ?: 0L
                         TerracottaStampButton(
-                            text = "记入账本",
+                            text = stringResource(R.string.ledger_screen_text_08),
                             enabled = effectiveCents > 0,
                             onClick = {
                                 val typedCents = FormatUtils.yuanStringToCents(inputAmountString)
@@ -676,26 +758,31 @@ fun LedgerScreen(
                     if (showExtrasSheet) {
                         ArchiveBottomSheet(
                             onDismissRequest = { showExtrasSheet = false },
-                            title = "记账附加设置",
+                            title = stringResource(R.string.ledger_screen_title_02),
                             actionButtonText = "完成",
                             onActionClick = { showExtrasSheet = false }
                         ) {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Text(
-                                    text = "发生时刻",
+                                    text = stringResource(R.string.ledger_screen_text_09),
                                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                                     fontSize = 12.sp,
                                     color = colors.inkMuted
                                 )
                                 PaperDateTimeSplitRow(
                                     selectedDateTime = txOccurredAt,
-                                    onDateTimeSelected = { txOccurredAt = it }
+                                    onDateTimeSelected = {
+                                        txOccurredAtMillis = it
+                                            .atZone(FormatUtils.BeijingZone)
+                                            .toInstant()
+                                            .toEpochMilli()
+                                    }
                                 )
 
                                 PaperDivider()
 
                                 Text(
-                                    text = "属地城市",
+                                    text = stringResource(R.string.ledger_screen_text_10),
                                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                                     fontSize = 12.sp,
                                     color = colors.inkMuted
@@ -707,7 +794,7 @@ fun LedgerScreen(
                                         selectedCityCode = code
                                         selectedCityName = name
                                     },
-                                    placeholder = "选择城市…"
+                                    placeholder = stringResource(R.string.ledger_screen_placeholder_02)
                                 )
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -718,14 +805,14 @@ fun LedgerScreen(
                                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Outlined.MyLocation,
+                                            painter = painterResource(R.drawable.ic_my_location),
                                             contentDescription = null,
                                             tint = colors.accentWarm,
                                             modifier = Modifier.size(13.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "使用当前定位",
+                                            text = stringResource(R.string.ledger_screen_text_11),
                                             fontFamily = ArchiveFontFamilies.BodySans,
                                             fontSize = 11.sp,
                                             color = colors.accentWarm
@@ -742,7 +829,7 @@ fun LedgerScreen(
                                             colors = CheckboxDefaults.colors(checkedColor = colors.accentWarm)
                                         )
                                         Text(
-                                            text = "分期还款入账",
+                                            text = stringResource(R.string.ledger_screen_text_12),
                                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                                             fontSize = 12.sp,
                                             color = colors.inkPrimary
@@ -767,7 +854,7 @@ fun LedgerScreen(
                                                     ) {
                                                         Text(
                                                             text = ch.name,
-                                                            fontSize = 10.sp,
+                                                            fontSize = 11.sp,
                                                             color = if (installmentChannelCode == ch.code) colors.archivePaper else colors.inkSecondary
                                                         )
                                                     }
@@ -789,16 +876,16 @@ fun LedgerScreen(
                                                             .padding(horizontal = 6.dp, vertical = 3.dp)
                                                     ) {
                                                         Text(
-                                                            text = "${m}期",
-                                                            fontSize = 10.sp,
+                                                            text = stringResource(R.string.ledger_screen_text_tpl_02, m),
+                                                            fontSize = 11.sp,
                                                             color = if (installmentMonths == m) colors.archivePaper else colors.inkSecondary
                                                         )
                                                     }
                                                 }
                                             }
                                             Text(
-                                                text = "每月${repaymentDay}日还款",
-                                                fontSize = 10.sp,
+                                                text = stringResource(R.string.ledger_screen_text_tpl_03, repaymentDay),
+                                                fontSize = 11.sp,
                                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                                                 color = colors.inkMuted
                                             )
@@ -822,31 +909,14 @@ fun LedgerScreen(
                     TransactionsLedgerTab(
                         transactions = transactions,
                         isPrivacyMasked = isPrivacyMasked,
+                        isRefreshing = isRefreshingLedger,
                         selectedYearMonth = selectedYearMonth,
                         onMonthChange = { selectedYearMonth = it },
                         onEdit = { editingTransaction = it },
                         onDelete = { tx ->
-                            val performDelete: () -> Unit = {
-                                scope.launch {
-                                    syncManager.deleteTransaction(tx.id)
-                                    ArchiveToastManager.show("已删除记账明细")
-                                    LedgerRepository.refreshAssets(apiClient)
-                                }
-                            }
-                            val activity = context as? FragmentActivity
-                            if (credentialStore.isBiometricsEnabled && activity != null &&
-                                BiometricHelper.canAuthenticate(activity)
-                            ) {
-                                BiometricHelper.authenticate(
-                                    activity = activity,
-                                    title = "验证以删除账目",
-                                    subtitle = "删除收支记录需要二次身份确认",
-                                    onSuccess = { performDelete() },
-                                    onError = { msg -> ArchiveToastManager.show(msg, isError = true) }
-                                )
-                            } else {
-                                performDelete()
-                            }
+                            // MOB-P0-14：账目删除先弹确认框，再叠加生物识别二次签名。
+                            // 原先生物识别关闭时是「零确认直接删」，与其他破坏性路径不一致。
+                            transactionToDelete = tx
                         },
                         modifier = Modifier.fillMaxSize()
                     )
@@ -868,37 +938,96 @@ fun LedgerScreen(
                     )
                 }
             }
+            }
         }
 
         // 1. 编辑记账流水底部抽屉
         editingTransaction?.let { tx ->
+            // MOB-P1-59：账目修订草稿 —— 误关抽屉 / 系统回收后重新打开自动恢复已填内容。
+            val draftStore = remember { DraftStore.get(context) }
+            val draftPrefix = remember(tx.id) { "tx_${tx.id}_" }
+
             var editAmountYuan by remember(tx.id) {
-                mutableStateOf(FormatUtils.centsToYuanString(tx.amount, includeSymbol = false))
+                mutableStateOf(
+                    draftStore.getString("${draftPrefix}amount")
+                        ?: FormatUtils.centsToYuanString(tx.amount, includeSymbol = false)
+                )
             }
-            var editType by remember(tx.id) { mutableStateOf(tx.type) }
-            var editCategory by remember(tx.id) { mutableStateOf(tx.category) }
-            var editTitle by remember(tx.id) { mutableStateOf(tx.title) }
-            var editNote by remember(tx.id) { mutableStateOf(tx.note ?: "") }
-            var editPaymentMethod by remember(tx.id) { mutableStateOf(tx.paymentMethod ?: "微信支付") }
-            var editCityCode by remember(tx.id) { mutableStateOf(tx.cityCode ?: "") }
+            var editType by remember(tx.id) {
+                mutableStateOf(draftStore.getString("${draftPrefix}type") ?: tx.type)
+            }
+            var editCategory by remember(tx.id) {
+                mutableStateOf(draftStore.getString("${draftPrefix}category") ?: tx.category)
+            }
+            var editTitle by remember(tx.id) {
+                mutableStateOf(draftStore.getString("${draftPrefix}title") ?: tx.title)
+            }
+            var editNote by remember(tx.id) {
+                mutableStateOf(draftStore.getString("${draftPrefix}note") ?: (tx.note ?: ""))
+            }
+            var editPaymentMethod by remember(tx.id) {
+                mutableStateOf(
+                    draftStore.getString("${draftPrefix}payment") ?: (tx.paymentMethod ?: "微信支付")
+                )
+            }
+            var editCityCode by remember(tx.id) {
+                mutableStateOf(draftStore.getString("${draftPrefix}city_code") ?: (tx.cityCode ?: ""))
+            }
             var editCityName by remember(tx.id) {
-                mutableStateOf(tx.cityCode?.let { CityDictionary.cityNameForCode(it) } ?: "")
+                mutableStateOf(
+                    draftStore.getString("${draftPrefix}city_name")
+                        ?: (tx.cityCode?.let { CityDictionary.cityNameForCode(it) } ?: "")
+                )
             }
             var editOccurredAt by remember(tx.id) {
                 mutableStateOf(FormatUtils.parseToLocalDateTime(tx.occurredAt))
             }
-            var editIsInstallment by remember(tx.id) { mutableStateOf(tx.isInstallment ?: false) }
-            var editInstallmentChannelCode by remember(tx.id) {
-                mutableStateOf(tx.installmentChannelCode ?: (creditChannels.firstOrNull()?.code ?: "huabei"))
+            var editIsInstallment by remember(tx.id) {
+                mutableStateOf(draftStore.getString("${draftPrefix}installment")?.toBoolean() ?: (tx.isInstallment ?: false))
             }
-            var editInstallmentMonths by remember(tx.id) { mutableStateOf(tx.installmentMonths?.takeIf { it > 0 } ?: 12) }
+            var editInstallmentChannelCode by remember(tx.id) {
+                mutableStateOf(
+                    draftStore.getString("${draftPrefix}channel")
+                        ?: (tx.installmentChannelCode ?: (creditChannels.firstOrNull()?.code ?: "huabei"))
+                )
+            }
+            var editInstallmentMonths by remember(tx.id) {
+                mutableStateOf(
+                    draftStore.getString("${draftPrefix}months")?.toIntOrNull()
+                        ?: (tx.installmentMonths?.takeIf { it > 0 } ?: 12)
+                )
+            }
             var editRepaymentDay by remember(tx.id) {
-                mutableStateOf(tx.repaymentDay?.takeIf { it in 1..31 } ?: (creditChannels.firstOrNull { it.code == editInstallmentChannelCode }?.repaymentDay ?: 10))
+                mutableStateOf(
+                    draftStore.getString("${draftPrefix}repay_day")?.toIntOrNull()?.takeIf { it in 1..31 }
+                        ?: (tx.repaymentDay?.takeIf { it in 1..31 }
+                            ?: (creditChannels.firstOrNull { it.code == editInstallmentChannelCode }?.repaymentDay ?: 10))
+                )
+            }
+
+            // 字段变化即落草稿
+            LaunchedEffect(
+                editAmountYuan, editType, editCategory, editTitle, editNote,
+                editPaymentMethod, editCityCode, editCityName,
+                editIsInstallment, editInstallmentChannelCode, editInstallmentMonths, editRepaymentDay
+            ) {
+                draftStore.putString("${draftPrefix}amount", editAmountYuan)
+                draftStore.putString("${draftPrefix}type", editType)
+                draftStore.putString("${draftPrefix}category", editCategory)
+                draftStore.putString("${draftPrefix}title", editTitle)
+                draftStore.putString("${draftPrefix}note", editNote)
+                draftStore.putString("${draftPrefix}payment", editPaymentMethod)
+                draftStore.putString("${draftPrefix}city_code", editCityCode)
+                draftStore.putString("${draftPrefix}city_name", editCityName)
+                draftStore.putString("${draftPrefix}installment", editIsInstallment.toString())
+                draftStore.putString("${draftPrefix}channel", editInstallmentChannelCode)
+                draftStore.putString("${draftPrefix}months", editInstallmentMonths.toString())
+                draftStore.putString("${draftPrefix}repay_day", editRepaymentDay.toString())
             }
 
             ArchiveBottomSheet(
                 onDismissRequest = { editingTransaction = null },
-                title = "修订记账明细",
+                title = stringResource(R.string.ledger_screen_title_03),
                 actionButtonText = "保存修订",
                 onActionClick = {
                     val cents = FormatUtils.yuanStringToCents(editAmountYuan)
@@ -925,6 +1054,8 @@ fun LedgerScreen(
                                 repaymentDay = editRepaymentDay.takeIf { editIsInstallment && editType == "expense" }
                             )
                             syncManager.updateTransactionOptimistic(tx.id, req)
+                            // MOB-P1-59：提交成功后清空草稿
+                            draftStore.clearPrefix(draftPrefix)
                             editingTransaction = null
                             ArchiveToastManager.show("已保存账目修订")
                         }
@@ -951,7 +1082,7 @@ fun LedgerScreen(
                     PaperTextField(
                         value = editAmountYuan,
                         onValueChange = { editAmountYuan = it },
-                        label = "金额 (元)",
+                        label = stringResource(R.string.ledger_screen_label_02),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -959,7 +1090,7 @@ fun LedgerScreen(
                     PaperTextField(
                         value = editTitle,
                         onValueChange = { editTitle = it },
-                        label = "标题/简要",
+                        label = stringResource(R.string.ledger_screen_label_03),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -967,7 +1098,7 @@ fun LedgerScreen(
                     PaperTextField(
                         value = editCategory,
                         onValueChange = { editCategory = it },
-                        label = "分类",
+                        label = stringResource(R.string.ledger_screen_label_04),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -975,7 +1106,7 @@ fun LedgerScreen(
                     PaperTextField(
                         value = editPaymentMethod,
                         onValueChange = { editPaymentMethod = it },
-                        label = "支付方式",
+                        label = stringResource(R.string.ledger_screen_label_05),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -994,7 +1125,7 @@ fun LedgerScreen(
                             editCityCode = code
                             editCityName = name
                         },
-                        placeholder = "选择城市…"
+                        placeholder = stringResource(R.string.ledger_screen_placeholder_02)
                     )
 
                     if (editType == "expense") {
@@ -1008,7 +1139,7 @@ fun LedgerScreen(
                                 colors = CheckboxDefaults.colors(checkedColor = colors.accentWarm)
                             )
                             Text(
-                                text = "分期还款入账",
+                                text = stringResource(R.string.ledger_screen_text_12),
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                                 fontSize = 12.sp,
                                 color = colors.inkPrimary
@@ -1038,7 +1169,7 @@ fun LedgerScreen(
                                             ) {
                                                 Text(
                                                     text = ch.name,
-                                                    fontSize = 10.sp,
+                                                    fontSize = 11.sp,
                                                     color = if (editInstallmentChannelCode == ch.code) colors.archivePaper else colors.inkSecondary
                                                 )
                                             }
@@ -1060,16 +1191,16 @@ fun LedgerScreen(
                                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
                                                 Text(
-                                                    text = "${m}期",
-                                                    fontSize = 10.sp,
+                                                    text = stringResource(R.string.ledger_screen_text_tpl_02, m),
+                                                    fontSize = 11.sp,
                                                     color = if (editInstallmentMonths == m) colors.archivePaper else colors.inkSecondary
                                                 )
                                             }
                                         }
                                     }
                                     Text(
-                                        text = "每月${editRepaymentDay}日还款",
-                                        fontSize = 10.sp,
+                                        text = stringResource(R.string.ledger_screen_text_tpl_04, editRepaymentDay),
+                                        fontSize = 11.sp,
                                         color = colors.inkMuted
                                     )
                                 }
@@ -1080,7 +1211,7 @@ fun LedgerScreen(
                     PaperTextEditor(
                         value = editNote,
                         onValueChange = { editNote = it },
-                        label = "随附手记",
+                        label = stringResource(R.string.ledger_screen_label_06),
                         minHeight = 70.dp,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1089,7 +1220,79 @@ fun LedgerScreen(
         }
 
         // 2. 校准初始流动资金底数抽屉
-        if (showCalibrateBalanceDialog) {
+        // MOB-P0-14：彻底删除装备记录确认
+    gearToDelete?.let { gear ->
+        ArchiveConfirmDialog(
+            title = stringResource(R.string.ledger_screen_title_04),
+            content = "确认彻底删除「${gear.name}」的设备记录？服役时长与折旧数据将一并清空，此操作不可逆。",
+            confirmText = stringResource(R.string.ledger_dialogs_confirmText_01),
+            isDestructive = true,
+            onConfirm = {
+                scope.launch {
+                    runCatching {
+                        apiClient.deleteGearAsset(gear.id)
+                        LedgerRepository.refreshAssets(apiClient)
+                        ArchiveToastManager.show("已彻底删除该设备记录")
+                    }.onFailure {
+                        ArchiveToastManager.show("删除失败: ${it.message}", isError = true)
+                    }
+                    gearToDelete = null
+                    sellingGearItem = null
+                }
+            },
+            onDismiss = { gearToDelete = null }
+        )
+    }
+
+    // MOB-P0-14：账目删除二次确认（确认后再叠加生物识别）
+    transactionToDelete?.let { tx ->
+        val performDelete: () -> Unit = {
+            scope.launch {
+                // MOB-P2-47：删除后给一个「撤销」机会
+                val ticket = syncManager.deleteTransaction(tx.id)
+                LedgerRepository.refreshAssets(apiClient)
+                if (ticket != null) {
+                    ArchiveToastManager.showWithAction("已删除记账明细", "撤销") {
+                        scope.launch {
+                            val restored = syncManager.undoDeleteTransaction(ticket)
+                            ArchiveToastManager.show(
+                                if (restored) "已恢复该笔账目" else "已同步到服务端，无法撤销",
+                                isError = !restored
+                            )
+                        }
+                    }
+                } else {
+                    ArchiveToastManager.show("已删除记账明细")
+                }
+            }
+        }
+        ArchiveConfirmDialog(
+            title = stringResource(R.string.ledger_screen_title_05),
+            content = "确认删除「${tx.title.ifBlank { tx.category }}」的收支记录？金额 ¥${FormatUtils.centsToYuanString(tx.amount)}，此操作不可逆。",
+            confirmText = stringResource(R.string.ledger_dialogs_confirmText_01),
+            isDestructive = true,
+            onConfirm = {
+                transactionToDelete = null
+                val activity = context as? FragmentActivity
+                if (credentialStore.isBiometricsEnabled && activity != null &&
+                    BiometricHelper.canAuthenticate(activity)
+                ) {
+                    BiometricHelper.authenticate(
+                        activity = activity,
+                        title = deleteTxBiometricTitle,
+                        subtitle = "删除收支记录需要二次身份确认",
+                        onSuccess = { performDelete() },
+                        onError = { msg -> ArchiveToastManager.show(msg, isError = true) }
+                    )
+                } else {
+                    performDelete()
+                }
+            },
+            onDismiss = { transactionToDelete = null }
+        )
+    }
+
+    if (showCalibrateBalanceDialog) {
             var inputLiquidYuan by remember {
                 mutableStateOf(
                     FormatUtils.centsToYuanString(assetsOverview?.initialLiquidBalance ?: 0L, includeSymbol = false)
@@ -1097,7 +1300,7 @@ fun LedgerScreen(
             }
             ArchiveBottomSheet(
                 onDismissRequest = { showCalibrateBalanceDialog = false },
-                title = "校准初始流动资金底数",
+                title = stringResource(R.string.ledger_screen_title_07),
                 actionButtonText = "确认校准",
                 onActionClick = {
                     val cents = FormatUtils.yuanStringToCents(inputLiquidYuan)
@@ -1113,7 +1316,7 @@ fun LedgerScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "设定初始底数后，系统将依据全量收支流水动态实时推算当前流动资产与净资产：",
+                        text = stringResource(R.string.ledger_screen_text_13),
                         fontSize = 13.sp,
                         color = colors.inkSecondary,
                         lineHeight = 18.sp
@@ -1121,7 +1324,7 @@ fun LedgerScreen(
                     PaperTextField(
                         value = inputLiquidYuan,
                         onValueChange = { inputLiquidYuan = it },
-                        label = "初始资金底数 (元)",
+                        label = stringResource(R.string.ledger_screen_label_07),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1139,7 +1342,7 @@ fun LedgerScreen(
 
             ArchiveBottomSheet(
                 onDismissRequest = { showAddGearDialog = false },
-                title = "登记在役装备",
+                title = stringResource(R.string.ledger_screen_title_08),
                 actionButtonText = "录入装备",
                 isActionEnabled = gearName.isNotBlank(),
                 onActionClick = {
@@ -1156,7 +1359,7 @@ fun LedgerScreen(
                                 )
                             )
                             LedgerRepository.refreshAssets(apiClient)
-                            syncManager.pullRemoteData()
+                            syncManager.pullLedgerData()
                             ArchiveToastManager.show("装备已入库")
                         }
                         showAddGearDialog = false
@@ -1167,21 +1370,21 @@ fun LedgerScreen(
                     PaperTextField(
                         value = gearName,
                         onValueChange = { gearName = it },
-                        label = "装备名称",
+                        label = stringResource(R.string.ledger_screen_label_08),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     PaperTextField(
                         value = gearSpec,
                         onValueChange = { gearSpec = it },
-                        label = "规格参数",
+                        label = stringResource(R.string.ledger_screen_label_09),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     PaperTextField(
                         value = gearPrice,
                         onValueChange = { gearPrice = it },
-                        label = "购入总价 (元)",
+                        label = stringResource(R.string.ledger_screen_label_10),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1206,7 +1409,7 @@ fun LedgerScreen(
 
             ArchiveBottomSheet(
                 onDismissRequest = { sellingGearItem = null },
-                title = "变卖出清 · ${gear.name}",
+                title = stringResource(R.string.ledger_screen_title_tpl_01, gear.name),
                 actionButtonText = "确认回血",
                 onActionClick = {
                     val cents = FormatUtils.yuanStringToCents(soldPriceYuan)
@@ -1221,7 +1424,7 @@ fun LedgerScreen(
                                 )
                             )
                             LedgerRepository.refreshAssets(apiClient)
-                            syncManager.pullRemoteData()
+                            syncManager.pullLedgerData()
                             ArchiveToastManager.show("已变卖归档并入账")
                         }
                         sellingGearItem = null
@@ -1230,21 +1433,21 @@ fun LedgerScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "变卖后设备将标记为已退役，回血金额将自动生成一笔二手收入流水：",
+                        text = stringResource(R.string.ledger_screen_text_14),
                         fontSize = 12.sp,
                         color = colors.inkSecondary
                     )
                     PaperTextField(
                         value = soldPriceYuan,
                         onValueChange = { soldPriceYuan = it },
-                        label = "成交出清金额 (元)",
+                        label = stringResource(R.string.ledger_screen_label_11),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     PaperTextField(
                         value = sellNote,
                         onValueChange = { sellNote = it },
-                        label = "退役备忘",
+                        label = stringResource(R.string.ledger_screen_label_12),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1252,16 +1455,8 @@ fun LedgerScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     TextButton(
                         onClick = {
-                            scope.launch {
-                                runCatching {
-                                    apiClient.deleteGearAsset(gear.id)
-                                    LedgerRepository.refreshAssets(apiClient)
-                                    ArchiveToastManager.show("已彻底删除该设备记录")
-                                }.onFailure {
-                                    ArchiveToastManager.show("删除失败: ${it.message}", isError = true)
-                                }
-                                sellingGearItem = null
-                            }
+                            // MOB-P0-14：破坏性删除先确认
+                            gearToDelete = gear
                         },
                         modifier = Modifier.align(Alignment.End)
                     ) {

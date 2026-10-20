@@ -12,10 +12,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
@@ -61,9 +59,29 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
+import com.looseleaf.app.darkroom.ExtractedExif
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import androidx.compose.ui.res.painterResource
+/**
+ * 已附加照片的**轻量元数据**。
+ *
+ * MOB-P1-33：原先这里直接持有 `ProcessedImageResult`，
+ * 而它内部带着 `compressedBytes`（压缩后的整张 JPEG 字节）——
+ * 于是同一份照片在堆里被存了两遍（文件 + 字节数组），
+ * 一次装裱 9 张就是 ~4.5MB 常驻，**抽屉关闭才释放**。
+ * 现在只保留真正需要的元数据（EXIF / 尺寸 / MIME），字节交给文件流处理。
+ */
+internal data class AttachedPhotoMeta(
+    val mimeType: String,
+    val width: Int,
+    val height: Int,
+    val exif: ExtractedExif
+)
+
 internal data class AttachedPhotoItem(
     val previewUri: String,
-    val processed: ProcessedImageResult,
+    val processed: AttachedPhotoMeta,
     val savedFile: File
 )
 
@@ -218,7 +236,16 @@ internal fun QuickNoteSheet(
                             async {
                                 val res = ImagePipeline.processImage(context, uri)
                                 val saved = syncManager.saveCompressedImageToOutboxDir(res.compressedBytes)
-                                AttachedPhotoItem(previewUri = "file://${saved.absolutePath}", processed = res, savedFile = saved)
+                                AttachedPhotoItem(
+                                    previewUri = "file://${saved.absolutePath}",
+                                    processed = AttachedPhotoMeta(
+                                        mimeType = res.mimeType,
+                                        width = res.width,
+                                        height = res.height,
+                                        exif = res.exif
+                                    ),
+                                    savedFile = saved
+                                )
                             }
                         }.awaitAll()
                     }
@@ -493,7 +520,7 @@ internal fun QuickNoteSheet(
                                             )
                                             val queued = withContext(Dispatchers.IO) {
                                                 val q = syncManager.createProjectOrQueue(req)
-                                                if (!q) syncManager.pullRemoteData()
+                                                if (!q) syncManager.pullStreamData()
                                                 q
                                             }
                                             ArchiveToastManager.show(
@@ -518,7 +545,7 @@ internal fun QuickNoteSheet(
                                         )
                                         val queued = withContext(Dispatchers.IO) {
                                             val q = syncManager.createWishOrQueue(req)
-                                            if (!q) syncManager.pullRemoteData()
+                                            if (!q) syncManager.pullStreamData()
                                             q
                                         }
                                         ArchiveToastManager.show(
@@ -580,7 +607,7 @@ internal fun QuickNoteSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "已装裱相纸 (${attachedPhotos.size}/9)",
+                            text = stringResource(R.string.quick_note_sheet_text_tpl_01, attachedPhotos.size),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontSize = 12.sp,
                             color = colors.inkSecondary
@@ -596,7 +623,7 @@ internal fun QuickNoteSheet(
                                     contentPadding = PaddingValues(0.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Outlined.PhotoLibrary,
+                                        painter = painterResource(R.drawable.ic_photo_library),
                                         contentDescription = null,
                                         tint = colors.accentWarm,
                                         modifier = Modifier.size(13.dp)
@@ -626,7 +653,7 @@ internal fun QuickNoteSheet(
                             ) {
                                 AsyncImage(
                                     model = photo.previewUri,
-                                    contentDescription = "装裱相纸",
+                                    contentDescription = stringResource(R.string.quick_note_sheet_contentDescription_01),
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
@@ -644,7 +671,7 @@ internal fun QuickNoteSheet(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Outlined.Close,
-                                        contentDescription = "移除相纸",
+                                        contentDescription = stringResource(R.string.quick_note_sheet_contentDescription_02),
                                         tint = colors.archivePaper,
                                         modifier = Modifier.size(12.dp)
                                     )
@@ -657,9 +684,9 @@ internal fun QuickNoteSheet(
                                         .padding(horizontal = 3.dp, vertical = 1.dp)
                                 ) {
                                     Text(
-                                        text = "${idx + 1}",
+                                        text = stringResource(R.string.quick_note_sheet_text_tpl_02, idx + 1),
                                         fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 9.sp,
+                                        fontSize = 11.sp,
                                         color = colors.archivePaper
                                     )
                                 }
@@ -714,7 +741,7 @@ internal fun QuickNoteSheet(
                             modifier = Modifier.fillMaxWidth().height(34.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.PhotoLibrary,
+                                painter = painterResource(R.drawable.ic_photo_library),
                                 contentDescription = null,
                                 tint = colors.accentWarm,
                                 modifier = Modifier.size(14.dp)
@@ -745,7 +772,7 @@ internal fun QuickNoteSheet(
                     decorationBox = { innerTextField ->
                         if (noteTitle.isEmpty()) {
                             Text(
-                                text = "给此刻起个名字…",
+                                text = stringResource(R.string.quick_note_sheet_text_01),
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Normal,
@@ -776,7 +803,7 @@ internal fun QuickNoteSheet(
                     decorationBox = { innerTextField ->
                         if (noteContent.isEmpty()) {
                             Text(
-                                text = "提笔写下当下的心绪、现场气味或片刻偶遇…",
+                                text = stringResource(R.string.quick_note_sheet_text_02),
                                 fontFamily = ArchiveFontFamilies.BodySans,
                                 fontSize = 15.sp,
                                 lineHeight = 24.sp,
@@ -794,7 +821,7 @@ internal fun QuickNoteSheet(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "发生时刻与时空锚点",
+                    text = stringResource(R.string.quick_note_sheet_text_03),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontSize = 11.5.sp,
                     color = colors.inkMuted
@@ -808,7 +835,7 @@ internal fun QuickNoteSheet(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "空间驻留地点",
+                    text = stringResource(R.string.quick_note_sheet_text_04),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontSize = 11.5.sp,
                     color = colors.inkMuted
@@ -842,25 +869,20 @@ internal fun QuickNoteSheet(
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(16.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(if (noteFeatured) colors.accentWarm else colors.archiveSubtle)
-                            .border(
-                                0.8.dp,
-                                if (noteFeatured) colors.accentWarm else colors.borderDivider,
-                                RoundedCornerShape(3.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (noteFeatured) {
-                            Text("✓", fontSize = 10.sp, color = colors.archivePaper, fontWeight = FontWeight.Bold)
-                        }
-                    }
+                    // MOB-P1-88：原先是手绘的 16dp 方块 —— 热区只有 16dp（远低于 48dp），
+                    // 且没有 toggleable 语义，读屏只会念出一个「16×16」的图形。
+                    // 改用 M3 Checkbox：自带 48dp 热区、Role.Checkbox 与选中态朗读。
+                    Checkbox(
+                        checked = noteFeatured,
+                        onCheckedChange = { noteFeatured = it },
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = colors.accentWarm,
+                            uncheckedColor = colors.borderDivider
+                        )
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "标记为精选印记（收录于精选特刊）",
+                        text = stringResource(R.string.quick_note_sheet_text_05),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontSize = 12.5.sp,
                         color = if (noteFeatured) colors.accentWarm else colors.inkPrimary
@@ -881,7 +903,7 @@ internal fun QuickNoteSheet(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            text = "到访城市与旅程足迹 *",
+                            text = stringResource(R.string.quick_note_sheet_text_06),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
@@ -901,7 +923,7 @@ internal fun QuickNoteSheet(
                         PaperLocationField(
                             value = noteLocation,
                             onValueChange = { noteLocation = it },
-                            placeholder = "具体景点或街巷注记 (选填)"
+                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_01)
                         )
 
                         if (footprints.isNotEmpty()) {
@@ -910,11 +932,11 @@ internal fun QuickNoteSheet(
                                     fp.id to (fp.title?.ifBlank { "${fp.cityName}之行" } ?: "${fp.cityName}之行")
                                 }
                             PaperSelectField(
-                                label = "归属旅程足迹",
+                                label = stringResource(R.string.quick_note_sheet_label_01),
                                 selectedValue = selectedFootprintId,
                                 options = footprintOptions,
                                 onSelected = { selectedFootprintId = it },
-                                placeholder = "-- 自动聚合至同城近期旅程 --"
+                                placeholder = stringResource(R.string.quick_note_sheet_placeholder_02)
                             )
                         }
                     }
@@ -937,7 +959,7 @@ internal fun QuickNoteSheet(
                     decorationBox = { innerTextField ->
                         if (noteTitle.isEmpty()) {
                             Text(
-                                text = "游历见闻标题…",
+                                text = stringResource(R.string.quick_note_sheet_text_07),
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                                 fontSize = 19.sp,
                                 fontWeight = FontWeight.Normal,
@@ -968,7 +990,7 @@ internal fun QuickNoteSheet(
                     decorationBox = { innerTextField ->
                         if (noteContent.isEmpty()) {
                             Text(
-                                text = "写下路上的风景、异乡的气味或旅途偶遇…",
+                                text = stringResource(R.string.quick_note_sheet_text_08),
                                 fontFamily = ArchiveFontFamilies.BodySans,
                                 fontSize = 15.sp,
                                 lineHeight = 24.sp,
@@ -986,7 +1008,7 @@ internal fun QuickNoteSheet(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "到访时刻",
+                    text = stringResource(R.string.projects_wishes_sheets_label_04),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontSize = 11.5.sp,
                     color = colors.inkMuted
@@ -1020,12 +1042,12 @@ internal fun QuickNoteSheet(
                         contentAlignment = Alignment.Center
                     ) {
                         if (noteFeatured) {
-                            Text("✓", fontSize = 10.sp, color = colors.archivePaper, fontWeight = FontWeight.Bold)
+                            Text("✓", fontSize = 11.sp, color = colors.archivePaper, fontWeight = FontWeight.Bold)
                         }
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "标记为精选游记",
+                        text = stringResource(R.string.quick_note_sheet_text_09),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontSize = 12.5.sp,
                         color = if (noteFeatured) colors.accentWarm else colors.inkPrimary
@@ -1043,12 +1065,12 @@ internal fun QuickNoteSheet(
                     PaperFilterPill(
                         selected = projectMode == "entry",
                         onClick = { projectMode = "entry" },
-                        label = "撰写已有进展手记"
+                        label = stringResource(R.string.quick_note_sheet_label_02)
                     )
                     PaperFilterPill(
                         selected = projectMode == "new",
                         onClick = { projectMode = "new" },
-                        label = "＋ 立项新造物"
+                        label = stringResource(R.string.quick_note_sheet_label_03)
                     )
                 }
 
@@ -1070,7 +1092,7 @@ internal fun QuickNoteSheet(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = "暂无活跃造物项目",
+                                    text = stringResource(R.string.quick_note_sheet_text_10),
                                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                                     fontSize = 13.sp,
                                     color = colors.inkSecondary
@@ -1090,7 +1112,7 @@ internal fun QuickNoteSheet(
                         }
                     } else {
                         PaperSelectField(
-                            label = "选择关联造物项目 *",
+                            label = stringResource(R.string.quick_note_sheet_label_04),
                             selectedValue = selectedProjectId,
                             options = projects.map { it.id to "${it.title} (${it.status ?: "活跃"})" },
                             onSelected = { selectedProjectId = it }
@@ -1113,7 +1135,7 @@ internal fun QuickNoteSheet(
                             decorationBox = { innerTextField ->
                                 if (noteTitle.isEmpty()) {
                                     Text(
-                                        text = "手记标题…",
+                                        text = stringResource(R.string.quick_note_sheet_text_11),
                                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                                         fontSize = 19.sp,
                                         fontWeight = FontWeight.Normal,
@@ -1144,7 +1166,7 @@ internal fun QuickNoteSheet(
                             decorationBox = { innerTextField ->
                                 if (noteContent.isEmpty()) {
                                     Text(
-                                        text = "记录今日造物进展、代码提交、设计突破或心得…",
+                                        text = stringResource(R.string.quick_note_sheet_text_12),
                                         fontFamily = ArchiveFontFamilies.BodySans,
                                         fontSize = 15.sp,
                                         lineHeight = 24.sp,
@@ -1162,7 +1184,7 @@ internal fun QuickNoteSheet(
                         Spacer(modifier = Modifier.height(12.dp))
 
                         Text(
-                            text = "记录时间",
+                            text = stringResource(R.string.quick_note_sheet_text_13),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontSize = 11.5.sp,
                             color = colors.inkMuted
@@ -1179,16 +1201,16 @@ internal fun QuickNoteSheet(
                         PaperTextField(
                             value = projTitle,
                             onValueChange = { projTitle = it },
-                            label = "造物名称 *",
-                            placeholder = "例如：Loose-Leaf 散页",
+                            label = stringResource(R.string.quick_note_sheet_label_05),
+                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_03),
                             singleLine = true
                         )
 
                         PaperTextField(
                             value = projSubtitle,
                             onValueChange = { projSubtitle = it },
-                            label = "副标题",
-                            placeholder = "例如：极简纸墨生活自留地",
+                            label = stringResource(R.string.quick_note_sheet_label_06),
+                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_04),
                             singleLine = true
                         )
 
@@ -1197,7 +1219,7 @@ internal fun QuickNoteSheet(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             PaperSelectField(
-                                label = "造物分类",
+                                label = stringResource(R.string.quick_note_sheet_label_07),
                                 selectedValue = projCategory,
                                 options = listOf(
                                     "软件" to "软件",
@@ -1212,7 +1234,7 @@ internal fun QuickNoteSheet(
                             )
 
                             PaperSelectField(
-                                label = "运行状态",
+                                label = stringResource(R.string.quick_note_sheet_label_08),
                                 selectedValue = projStatus,
                                 options = listOf(
                                     "Active" to "活跃",
@@ -1228,22 +1250,22 @@ internal fun QuickNoteSheet(
                         PaperTextField(
                             value = projDescription,
                             onValueChange = { projDescription = it },
-                            label = "项目简介 *",
-                            placeholder = "一两句话阐述这个项目的核心目的与愿景…"
+                            label = stringResource(R.string.quick_note_sheet_label_09),
+                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_05)
                         )
 
                         PaperTextField(
                             value = projStory,
                             onValueChange = { projStory = it },
-                            label = "立项初衷",
-                            placeholder = "为什么要做这件造物？背后的契机与期许…"
+                            label = stringResource(R.string.quick_note_sheet_label_10),
+                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_06)
                         )
 
                         PaperTextField(
                             value = projGithubUrl,
                             onValueChange = { projGithubUrl = it },
-                            label = "仓库或作品链接",
-                            placeholder = "https://github.com/...",
+                            label = stringResource(R.string.quick_note_sheet_label_11),
+                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_07),
                             singleLine = true
                         )
                     }
@@ -1272,7 +1294,7 @@ internal fun QuickNoteSheet(
                     PaperTextField(
                         value = wishTitle,
                         onValueChange = { wishTitle = it },
-                        label = "心愿名称 *",
+                        label = stringResource(R.string.quick_note_sheet_label_12),
                         placeholder = when (wishKind) {
                             "item" -> "期许拥有的物件名称…"
                             "travel" -> "想要抵达的目的地或旅程…"
@@ -1284,8 +1306,8 @@ internal fun QuickNoteSheet(
                     PaperTextField(
                         value = wishBudgetYuan,
                         onValueChange = { wishBudgetYuan = it },
-                        label = "预估预算 (¥)",
-                        placeholder = "0.00",
+                        label = stringResource(R.string.quick_note_sheet_label_13),
+                        placeholder = stringResource(R.string.quick_note_sheet_placeholder_08),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                     )
@@ -1294,8 +1316,8 @@ internal fun QuickNoteSheet(
                         PaperTextField(
                             value = wishSpec,
                             onValueChange = { wishSpec = it },
-                            label = "规格型号",
-                            placeholder = "如：50mm f/1.4 定焦镜头 / 深空灰 512G",
+                            label = stringResource(R.string.quick_note_sheet_label_14),
+                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_09),
                             singleLine = true
                         )
                     } else if (wishKind == "travel") {
@@ -1306,21 +1328,21 @@ internal fun QuickNoteSheet(
                                 noteCityCode = code
                                 noteCityName = name
                             },
-                            placeholder = "目的地城市 *"
+                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_10)
                         )
                     }
 
                     PaperDateField(
                         selectedDate = wishTargetDate ?: LocalDate.now(FormatUtils.BeijingZone),
                         onDateSelected = { wishTargetDate = it },
-                        label = "期许达成日期"
+                        label = stringResource(R.string.quick_note_sheet_label_15)
                     )
 
                     PaperTextField(
                         value = wishNote,
                         onValueChange = { wishNote = it },
-                        label = "心愿寄语",
-                        placeholder = "写下对达成那一刻的期许或向往…"
+                        label = stringResource(R.string.quick_note_sheet_label_16),
+                        placeholder = stringResource(R.string.quick_note_sheet_placeholder_11)
                     )
 
                     PhotoMountingSection()

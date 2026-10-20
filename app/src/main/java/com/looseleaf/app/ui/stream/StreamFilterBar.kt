@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
 @Composable
 internal fun StreamFilterBar(
     selectedFilter: String,
@@ -81,7 +83,7 @@ internal fun YearFilterBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "年份",
+            text = stringResource(R.string.stream_filter_bar_text_01),
             fontFamily = ArchiveFontFamilies.MonoScale,
             fontSize = 11.sp,
             color = colors.inkMuted,
@@ -99,7 +101,7 @@ internal fun YearFilterBar(
                 .padding(horizontal = 10.dp, vertical = 3.dp)
         ) {
             Text(
-                text = "全集",
+                text = stringResource(R.string.stream_filter_bar_text_02),
                 fontFamily = ArchiveFontFamilies.MonoScale,
                 fontSize = 11.sp,
                 color = if (isAll) colors.accentWarm else colors.inkSecondary
@@ -117,7 +119,7 @@ internal fun YearFilterBar(
                     .padding(horizontal = 10.dp, vertical = 3.dp)
             ) {
                 Text(
-                    text = "${year}年",
+                    text = stringResource(R.string.stream_filter_bar_text_tpl_01, year),
                     fontFamily = ArchiveFontFamilies.MonoScale,
                     fontSize = 11.sp,
                     color = if (isSelected) colors.accentWarm else colors.inkSecondary

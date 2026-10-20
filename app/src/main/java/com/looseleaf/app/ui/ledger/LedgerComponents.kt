@@ -18,6 +18,9 @@ import com.looseleaf.app.model.*
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 @Composable
 internal fun TypeToggleButton(
     text: String,
@@ -32,7 +35,13 @@ internal fun TypeToggleButton(
         modifier = Modifier
             .clip(shape)
             .background(if (isSelected) colors.accentWarm else Color.Transparent, shape)
-            .clickable { onClick() }
+            // MOB-P1-61：分段切换要有按钮角色与选中态朗读
+            .selectable(
+                selected = isSelected,
+                role = androidx.compose.ui.semantics.Role.Tab,
+                onClick = onClick
+            )
+            .semantics { stateDescription = if (isSelected) "已选中" else "" }
             .padding(horizontal = 12.dp, vertical = 4.dp)
     ) {
         Text(

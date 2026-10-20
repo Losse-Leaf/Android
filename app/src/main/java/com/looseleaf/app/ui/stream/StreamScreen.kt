@@ -18,21 +18,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.AutoStories
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DateRange
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.ExpandLess
-import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.LocationOn
-import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
@@ -51,6 +41,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
@@ -100,8 +91,31 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-/** 进程级一次性标记：避免每次进入时间流都请求 GitHub Releases */
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import androidx.compose.ui.res.painterResource
+/**
+ * 进程级一次性标记：避免每次进入时间流都请求 GitHub Releases
+ * MOB-P1-43：未认证的 GitHub API 只有 60 次/小时/IP 的限额，
+ * 每次冷启动都查一次既浪费流量也容易撞限流。
+ * 这里在 SharedPreferences 里记下「上次检查时间」，6 小时内不再重复请求。
+ */
 private var updateCheckedThisProcess = false
+private const val UPDATE_CHECK_PREFS = "looseleaf_update_check"
+private const val KEY_LAST_CHECK_AT = "last_check_at"
+private const val UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
+
+private fun shouldCheckForUpdate(context: android.content.Context): Boolean {
+    val prefs = context.getSharedPreferences(UPDATE_CHECK_PREFS, android.content.Context.MODE_PRIVATE)
+    val last = prefs.getLong(KEY_LAST_CHECK_AT, 0L)
+    val now = System.currentTimeMillis()
+    if (now - last < UPDATE_CHECK_INTERVAL_MS) return false
+    prefs.edit().putLong(KEY_LAST_CHECK_AT, now).apply()
+    return true
+}
+
+/** MOB-P1-32：时间流分页窗口大小（首屏 60 条，滚动到底再取下一批） */
+private const val STREAM_PAGE_SIZE = 60
 
 /** 热力图单元格步长（dp） */
 
@@ -109,6 +123,9 @@ private var updateCheckedThisProcess = false
  * 生活时间流主展厅 (StreamScreen) - docs/mobile.md §3 & docs/ecosystem.md §4.1
  * 承载生命之流母体记录，支持相纸画廊、那年今日回响、年度生活年鉴、详情查阅与行内修订、岁月留白切线
  */
+/** MOB-P2-40：宽屏双栏断点（与 Material3 的 Expanded 断点一致：840dp） */
+private const val WIDE_LAYOUT_MIN_WIDTH_DP = 840
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StreamScreen(
@@ -121,9 +138,15 @@ fun StreamScreen(
     val syncManager = remember { SyncManager.getInstance(context) }
     val credentialStore = remember { CredentialStore.getInstance(context) }
 
-    val entries by syncManager.entriesFlow.collectAsStateWithLifecycle()
+    // MOB-P1-86：区分「首轮加载中」/「真的没有记录」/「筛选后无匹配」
+    val firstSyncCompleted by syncManager.firstSyncCompletedFlow.collectAsStateWithLifecycle()
     val pendingCount by syncManager.pendingEventCountFlow.collectAsStateWithLifecycle()
     val failedCount by syncManager.failedEventCountFlow.collectAsStateWithLifecycle()
+    // MOB-P1-23：徽标是否显示用 derivedStateOf 表达 ——
+    // 直接读 StateFlow 会让「计数变化」与「是否显示」耦合在同一次重组里，
+    // 派生后只有布尔结果变化才通知下游，无关子树免于重组。
+    val hasPending by remember { derivedStateOf { pendingCount > 0 } }
+    val hasFailed by remember { derivedStateOf { failedCount > 0 } }
 
     val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     var selectedFilter by rememberSaveable { mutableStateOf("all") }
@@ -148,28 +171,46 @@ fun StreamScreen(
     var showQuickNoteDialog by remember { mutableStateOf(false) }
     var entryToDelete by remember { mutableStateOf<LifeEntry?>(null) }
 
+    // 生物识别弹窗标题：必须在 composable 作用域取值（onClick lambda 不是 composable）
+    val deleteEntryBiometricTitle = stringResource(R.string.stream_screen_title_02)
+
     // 失败事件处置弹窗（重试 / 放弃）
     var showFailedEventsDialog by remember { mutableStateOf(false) }
 
     // 单条档案详情与编辑弹窗状态
+    // MOB-P2-40：宽屏（平板 / 折叠屏展开态）走「列表 + 详情」双栏，
+    // 窄屏仍是底部详情弹窗 —— 两份状态分开，展开/折叠切换时才不会互相打架。
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val isWideLayout = screenWidthDp >= WIDE_LAYOUT_MIN_WIDTH_DP
+    // 右侧详情栏占 45%（最多 560dp）——「记随笔」浮动印章要据此让位
+    val paneWidthDp = (screenWidthDp * 0.45f).coerceAtMost(560f)
     var selectedEntryForDetail by remember { mutableStateOf<LifeEntry?>(null) }
+    var detailDialogEntry by remember { mutableStateOf<LifeEntry?>(null) }
+
+    // 选中入口：宽屏只「选中」（右栏展示），窄屏直接弹详情
+    val selectEntry = remember(isWideLayout) { { entry: LifeEntry ->
+        selectedEntryForDetail = entry
+        if (!isWideLayout) detailDialogEntry = entry
+    } }
     var lightboxPhoto by remember { mutableStateOf<Pair<String, String?>?>(null) }
 
     // 更新检查：整个进程只查一次，失败静默（避免每次切 Tab 都打 GitHub API）
     LaunchedEffect(Unit) {
-        if (!updateCheckedThisProcess && cloudUpdate == null) {
+        if (!updateCheckedThisProcess && cloudUpdate == null && shouldCheckForUpdate(context)) {
             updateCheckedThisProcess = true
-            when (val res = UpdateChecker.checkForUpdates()) {
+            // 检查本身放到后台线程，避免阻塞首帧
+            val result = withContext(Dispatchers.IO) { UpdateChecker.checkForUpdates() }
+            when (result) {
                 is UpdateCheckResult.HasUpdate ->
-                    cloudUpdateJson = Json { ignoreUnknownKeys = true }.encodeToString(res.release)
+                    cloudUpdateJson = Json { ignoreUnknownKeys = true }.encodeToString(result.release)
                 else -> Unit
             }
         }
     }
 
-    // 那年今日：每次进入时间流都向服务端对齐一次
+    // 那年今日：进入时间流时向服务端对齐一次（同一天内有本地缓存，MOB-P2-35）
     LaunchedEffect(Unit) {
-        runCatching { remoteOnThisDay = apiClient.fetchOnThisDay().entries }
+        runCatching { remoteOnThisDay = syncManager.fetchOnThisDayCached() }
     }
 
     // 合并云端那年今日与本地往年同月同日条目：
@@ -184,27 +225,89 @@ fun StreamScreen(
     // 年份列表同样来自后台派生流，不在 composition 里遍历全表
     val availableYears by syncManager.availableYearsFlow.collectAsStateWithLifecycle()
 
-    val filteredEntries = remember(entries, selectedFilter, selectedYear) {
-        var list = entries
-        if (selectedYear != null) {
-            list = list.filter {
-                it.occurredAt.length >= 4 && it.occurredAt.substring(0, 4).toIntOrNull() == selectedYear
-            }
+    // ============================================================
+    // MOB-P1-32：时间流改为**分页窗口**
+    // ============================================================
+    // 改造前：把全量档案一次性物化进内存（2 万条 ≈ 20MB 常驻），
+    // 再在 Kotlin 侧做分类/年份过滤与行模型装配 —— 每次同步后都要重算一遍。
+    // 改造后：
+    //   1) 过滤（分类 / 年份）下沉到 SQL，只取当前窗口；
+    //   2) 列表只持有「已加载窗口」的数据，内存与数据量解耦；
+    //   3) 行模型装配仍在后台线程（间隔天数 / 时间戳文本 / 属地）。
+    var loadedEntries by remember { mutableStateOf<List<LifeEntry>>(emptyList()) }
+    var streamRows by remember { mutableStateOf<List<StreamRowItem>>(emptyList()) }
+    var totalCount by remember { mutableIntStateOf(0) }
+    var hasMore by remember { mutableStateOf(true) }
+    var isLoadingMore by remember { mutableStateOf(false) }
+
+    // 热力图计数改为 SQL GROUP BY（不再全表物化）
+    val dayCounts by syncManager.dayCountsFlow.collectAsStateWithLifecycle()
+
+    suspend fun loadWindow(offset: Int, limit: Int): List<LifeEntry> =
+        withContext(Dispatchers.IO) {
+            syncManager.loadStreamPage(selectedFilter, selectedYear, offset, limit)
         }
-        list.filter { entryMatchesFilter(it, selectedFilter) }
+
+    // 1) 筛选 / 年份变化 → 重置窗口并加载第一页
+    LaunchedEffect(selectedFilter, selectedYear) {
+        loadedEntries = emptyList()
+        streamRows = emptyList()
+        hasMore = true
+        val first = loadWindow(0, STREAM_PAGE_SIZE)
+        loadedEntries = first
+        totalCount = withContext(Dispatchers.IO) {
+            syncManager.countStreamEntries(selectedFilter, selectedYear)
+        }
+        hasMore = first.size < totalCount
     }
 
-    // 把「与上一条的间隔天数」一次性算好：LazyColumn 滚动期只读字段，
-    // 不再每条都在主线程解析两次 ISO 时间串（AOPT-03b）
-    val streamRows = remember(filteredEntries) {
-        filteredEntries.mapIndexed { index, entry ->
-            StreamRowItem(
-                entry = entry,
-                gapDays = if (index == 0) 0L else FormatUtils.calculateDaysBetween(
-                    entry.occurredAt,
-                    filteredEntries[index - 1].occurredAt
+    // 2) 数据变更（同步完成 / 本地乐观写入）→ 刷新当前窗口（保持滚动位置）
+    LaunchedEffect(Unit) {
+        syncManager.entriesRevisionFlow.collect {
+            val window = maxOf(loadedEntries.size, STREAM_PAGE_SIZE)
+            val refreshed = loadWindow(0, window)
+            loadedEntries = refreshed
+            totalCount = withContext(Dispatchers.IO) {
+                syncManager.countStreamEntries(selectedFilter, selectedYear)
+            }
+            hasMore = refreshed.size < totalCount
+        }
+    }
+
+    // 3) 滚动接近底部 → 加载下一页
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { lastVisible ->
+                if (hasMore && !isLoadingMore && lastVisible >= loadedEntries.size - 6) {
+                    isLoadingMore = true
+                    val more = loadWindow(loadedEntries.size, STREAM_PAGE_SIZE)
+                    if (more.isNotEmpty()) {
+                        loadedEntries = loadedEntries + more
+                    }
+                    hasMore = more.isNotEmpty()
+                    isLoadingMore = false
+                }
+            }
+    }
+
+    // 4) 行模型装配（间隔天数 / 时间戳文本 / 属地 / 年份 / 类型小写）在后台线程完成
+    //    —— MOB-P0-05 / MOB-P0-06 / MOB-P0-07
+    LaunchedEffect(loadedEntries) {
+        streamRows = withContext(Dispatchers.Default) {
+            loadedEntries.mapIndexed { index, entry ->
+                StreamRowItem(
+                    entry = entry,
+                    gapDays = if (index == 0) 0L else FormatUtils.calculateDaysBetween(
+                        entry.occurredAt,
+                        loadedEntries[index - 1].occurredAt
+                    ),
+                    displayTime = FormatUtils.formatDisplayDateTime(entry.occurredAt),
+                    displayPlace = listOfNotNull(entry.cityName, entry.location)
+                        .distinct()
+                        .filter { it.isNotBlank() }
+                        .joinToString(" · "),
                 )
-            )
+            }
         }
     }
 
@@ -213,7 +316,7 @@ fun StreamScreen(
         if (!isRefreshing) {
             scope.launch {
                 isRefreshing = true
-                val res = syncManager.pullRemoteData()
+                val res = syncManager.pullStreamData()
                 runCatching { remoteOnThisDay = apiClient.fetchOnThisDay().entries }
                 isRefreshing = false
                 if (res.isSuccess) {
@@ -232,8 +335,11 @@ fun StreamScreen(
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 680.dp)
+                    // MOB-P2-40：宽屏时列表只占 55% 并靠左，把右侧空间让给详情栏
+                    .fillMaxWidth(if (isWideLayout) 0.55f else 1f)
+                    .fillMaxHeight()
+                    .widthIn(max = if (isWideLayout) 620.dp else 680.dp)
+                    .align(if (isWideLayout) Alignment.TopStart else Alignment.TopCenter)
             ) {
             // 顶栏：标尺、年度年鉴与同步指示
             Row(
@@ -245,7 +351,7 @@ fun StreamScreen(
             ) {
                 Column {
                     Text(
-                        text = "散页 · 随行手账",
+                        text = stringResource(R.string.stream_screen_text_01),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
                         fontSize = 22.sp,
@@ -253,7 +359,7 @@ fun StreamScreen(
                         color = colors.inkPrimary
                     )
                     Text(
-                        text = "生活自留地 · 真实时间轴",
+                        text = stringResource(R.string.stream_screen_text_02),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontSize = 11.sp,
                         color = colors.inkMuted
@@ -264,7 +370,7 @@ fun StreamScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (pendingCount > 0) {
+                    if (hasPending) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
@@ -288,8 +394,8 @@ fun StreamScreen(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "待同步 $pendingCount",
-                                fontSize = 10.sp,
+                                text = stringResource(R.string.stream_screen_text_tpl_01, pendingCount),
+                                fontSize = 11.sp,
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 color = colors.accentWarm
                             )
@@ -297,7 +403,7 @@ fun StreamScreen(
                         Spacer(modifier = Modifier.width(4.dp))
                     }
 
-                    if (failedCount > 0) {
+                    if (hasFailed) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
@@ -311,15 +417,15 @@ fun StreamScreen(
                                 .padding(horizontal = 6.dp, vertical = 3.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.ErrorOutline,
+                                painter = painterResource(R.drawable.ic_error_outline),
                                 contentDescription = null,
                                 tint = colors.accentWarm,
                                 modifier = Modifier.size(12.dp)
                             )
                             Spacer(modifier = Modifier.width(3.dp))
                             Text(
-                                text = "同步失败 $failedCount",
-                                fontSize = 10.sp,
+                                text = stringResource(R.string.stream_screen_text_tpl_02, failedCount),
+                                fontSize = 11.sp,
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 color = colors.accentWarm
                             )
@@ -337,7 +443,7 @@ fun StreamScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Search,
-                            contentDescription = "检索",
+                            contentDescription = stringResource(R.string.stream_screen_contentDescription_01),
                             tint = colors.inkPrimary,
                             modifier = Modifier.size(20.dp)
                         )
@@ -351,8 +457,8 @@ fun StreamScreen(
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.AutoStories,
-                            contentDescription = "年度年鉴",
+                            painter = painterResource(R.drawable.ic_auto_stories),
+                            contentDescription = stringResource(R.string.stream_screen_contentDescription_02),
                             tint = colors.inkPrimary,
                             modifier = Modifier.size(20.dp)
                         )
@@ -365,7 +471,7 @@ fun StreamScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Refresh,
-                            contentDescription = "同步刷新",
+                            contentDescription = stringResource(R.string.stream_screen_contentDescription_03),
                             tint = if (isRefreshing) colors.accentWarm else colors.inkSecondary,
                             modifier = Modifier.size(20.dp)
                         )
@@ -392,7 +498,7 @@ fun StreamScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "检测到新版本 ${update.tagName}（当前 v${UpdateChecker.currentVersionName}）",
+                            text = stringResource(R.string.stream_screen_text_tpl_03, update.tagName, UpdateChecker.currentVersionName),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontWeight = FontWeight.Medium,
                             fontSize = 12.sp,
@@ -407,14 +513,14 @@ fun StreamScreen(
                                 trackColor = colors.accentWarm.copy(alpha = 0.2f)
                             )
                             Text(
-                                text = "正在应用内下载: ${(downloadProgress * 100).toInt()}%",
-                                fontSize = 10.sp,
+                                text = stringResource(R.string.stream_screen_text_tpl_04, (downloadProgress * 100).toInt()),
+                                fontSize = 11.sp,
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 color = colors.inkMuted
                             )
                         } else if (downloadedFile != null) {
                             Text(
-                                text = "下载完成，准备安装",
+                                text = stringResource(R.string.stream_screen_text_03),
                                 fontSize = 11.sp,
                                 color = colors.accentMoss
                             )
@@ -449,7 +555,7 @@ fun StreamScreen(
                         }
                     } else if (isDownloading) {
                         Text(
-                            text = "${(downloadProgress * 100).toInt()}%",
+                            text = stringResource(R.string.stream_screen_text_tpl_05, (downloadProgress * 100).toInt()),
                             fontSize = 12.sp,
                             fontFamily = ArchiveFontFamilies.MonoScale,
                             color = colors.accentWarm,
@@ -493,6 +599,21 @@ fun StreamScreen(
                 }
             }
 
+            // MOB-P1-24：列表项回调提升为**稳定引用**（放在 items{} 之外），
+    // 这样 StreamEntryCard 的参数保持稳定，任意一项状态变化都不会牵连整屏重组。
+    val onEntryClick = remember(isWideLayout) { { entry: LifeEntry ->
+        selectedEntryForDetail = entry
+        if (!isWideLayout) detailDialogEntry = entry
+    } }
+    val onEntryDelete = remember { { entry: LifeEntry -> entryToDelete = entry } }
+    val onPhotoClick = remember { { url: String, meta: String? -> lightboxPhoto = url to meta } }
+
+    // MOB-P1-84：切换分类 / 年份后必须把列表滚回顶部 ——
+            // 否则数据集变小而 LazyListState 仍停在旧偏移，屏幕看起来「一片空白」。
+            LaunchedEffect(selectedFilter, selectedYear) {
+                listState.scrollToItem(0)
+            }
+
             // 分类筛选横滑栏
             StreamFilterBar(
                 selectedFilter = selectedFilter,
@@ -513,7 +634,11 @@ fun StreamScreen(
             Spacer(modifier = Modifier.height(4.dp))
 
             // 时间流列表
-            if (filteredEntries.isEmpty() && onThisDayEntries.isEmpty()) {
+            // MOB-P1-86：此前只有「空态」一个分支，导致首轮同步未完成时
+            // 就显示「岁月静好，暂无此分类记录」，随后记录才陆续出现 ——
+            // 用户会以为数据丢了。现在拆成「加载中 / 真的没有 / 筛选无匹配」三态。
+            val isFiltering = selectedFilter != "all" || selectedYear != null
+            if (loadedEntries.isEmpty() && onThisDayEntries.isEmpty()) {
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
@@ -522,12 +647,41 @@ fun StreamScreen(
                         .padding(24.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "岁月静好，暂无此分类记录",
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 15.sp,
-                            color = colors.inkMuted
-                        )
+                        if (!firstSyncCompleted) {
+                            // 加载中：给出明确反馈，而不是「空列表」
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.dp,
+                                color = colors.inkMuted
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = stringResource(R.string.stream_screen_text_04),
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 15.sp,
+                                color = colors.inkMuted
+                            )
+                        } else {
+                            Text(
+                                text = if (isFiltering) {
+                                    "这段时间里没有符合条件的记录"
+                                } else {
+                                    "岁月静好，暂无此分类记录"
+                                },
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 15.sp,
+                                color = colors.inkMuted
+                            )
+                            if (isFiltering) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = stringResource(R.string.stream_screen_text_05),
+                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    fontSize = 12.sp,
+                                    color = colors.inkMuted.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
                     }
                 }
             } else {
@@ -553,7 +707,8 @@ fun StreamScreen(
                     // 52周时光生活刻度热力图
                     item(key = "life_activity_heatmap") {
                         LifeActivityHeatmap(
-                            entries = entries,
+                            dayCounts = dayCounts,
+                            totalEntryCount = totalCount,
                             modifier = Modifier.padding(bottom = 10.dp)
                         )
                     }
@@ -568,7 +723,7 @@ fun StreamScreen(
                                     isOnThisDayExpanded = !isOnThisDayExpanded
                                 },
                                 onSelectEntry = { entry ->
-                                    selectedEntryForDetail = entry
+                                    selectEntry(entry)
                                 },
                                 modifier = Modifier.padding(bottom = 10.dp)
                             )
@@ -590,17 +745,12 @@ fun StreamScreen(
                         }
 
                         StreamEntryCard(
-                            entry = row.entry,
+                            row = row,
                             apiClient = apiClient,
-                            onClick = {
-                                selectedEntryForDetail = row.entry
-                            },
-                            onDelete = {
-                                entryToDelete = row.entry
-                            },
-                            onPhotoClick = { url, meta ->
-                                lightboxPhoto = url to meta
-                            },
+                            // MOB-P1-24：稳定引用（见上方定义）
+                            onClick = onEntryClick,
+                            onDelete = onEntryDelete,
+                            onPhotoClick = onPhotoClick,
                             modifier = Modifier.padding(vertical = 6.dp)
                         )
                     }
@@ -614,7 +764,8 @@ fun StreamScreen(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 20.dp, bottom = 20.dp)
+                // MOB-P2-40：宽屏时右侧有详情栏，浮动印章让到列表列里
+                .padding(end = if (isWideLayout) (paneWidthDp + 20).dp else 20.dp, bottom = 20.dp)
                 .size(56.dp)
                 .shadow(
                     elevation = 6.dp,
@@ -628,22 +779,43 @@ fun StreamScreen(
         ) {
             Icon(
                 imageVector = Icons.Outlined.Edit,
-                contentDescription = "记随笔",
+                contentDescription = stringResource(R.string.stream_screen_contentDescription_04),
                 tint = colors.archivePaper,
                 modifier = Modifier.size(24.dp)
             )
         }
 
+        // MOB-P2-40：宽屏右侧详情栏
+        // 只读呈现；修订与删除仍复用原有弹窗，避免两套编辑逻辑分叉。
+        if (isWideLayout) {
+            EntryPreviewPane(
+                entry = selectedEntryForDetail,
+                onEdit = { detailDialogEntry = selectedEntryForDetail },
+                onDelete = { selectedEntryForDetail?.let { entryToDelete = it } },
+                onPhotoClick = { url, meta -> lightboxPhoto = url to meta },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .fillMaxWidth(0.45f)
+                    .widthIn(max = 560.dp)
+                    .fillMaxHeight()
+                    .padding(start = 4.dp, end = 20.dp, top = 16.dp, bottom = 16.dp)
+            )
+        }
+
         // 单条记录详情与编辑 Sheet/Dialog
-        selectedEntryForDetail?.let { activeEntry ->
+        detailDialogEntry?.let { activeEntry ->
             EntryDetailSheetDialog(
                 entry = activeEntry,
                 apiClient = apiClient,
-                onDismiss = { selectedEntryForDetail = null },
+                onDismiss = {
+                    detailDialogEntry = null
+                    if (!isWideLayout) selectedEntryForDetail = null
+                },
                 onSaveEdit = { req ->
                     scope.launch {
                         syncManager.updateEntryOptimistic(activeEntry.id, req)
                         ArchiveToastManager.show("已修订归册")
+                        detailDialogEntry = null
                         selectedEntryForDetail = null
                     }
                 },
@@ -689,7 +861,7 @@ fun StreamScreen(
                             .padding(horizontal = 22.dp, vertical = 20.dp)
                     ) {
                         Text(
-                            text = "处置 $failedCount 条失败记录",
+                            text = stringResource(R.string.stream_screen_text_tpl_06, failedCount),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontWeight = FontWeight.Medium,
                             fontSize = 18.sp,
@@ -697,7 +869,7 @@ fun StreamScreen(
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "重试会清空失败态并重新排队；放弃则移除这些发件箱事件" +
+                            text = stringResource(R.string.stream_screen_text_06) +
                                 "（本地记录与「待同步」标记保留，便于排查）。点卡片外部可稍后处理。",
                             fontFamily = ArchiveFontFamilies.BodySans,
                             fontSize = 13.sp,
@@ -745,19 +917,35 @@ fun StreamScreen(
         // 撕除确认弹窗
         entryToDelete?.let { entry ->
             ArchiveConfirmDialog(
-                title = "撕除手记？",
+                title = stringResource(R.string.stream_screen_title_01),
                 content = "确认从生活时间流中彻底移除《${entry.title.ifBlank { "无题随笔" }}》？",
-                confirmText = "确认撕除",
+                confirmText = stringResource(R.string.stream_screen_confirmText_01),
                 isDestructive = true,
                 onConfirm = {
                     // docs/mobile.md §3.4：删除重要日记需要生物识别二次确认
                     val performDelete: () -> Unit = {
                         scope.launch {
-                            syncManager.deleteEntry(entry.id)
-                            ArchiveToastManager.show("已撕除记录")
+                            // MOB-P2-47：删除后给一个「撤销」机会
+                            val ticket = syncManager.deleteEntry(entry.id)
                             entryToDelete = null
                             if (selectedEntryForDetail?.id == entry.id) {
                                 selectedEntryForDetail = null
+                            }
+                            if (detailDialogEntry?.id == entry.id) {
+                                detailDialogEntry = null
+                            }
+                            if (ticket != null) {
+                                ArchiveToastManager.showWithAction("已撕除记录", "撤销") {
+                                    scope.launch {
+                                        val restored = syncManager.undoDeleteEntry(ticket)
+                                        ArchiveToastManager.show(
+                                            if (restored) "已恢复该条记录" else "已同步到服务端，无法撤销",
+                                            isError = !restored
+                                        )
+                                    }
+                                }
+                            } else {
+                                ArchiveToastManager.show("已撕除记录")
                             }
                         }
                     }
@@ -767,7 +955,7 @@ fun StreamScreen(
                     ) {
                         BiometricHelper.authenticate(
                             activity = activity,
-                            title = "验证以撕除记录",
+                            title = deleteEntryBiometricTitle,
                             subtitle = "删除私人档案需要二次身份确认",
                             onSuccess = { performDelete() },
                             onError = { msg ->
@@ -797,7 +985,7 @@ fun StreamScreen(
             GlobalSearchDialog(
                 apiClient = apiClient,
                 onDismiss = { showSearchDialog = false },
-                onSelectEntry = { selectedEntryForDetail = it }
+                onSelectEntry = { selectEntry(it) }
             )
         }
 
@@ -815,7 +1003,7 @@ fun StreamScreen(
         if (showAlmanacDialog) {
             AlmanacDialog(
                 apiClient = apiClient,
-                entries = entries,
+                earliestEntryYear = availableYears.lastOrNull(),
                 onDismiss = { showAlmanacDialog = false }
             )
         }

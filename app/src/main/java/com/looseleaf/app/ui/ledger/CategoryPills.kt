@@ -24,6 +24,15 @@ import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.theme.SpectrumColors
 import com.looseleaf.app.utils.FormatUtils
 import java.time.LocalTime
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.runtime.LaunchedEffect
+
+/** MOB-P1-25：分类胶囊形状常量 */
+private val PillShape = RoundedCornerShape(16.dp)
 
 /**
  * 分类胶囊横滑栏 (Category Pills Bar) - docs/mobile.md §3.1
@@ -36,10 +45,22 @@ fun CategoryPills(
     modifier: Modifier = Modifier,
     categories: List<String> = DefaultExpenseCategories
 ) {
+    val scrollState = rememberScrollState()
+    // MOB-P2-74：选中项自动滚入视野 ——
+    // 分类多时（10+ 项），当前选中的胶囊可能在屏幕外，
+    // 用户不知道「现在选的是哪个」，也无法直接点它取消。
+    LaunchedEffect(selectedCategory, categories) {
+        val index = categories.indexOf(selectedCategory)
+        if (index >= 0) {
+            // 粗略估算：每个胶囊约 84dp 宽 + 8dp 间距
+            scrollState.animateScrollTo((index * 92 - 120).coerceAtLeast(0))
+        }
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
+            .horizontalScroll(scrollState)
             .padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -64,7 +85,8 @@ private fun CategoryPillItem(
     onClick: () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
-    val shape = RoundedCornerShape(16.dp)
+    // MOB-P1-25：形状常量（原先每次重组都新建，触发绘制失效）
+    val shape = PillShape
     // 分类切换的轻触反馈（AOPT-05a）
     val haptics = LocalHapticFeedback.current
 
@@ -92,10 +114,17 @@ private fun CategoryPillItem(
             .clip(shape)
             .background(containerBg, shape)
             .border(if (isSelected) 1.dp else 0.5.dp, borderColor, shape)
-            .clickable {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onClick()
-            }
+            // MOB-P1-77：选中态语义 + 热区下限（原本只有 ~30dp）
+            .selectable(
+                selected = isSelected,
+                role = Role.RadioButton,
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onClick()
+                }
+            )
+            .semantics { stateDescription = if (isSelected) "已选中" else "" }
+            .defaultMinSize(minHeight = 36.dp)
             .padding(horizontal = 14.dp, vertical = 7.dp)
     ) {
         // 色谱光点

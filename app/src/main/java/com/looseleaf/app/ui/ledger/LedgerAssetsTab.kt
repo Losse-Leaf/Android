@@ -22,6 +22,9 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
+import com.looseleaf.app.ui.components.PaperSkeleton
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
 /**
  * 资产大盘选项卡：净资产卡片、资金底数校准、信贷负债大盘、在役装备库存
  */
@@ -39,8 +42,15 @@ internal fun AssetsAndGearTab(
     val colors = LooseLeafTheme.colors
 
     if (isLoading && overview == null) {
-        Box(contentAlignment = Alignment.Center, modifier = modifier.fillMaxSize()) {
-            CircularProgressIndicator(color = colors.accentWarm, modifier = Modifier.size(24.dp))
+        // MOB-P2-44：加载态改为纸墨骨架屏 —— 原先只有一颗裸转圈浮在空白区域，
+        // 与「宣纸手账」的视觉语言脱节。
+        Box(
+            contentAlignment = Alignment.TopStart,
+            modifier = modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            PaperSkeleton(lines = 4, lineHeight = 14.dp, showAvatar = true)
         }
         return
     }
@@ -66,7 +76,7 @@ internal fun AssetsAndGearTab(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "个人核心资产大盘",
+                            text = stringResource(R.string.ledger_assets_tab_text_01),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontSize = 13.sp,
                             color = colors.inkMuted
@@ -145,7 +155,7 @@ internal fun AssetsAndGearTab(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "信贷渠道与分期负债",
+                                text = stringResource(R.string.ledger_assets_tab_text_02),
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                                 fontWeight = FontWeight.Medium,
                                 fontSize = 15.sp,
@@ -161,7 +171,7 @@ internal fun AssetsAndGearTab(
                         }
                         if (ov.monthlyLiabilities > 0) {
                             Text(
-                                text = "月供 ${FormatUtils.centsToYuanString(ov.monthlyLiabilities)}",
+                                text = stringResource(R.string.ledger_assets_tab_text_tpl_01, FormatUtils.centsToYuanString(ov.monthlyLiabilities)),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 11.sp,
                                 color = colors.accentWarm
@@ -173,7 +183,7 @@ internal fun AssetsAndGearTab(
 
                     if (ov.channelLiabilities.isEmpty() || ov.channelLiabilities.all { it.totalDebt <= 0 }) {
                         Text(
-                            text = "暂无未清还信贷分期，资金健康。",
+                            text = stringResource(R.string.ledger_assets_tab_text_03),
                             fontFamily = ArchiveFontFamilies.BodySans,
                             fontSize = 12.sp,
                             color = colors.inkMuted,
@@ -196,8 +206,8 @@ internal fun AssetsAndGearTab(
                                         color = colors.inkPrimary
                                     )
                                     Text(
-                                        text = "每月 ${ch.repaymentDay} 号还款 (距还款日 ${ch.daysUntilRepayment} 天)",
-                                        fontSize = 10.sp,
+                                        text = stringResource(R.string.ledger_assets_tab_text_tpl_02, ch.repaymentDay, ch.daysUntilRepayment),
+                                        fontSize = 11.sp,
                                         color = colors.inkMuted
                                     )
                                 }
@@ -210,9 +220,9 @@ internal fun AssetsAndGearTab(
                                         color = colors.accentWarm
                                     )
                                     Text(
-                                        text = "月供 ${FormatUtils.centsToYuanString(ch.monthlyPay)}",
+                                        text = stringResource(R.string.ledger_assets_tab_text_tpl_03, FormatUtils.centsToYuanString(ch.monthlyPay)),
                                         fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 10.sp,
+                                        fontSize = 11.sp,
                                         color = colors.inkMuted
                                     )
                                 }
@@ -233,7 +243,7 @@ internal fun AssetsAndGearTab(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "在役固资装备 (${ov.gearSummary.items.size})",
+                            text = stringResource(R.string.ledger_assets_tab_text_tpl_04, ov.gearSummary.items.size),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontWeight = FontWeight.Medium,
                             fontSize = 15.sp,
@@ -248,7 +258,7 @@ internal fun AssetsAndGearTab(
 
                     if (ov.gearSummary.items.isEmpty()) {
                         Text(
-                            text = "暂无录入固资装备",
+                            text = stringResource(R.string.ledger_assets_tab_text_04),
                             fontFamily = ArchiveFontFamilies.BodySans,
                             fontSize = 12.sp,
                             color = colors.inkMuted,
@@ -293,8 +303,8 @@ internal fun AssetsAndGearTab(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "出清",
-                                        fontSize = 10.sp,
+                                        text = stringResource(R.string.ledger_assets_tab_text_05),
+                                        fontSize = 11.sp,
                                         color = colors.accentWarm,
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(4.dp))

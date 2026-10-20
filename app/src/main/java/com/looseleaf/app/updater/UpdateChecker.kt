@@ -31,7 +31,9 @@ data class ReleaseInfo(
     val apkUrl: String,
     val publishedAt: String,
     /** GitHub Release 资产自带的 sha256 摘要（若上游提供），下载后强制校验 */
-    val apkSha256: String? = null
+    val apkSha256: String? = null,
+    /** MOB-P2-50：安装包体积（字节），用于安装前向用户交代「多大、从哪来」 */
+    val apkSizeBytes: Long? = null
 )
 
 sealed class UpdateCheckResult {
@@ -95,6 +97,7 @@ object UpdateChecker {
                 if (isVersionGreaterThan(cleanRemoteTag, cleanLocalTag)) {
                     var apkDownloadUrl: String? = null
                     var apkDigest: String? = null
+                    var apkSize: Long? = null
                     for (asset in assets) {
                         val assetObj = asset.jsonObject
                         val name = assetObj["name"]?.jsonPrimitive?.content ?: ""
@@ -105,6 +108,7 @@ object UpdateChecker {
                             apkDigest = assetObj["digest"]?.jsonPrimitive?.content
                                 ?.removePrefix("sha256:")
                                 ?.takeIf { it.length == 64 }
+                            apkSize = assetObj["size"]?.jsonPrimitive?.content?.toLongOrNull()
                             break
                         }
                     }
@@ -117,7 +121,8 @@ object UpdateChecker {
                         body = releaseBody,
                         apkUrl = finalUrl,
                         publishedAt = publishedAt,
-                        apkSha256 = apkDigest
+                        apkSha256 = apkDigest,
+                        apkSizeBytes = apkSize
                     )
                     Log.i(TAG, "Found newer version: $cleanRemoteTag (current: $cleanLocalTag)")
                     return@withContext UpdateCheckResult.HasUpdate(releaseInfo)

@@ -27,7 +27,8 @@ fun ArchiveConfirmDialog(
     title: String,
     content: String,
     confirmText: String = "确认",
-    dismissText: String = "取消",
+    /** 取消按钮文案；传 null 表示「只有一个动作」（用于纯展示型弹窗） */
+    dismissText: String? = "取消",
     isDestructive: Boolean = false,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
@@ -95,20 +96,22 @@ fun ArchiveConfirmDialog(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(
-                        onClick = onDismiss,
-                        shape = RoundedCornerShape(2.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = dismissText,
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 13.5.sp,
-                            color = colors.inkMuted
-                        )
-                    }
+                    if (dismissText != null) {
+                        TextButton(
+                            onClick = onDismiss,
+                            shape = RoundedCornerShape(2.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = dismissText,
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 13.5.sp,
+                                color = colors.inkMuted
+                            )
+                        }
 
-                    Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                    }
 
                     Button(
                         onClick = onConfirm,

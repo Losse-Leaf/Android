@@ -24,11 +24,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.text.font.FontWeight
 
 data class ArchiveToastMessage(
     val text: String,
     val isError: Boolean = false,
-    val durationMs: Long = 2200L
+    val durationMs: Long = 2200L,
+    /** MOB-P2-47：可选的动作（如「撤销」）。点击后立即关闭纸签并执行动作。 */
+    val actionLabel: String? = null,
+    val action: (() -> Unit)? = null
 )
 
 object ArchiveToastManager {
@@ -36,7 +44,32 @@ object ArchiveToastManager {
     val messages = _messages.asSharedFlow()
 
     fun show(text: String, isError: Boolean = false, durationMs: Long = 2200L) {
-        _messages.tryEmit(ArchiveToastMessage(text = text, isError = isError, durationMs = durationMs))
+        // MOB-P1-79：错误类提示的默认时长由调用方决定；这里对未显式指定时长的错误提示
+        // 兜底延长到 4.5s —— 2.2s 根本来不及读完「对齐失败: xxx」这类带异常串的文案。
+        val effectiveDuration = if (isError && durationMs == 2200L) 4500L else durationMs
+        _messages.tryEmit(ArchiveToastMessage(text = text, isError = isError, durationMs = effectiveDuration))
+    }
+
+    /**
+     * MOB-P2-47：带动作的提示（如「已删除 · 撤销」）。
+     * 动作型提示默认多给 5 秒 —— 用户需要时间判断要不要点「撤销」。
+     */
+    fun showWithAction(
+        text: String,
+        actionLabel: String,
+        durationMs: Long = 6000L,
+        isError: Boolean = false,
+        action: () -> Unit
+    ) {
+        _messages.tryEmit(
+            ArchiveToastMessage(
+                text = text,
+                isError = isError,
+                durationMs = durationMs,
+                actionLabel = actionLabel,
+                action = action
+            )
+        )
     }
 }
 
@@ -81,6 +114,8 @@ fun ArchiveToastHost(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
+                        // MOB-P1-79：整条纸签标记为 live region，错误播报更可靠
+                        .semantics { liveRegion = LiveRegionMode.Assertive }
                         .shadow(elevation = 6.dp, shape = shape, spotColor = colors.frameShadowSpot)
                         .clip(shape)
                         .background(colors.archivePaper)
@@ -103,8 +138,33 @@ fun ArchiveToastHost(
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontSize = 13.sp,
                         letterSpacing = 0.5.sp,
-                        color = colors.inkPrimary
+                        color = colors.inkPrimary,
+                        // MOB-P1-79：Toast 之前是普通 Text —— TalkBack 完全读不到，
+                        // 「对齐失败」「相纸装裱失败」「同步失败 N」这些关键错误对读屏用户等于不存在。
+                        // liveRegion 让读屏在提示出现时主动播报。
+                        modifier = Modifier.semantics {
+                            liveRegion = LiveRegionMode.Assertive
+                        }
                     )
+                    // MOB-P2-47：可撤销动作
+                    msg.actionLabel?.let { label ->
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = label,
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 13.sp,
+                            color = colors.accentWarm,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable {
+                                    dismissJob?.cancel()
+                                    currentMessage = null
+                                    msg.action?.invoke()
+                                }
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
         }

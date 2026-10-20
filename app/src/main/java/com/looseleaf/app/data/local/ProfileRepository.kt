@@ -33,21 +33,33 @@ object ProfileRepository {
     @Volatile
     private var isInitialized = false
 
+    /**
+     * 预热本地缓存快照。
+     *
+     * MOB-P1-21：原先在 `synchronized(this)` **持锁期间**做 JSON 反序列化 ——
+     * Application 在 IO 线程预热时，主线程的 getProfile() → init() 会阻塞在同一把
+     * monitor 上等待解码结束（资料 JSON 越大越久，典型 50~300ms），
+     * 表现为「切到展台页掉一下帧」。
+     * 现在把解码放到锁外，锁内只做状态赋值，主线程最多等一次极短的赋值。
+     */
     fun init(context: Context) {
         if (isInitialized) return
+        val creds = CredentialStore.getInstance(context)
+        val profileRaw = creds.cachedProfileJson
+        val configRaw = creds.cachedSiteConfigJson
+
+        // —— 锁外解码 ——
+        val decodedProfile = profileRaw?.let { raw ->
+            runCatching { json.decodeFromString<CuratorProfile>(raw) }.getOrNull()
+        }
+        val decodedConfig = configRaw?.let { raw ->
+            runCatching { json.decodeFromString<SiteConfig>(raw) }.getOrNull()
+        }
+
         synchronized(this) {
             if (isInitialized) return
-            val creds = CredentialStore.getInstance(context)
-            creds.cachedProfileJson?.let { raw ->
-                runCatching {
-                    _profileState.value = json.decodeFromString<CuratorProfile>(raw)
-                }
-            }
-            creds.cachedSiteConfigJson?.let { raw ->
-                runCatching {
-                    _siteConfigState.value = json.decodeFromString<SiteConfig>(raw)
-                }
-            }
+            decodedProfile?.let { _profileState.value = it }
+            decodedConfig?.let { _siteConfigState.value = it }
             isInitialized = true
         }
     }

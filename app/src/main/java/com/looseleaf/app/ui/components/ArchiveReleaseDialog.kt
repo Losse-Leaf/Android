@@ -18,6 +18,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.updater.ReleaseInfo
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
 
 /**
  * 散页自研新版发布笺纸对话框 (ArchiveReleaseDialog)
@@ -69,7 +71,7 @@ fun ArchiveReleaseDialog(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "散页 · 新版本发布",
+                        text = stringResource(R.string.archive_release_dialog_text_01),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
                         fontSize = 18.sp,
@@ -86,7 +88,22 @@ fun ArchiveReleaseDialog(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = if (release.versionName.isNotBlank()) "版本 ${release.versionName}" else "版本更新与体验修缮",
+                    // MOB-P2-50：安装前把「版本 / 体积 / 来源」说清楚，
+                    // 让用户确认自己装的是官方包（签名校验已在 UpdateChecker 内完成）。
+                    text = buildString {
+                        append(
+                            if (release.versionName.isNotBlank()) {
+                                "版本 ${release.versionName}"
+                            } else {
+                                "版本更新与体验修缮"
+                            }
+                        )
+                        val sizeMb = release.apkSizeBytes?.let { it / 1024.0 / 1024.0 }
+                        if (sizeMb != null && sizeMb > 0) {
+                            append(String.format(java.util.Locale.US, " · %.1f MB", sizeMb))
+                        }
+                        append(" · 来源 GitHub Releases")
+                    },
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontSize = 13.5.sp,
                     color = colors.inkSecondary

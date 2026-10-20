@@ -1,6 +1,7 @@
 package com.looseleaf.app.data.api
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import com.looseleaf.app.BuildConfig
 import com.looseleaf.app.model.*
@@ -12,15 +13,60 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.*
+import okhttp3.Cache
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
+import okio.BufferedSink
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class APIException(val code: Int, override val message: String) : Exception("[$code] $message")
+
+/**
+ * MOB-P1-36：服务端权威增量游标的响应头名。
+ *
+ * 后端在增量响应里带回「本次这页记录的最大变动时间」（RFC3339 北京时间），
+ * 客户端可以把它原样塞回 ?since=，不必再在本地把每条记录的时间戳解析一遍。
+ */
+const val SYNC_CURSOR_HEADER = "X-Sync-Cursor"
+
+/**
+ * MOB-P1-36：一次请求的响应元信息。
+ *
+ * 用可变对象而不是返回值，是因为请求管线（executeEnvelopeRequest）只返回业务数据，
+ * 把响应头塞进返回值会污染所有调用方。
+ */
+class ResponseMeta {
+    /** 服务端权威增量游标；老服务端不返回时为 null */
+    @Volatile
+    var syncCursor: String? = null
+}
+
+/**
+ * MOB-P0-03：文件流式请求体。
+ *
+ * 原实现把整张照片 `File.readBytes()` 读进堆，再由 OkHttp 的
+ * `toRequestBody` **再拷贝一份**进 Buffer，且多张并发 ⇒ 峰值内存翻倍。
+ * 这里直接从磁盘以 64KB 缓冲流式写出，峰值内存恒定为缓冲区大小。
+ */
+fun fileRequestBody(file: File, mimeType: String): RequestBody = object : RequestBody() {
+    override fun contentType(): MediaType? = mimeType.toMediaTypeOrNull()
+    override fun contentLength(): Long = file.length()
+    override fun writeTo(sink: BufferedSink) {
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read == -1) break
+                sink.write(buffer, 0, read)
+            }
+        }
+    }
+}
 
 class APIClient private constructor(private val context: Context) {
 
@@ -43,7 +89,15 @@ class APIClient private constructor(private val context: Context) {
     val json = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true
-        encodeDefaults = true
+        // MOB-P1-35：不再把「等于默认值的字段」原样写进请求体。
+        //
+        // 过去每一笔记账/每一条随笔都要带上十几个 null 字段，
+        // 请求体与发件箱（outbox payload 存的就是这份请求体）一起膨胀。
+        //
+        // 前提是**服务端已把「省略」与「显式默认值」视为同一件事**
+        // （后端 handlers 里 entry.type / transaction.type / wish.kind 等
+        // 都已补上「省略即默认」的回落），因此这里可以安全地省略。
+        encodeDefaults = false
     }
 
     /**
@@ -59,7 +113,11 @@ class APIClient private constructor(private val context: Context) {
      */
     private val uploadClient: OkHttpClient by lazy {
         okHttpClient.newBuilder()
-            .callTimeout(0, TimeUnit.SECONDS)
+            // MOB-P1-44：原先是「无限超时」—— 弱网下 1KB/s 的慢速上传会一直挂着，
+            // 直到 WorkManager 的 10 分钟上限把它杀掉，然后**从 0 字节重传**，
+            // R2 侧还会留下孤儿对象。这里给出略小于上限的整体超时（9 分钟），
+            // 失败可以走退避重试，而不是被系统粗暴砍断。
+            .callTimeout(9, TimeUnit.MINUTES)
             .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(120, TimeUnit.SECONDS)
             .build()
@@ -82,6 +140,10 @@ class APIClient private constructor(private val context: Context) {
             .writeTimeout(30, TimeUnit.SECONDS)
             // 防止「卡住但不报错」的连接长期占用协程
             .callTimeout(90, TimeUnit.SECONDS)
+            // MOB-P1-38：补 HTTP 缓存 —— 原先每次冷启动/切 Tab 都要重新走网络拉
+            // /entries、/profile、/config、/categories、/assets/overview，
+            // 弱网下首屏白屏时间翻倍且白白浪费流量。
+            .cache(Cache(File(context.cacheDir, "http_cache"), 32L * 1024 * 1024))
 
         // release 包绝不打印请求日志（URL 里含对象键、设备查询串）
         if (BuildConfig.DEBUG) {
@@ -105,11 +167,15 @@ class APIClient private constructor(private val context: Context) {
             .build()
     }
 
+    /** MOB-P1-39：缓存 SharedPreferences 句柄，避免每次读 baseUrl 都重新解析 XML */
+    private val prefs: SharedPreferences by lazy {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
     var baseUrl: String
         get() {
             cachedBaseUrl?.let { return it }
-            val sp = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val stored = sp.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
+            val stored = prefs.getString(KEY_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL
             cachedBaseUrl = stored
             return stored
         }
@@ -149,7 +215,7 @@ class APIClient private constructor(private val context: Context) {
         method: String = "GET",
         queryParams: Map<String, String>? = null,
         body: RequestBody? = null
-    ): Pair<Request, String> {
+    ): Request {
         val httpUrl = buildHubUrl(baseUrl, path, queryParams)
 
         val requestBuilder = Request.Builder()
@@ -164,7 +230,9 @@ class APIClient private constructor(private val context: Context) {
         // docs/backlog.md RC-125 已规定移除后端未消费的这两个自定义头（避免 CORS 预检冲突，
         // 全端统一口径；Android 原生虽不走 CORS，但规格一致优先）
 
-        val cacheKey = httpUrl.toString()
+        // MOB-P1-40：原先这里会构造一个完整的 URL 字符串作为 cacheKey，
+        // 但所有调用方都用 `val (request, _) = …` 丢弃它 —— 纯浪费，已移除。
+
 
         when (method) {
             "POST" -> requestBuilder.post(body ?: "".toRequestBody("application/json".toMediaType()))
@@ -173,16 +241,17 @@ class APIClient private constructor(private val context: Context) {
             else -> requestBuilder.get()
         }
 
-        return Pair(requestBuilder.build(), cacheKey)
+        return requestBuilder.build()
     }
 
     private suspend inline fun <reified T> executeEnvelopeRequest(
         path: String,
         method: String = "GET",
         queryParams: Map<String, String>? = null,
-        body: RequestBody? = null
+        body: RequestBody? = null,
+        meta: ResponseMeta? = null
     ): T = withContext(Dispatchers.IO) {
-        val (request, _) = buildRequest(path, method, queryParams, body)
+        val request = buildRequest(path, method, queryParams, body)
         val response = try {
             okHttpClient.newCall(request).execute()
         } catch (e: IOException) {
@@ -199,6 +268,9 @@ class APIClient private constructor(private val context: Context) {
                     // 客户端不再发送 If-None-Match，服务端理论上不会返 304；留作兜底
                     throw APIException(304, "数据未变更 (304)")
                 }
+
+                // MOB-P1-36：抓取服务端权威增量游标（老服务端没有这个头，meta 保持 null）
+                meta?.syncCursor = resp.header(SYNC_CURSOR_HEADER)
 
                 val bodyString = resp.body?.string() ?: ""
 
@@ -335,7 +407,8 @@ class APIClient private constructor(private val context: Context) {
         pageSize: Int = 50,
         category: String? = null,
         year: Int? = null,
-        since: String? = null
+        since: String? = null,
+        meta: ResponseMeta? = null
     ): EntriesListResponse {
         val params = mutableMapOf(
             "page" to page.toString(),
@@ -344,7 +417,7 @@ class APIClient private constructor(private val context: Context) {
         if (!category.isNullOrBlank() && category != "all") params["category"] = category
         if (year != null) params["year"] = year.toString()
         if (!since.isNullOrBlank()) params["since"] = since
-        return executeEnvelopeRequest("/api/v1/entries", "GET", queryParams = params)
+        return executeEnvelopeRequest("/api/v1/entries", "GET", queryParams = params, meta = meta)
     }
 
     suspend fun fetchOnThisDay(month: Int? = null, day: Int? = null): OnThisDayResponse {
@@ -381,14 +454,15 @@ class APIClient private constructor(private val context: Context) {
         month: Int? = null,
         since: String? = null,
         limit: Int = 200,
-        offset: Int? = null
+        offset: Int? = null,
+        meta: ResponseMeta? = null
     ): List<Transaction> {
         val params = mutableMapOf("limit" to limit.toString())
         if (year != null) params["year"] = year.toString()
         if (month != null) params["month"] = month.toString()
         if (offset != null && offset > 0) params["offset"] = offset.toString()
         if (!since.isNullOrBlank()) params["since"] = since
-        return executeEnvelopeRequest("/api/v1/transactions", "GET", queryParams = params)
+        return executeEnvelopeRequest("/api/v1/transactions", "GET", queryParams = params, meta = meta)
     }
 
     suspend fun fetchTransactionSummary(year: Int? = null, month: Int? = null): TransactionSummary {
@@ -547,12 +621,26 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/uploads/presign", "POST", body = body)
     }
 
-    suspend fun uploadToR2Direct(uploadUrl: String, fileBytes: ByteArray, mimeType: String) = withContext(Dispatchers.IO) {
-        val requestBody = fileBytes.toRequestBody(mimeType.toMediaTypeOrNull())
+    /**
+     * MOB-P0-03：文件流式直传（推荐路径）。
+     * 照片不再整份进入堆内存，峰值内存与文件大小无关。
+     */
+    suspend fun uploadToR2Direct(uploadUrl: String, file: File, mimeType: String) =
+        uploadToR2Direct(uploadUrl, fileRequestBody(file, mimeType))
+
+    suspend fun uploadToR2Direct(uploadUrl: String, fileBytes: ByteArray, mimeType: String) =
+        uploadToR2Direct(uploadUrl, fileBytes.toRequestBody(mimeType.toMediaTypeOrNull()))
+
+    /** MOB-P0-03：核心直传入口 —— 请求体由调用方决定（内存字节 or 文件流） */
+    suspend fun uploadToR2Direct(uploadUrl: String, body: RequestBody) = withContext(Dispatchers.IO) {
         val putRequest = Request.Builder()
             .url(uploadUrl)
-            .put(requestBody)
+            .put(body)
             .build()
+        executeR2Put(putRequest)
+    }
+
+    private suspend fun executeR2Put(putRequest: Request) = withContext(Dispatchers.IO) {
         // 直传对象存储用于超大视频 / RAW 底片，不能用主客户端 90s 的 callTimeout
         val response = try {
             uploadClient.newCall(putRequest).execute()
@@ -571,8 +659,36 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/uploads/complete", "POST", body = body)
     }
 
+    /**
+     * MOB-P0-03：文件流式中转上传（推荐路径）。
+     */
+    suspend fun uploadUnifiedFallback(
+        file: File,
+        filename: String,
+        mimeType: String,
+        folder: String = "entries"
+    ): Attachment = uploadUnifiedFallback(
+        body = fileRequestBody(file, mimeType),
+        filename = filename,
+        mimeType = mimeType,
+        folder = folder
+    )
+
     suspend fun uploadUnifiedFallback(
         fileBytes: ByteArray,
+        filename: String,
+        mimeType: String,
+        folder: String = "entries"
+    ): Attachment = uploadUnifiedFallback(
+        body = fileBytes.toRequestBody(mimeType.toMediaTypeOrNull()),
+        filename = filename,
+        mimeType = mimeType,
+        folder = folder
+    )
+
+    /** MOB-P0-03：核心中转上传入口 —— 请求体由调用方决定（内存字节 or 文件流） */
+    suspend fun uploadUnifiedFallback(
+        body: RequestBody,
         filename: String,
         mimeType: String,
         folder: String = "entries"
@@ -580,14 +696,14 @@ class APIClient private constructor(private val context: Context) {
         val multipartBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("folder", folder)
-            .addFormDataPart(
-                "file",
-                filename,
-                fileBytes.toRequestBody(mimeType.toMediaTypeOrNull())
-            )
+            .addFormDataPart("file", filename, body)
             .build()
+        executeUnifiedUpload(multipartBody)
+    }
 
-        val (request, _) = buildRequest("/api/v1/files/upload", "POST", body = multipartBody)
+    private suspend fun executeUnifiedUpload(multipartBody: MultipartBody): Attachment = withContext(Dispatchers.IO) {
+
+        val request = buildRequest("/api/v1/files/upload", "POST", body = multipartBody)
         val response = try {
             okHttpClient.newCall(request).execute()
         } catch (e: IOException) {
@@ -675,7 +791,7 @@ class APIClient private constructor(private val context: Context) {
         filename: String,
         outputStream: java.io.OutputStream
     ): Long = withContext(Dispatchers.IO) {
-        val (request, _) = buildRequest("/api/v1/system/backup/download/$filename", "GET")
+        val request = buildRequest("/api/v1/system/backup/download/$filename", "GET")
         val response = try {
             downloadClient.newCall(request).execute()
         } catch (e: IOException) {

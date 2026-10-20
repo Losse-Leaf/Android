@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,6 +28,10 @@ import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
 import java.time.LocalDateTime
 import kotlinx.coroutines.launch
+import com.looseleaf.app.ui.components.DraftStore
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun EditWishSheetDialog(
@@ -39,18 +42,39 @@ internal fun EditWishSheetDialog(
 ) {
     val colors = LooseLeafTheme.colors
     val scope = rememberCoroutineScope()
-    var title by remember(wish.id) { mutableStateOf(wish.title) }
-    var kind by remember(wish.id) { mutableStateOf(wish.kind ?: "item") }
-    var budgetYuan by remember(wish.id) { mutableStateOf(FormatUtils.centsToYuanString(wish.budget, includeSymbol = false)) }
-    var spec by remember(wish.id) { mutableStateOf(wish.spec ?: "") }
-    var note by remember(wish.id) { mutableStateOf(wish.note ?: "") }
-    var cityCode by remember(wish.id) { mutableStateOf(wish.cityCode ?: "") }
-    var cityName by remember(wish.id) { mutableStateOf(wish.cityName ?: "") }
+    // MOB-P1-59：心愿编辑草稿 —— 误关抽屉不再丢失已填内容
+    val draftContext = LocalContext.current
+    val draftStore = remember { DraftStore.get(draftContext) }
+    val draftPrefix = remember(wish.id) { "wish_${wish.id}_" }
+
+    var title by remember(wish.id) { mutableStateOf(draftStore.getString("${draftPrefix}title") ?: wish.title) }
+    var kind by remember(wish.id) { mutableStateOf(draftStore.getString("${draftPrefix}kind") ?: (wish.kind ?: "item")) }
+    var budgetYuan by remember(wish.id) {
+        mutableStateOf(
+            draftStore.getString("${draftPrefix}budget")
+                ?: FormatUtils.centsToYuanString(wish.budget, includeSymbol = false)
+        )
+    }
+    var spec by remember(wish.id) { mutableStateOf(draftStore.getString("${draftPrefix}spec") ?: (wish.spec ?: "")) }
+    var note by remember(wish.id) { mutableStateOf(draftStore.getString("${draftPrefix}note") ?: (wish.note ?: "")) }
+    var cityCode by remember(wish.id) { mutableStateOf(draftStore.getString("${draftPrefix}city_code") ?: (wish.cityCode ?: "")) }
+    var cityName by remember(wish.id) { mutableStateOf(draftStore.getString("${draftPrefix}city_name") ?: (wish.cityName ?: "")) }
+
+    // 字段变化即落草稿
+    LaunchedEffect(title, kind, budgetYuan, spec, note, cityCode, cityName) {
+        draftStore.putString("${draftPrefix}title", title)
+        draftStore.putString("${draftPrefix}kind", kind)
+        draftStore.putString("${draftPrefix}budget", budgetYuan)
+        draftStore.putString("${draftPrefix}spec", spec)
+        draftStore.putString("${draftPrefix}note", note)
+        draftStore.putString("${draftPrefix}city_code", cityCode)
+        draftStore.putString("${draftPrefix}city_name", cityName)
+    }
     var isSubmitting by remember { mutableStateOf(false) }
 
     ArchiveBottomSheet(
         onDismissRequest = onDismiss,
-        title = "修订心愿 · ${wish.title}",
+        title = stringResource(R.string.projects_wishes_sheets_title_tpl_01, wish.title),
         actionButtonText = "保存修订",
         isActionEnabled = title.isNotBlank() && !isSubmitting,
         onActionClick = {
@@ -73,6 +97,8 @@ internal fun EditWishSheetDialog(
                         )
                     )
                     ArchiveToastManager.show("心愿已修订")
+                    // MOB-P1-59：提交成功后清空草稿
+                    draftStore.clearPrefix(draftPrefix)
                     onSaved()
                     onDismiss()
                 }.onFailure {
@@ -92,13 +118,13 @@ internal fun EditWishSheetDialog(
                     )
                 }
             }
-            PaperTextField(value = title, onValueChange = { title = it }, label = "心愿名称", singleLine = true)
+            PaperTextField(value = title, onValueChange = { title = it }, label = stringResource(R.string.projects_wishes_sheets_label_01), singleLine = true)
             if (kind == "travel") {
-                PaperCityPickerField(selectedCityCode = cityCode, selectedCityName = cityName, onCitySelected = { c, n -> cityCode = c; cityName = n }, placeholder = "选择目的地城市…")
+                PaperCityPickerField(selectedCityCode = cityCode, selectedCityName = cityName, onCitySelected = { c, n -> cityCode = c; cityName = n }, placeholder = stringResource(R.string.projects_wishes_sheets_placeholder_01))
             }
-            PaperTextField(value = spec, onValueChange = { spec = it }, label = "规格参数或备忘", singleLine = true)
-            PaperTextField(value = budgetYuan, onValueChange = { budgetYuan = it }, label = "意向预算 (元)", singleLine = true)
-            PaperTextEditor(value = note, onValueChange = { note = it }, placeholder = "初衷手记…", minHeight = 80.dp)
+            PaperTextField(value = spec, onValueChange = { spec = it }, label = stringResource(R.string.projects_wishes_sheets_label_02), singleLine = true)
+            PaperTextField(value = budgetYuan, onValueChange = { budgetYuan = it }, label = stringResource(R.string.projects_wishes_sheets_label_03), singleLine = true)
+            PaperTextEditor(value = note, onValueChange = { note = it }, placeholder = stringResource(R.string.projects_wishes_sheets_placeholder_02), minHeight = 80.dp)
         }
     }
 }
@@ -113,10 +139,22 @@ internal fun EditFootprintSheetDialog(
 ) {
     val colors = LooseLeafTheme.colors
     val scope = rememberCoroutineScope()
-    var cityCode by remember(footprint.id) { mutableStateOf(footprint.cityCode) }
-    var cityName by remember(footprint.id) { mutableStateOf(footprint.cityName) }
-    var title by remember(footprint.id) { mutableStateOf(footprint.title ?: "") }
-    var note by remember(footprint.id) { mutableStateOf(footprint.note ?: "") }
+    // MOB-P1-59：足迹编辑草稿
+    val draftContext = LocalContext.current
+    val draftStore = remember { DraftStore.get(draftContext) }
+    val draftPrefix = remember(footprint.id) { "foot_${footprint.id}_" }
+
+    var cityCode by remember(footprint.id) { mutableStateOf(draftStore.getString("${draftPrefix}city_code") ?: footprint.cityCode) }
+    var cityName by remember(footprint.id) { mutableStateOf(draftStore.getString("${draftPrefix}city_name") ?: footprint.cityName) }
+    var title by remember(footprint.id) { mutableStateOf(draftStore.getString("${draftPrefix}title") ?: (footprint.title ?: "")) }
+    var note by remember(footprint.id) { mutableStateOf(draftStore.getString("${draftPrefix}note") ?: (footprint.note ?: "")) }
+
+    LaunchedEffect(cityCode, cityName, title, note) {
+        draftStore.putString("${draftPrefix}city_code", cityCode)
+        draftStore.putString("${draftPrefix}city_name", cityName)
+        draftStore.putString("${draftPrefix}title", title)
+        draftStore.putString("${draftPrefix}note", note)
+    }
     var visitedAtDt by remember(footprint.id) {
         mutableStateOf(
             FormatUtils.parseToLocalDateTime(footprint.visitedAt)
@@ -126,7 +164,7 @@ internal fun EditFootprintSheetDialog(
 
     ArchiveBottomSheet(
         onDismissRequest = onDismiss,
-        title = "修订行迹票根 · ${footprint.cityName}",
+        title = stringResource(R.string.projects_wishes_sheets_title_tpl_02, footprint.cityName),
         actionButtonText = "保存票根",
         isActionEnabled = cityName.isNotBlank() && !isSubmitting,
         onActionClick = {
@@ -145,6 +183,8 @@ internal fun EditFootprintSheetDialog(
                         )
                     )
                     ArchiveToastManager.show("票根已更新")
+                    // MOB-P1-59：提交成功后清空草稿
+                    draftStore.clearPrefix(draftPrefix)
                     onSaved()
                     onDismiss()
                 }.onFailure {
@@ -159,15 +199,15 @@ internal fun EditFootprintSheetDialog(
                 selectedCityCode = cityCode,
                 selectedCityName = cityName,
                 onCitySelected = { c, n -> cityCode = c; cityName = n },
-                placeholder = "点选属地城市…"
+                placeholder = stringResource(R.string.projects_wishes_sheets_placeholder_03)
             )
             PaperDateTimePickerField(
                 selectedDateTime = visitedAtDt,
                 onDateTimeSelected = { visitedAtDt = it },
-                label = "到访时刻"
+                label = stringResource(R.string.projects_wishes_sheets_label_04)
             )
-            PaperTextField(value = title, onValueChange = { title = it }, label = "旅程标题", singleLine = true)
-            PaperTextEditor(value = note, onValueChange = { note = it }, placeholder = "随笔手记…", minHeight = 90.dp)
+            PaperTextField(value = title, onValueChange = { title = it }, label = stringResource(R.string.projects_wishes_sheets_label_05), singleLine = true)
+            PaperTextEditor(value = note, onValueChange = { note = it }, placeholder = stringResource(R.string.projects_wishes_sheets_placeholder_04), minHeight = 90.dp)
         }
     }
 }
@@ -201,7 +241,7 @@ internal fun ProvinceMemoryDrawerBottomSheet(
 
     ArchiveBottomSheet(
         onDismissRequest = onDismiss,
-        title = "$provinceName · 省级回忆抽屉",
+        title = stringResource(R.string.projects_wishes_sheets_title_tpl_03, provinceName),
         actionButtonText = "合上",
         onActionClick = onDismiss
     ) {
@@ -209,7 +249,7 @@ internal fun ProvinceMemoryDrawerBottomSheet(
         if (drawerError != null && d == null) {
             // 失败态可重试，不再永远停在「正在聚合」
             Text(
-                text = "全省行迹检索失败：$drawerError · 点此重试",
+                text = stringResource(R.string.projects_wishes_sheets_text_tpl_01, drawerError.orEmpty()),
                 fontSize = 12.sp,
                 color = colors.accentWarm,
                 modifier = Modifier
@@ -226,14 +266,14 @@ internal fun ProvinceMemoryDrawerBottomSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "点亮 ${d.visitedCities.size} 座城邑 · 履迹 ${d.footprints.size} 次",
+                        text = stringResource(R.string.projects_wishes_sheets_text_tpl_02, d.visitedCities.size, d.footprints.size),
                         fontFamily = ArchiveFontFamilies.MonoScale,
                         fontSize = 12.sp,
                         color = colors.accentWarm
                     )
                     if (d.ledgerSummary.totalSpent > 0) {
                         Text(
-                            text = "全省花销: ${FormatUtils.centsToYuanString(d.ledgerSummary.totalSpent)}",
+                            text = stringResource(R.string.projects_wishes_sheets_text_tpl_03, FormatUtils.centsToYuanString(d.ledgerSummary.totalSpent)),
                             fontFamily = ArchiveFontFamilies.MonoScale,
                             fontSize = 12.sp,
                             color = colors.accentMoss
@@ -255,7 +295,7 @@ internal fun ProvinceMemoryDrawerBottomSheet(
                                     .padding(horizontal = 7.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    text = "${city.cityName} (${city.visitCount})",
+                                    text = stringResource(R.string.projects_wishes_sheets_text_tpl_04, city.cityName, city.visitCount),
                                     fontFamily = ArchiveFontFamilies.MonoScale,
                                     fontSize = 11.sp,
                                     color = colors.inkPrimary

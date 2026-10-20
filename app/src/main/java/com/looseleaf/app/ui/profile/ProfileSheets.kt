@@ -17,6 +17,8 @@ import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun EditProfileSheet(
@@ -39,7 +41,7 @@ internal fun EditProfileSheet(
 
     ArchiveBottomSheet(
         onDismissRequest = onDismiss,
-        title = "《主理人手卷》",
+        title = stringResource(R.string.profile_sheets_title_01),
         actionButtonText = "保存档案",
         isActionEnabled = name.isNotBlank(),
         onActionClick = {
@@ -74,7 +76,7 @@ internal fun EditProfileSheet(
             decorationBox = { innerTextField ->
                 if (name.isEmpty()) {
                     Text(
-                        text = "输入主理人称谓…",
+                        text = stringResource(R.string.profile_sheets_text_01),
                         fontFamily = ArchiveFontFamilies.BodySans,
                         fontSize = 18.sp,
                         color = colors.inkMuted.copy(alpha = 0.5f)
@@ -105,7 +107,7 @@ internal fun EditProfileSheet(
             decorationBox = { innerTextField ->
                 if (title.isEmpty()) {
                     Text(
-                        text = "如：生活记录者、独立摄影师…",
+                        text = stringResource(R.string.profile_sheets_text_02),
                         fontFamily = ArchiveFontFamilies.BodySans,
                         fontSize = 15.sp,
                         color = colors.inkMuted.copy(alpha = 0.5f)
@@ -129,7 +131,7 @@ internal fun EditProfileSheet(
                 cityCode = c
                 cityName = n
             },
-            placeholder = "点选所在省市 (375 国标行政区划)…"
+            placeholder = stringResource(R.string.profile_sheets_placeholder_01)
         )
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -153,7 +155,7 @@ internal fun EditProfileSheet(
             decorationBox = { innerTextField ->
                 if (motto.isEmpty()) {
                     Text(
-                        text = "写下一句指引你的生活信条…",
+                        text = stringResource(R.string.profile_sheets_text_03),
                         fontFamily = ArchiveFontFamilies.BodySans,
                         fontSize = 14.5.sp,
                         color = colors.inkMuted.copy(alpha = 0.5f)
@@ -186,7 +188,7 @@ internal fun EditProfileSheet(
             decorationBox = { innerTextField ->
                 if (manifesto.isEmpty()) {
                     Text(
-                        text = "关于你自己、关于时间、关于生活的自白散篇…",
+                        text = stringResource(R.string.profile_sheets_text_04),
                         fontFamily = ArchiveFontFamilies.BodySans,
                         fontSize = 14.sp,
                         lineHeight = 22.sp,

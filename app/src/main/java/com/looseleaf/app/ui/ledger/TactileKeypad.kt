@@ -8,7 +8,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Backspace
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
@@ -25,6 +24,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
+import android.view.HapticFeedbackConstants
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.res.painterResource
 
 /**
  * 极速记账键盘 (Ledger Keypad)
@@ -92,6 +97,8 @@ private fun TactileKeyButton(
 ) {
     val colors = LooseLeafTheme.colors
     val shape = RoundedCornerShape(3.dp)
+    // MOB-P2-46：用 LocalView 触发系统触感常量（与 Compose 的 HapticFeedbackType 区分开）
+    val view = LocalView.current
     // 零权限触觉反馈：LocalHapticFeedback 走系统 HapticFeedbackConstants，
     // 不需要在 Manifest 声明 VIBRATE（AOPT-05a）
     val haptics = LocalHapticFeedback.current
@@ -106,22 +113,29 @@ private fun TactileKeyButton(
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(color = colors.accentWarm.copy(alpha = 0.2f)),
+                // MOB-P1-61：按键要有按钮角色与可点击名称，读屏才念得出「数字 7 / 退格」
+                role = Role.Button,
                 onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    // MOB-P1-61：读屏要能听出「这是数字键 / 退格键」
+                    // MOB-P2-46：数字键改用系统「键盘敲击」触感 ——
+                    // 原文案键用的 TextHandleMove 在线性马达上有 15ms 阻塞感，连续输入会累积延迟；
+                    // KEYBOARD_TAP 更短促，且与退格/盖章的触感能区分开。
+                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                     onClick()
                 },
-                onLongClick = onLongClick?.let {
+                onLongClick = onLongClick?.let { action ->
                     {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        it()
+                        // MOB-P2-46：长按清空用「重」触感，与单键区分
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        action()
                     }
                 }
             )
     ) {
         if (label == "⌫") {
             Icon(
-                imageVector = Icons.Outlined.Backspace,
-                contentDescription = "退格",
+                painter = painterResource(R.drawable.ic_backspace),
+                contentDescription = stringResource(R.string.tactile_keypad_contentDescription_01),
                 tint = colors.inkPrimary,
                 modifier = Modifier.size(24.dp)
             )

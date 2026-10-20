@@ -10,13 +10,19 @@ import android.os.Build
 import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import com.looseleaf.app.data.api.APIClient
+import com.looseleaf.app.data.api.APIException
+import com.looseleaf.app.data.api.fileRequestBody
 import com.looseleaf.app.model.Attachment
 import com.looseleaf.app.model.CompleteUploadRequest
 import com.looseleaf.app.model.PresignUploadRequest
 import com.looseleaf.app.utils.CityDictionary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.InputStream
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -70,6 +76,11 @@ object ImagePipeline {
     private const val TAG = "ImagePipeline"
     /** 最长边约束：2048px（并非 4K；旧注释与 README 中的 3840/85%/WebP 已不成立） */
     private const val MAX_EDGE = 2048
+    /**
+     * MOB-P0-02：API 26/27 的旧解码路径没有 ImageDecoder，必须自行采样；
+     * 该路径还要额外生成一张旋转位图，峰值内存翻倍，因此边长上限收紧一档。
+     */
+    private const val MAX_EDGE_LEGACY = 1600
     /** JPEG 质量 82，视觉接近无损，体积约为原图 8%~15% */
     private const val JPEG_QUALITY = 82
 
@@ -160,8 +171,11 @@ object ImagePipeline {
                 throw IllegalArgumentException("无法解码图片尺寸")
             }
 
+            // MOB-P0-02：原先的采样条件会让解码结果落在 (MAX_EDGE, 2×MAX_EDGE] 区间，
+            // 即 4096×4096×4B ≈ 64MB 的单张位图 —— 再叠加旋转用的第二张 ⇒ 直接 OOM。
+            // 现在保证解码结果的最长边 ≤ MAX_EDGE，峰值位图降到 16MB 以内。
             var sampleSize = 1
-            while (origW / (sampleSize * 2) >= MAX_EDGE || origH / (sampleSize * 2) >= MAX_EDGE) {
+            while (origW / sampleSize > MAX_EDGE_LEGACY || origH / sampleSize > MAX_EDGE_LEGACY) {
                 sampleSize *= 2
             }
             val decodeOptions = BitmapFactory.Options().apply {
@@ -212,21 +226,25 @@ object ImagePipeline {
         }
 
         val rotatedBitmap = if (!matrix.isIdentity) {
-            Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true).also {
-                if (it !== rawBitmap) rawBitmap.recycle()
-            }
+            Bitmap.createBitmap(rawBitmap, 0, 0, rawBitmap.width, rawBitmap.height, matrix, true)
         } else {
             rawBitmap
         }
 
         // 4. 压缩为 82% 质量 JPEG
+        // MOB-P0-02：原实现对同一张位图 recycle 了两次（旋转分支里一次、这里又一次），
+        // 且没有 try/finally 兜底 —— 某些 OEM 实现会抛 IllegalStateException。
         val outStream = ByteArrayOutputStream(512 * 1024)
-        rotatedBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, outStream)
-        val bytes = outStream.toByteArray()
+        val bytes: ByteArray
         val finalWidth = rotatedBitmap.width
         val finalHeight = rotatedBitmap.height
-        if (rotatedBitmap !== rawBitmap) rotatedBitmap.recycle()
-        rawBitmap.recycle()
+        try {
+            rotatedBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, outStream)
+            bytes = outStream.toByteArray()
+        } finally {
+            if (!rotatedBitmap.isRecycled) rotatedBitmap.recycle()
+            if (rotatedBitmap !== rawBitmap && !rawBitmap.isRecycled) rawBitmap.recycle()
+        }
 
         ProcessedImageResult(
             compressedBytes = bytes,
@@ -249,36 +267,90 @@ object ImagePipeline {
         apiClient: APIClient,
         processed: ProcessedImageResult,
         filename: String = "photo_${System.currentTimeMillis()}.jpg"
+    ): Attachment = uploadInternal(
+        apiClient = apiClient,
+        size = processed.compressedBytes.size.toLong(),
+        filename = filename,
+        mimeType = processed.mimeType,
+        width = processed.width,
+        height = processed.height
+    ) {
+        processed.compressedBytes.toRequestBody(processed.mimeType.toMediaTypeOrNull())
+    }
+
+    /**
+     * MOB-P0-03：直接从磁盘文件流式上传（离线发件箱路径）。
+     *
+     * 离线相纸已经以文件形式落在 `filesDir/outbox_media/`，
+     * 无需再整份读进堆内存 —— 峰值内存与照片大小无关。
+     */
+    suspend fun uploadImage(
+        apiClient: APIClient,
+        file: File,
+        mimeType: String,
+        filename: String = file.name,
+        width: Int = 0,
+        height: Int = 0
+    ): Attachment = uploadInternal(
+        apiClient = apiClient,
+        size = file.length(),
+        filename = filename,
+        mimeType = mimeType,
+        width = width,
+        height = height
+    ) {
+        fileRequestBody(file, mimeType)
+    }
+
+    /**
+     * R2 直传优先，失败后降级到中枢统一中转通道。
+     *
+     * MOB-P1-45：只有「网络类错误」与「服务端 5xx」才允许降级；
+     * 4xx（尤其是 401 凭据失效）必须直接冒泡，
+     * 否则会先失败一次再**完整重传一遍**，白白吃掉双倍流量，还掩盖了真实错误。
+     */
+    private suspend fun uploadInternal(
+        apiClient: APIClient,
+        size: Long,
+        filename: String,
+        mimeType: String,
+        width: Int,
+        height: Int,
+        requestBody: () -> RequestBody
     ): Attachment = withContext(Dispatchers.IO) {
         try {
             val presignReq = PresignUploadRequest(
                 filename = filename,
-                contentType = processed.mimeType,
-                size = processed.compressedBytes.size.toLong()
+                contentType = mimeType,
+                size = size
             )
             val presignRes = apiClient.presignUpload(presignReq)
             apiClient.uploadToR2Direct(
                 uploadUrl = presignRes.uploadUrl,
-                fileBytes = processed.compressedBytes,
-                mimeType = processed.mimeType
+                body = requestBody()
             )
             apiClient.completeUpload(
                 CompleteUploadRequest(
                     uploadId = presignRes.uploadId,
                     objectKey = presignRes.objectKey,
                     originalFilename = filename,
-                    mimeType = processed.mimeType,
-                    size = processed.compressedBytes.size.toLong(),
-                    width = processed.width,
-                    height = processed.height
+                    mimeType = mimeType,
+                    size = size,
+                    width = width,
+                    height = height
                 )
             )
         } catch (e: Exception) {
+            val code = (e as? APIException)?.code
+            if (code != null && code in 400..499) {
+                // 客户端错误（含 401 凭据失效）：不重试、不降级，直接交给上层引导
+                throw e
+            }
             Log.w(TAG, "R2 direct upload unavailable (${e.message}), falling back to unified multipart upload")
             apiClient.uploadUnifiedFallback(
-                fileBytes = processed.compressedBytes,
+                body = requestBody(),
                 filename = filename,
-                mimeType = processed.mimeType,
+                mimeType = mimeType,
                 folder = "entries"
             )
         }

@@ -31,6 +31,14 @@ import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
 import java.time.YearMonth
 import kotlin.math.roundToLong
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
+import com.looseleaf.app.ui.components.PaperSkeleton
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import com.looseleaf.app.data.sync.SyncManager
+import androidx.compose.ui.res.painterResource
 /**
  * 账单明细选项卡：月份切换、月度指标看板、分类光谱比例条、流水明细卡片
  */
@@ -38,6 +46,8 @@ import kotlin.math.roundToLong
 internal fun TransactionsLedgerTab(
     transactions: List<Transaction>,
     isPrivacyMasked: Boolean,
+    /** MOB-P2-44：同步中时用纸墨骨架代替「暂无记账明细」 */
+    isRefreshing: Boolean = false,
     selectedYearMonth: YearMonth,
     onMonthChange: (YearMonth) -> Unit,
     onEdit: (Transaction) -> Unit,
@@ -90,11 +100,11 @@ internal fun TransactionsLedgerTab(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 IconButton(onClick = { onMonthChange(selectedYearMonth.minusMonths(1)) }) {
-                    Icon(Icons.Outlined.ChevronLeft, contentDescription = "上个月", tint = colors.inkPrimary)
+                    Icon(painter = painterResource(R.drawable.ic_chevron_left), contentDescription = stringResource(R.string.ledger_transactions_tab_contentDescription_01), tint = colors.inkPrimary)
                 }
 
                 Text(
-                    text = "${selectedYearMonth.year} 年 ${selectedYearMonth.monthValue} 月",
+                    text = stringResource(R.string.ledger_transactions_tab_text_tpl_01, selectedYearMonth.year, selectedYearMonth.monthValue),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontWeight = FontWeight.Medium,
                     fontSize = 17.sp,
@@ -102,7 +112,7 @@ internal fun TransactionsLedgerTab(
                 )
 
                 IconButton(onClick = { onMonthChange(selectedYearMonth.plusMonths(1)) }) {
-                    Icon(Icons.Outlined.ChevronRight, contentDescription = "下个月", tint = colors.inkPrimary)
+                    Icon(painter = painterResource(R.drawable.ic_chevron_right), contentDescription = stringResource(R.string.ledger_transactions_tab_contentDescription_02), tint = colors.inkPrimary)
                 }
             }
         }
@@ -196,8 +206,8 @@ internal fun TransactionsLedgerTab(
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "$cat $pct%",
-                                        fontSize = 10.sp,
+                                        text = stringResource(R.string.ledger_transactions_tab_text_tpl_02, cat, pct),
+                                        fontSize = 11.sp,
                                         fontFamily = ArchiveFontFamilies.MonoScale,
                                         color = colors.inkSecondary
                                     )
@@ -212,17 +222,26 @@ internal fun TransactionsLedgerTab(
         // 记账明细列表
         if (monthTransactions.isEmpty()) {
             item {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp)
-                ) {
-                    Text(
-                        text = "本月暂无记账明细",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        color = colors.inkMuted
+                if (isRefreshing) {
+                    // MOB-P2-44：同步中给纸墨骨架，而不是直接写「暂无」
+                    PaperSkeleton(
+                        modifier = Modifier.padding(vertical = 24.dp),
+                        lines = 4,
+                        lineHeight = 14.dp
                     )
+                } else {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.ledger_transactions_tab_text_01),
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            color = colors.inkMuted
+                        )
+                    }
                 }
             }
         } else {
@@ -276,7 +295,7 @@ internal fun TransactionsLedgerTab(
                                         val term = if ((tx.installmentMonths ?: 0) > 0) "${tx.installmentMonths}期" else ""
                                         Text(
                                             text = listOfNotNull(channel, term).filter { it.isNotBlank() }.joinToString(" "),
-                                            fontSize = 9.sp,
+                                            fontSize = 11.sp,
                                             fontFamily = ArchiveFontFamilies.MonoScale,
                                             color = colors.accentWarm,
                                             maxLines = 1,
@@ -284,7 +303,7 @@ internal fun TransactionsLedgerTab(
                                         )
                                     }
                                 }
-                                if (tx.syncStatus != "SYNCED") {
+                                if (tx.syncStatus != SyncManager.STATUS_SYNCED) {
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Box(
                                         modifier = Modifier
@@ -313,10 +332,28 @@ internal fun TransactionsLedgerTab(
                                 val remain = tx.installmentRemainMonths ?: tx.installmentMonths
                                 val totalMonths = tx.installmentMonths ?: 12
                                 val day = tx.repaymentDay ?: 10
+                                // MOB-P1-75：中英混排不再整串塞进等宽字体 ——
+                                // MonoScale（FontFamily.Monospace）遇到中文会回退到比例中文字体，
+                                // 整行因此失去等宽网格、金额列无法对齐。
+                                // 这里把「中文」与「数字」分段：中文用无衬线，数字用等宽并开 tnum。
                                 Text(
-                                    text = "总额 ${FormatUtils.centsToYuanString(totalAmt)} · 剩 $remain/$totalMonths 期 · 每月 ${day} 日还款",
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 10.sp,
+                                    text = buildAnnotatedString {
+                                        append("总额 ")
+                                        withStyle(SpanStyle(fontFamily = ArchiveFontFamilies.MonoScale)) {
+                                            append(FormatUtils.centsToYuanString(totalAmt))
+                                        }
+                                        append(" · 剩 ")
+                                        withStyle(SpanStyle(fontFamily = ArchiveFontFamilies.MonoScale)) {
+                                            append("$remain/$totalMonths")
+                                        }
+                                        append(" 期 · 每月 ")
+                                        withStyle(SpanStyle(fontFamily = ArchiveFontFamilies.MonoScale)) {
+                                            append("$day")
+                                        }
+                                        append(" 日还款")
+                                    },
+                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    fontSize = 11.sp,
                                     color = colors.accentWarm
                                 )
                             }
@@ -337,7 +374,7 @@ internal fun TransactionsLedgerTab(
                             ) {
                                 Icon(
                                     imageVector = Icons.Outlined.Delete,
-                                    contentDescription = "删除",
+                                    contentDescription = stringResource(R.string.ledger_transactions_tab_contentDescription_03),
                                     tint = colors.inkMuted,
                                     modifier = Modifier.size(16.dp)
                                 )

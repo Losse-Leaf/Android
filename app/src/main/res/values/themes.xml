@@ -1,5 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!--
+      MOB-P1-20：启动闪屏主题。
+      系统在冷启动时会先用 windowBackground 铺一帧；
+      接入 SplashScreen API 后由系统接管这一帧，不再出现「白闪 → 纸色 → 内容」的跳变。
+    -->
+    <style name="Theme.LooseLeaf.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/archive_paper</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.LooseLeaf</item>
+    </style>
+
     <style name="Theme.LooseLeaf" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:statusBarColor">@color/archive_paper</item>
         <item name="android:navigationBarColor">@color/archive_paper</item>

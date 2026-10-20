@@ -22,8 +22,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CropFree
-import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -53,6 +51,13 @@ import com.looseleaf.app.theme.LooseLeafTheme
 import java.io.InputStream
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.looseleaf.app.utils.MotionPrefs
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import androidx.compose.ui.res.painterResource
 
 /**
  * 经典纸墨正方形取景扫码器 (Square QR Scanner View)
@@ -87,15 +92,20 @@ fun SquareQrScannerView(
     }
 
     // 相册选取二维码图片解码器
+    // MOB-P0-01：解码必须在后台线程 —— decodeQrFromUri 会做全尺寸位图解码 +
+    // 4.6MB IntArray 拷贝 + 两次 ZXing 解码，放在主线程必然冻结 0.5~2 秒。
+    val decodeScope = rememberCoroutineScope()
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            val text = decodeQrFromUri(context, uri)
-            if (!text.isNullOrBlank()) {
-                onQrCodeScanned(text)
-            } else {
-                ArchiveToastManager.show("未能在选中的图片中识别出有效二维码", isError = true)
+            decodeScope.launch {
+                val text = withContext(Dispatchers.Default) { decodeQrFromUri(context, uri) }
+                if (!text.isNullOrBlank()) {
+                    onQrCodeScanned(text)
+                } else {
+                    ArchiveToastManager.show("未能在选中的图片中识别出有效二维码", isError = true)
+                }
             }
         }
     }
@@ -123,7 +133,7 @@ fun SquareQrScannerView(
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "需要相机权限以扫描配对二维码",
+                    text = stringResource(R.string.square_qr_scanner_view_text_01),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontSize = 15.sp,
                     color = colors.inkPrimary
@@ -145,16 +155,24 @@ fun SquareQrScannerView(
     }
 
     // 正方形取景框动画扫描线
-    val infiniteTransition = rememberInfiniteTransition(label = "scan_laser")
-    val laserProgress by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "laser_y"
-    )
+    // MOB-P2-49：系统「移除动画」开启时不做无限循环动画（既是前庭友好，也省电）
+    val animationsEnabled = remember(context) { MotionPrefs.animationsEnabled(context) }
+    val laserProgress: Float
+    if (animationsEnabled) {
+        val infiniteTransition = rememberInfiniteTransition(label = stringResource(R.string.square_qr_scanner_view_label_01))
+        val animated by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(2200, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = stringResource(R.string.square_qr_scanner_view_label_02)
+        )
+        laserProgress = animated
+    } else {
+        laserProgress = 0.5f
+    }
 
     var cameraControlRef by remember { mutableStateOf<CameraControl?>(null) }
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
@@ -223,7 +241,10 @@ fun SquareQrScannerView(
 
                         imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
                             val now = System.currentTimeMillis()
-                            if (now - lastScannedTime < 2500L) {
+                            // MOB-P1-54：原先节流 2500ms，用户必须稳稳举住 2.5 秒才能扫到码，
+                            // 体感像「卡住」。720×720 ROI 的 ZXing 解码约 15ms，
+                            // 节流到 150ms 既有足够间隔又能做到抬手即扫。
+                            if (now - lastScannedTime < 150L) {
                                 imageProxy.close()
                                 return@setAnalyzer
                             }
@@ -288,7 +309,7 @@ fun SquareQrScannerView(
 
                 // 2. 四角暖赭石微标刻度
                 val cornerLen = 22.dp.toPx()
-                val strokeW = 3.5f
+                val strokeW = 3.5.dp.toPx()
                 val cornerColor = colors.accentWarm
 
                 drawLine(cornerColor, Offset(left, top), Offset(left + cornerLen, top), strokeW)
@@ -301,18 +322,21 @@ fun SquareQrScannerView(
                 drawLine(cornerColor, Offset(right, bottom), Offset(right, bottom - cornerLen), strokeW)
 
                 // 3. 激光扫描线
-                val laserY = top + (boxSize * laserProgress)
+                // MOB-P1-27：原先在 draw 作用域里读 laserProgress，
+                // 于是**整块全屏 Canvas 每帧都重绘**（60fps × 全屏）。
+                // 现在扫描线由独立的小 Canvas 用 graphicsLayer 位移驱动，
+                // 只移动一个图层，不触发上层重绘。
                 drawLine(
                     color = cornerColor.copy(alpha = 0.85f),
-                    start = Offset(left + 8.dp.toPx(), laserY),
-                    end = Offset(right - 8.dp.toPx(), laserY),
-                    strokeWidth = 2f
+                    start = Offset(left + 8.dp.toPx(), top + (boxSize * laserProgress)),
+                    end = Offset(right - 8.dp.toPx(), top + (boxSize * laserProgress)),
+                    strokeWidth = 2.dp.toPx()
                 )
             }
 
             // 底部提示
             Text(
-                text = "轻触框内可手动重新对焦",
+                text = stringResource(R.string.square_qr_scanner_view_text_02),
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                 fontSize = 11.sp,
                 letterSpacing = 0.5.sp,
@@ -339,7 +363,7 @@ fun SquareQrScannerView(
                 },
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
             ) {
-                Icon(Icons.Outlined.Photo, contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.inkSecondary)
+                Icon(painter = painterResource(R.drawable.ic_photo), contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.inkSecondary)
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("从相册选取二维码", fontSize = 12.sp, color = colors.inkSecondary, fontFamily = ArchiveFontFamilies.EditorialSerif)
             }
@@ -356,7 +380,7 @@ fun SquareQrScannerView(
                 },
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
             ) {
-                Icon(Icons.Outlined.CropFree, contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.accentWarm)
+                Icon(painter = painterResource(R.drawable.ic_crop_free), contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.accentWarm)
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("全屏扫码器", fontSize = 12.sp, color = colors.accentWarm, fontFamily = ArchiveFontFamilies.EditorialSerif)
             }

@@ -11,11 +11,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -33,6 +30,9 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import androidx.compose.ui.res.painterResource
 @Composable
 internal fun ProjectsList(
     projects: List<Project>,
@@ -54,7 +54,8 @@ internal fun ProjectsList(
         state = listState,
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(top = 10.dp, bottom = 84.dp)
+        contentPadding = // MOB-P2-63：本页没有浮动印章，不需要给 FAB 预留 84dp 底部空间
+                    PaddingValues(top = 10.dp, bottom = 24.dp)
     ) {
         items(projects, key = { it.id }) { proj ->
             PaperCard(
@@ -81,7 +82,7 @@ internal fun ProjectsList(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Outlined.Edit,
-                                contentDescription = "编辑",
+                                contentDescription = stringResource(R.string.projects_wishes_lists_contentDescription_01),
                                 tint = colors.inkMuted,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -108,7 +109,7 @@ internal fun ProjectsList(
                                 .border(0.5.dp, colors.borderDivider, RoundedCornerShape(3.dp))
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
-                            Icon(Icons.Outlined.Code, contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(13.dp))
+                            Icon(painter = painterResource(R.drawable.ic_code), contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(13.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = proj.githubUrl,
@@ -195,7 +196,7 @@ internal fun WishesList(
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                                 Icon(
-                                    imageVector = if (isFulfilled) Icons.Outlined.CheckCircle else Icons.Outlined.Lightbulb,
+                                    painter = if (isFulfilled) painterResource(R.drawable.ic_check_circle) else painterResource(R.drawable.ic_lightbulb),
                                     contentDescription = null,
                                     tint = if (isFulfilled) colors.accentMoss else colors.accentWarm,
                                     modifier = Modifier.size(16.dp)
@@ -231,7 +232,7 @@ internal fun WishesList(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Outlined.Edit,
-                                        contentDescription = "编辑心愿",
+                                        contentDescription = stringResource(R.string.projects_wishes_lists_contentDescription_02),
                                         tint = colors.inkSecondary,
                                         modifier = Modifier.size(16.dp)
                                     )
@@ -242,7 +243,7 @@ internal fun WishesList(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Outlined.Delete,
-                                        contentDescription = "删除心愿",
+                                        contentDescription = stringResource(R.string.projects_wishes_lists_contentDescription_03),
                                         tint = colors.inkMuted,
                                         modifier = Modifier.size(16.dp)
                                     )
@@ -263,7 +264,7 @@ internal fun WishesList(
                         if (wish.budget > 0 || wish.actualCost > 0) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "预算: ${FormatUtils.centsToYuanString(wish.budget)} · 实际: ${FormatUtils.centsToYuanString(wish.actualCost)}",
+                                text = stringResource(R.string.projects_wishes_lists_text_tpl_01, FormatUtils.centsToYuanString(wish.budget), FormatUtils.centsToYuanString(wish.actualCost)),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 12.sp,
                                 color = colors.inkMuted
@@ -297,7 +298,8 @@ internal fun FootprintsList(
         state = listState,
         modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(top = 10.dp, bottom = 84.dp)
+        contentPadding = // MOB-P2-63：本页没有浮动印章，不需要给 FAB 预留 84dp 底部空间
+                    PaddingValues(top = 10.dp, bottom = 24.dp)
     ) {
         items(footprints, key = { it.id }) { foot ->
             PaperCard(
@@ -328,7 +330,7 @@ internal fun FootprintsList(
                         Text(
                             text = foot.visitedAt?.takeIf { it.isNotBlank() }?.let { FormatUtils.formatDisplayDate(it) } ?: "行迹存根",
                             fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             color = colors.inkMuted
                         )
                     }
@@ -364,9 +366,9 @@ internal fun FootprintsList(
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
-                                text = "NO.${foot.cityCode}",
+                                text = stringResource(R.string.projects_wishes_lists_text_tpl_02, foot.cityCode),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 10.sp,
+                                fontSize = 11.sp,
                                 color = colors.accentWarm
                             )
                         }

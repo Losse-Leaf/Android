@@ -30,6 +30,10 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
+import coil.size.Precision
+import coil.size.Size
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
 
 /**
  * 随行暗房全屏相纸灯箱 (ArchiveLightboxViewer)
@@ -49,7 +53,7 @@ fun ArchiveLightboxViewer(
     val animatedScale by animateFloatAsState(
         targetValue = scale,
         animationSpec = tween(durationMillis = 220),
-        label = "lightbox-scale"
+        label = stringResource(R.string.archive_lightbox_viewer_label_01)
     )
 
     Dialog(
@@ -79,7 +83,7 @@ fun ArchiveLightboxViewer(
             ) {
                 Icon(
                     imageVector = Icons.Outlined.Close,
-                    contentDescription = "关闭灯箱",
+                    contentDescription = stringResource(R.string.archive_lightbox_viewer_contentDescription_01),
                     tint = colors.archivePaper,
                     modifier = Modifier.size(20.dp)
                 )
@@ -134,6 +138,11 @@ fun ArchiveLightboxViewer(
                         .crossfade(true)
                         // 不设 memoryCacheKey：让 Coil 按容器尺寸分别缓存缩略图与全屏大图（AOPT-04b）
                         .diskCacheKey(imageUrl)
+                        // MOB-P2-66：灯箱是「放大看」的场合 ——
+                        // Coil 默认按**布局尺寸**解码，缩放只是把已解码的位图拉大，
+                        // 4× 放大后就是真实像素马赛克。这里显式请求更大尺寸的解码。
+                        .size(Size.ORIGINAL)
+                        .precision(Precision.INEXACT)
                         .build()
                 }
 

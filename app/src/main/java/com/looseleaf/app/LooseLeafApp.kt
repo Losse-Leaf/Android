@@ -13,13 +13,27 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import com.looseleaf.app.utils.CrashReporter
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineExceptionHandler
 
 class LooseLeafApp : Application(), ImageLoaderFactory {
 
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // MOB-P2-39：命名 + 异常兜底 —— 崩溃归因与日志都能带上作用域名
+    private val appScope = CoroutineScope(
+        SupervisorJob() +
+            Dispatchers.IO +
+            CoroutineName("looseleaf.app") +
+            CoroutineExceptionHandler { _, throwable ->
+                android.util.Log.e("LooseLeafApp", "app scope failure", throwable)
+            }
+    )
 
     override fun onCreate() {
         super.onCreate()
+
+        // MOB-P1-63：尽早接管全局异常处理（必须在任何业务初始化之前）
+        CrashReporter.install(this)
 
         // Token 通过回调惰性读取，避免冷启动在主线程创建 EncryptedSharedPreferences
         val credentialStore = CredentialStore.getInstance(this)
@@ -32,7 +46,15 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
         appScope.launch {
             runCatching { ProfileRepository.init(this@LooseLeafApp) }
             runCatching { credentialStore.warmUp() }
-            runCatching { SyncManager.getInstance(this@LooseLeafApp).scheduleSync() }
+            // MOB-P2-28：原先每次冷启动都无条件排空发件箱 ——
+            // 即使队列是空的，也会唤醒 WorkManager、跑一次进程调度。
+            // 现在只在**确有积压**时才排空，冷启动的调度开销降为零。
+            runCatching {
+                val syncManager = SyncManager.getInstance(this@LooseLeafApp)
+                if (syncManager.pendingEventCountFlow.value > 0) {
+                    syncManager.scheduleSync()
+                }
+            }
         }
     }
 
@@ -40,7 +62,9 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
         return ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
+                    // MOB-P2-32：25% 的堆在 128MB 机型上就是 32MB 常驻位图，
+                    // 降到 15% 更安全（Coil 默认值就是 20%）
+                    .maxSizePercent(0.15)
                     .build()
             }
             .diskCache {

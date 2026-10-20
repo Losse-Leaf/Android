@@ -12,13 +12,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Explore
-import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,6 +46,9 @@ import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
 import java.time.LocalDateTime
 import kotlinx.coroutines.launch
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import androidx.compose.ui.res.painterResource
 /**
  * 造物、心愿与山川足迹视界 (ProjectsWishesScreen)
  * 严格遵从 docs/README.md §三.8 记录为一切的母体原则
@@ -92,6 +90,9 @@ fun ProjectsWishesScreen(
     var editingFootprint by remember { mutableStateOf<Footprint?>(null) }
     var selectedProvinceDrawerAdcode by remember { mutableStateOf<Pair<String, String>?>(null) }
     var wishToDelete by remember { mutableStateOf<Wish?>(null) }
+    // MOB-P0-14：破坏性删除必须二次确认（造物 / 足迹此前是「一点即删」）
+    var projectToDelete by remember { mutableStateOf<Project?>(null) }
+    var footprintToDelete by remember { mutableStateOf<Footprint?>(null) }
 
     suspend fun reloadAll(forceLoading: Boolean = false) {
         if (forceLoading || (projects.isEmpty() && wishes.isEmpty() && footprints.isEmpty())) {
@@ -99,7 +100,7 @@ fun ProjectsWishesScreen(
         }
         loadError = null
         // pullRemoteData 自身返回 Result，不会抛异常；必须读 Result 才能拿到失败原因
-        syncManager.pullRemoteData()
+        syncManager.pullProjectsWishesData()
             .onFailure { loadError = it.message ?: "同步失败" }
         isLoading = false
     }
@@ -131,7 +132,7 @@ fun ProjectsWishesScreen(
             ) {
                 Column {
                     Text(
-                        text = "造物 · 心愿 · 山川",
+                        text = stringResource(R.string.projects_wishes_screen_text_01),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
                         fontSize = 22.sp,
@@ -139,7 +140,7 @@ fun ProjectsWishesScreen(
                         color = colors.inkPrimary
                     )
                     Text(
-                        text = "生命之流的二级投影 · 真实心迹与行迹",
+                        text = stringResource(R.string.projects_wishes_screen_text_02),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontSize = 11.sp,
                         color = colors.inkMuted
@@ -217,14 +218,14 @@ fun ProjectsWishesScreen(
                         .padding(horizontal = 10.dp, vertical = 7.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.ErrorOutline,
+                        painter = painterResource(R.drawable.ic_error_outline),
                         contentDescription = null,
                         tint = colors.accentWarm,
                         modifier = Modifier.size(13.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "同步未完成：$message · 点此重试",
+                        text = stringResource(R.string.projects_wishes_screen_text_tpl_01, message),
                         fontFamily = ArchiveFontFamilies.BodySans,
                         fontSize = 11.sp,
                         color = colors.accentWarm,
@@ -377,7 +378,7 @@ fun ProjectsWishesScreen(
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                         ) {
                             Text(
-                                text = "确认保存",
+                                text = stringResource(R.string.projects_wishes_screen_text_03),
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                                 fontWeight = FontWeight.Medium,
                                 fontSize = 14.sp,
@@ -407,13 +408,13 @@ fun ProjectsWishesScreen(
                             selectedCityCode = fpCityCode,
                             selectedCityName = fpCityName,
                             onCitySelected = { c, n -> fpCityCode = c; fpCityName = n },
-                            placeholder = "选择行政区划城市…"
+                            placeholder = stringResource(R.string.projects_wishes_screen_placeholder_01)
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         PaperDateTimePickerField(
                             selectedDateTime = fpVisitedAt,
                             onDateTimeSelected = { fpVisitedAt = it },
-                            label = "启程/到访时刻"
+                            label = stringResource(R.string.projects_wishes_screen_label_01)
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(
@@ -426,7 +427,7 @@ fun ProjectsWishesScreen(
                                 colors = CheckboxDefaults.colors(checkedColor = colors.accentWarm)
                             )
                             Text(
-                                text = "多日游历（选填返程日期）",
+                                text = stringResource(R.string.projects_wishes_screen_text_04),
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                                 fontSize = 12.sp,
                                 color = colors.inkPrimary
@@ -437,7 +438,7 @@ fun ProjectsWishesScreen(
                             PaperDateTimePickerField(
                                 selectedDateTime = fpDepartedAt,
                                 onDateTimeSelected = { fpDepartedAt = it },
-                                label = "返程/离程时刻"
+                                label = stringResource(R.string.projects_wishes_screen_label_02)
                             )
                         }
                     } else {
@@ -486,7 +487,7 @@ fun ProjectsWishesScreen(
                                 decorationBox = { innerTextField ->
                                     if (inputSubtitle.isEmpty()) {
                                         Text(
-                                            text = "副标题或设计注记 (选填)…",
+                                            text = stringResource(R.string.projects_wishes_screen_text_05),
                                             fontSize = 14.sp,
                                             color = colors.inkMuted.copy(alpha = 0.5f)
                                         )
@@ -502,7 +503,7 @@ fun ProjectsWishesScreen(
                                 selectedCityCode = wishCityCode,
                                 selectedCityName = wishCityName,
                                 onCitySelected = { c, n -> wishCityCode = c; wishCityName = n },
-                                placeholder = "点选目的地城市…"
+                                placeholder = stringResource(R.string.projects_wishes_screen_placeholder_02)
                             )
                         }
                     }
@@ -557,7 +558,7 @@ fun ProjectsWishesScreen(
                         decorationBox = { innerTextField ->
                             if (inputNote.isEmpty()) {
                                 Text(
-                                    text = "写下背后的故事、随笔手记或愿景备忘…",
+                                    text = stringResource(R.string.projects_wishes_screen_text_06),
                                     fontFamily = ArchiveFontFamilies.BodySans,
                                     fontSize = 14.5.sp,
                                     lineHeight = 24.sp,
@@ -590,7 +591,7 @@ fun ProjectsWishesScreen(
 
             ArchiveBottomSheet(
                 onDismissRequest = { resolvingWish = null },
-                title = "圆满心愿 · ${wish.title}",
+                title = stringResource(R.string.projects_wishes_screen_title_tpl_01, wish.title),
                 actionButtonText = "确认归册",
                 onActionClick = {
                     scope.launch {
@@ -632,20 +633,20 @@ fun ProjectsWishesScreen(
                     PaperDateTimePickerField(
                         selectedDateTime = fulfilledAtDt,
                         onDateTimeSelected = { fulfilledAtDt = it },
-                        label = "圆满时刻"
+                        label = stringResource(R.string.projects_wishes_screen_label_03)
                     )
                     if (resType != "relinquished") {
                         PaperTextField(
                             value = actualTitleInput,
                             onValueChange = { actualTitleInput = it },
-                            label = "实获好物/方案名称",
+                            label = stringResource(R.string.projects_wishes_screen_label_04),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
                         PaperTextField(
                             value = costInput,
                             onValueChange = { costInput = it },
-                            label = "实付金额 (元)",
+                            label = stringResource(R.string.projects_wishes_screen_label_05),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -682,7 +683,7 @@ fun ProjectsWishesScreen(
                     PaperTextEditor(
                         value = entryNote,
                         onValueChange = { entryNote = it },
-                        label = "圆梦感言手记 (同步写入时间流)",
+                        label = stringResource(R.string.projects_wishes_screen_label_06),
                         minHeight = 80.dp,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -701,7 +702,7 @@ fun ProjectsWishesScreen(
             }
             ArchiveBottomSheet(
                 onDismissRequest = { selectedDrawerFootprint = null },
-                title = "${foot.cityName} · 城市回忆抽屉",
+                title = stringResource(R.string.projects_wishes_screen_title_tpl_02, foot.cityName),
                 actionButtonText = "合上",
                 onActionClick = { selectedDrawerFootprint = null }
             ) {
@@ -710,7 +711,7 @@ fun ProjectsWishesScreen(
                     // 区分 loading / error：断网时不能永远停在「正在检索」
                     if (drawerError != null) {
                         Text(
-                            text = "属地检索失败：$drawerError · 点此重试",
+                            text = stringResource(R.string.projects_wishes_screen_text_tpl_02, drawerError.orEmpty()),
                             fontSize = 12.sp,
                             color = colors.accentWarm,
                             modifier = Modifier
@@ -726,7 +727,7 @@ fun ProjectsWishesScreen(
                         )
                     } else {
                         Text(
-                            text = "正在检索属地散页与旅途消费…",
+                            text = stringResource(R.string.projects_wishes_screen_text_07),
                             fontSize = 12.sp,
                             color = colors.inkMuted,
                             modifier = Modifier.padding(vertical = 16.dp)
@@ -740,14 +741,14 @@ fun ProjectsWishesScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "累计到访 ${d.visitStats.totalVisits} 次 · 散页 ${d.entries.size} 篇",
+                                text = stringResource(R.string.projects_wishes_screen_text_tpl_03, d.visitStats.totalVisits, d.entries.size),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 12.sp,
                                 color = colors.accentWarm
                             )
                             if (d.ledgerSummary.totalSpent > 0) {
                                 Text(
-                                    text = "属地花销: ${FormatUtils.centsToYuanString(d.ledgerSummary.totalSpent)}",
+                                    text = stringResource(R.string.projects_wishes_screen_text_tpl_04, FormatUtils.centsToYuanString(d.ledgerSummary.totalSpent)),
                                     fontFamily = ArchiveFontFamilies.MonoScale,
                                     fontSize = 12.sp,
                                     color = colors.accentMoss
@@ -757,7 +758,7 @@ fun ProjectsWishesScreen(
 
                         if (d.entries.isNotEmpty()) {
                             Text(
-                                text = "属地散页手记",
+                                text = stringResource(R.string.projects_wishes_screen_text_08),
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                                 fontSize = 13.sp,
                                 color = colors.inkSecondary
@@ -814,14 +815,8 @@ fun ProjectsWishesScreen(
 
                                 TextButton(
                                     onClick = {
-                                        scope.launch {
-                                            runCatching {
-                                                apiClient.deleteFootprint(foot.id)
-                                                ArchiveToastManager.show("足迹已移除")
-                                            }
-                                            selectedDrawerFootprint = null
-                                            reloadAll()
-                                        }
+                                        // MOB-P0-14：抽屉内误触概率最高，必须先确认
+                                        footprintToDelete = foot
                                     }
                                 ) {
                                     Text("移除", fontSize = 12.sp, color = colors.accentWarm)
@@ -843,7 +838,7 @@ fun ProjectsWishesScreen(
 
             ArchiveBottomSheet(
                 onDismissRequest = { editingProject = null },
-                title = "修订造物 · ${proj.title}",
+                title = stringResource(R.string.projects_wishes_screen_title_tpl_03, proj.title),
                 actionButtonText = "保存更新",
                 isActionEnabled = editTitle.isNotBlank(),
                 onActionClick = {
@@ -883,28 +878,28 @@ fun ProjectsWishesScreen(
                     PaperTextField(
                         value = editTitle,
                         onValueChange = { editTitle = it },
-                        label = "造物名称",
+                        label = stringResource(R.string.projects_wishes_screen_label_07),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     PaperTextField(
                         value = editSubtitle,
                         onValueChange = { editSubtitle = it },
-                        label = "副标题或设计注记",
+                        label = stringResource(R.string.projects_wishes_screen_label_08),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     PaperTextEditor(
                         value = editDesc,
                         onValueChange = { editDesc = it },
-                        label = "项目概述与故事",
+                        label = stringResource(R.string.projects_wishes_screen_label_09),
                         minHeight = 88.dp,
                         modifier = Modifier.fillMaxWidth()
                     )
                     PaperTextField(
                         value = editGithub,
                         onValueChange = { editGithub = it },
-                        label = "仓库/发布链接",
+                        label = stringResource(R.string.projects_wishes_screen_label_10),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -913,14 +908,8 @@ fun ProjectsWishesScreen(
 
                     TextButton(
                         onClick = {
-                            scope.launch {
-                                runCatching {
-                                    apiClient.deleteProject(proj.id)
-                                    ArchiveToastManager.show("造物项目已删除")
-                                }
-                                editingProject = null
-                                reloadAll()
-                            }
+                            // MOB-P0-14：破坏性删除先确认
+                            projectToDelete = proj
                         },
                         modifier = Modifier.align(Alignment.End)
                     ) {
@@ -933,9 +922,9 @@ fun ProjectsWishesScreen(
         // 删除心愿确认对话框
         wishToDelete?.let { wish ->
             ArchiveConfirmDialog(
-                title = "移除心愿？",
+                title = stringResource(R.string.projects_wishes_screen_title_01),
                 content = "确认从心愿清单中移除《${wish.title}》？此操作不可逆。",
-                confirmText = "确认移除",
+                confirmText = stringResource(R.string.projects_wishes_screen_confirmText_01),
                 isDestructive = true,
                 onConfirm = {
                     scope.launch {
@@ -948,6 +937,50 @@ fun ProjectsWishesScreen(
                     }
                 },
                 onDismiss = { wishToDelete = null }
+            )
+        }
+
+        // MOB-P0-14：删除造物项目确认对话框
+        projectToDelete?.let { proj ->
+            ArchiveConfirmDialog(
+                title = stringResource(R.string.projects_wishes_screen_title_02),
+                content = "确认删除《${proj.title}》？此操作不可逆，相关记录将一并失去关联。",
+                confirmText = stringResource(R.string.ledger_dialogs_confirmText_01),
+                isDestructive = true,
+                onConfirm = {
+                    scope.launch {
+                        runCatching {
+                            apiClient.deleteProject(proj.id)
+                            ArchiveToastManager.show("造物项目已删除")
+                        }
+                        projectToDelete = null
+                        editingProject = null
+                        reloadAll()
+                    }
+                },
+                onDismiss = { projectToDelete = null }
+            )
+        }
+
+        // MOB-P0-14：移除足迹确认对话框
+        footprintToDelete?.let { foot ->
+            ArchiveConfirmDialog(
+                title = stringResource(R.string.projects_wishes_screen_title_03),
+                content = "确认移除「${foot.cityName ?: "足迹票根"}」的到访记录？此操作不可逆。",
+                confirmText = stringResource(R.string.projects_wishes_screen_confirmText_01),
+                isDestructive = true,
+                onConfirm = {
+                    scope.launch {
+                        runCatching {
+                            apiClient.deleteFootprint(foot.id)
+                            ArchiveToastManager.show("足迹已移除")
+                        }
+                        footprintToDelete = null
+                        selectedDrawerFootprint = null
+                        reloadAll()
+                    }
+                },
+                onDismiss = { footprintToDelete = null }
             )
         }
 

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MOB-P1-58：系统深色模式下的窗口主题。
+  windowBackground / 系统栏底色跟随 values-night/colors.xml 的 archive_paper（暗房底色），
+  消除冷启动的「白闪 → 纸色 → 内容」三段跳变。
+-->
+<resources>
+    <style name="Theme.LooseLeaf.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/archive_paper</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.LooseLeaf</item>
+    </style>
+
+    <style name="Theme.LooseLeaf" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:statusBarColor">@color/archive_paper</item>
+        <item name="android:navigationBarColor">@color/archive_paper</item>
+        <item name="android:windowBackground">@color/archive_paper</item>
+    </style>
+</resources>

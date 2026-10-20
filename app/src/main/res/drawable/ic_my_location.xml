@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MOB-P2-54：由 material-icons-extended 的原始路径数据生成（与原图标像素级一致） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path android:fillColor="#FF000000" android:pathData="M12,8c-2.21,0,-4,1.79,-4,4C8,14.21,9.79,16,12,16C14.21,16,16,14.21,16,12C16,9.79,14.21,8,12,8ZM20.94,11c-0.46,-4.17,-3.77,-7.48,-7.94,-7.94L13,1h-2v2.06C6.83,3.52,3.52,6.83,3.06,11L1,11v2h2.06c0.46,4.17,3.77,7.48,7.94,7.94L11,23h2v-2.06c4.17,-0.46,7.48,-3.77,7.94,-7.94L23,13v-2h-2.06ZM12,19c-3.87,0,-7,-3.13,-7,-7C5,8.13,8.13,5,12,5C15.87,5,19,8.13,19,12C19,15.87,15.87,19,12,19Z" />
+</vector>

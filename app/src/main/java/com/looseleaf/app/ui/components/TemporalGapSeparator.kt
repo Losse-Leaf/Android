@@ -14,6 +14,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
 
 /**
  * 岁月留白刻度 (Temporal Gap Separators)
@@ -41,12 +43,13 @@ fun TemporalGapSeparator(
                 color = dividerColor,
                 start = Offset(0f, y),
                 end = Offset(size.width, y),
-                strokeWidth = 1f
+                // MOB-P2-65：1f 是物理像素，在 3x 屏上等于 0.33dp（几乎不可见）
+                strokeWidth = 1.dp.toPx()
             )
         }
 
         Text(
-            text = " 历经 $days 天的沉默与沉淀 ",
+            text = stringResource(R.string.temporal_gap_separator_text_tpl_01, days),
             fontFamily = ArchiveFontFamilies.EditorialSerif,
             fontSize = 12.sp,
             letterSpacing = 1.sp,

@@ -16,7 +16,10 @@ import com.looseleaf.app.utils.FormatUtils
     indices = [
         Index(value = ["occurred_at"]),
         Index(value = ["server_id"]),
-        Index(value = ["sync_status"])
+        Index(value = ["sync_status"]),
+        // MOB-P1-47：主列表查询是 `WHERE sync_status != 'PENDING_DELETE' ORDER BY occurred_at DESC`，
+        // 单列索引无法同时覆盖过滤与排序，补一条复合索引让 SQLite 走索引扫描。
+        Index(value = ["sync_status", "occurred_at"])
     ]
 )
 data class CachedEntryEntity(
@@ -84,7 +87,10 @@ data class CachedTransactionEntity(
     indices = [
         Index(value = ["created_at"]),
         Index(value = ["entity_type"]),
-        Index(value = ["failed_at"])
+        Index(value = ["failed_at"]),
+        // MOB-P1-46：findEventByTarget 按 (entity_type, local_target_id, action) 查询，
+        // 原先没有 local_target_id 索引 —— 每次编辑未同步条目都只能全表扫描。
+        Index(value = ["entity_type", "local_target_id", "action"])
     ]
 )
 data class OutboxEventEntity(

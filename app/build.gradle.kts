@@ -1,9 +1,13 @@
+import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
+    // MOB-P1-22：让 app 模块具备生成 Baseline Profile 的能力
+    // （需要配合 :benchmark 模块与真机/模拟器）
+    id("androidx.baselineprofile")
 }
 
 android {
@@ -12,6 +16,8 @@ android {
 
     defaultConfig {
         applicationId = "com.looseleaf.app"
+        // MOB-P2-56：只保留中英文，裁掉 AppCompat / Material3 带来的多语言资源
+        resourceConfigurations += listOf("zh", "en")
         minSdk = 26
         targetSdk = 35
         versionCode = 32
@@ -23,10 +29,28 @@ android {
     signingConfigs {
         create("release") {
             // 沿用仓库内的原发布密钥（alias looseleaf），保证 1.4.x 可以直接覆盖升级
+            //
+            // MOB-P2-57：口令不再硬编码在构建脚本里（仓库一旦泄露，任何人都能伪造
+            // 同包名的更新包）。改为从 local.properties 读取 —— 该文件已被 .gitignore 忽略。
+            // 首次配置见 docs/mobile-optimization.md §附录 C。
+            val localProps = Properties()
+            rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use {
+                localProps.load(it)
+            }
             storeFile = file("release.keystore")
-            storePassword = "looseleaf_archive"
-            keyAlias = "looseleaf"
-            keyPassword = "looseleaf_archive"
+            storePassword = localProps.getProperty("LOOSELEAF_STORE_PASSWORD")
+                ?: (project.findProperty("LOOSELEAF_STORE_PASSWORD") as String?)
+                ?: error(
+                    "缺少发布签名口令：请在 android/local.properties 中写入 " +
+                        "LOOSELEAF_STORE_PASSWORD=... 与 LOOSELEAF_KEY_PASSWORD=..."
+                )
+            keyAlias = localProps.getProperty("LOOSELEAF_KEY_ALIAS") ?: "looseleaf"
+            keyPassword = localProps.getProperty("LOOSELEAF_KEY_PASSWORD")
+                ?: (project.findProperty("LOOSELEAF_KEY_PASSWORD") as String?)
+                ?: error(
+                    "缺少发布签名口令：请在 android/local.properties 中写入 " +
+                        "LOOSELEAF_STORE_PASSWORD=... 与 LOOSELEAF_KEY_PASSWORD=..."
+                )
             enableV2Signing = true
             enableV3Signing = true
         }
@@ -53,6 +77,7 @@ android {
         jvmTarget = "17"
         freeCompilerArgs = listOf(
             "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
             "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
         )
     }
@@ -92,6 +117,8 @@ dependencies {
     androidTestImplementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.13.1")
+    // MOB-P1-20：启动闪屏（消除冷启动的「白闪 → 纸色 → 内容」三段跳变）
+    implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
@@ -102,9 +129,17 @@ dependencies {
     // Jetpack Compose
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
+    // MOB-P2-55：@Preview 只是编译期注解，运行时不需要 ——
+    // 放在 release classpath 会把整包预览工具打进正式包。
+    compileOnly("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
+    // MOB-P2-54：移除 material-icons-extended。
+    // 这个包会把 debug 构建的 dex 撑到 20MB+（release 经 R8 虽只剩 3MB，
+    // 但构建耗时与内存占用都被它拖着走）。
+    // 项目里用到的 38 个图标已全部转成本地矢量（res/drawable/ic_*.xml），
+    // 路径数据直接从本依赖的原始字节码里还原，与原图标像素级一致。
+    // 仍在使用的少量 core 图标（Check / Close / Delete …）由 material3 自带的
+    // material-icons-core 提供，无需额外依赖。
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
@@ -146,6 +181,11 @@ dependencies {
 
     // Testing
     testImplementation("junit:junit:4.13.2")
+    // MOB-P1-71：JVM 侧（Robolectric）直接跑 Room 的真实 SQLite ——
+    // 分页查询 / 增量游标 / 迁移这类逻辑必须在 CI 里可回归，而不是靠手点。
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.test:core-ktx:1.6.1")
+    testImplementation("androidx.room:room-testing:2.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

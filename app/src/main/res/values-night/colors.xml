@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MOB-P1-58：深色模式冷启动窗口底色。
+  原先工程内没有 values-night，themes.xml 硬编码浅色纸底 #F9F8F5，
+  于是系统处于深色模式的用户在冷启动时会先看到一片纯白，
+  随后（Compose 首帧）才突变为近黑的暗房底色 —— 夜间使用时的「闪瞎」体验。
+  这里让系统深色时直接以暗房底色启动。
+-->
+<resources>
+    <color name="archive_paper">#FF141312</color>
+</resources>

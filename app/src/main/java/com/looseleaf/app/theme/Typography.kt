@@ -120,7 +120,7 @@ fun createArchiveTypography(colors: ArchiveColors): Typography {
         labelSmall = TextStyle(
             fontFamily = ArchiveFontFamilies.MonoScale,
             fontWeight = FontWeight.Normal,
-            fontSize = 10.sp,
+            fontSize = 11.sp,
             lineHeight = 14.sp,
             fontFeatureSettings = "tnum",
             color = colors.inkMuted

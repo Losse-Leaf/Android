@@ -21,6 +21,9 @@ import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import androidx.compose.ui.res.painterResource
 @Composable
 internal fun ProfileInfoRow(label: String, value: String) {
     val colors = LooseLeafTheme.colors
@@ -48,10 +51,10 @@ internal fun TrustedDeviceRow(
     val colors = LooseLeafTheme.colors
     val platformUpper = platform.uppercase()
     val platformIcon = when {
-        isLocal -> Icons.Outlined.Smartphone
-        platformUpper.contains("MAC") || platformUpper.contains("PC") || platformUpper.contains("DESKTOP") -> Icons.Outlined.Laptop
-        platformUpper.contains("WEB") -> Icons.Outlined.Language
-        else -> Icons.Outlined.Devices
+        isLocal -> painterResource(R.drawable.ic_smartphone)
+        platformUpper.contains("MAC") || platformUpper.contains("PC") || platformUpper.contains("DESKTOP") -> painterResource(R.drawable.ic_laptop)
+        platformUpper.contains("WEB") -> painterResource(R.drawable.ic_language)
+        else -> painterResource(R.drawable.ic_devices)
     }
 
     Column(
@@ -69,7 +72,7 @@ internal fun TrustedDeviceRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = platformIcon,
+                painter = platformIcon,
                 contentDescription = null,
                 tint = if (isLocal) colors.accentMoss else colors.inkMuted,
                 modifier = Modifier.size(15.dp)
@@ -95,7 +98,7 @@ internal fun TrustedDeviceRow(
             ) {
                 Text(
                     text = if (isLocal) "本机" else platformUpper,
-                    fontSize = 9.sp,
+                    fontSize = 11.sp,
                     fontFamily = ArchiveFontFamilies.MonoScale,
                     fontWeight = FontWeight.Medium,
                     color = if (isLocal) colors.accentMoss else colors.inkSecondary,
@@ -119,7 +122,7 @@ internal fun TrustedDeviceRow(
             Text(
                 text = metaString,
                 fontFamily = ArchiveFontFamilies.MonoScale,
-                fontSize = 10.sp,
+                fontSize = 11.sp,
                 color = colors.inkMuted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -130,7 +133,7 @@ internal fun TrustedDeviceRow(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "改名",
+                    text = stringResource(R.string.profile_components_text_01),
                     fontSize = 11.5.sp,
                     fontFamily = ArchiveFontFamilies.BodySans,
                     color = colors.inkSecondary,

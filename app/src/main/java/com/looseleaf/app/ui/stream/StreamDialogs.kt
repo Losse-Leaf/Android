@@ -14,13 +14,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -50,6 +48,10 @@ import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
+import com.looseleaf.app.ui.components.ArchiveConfirmDialog
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
+import androidx.compose.ui.res.painterResource
 @Composable
 internal fun EntryDetailSheetDialog(
     entry: LifeEntry,
@@ -74,7 +76,8 @@ internal fun EntryDetailSheetDialog(
     var isUploadingPhoto by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
+        contract = // MOB-P2-68：统一走系统照片选择器（与全局策略一致，无需任何存储权限）
+        ActivityResultContracts.PickMultipleVisualMedia()
     ) { uris ->
         if (uris.isNotEmpty()) {
             coroutineScope.launch {
@@ -150,7 +153,7 @@ internal fun EntryDetailSheetDialog(
                             onSaveEdit(req)
                         }) {
                             Icon(
-                                imageVector = if (entry.featured == true) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                                painter = if (entry.featured == true) painterResource(R.drawable.ic_star_filled) else painterResource(R.drawable.ic_star_border),
                                 contentDescription = if (entry.featured == true) "取消精选" else "设为精选",
                                 tint = if (entry.featured == true) colors.featuredGold else colors.inkSecondary,
                                 modifier = Modifier.size(18.dp)
@@ -159,7 +162,7 @@ internal fun EntryDetailSheetDialog(
                         IconButton(onClick = { isEditing = !isEditing }) {
                             Icon(
                                 imageVector = Icons.Outlined.Edit,
-                                contentDescription = "编辑",
+                                contentDescription = stringResource(R.string.projects_wishes_lists_contentDescription_01),
                                 tint = if (isEditing) colors.accentWarm else colors.inkSecondary,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -167,7 +170,7 @@ internal fun EntryDetailSheetDialog(
                         IconButton(onClick = onDelete) {
                             Icon(
                                 imageVector = Icons.Outlined.Delete,
-                                contentDescription = "删除",
+                                contentDescription = stringResource(R.string.ledger_transactions_tab_contentDescription_03),
                                 tint = colors.accentWarm,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -175,7 +178,7 @@ internal fun EntryDetailSheetDialog(
                         IconButton(onClick = onDismiss) {
                             Icon(
                                 imageVector = Icons.Outlined.Close,
-                                contentDescription = "关闭",
+                                contentDescription = stringResource(R.string.paper_components_contentDescription_02),
                                 tint = colors.inkMuted,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -223,7 +226,7 @@ internal fun EntryDetailSheetDialog(
                     PaperTextField(
                         value = editTitle,
                         onValueChange = { editTitle = it },
-                        placeholder = "标题",
+                        placeholder = stringResource(R.string.stream_dialogs_placeholder_01),
                         isUnderline = true,
                         textStyle = TextStyle(
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
@@ -240,7 +243,7 @@ internal fun EntryDetailSheetDialog(
                     PaperTextEditor(
                         value = editContent,
                         onValueChange = { editContent = it },
-                        placeholder = "正文手记...",
+                        placeholder = stringResource(R.string.stream_dialogs_placeholder_02),
                         minHeight = 110.dp,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -261,7 +264,7 @@ internal fun EntryDetailSheetDialog(
                             editCityCode = code
                             editCityName = name
                         },
-                        placeholder = "选择城市…"
+                        placeholder = stringResource(R.string.ledger_screen_placeholder_02)
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -274,7 +277,7 @@ internal fun EntryDetailSheetDialog(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "手账影像相纸 (${editAttachments.size})",
+                                text = stringResource(R.string.stream_dialogs_text_tpl_01, editAttachments.size),
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium,
@@ -289,7 +292,7 @@ internal fun EntryDetailSheetDialog(
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "上传中…",
+                                        text = stringResource(R.string.stream_dialogs_text_01),
                                         fontFamily = ArchiveFontFamilies.MonoScale,
                                         fontSize = 11.sp,
                                         color = colors.accentWarm
@@ -297,11 +300,18 @@ internal fun EntryDetailSheetDialog(
                                 }
                             } else {
                                 TextButton(
-                                    onClick = { photoPickerLauncher.launch("image/*") },
+                                    onClick = {
+                                            // MOB-P2-68：PickMultipleVisualMedia 需要传 Request
+                                            photoPickerLauncher.launch(
+                                                androidx.activity.result.PickVisualMediaRequest(
+                                                    androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                                )
+                                            )
+                                        },
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                                 ) {
                                     Text(
-                                        text = "+ 补选相纸照片",
+                                        text = stringResource(R.string.stream_dialogs_text_02),
                                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                                         fontSize = 12.sp,
                                         color = colors.accentWarm
@@ -346,7 +356,7 @@ internal fun EntryDetailSheetDialog(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Outlined.Close,
-                                                contentDescription = "撕除此照片",
+                                                contentDescription = stringResource(R.string.stream_dialogs_contentDescription_01),
                                                 // 深底角标上的撕除图标：取反色语义而非裸白
                                                 tint = colors.archivePaper,
                                                 modifier = Modifier.size(12.dp)
@@ -378,7 +388,7 @@ internal fun EntryDetailSheetDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "标记为精选印记（收录于精选特刊）",
+                            text = stringResource(R.string.quick_note_sheet_text_05),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontSize = 13.sp,
                             color = colors.inkPrimary
@@ -388,7 +398,7 @@ internal fun EntryDetailSheetDialog(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     TerracottaStampButton(
-                        text = "保存修订",
+                        text = stringResource(R.string.stream_dialogs_text_03),
                         enabled = editTitle.isNotBlank() || editContent.isNotBlank(),
                         onClick = {
                             val code = editCityCode.ifBlank { entry.cityCode }
@@ -432,9 +442,9 @@ internal fun EntryDetailSheetDialog(
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = "★ 精选印记",
+                                    text = stringResource(R.string.stream_dialogs_text_04),
                                     fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 10.sp,
+                                    fontSize = 11.sp,
                                     color = colors.featuredGold,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -499,14 +509,15 @@ internal fun EntryDetailSheetDialog(
 @Composable
 internal fun AlmanacDialog(
     apiClient: APIClient,
-    entries: List<LifeEntry>,
+    // MOB-P1-32：原先传入全量档案只为算「最早年份」—— 分页化后不再有全量列表，
+    // 改为直接传入最早年份（由 SQL DISTINCT 查询得到）。
+    earliestEntryYear: Int?,
     onDismiss: () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
     val currentYear = remember { LocalDate.now(FormatUtils.BeijingZone).year }
-    val earliestYear = remember(entries) {
-        val entryYears = entries.mapNotNull { it.occurredAt.take(4).toIntOrNull() }
-        if (entryYears.isNotEmpty()) minOf(entryYears.min(), currentYear) else currentYear
+    val earliestYear = remember(earliestEntryYear, currentYear) {
+        if (earliestEntryYear != null) minOf(earliestEntryYear, currentYear) else currentYear
     }
     val availableYears = remember(earliestYear, currentYear) {
         (earliestYear..currentYear).toList().reversed()
@@ -549,21 +560,21 @@ internal fun AlmanacDialog(
                 ) {
                     Column {
                         Text(
-                            text = "$selectedYear 年度生活年鉴",
+                            text = stringResource(R.string.stream_dialogs_text_tpl_02, selectedYear),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontWeight = FontWeight.Medium,
                             fontSize = 20.sp,
                             color = colors.inkPrimary
                         )
                         Text(
-                            text = "五幕生命叙事 · 岁月卷首至柴米油盐",
+                            text = stringResource(R.string.stream_dialogs_text_05),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontSize = 11.sp,
                             color = colors.inkMuted
                         )
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Outlined.Close, contentDescription = "关闭", tint = colors.inkMuted)
+                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.paper_components_contentDescription_02), tint = colors.inkMuted)
                     }
                 }
 
@@ -587,7 +598,7 @@ internal fun AlmanacDialog(
                                 .padding(horizontal = 14.dp, vertical = 6.dp)
                         ) {
                             Text(
-                                text = "$yr 年",
+                                text = stringResource(R.string.stream_dialogs_text_tpl_03, yr),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 12.sp,
                                 color = if (isSelected) colors.archivePaper else colors.inkSecondary
@@ -609,7 +620,7 @@ internal fun AlmanacDialog(
                     }
                 } else if (errorMsg != null) {
                     Text(
-                        text = "获取年鉴失败: $errorMsg",
+                        text = stringResource(R.string.stream_dialogs_text_tpl_04, errorMsg.orEmpty()),
                         fontFamily = ArchiveFontFamilies.BodySans,
                         fontSize = 13.sp,
                         color = colors.accentWarm
@@ -620,10 +631,10 @@ internal fun AlmanacDialog(
                     // 第一幕：岁月卷首
                     AlmanacChapterSection(
                         chapterNumber = "第一幕",
-                        title = "岁月卷首 · 书写刻度"
+                        title = stringResource(R.string.stream_dialogs_title_01)
                     ) {
                         Text(
-                            text = "全年共落笔 ${data.prologue.totalEntries} 篇散页，累计 ${data.prologue.totalWords} 字，点亮 ${data.prologue.activeDays} 个真实日子。",
+                            text = stringResource(R.string.stream_dialogs_text_tpl_05, data.prologue.totalEntries, data.prologue.totalWords, data.prologue.activeDays),
                             fontFamily = ArchiveFontFamilies.BodySans,
                             fontSize = 13.sp,
                             lineHeight = 20.sp,
@@ -632,7 +643,7 @@ internal fun AlmanacDialog(
                         if (data.prologue.firstDate.isNotBlank()) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "起止刻度: ${data.prologue.firstDate} — ${data.prologue.lastDate}",
+                                text = stringResource(R.string.stream_dialogs_text_tpl_06, data.prologue.firstDate, data.prologue.lastDate),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 11.sp,
                                 color = colors.inkMuted
@@ -645,7 +656,7 @@ internal fun AlmanacDialog(
                     // 第二幕：山川行迹
                     AlmanacChapterSection(
                         chapterNumber = "第二幕",
-                        title = "山川行迹 · 步履所至 (${data.atlas.totalCities} 城)"
+                        title = stringResource(R.string.stream_dialogs_title_tpl_01, data.atlas.totalCities)
                     ) {
                         if (data.atlas.cities.isEmpty()) {
                             Text("本年度暂无远行足迹记录", fontSize = 12.sp, color = colors.inkMuted)
@@ -664,10 +675,10 @@ internal fun AlmanacDialog(
                     // 第三幕：心愿圆满
                     AlmanacChapterSection(
                         chapterNumber = "第三幕",
-                        title = "心愿圆满 · 念念回响"
+                        title = stringResource(R.string.stream_dialogs_title_02)
                     ) {
                         Text(
-                            text = "圆满达成 ${data.wishes.fulfilledCount} 项心愿 · 仍有 ${data.wishes.wantingCount} 项向往中",
+                            text = stringResource(R.string.stream_dialogs_text_tpl_07, data.wishes.fulfilledCount, data.wishes.wantingCount),
                             fontFamily = ArchiveFontFamilies.BodySans,
                             fontSize = 13.sp,
                             color = colors.inkSecondary
@@ -675,7 +686,7 @@ internal fun AlmanacDialog(
                         if (data.wishes.totalActual > 0) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "心愿兑现投入: ${FormatUtils.centsToYuanString(data.wishes.totalActual)}",
+                                text = stringResource(R.string.stream_dialogs_text_tpl_08, FormatUtils.centsToYuanString(data.wishes.totalActual)),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 12.sp,
                                 color = colors.accentWarm
@@ -688,7 +699,7 @@ internal fun AlmanacDialog(
                     // 第四幕：浮光掠影
                     AlmanacChapterSection(
                         chapterNumber = "第四幕",
-                        title = "浮光掠影 · 四季相纸 (${data.highlights.photos.size} 帧)"
+                        title = stringResource(R.string.stream_dialogs_title_tpl_02, data.highlights.photos.size)
                     ) {
                         val seasonItems = listOfNotNull(
                             data.highlights.spring?.let { "春 · ${it.title}" },
@@ -716,20 +727,20 @@ internal fun AlmanacDialog(
                     // 第五幕：柴米油盐
                     AlmanacChapterSection(
                         chapterNumber = "第五幕",
-                        title = "柴米油盐 · 生活光谱"
+                        title = stringResource(R.string.stream_dialogs_title_03)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "年度总支出: ${FormatUtils.centsToYuanString(data.finances.totalExpense)}",
+                                text = stringResource(R.string.stream_dialogs_text_tpl_09, FormatUtils.centsToYuanString(data.finances.totalExpense)),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 12.sp,
                                 color = colors.accentWarm
                             )
                             Text(
-                                text = "年度总收入: ${FormatUtils.centsToYuanString(data.finances.totalIncome)}",
+                                text = stringResource(R.string.stream_dialogs_text_tpl_10, FormatUtils.centsToYuanString(data.finances.totalIncome)),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 12.sp,
                                 color = colors.accentMoss
@@ -809,31 +820,17 @@ internal fun GlobalSearchDialog(
     var searchJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val scope = rememberCoroutineScope()
 
+    // MOB-P2-43：原先用的是 Material3 原生 AlertDialog ——
+    // 圆角、字体、按钮排布与全站纸墨弹窗家族完全不同，深色模式下还会带上 M3 默认紫调。
+    // 这里统一迁移到自研 ArchiveConfirmDialog（只保留一个「合上」动作）。
     viewingDetail?.let { (title, content) ->
-        AlertDialog(
-            onDismissRequest = { viewingDetail = null },
-            containerColor = colors.archivePaper,
-            title = {
-                Text(
-                    text = title,
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 16.sp,
-                    color = colors.inkPrimary
-                )
-            },
-            text = {
-                Text(
-                    text = content,
-                    fontFamily = ArchiveFontFamilies.BodySans,
-                    fontSize = 13.sp,
-                    color = colors.inkSecondary
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { viewingDetail = null }) {
-                    Text("合上", color = colors.accentWarm)
-                }
-            }
+        ArchiveConfirmDialog(
+            title = title,
+            content = content,
+            confirmText = stringResource(R.string.stream_dialogs_confirmText_01),
+            dismissText = null,
+            onConfirm = { viewingDetail = null },
+            onDismiss = { viewingDetail = null }
         )
     }
 
@@ -855,14 +852,14 @@ internal fun GlobalSearchDialog(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "全库检索生活记忆",
+                        text = stringResource(R.string.stream_dialogs_text_06),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
                         fontSize = 18.sp,
                         color = colors.inkPrimary
                     )
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Outlined.Close, contentDescription = "关闭", tint = colors.inkMuted)
+                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.paper_components_contentDescription_02), tint = colors.inkMuted)
                     }
                 }
 
@@ -887,7 +884,7 @@ internal fun GlobalSearchDialog(
                             isSearching = false
                         }
                     },
-                    placeholder = "搜索……",
+                    placeholder = stringResource(R.string.stream_dialogs_placeholder_03),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     trailingIcon = {
@@ -941,7 +938,7 @@ internal fun GlobalSearchDialog(
                                             Text(entry.content, fontSize = 11.sp, color = colors.inkSecondary, maxLines = 1)
                                         }
                                     }
-                                    Text(FormatUtils.formatDisplayDate(entry.occurredAt), fontSize = 10.sp, color = colors.inkMuted)
+                                    Text(FormatUtils.formatDisplayDate(entry.occurredAt), fontSize = 11.sp, color = colors.inkMuted)
                                 }
                             }
                         }
@@ -969,7 +966,7 @@ internal fun GlobalSearchDialog(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text("${foot.cityName} · ${foot.title ?: "足迹"}", fontSize = 12.sp, color = colors.inkPrimary)
-                                    Text(foot.visitedAt?.take(10) ?: "", fontSize = 10.sp, color = colors.inkMuted)
+                                    Text(foot.visitedAt?.take(10) ?: "", fontSize = 11.sp, color = colors.inkMuted)
                                 }
                             }
                         }
@@ -1030,7 +1027,7 @@ internal fun GlobalSearchDialog(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(proj.title, fontSize = 12.sp, color = colors.inkPrimary)
-                                    Text(proj.status ?: "", fontSize = 10.sp, color = colors.inkMuted)
+                                    Text(proj.status ?: "", fontSize = 11.sp, color = colors.inkMuted)
                                 }
                             }
                         }

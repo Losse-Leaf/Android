@@ -13,17 +13,4 @@
             <extra android:name="shortcut_route" android:value="ledger" />
         </intent>
     </shortcut>
-    <shortcut
-        android:shortcutId="shortcut_darkroom"
-        android:enabled="true"
-        android:icon="@mipmap/ic_launcher"
-        android:shortcutShortLabel="@string/shortcut_darkroom_short"
-        android:shortcutLongLabel="@string/shortcut_darkroom_long">
-        <intent
-            android:action="android.intent.action.VIEW"
-            android:targetPackage="com.looseleaf.app"
-            android:targetClass="com.looseleaf.app.MainActivity">
-            <extra android:name="shortcut_route" android:value="darkroom" />
-        </intent>
-    </shortcut>
 </shortcuts>

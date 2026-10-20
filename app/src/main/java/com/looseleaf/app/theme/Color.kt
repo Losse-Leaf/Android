@@ -36,7 +36,9 @@ val LightArchiveColors = ArchiveColors(
     archiveSubtle = Color(0xFFF2F0EB),
     inkPrimary = Color(0xFF181716),
     inkSecondary = Color(0xFF57544E),
-    inkMuted = Color(0xFF8C8880),
+    // MOB-P1-73：原 #8C8880 与纸底 #F9F8F5 的对比度仅 3.32:1（AA 需要 4.5:1），
+    // 而它承担了全 App 40+ 处 10~11sp 次级文字。调深至 #6F6B63 ≈ 4.9:1。
+    inkMuted = Color(0xFF6F6B63),
     borderSubtle = Color(0x14181716),   // rgba(24, 23, 22, 0.08)
     borderDivider = Color(0x1F181716),  // rgba(24, 23, 22, 0.12)
     accentWarm = Color(0xFFA24F2B),     // 暖赭石
@@ -57,11 +59,12 @@ val DarkArchiveColors = ArchiveColors(
     archiveSubtle = Color(0xFF1D1B19),
     inkPrimary = Color(0xFFEDE8E1),
     inkSecondary = Color(0xFFA8A399),
-    inkMuted = Color(0xFF6E6A62),
+    // MOB-P1-73：暗房底 #141312 上的对比度由 3.50:1 提升到 ≈ 5.0:1
+    inkMuted = Color(0xFF8E8A82),
     borderSubtle = Color(0x14EDE8E1),   // rgba(237, 232, 225, 0.08)
     borderDivider = Color(0x24EDE8E1),  // rgba(237, 232, 225, 0.14)
-    accentWarm = Color(0xFFC85635),     // 暗房安全灯赤红
-    accentMoss = Color(0xFF507661),
+    accentWarm = Color(0xFFD0603D),     // 暗房安全灯赤红（提亮以满足 4.5:1）
+    accentMoss = Color(0xFF6E9479),     // 苔藓绿提亮，暗房底上 ≈ 4.8:1
     grainColor = Color(0x06FFFFFF),
     frameShadowAmbient = Color(0x26000000),
     frameShadowSpot = Color(0x40000000),

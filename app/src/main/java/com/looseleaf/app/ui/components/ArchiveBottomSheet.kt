@@ -15,6 +15,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.R
 
 /**
  * 散页自研纸本文稿底部抽屉 (ArchiveBottomSheet)
@@ -67,7 +71,7 @@ fun ArchiveBottomSheet(
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "取消",
+                        text = stringResource(R.string.archive_bottom_sheet_text_01),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontSize = 13.5.sp,
                         color = colors.inkMuted
@@ -80,7 +84,13 @@ fun ArchiveBottomSheet(
                     fontWeight = FontWeight.Medium,
                     fontSize = 16.sp,
                     letterSpacing = 0.5.sp,
-                    color = colors.inkPrimary
+                    color = colors.inkPrimary,
+                    // MOB-P1-82：标题是动态拼接的（"修订造物 · xxx"），
+                    // 不限宽会把右侧「保存」按钮挤成 0 宽 —— 主操作直接不可达。
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
                 )
 
                 if (actionButtonText != null && onActionClick != null) {
