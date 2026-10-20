@@ -98,20 +98,13 @@ object UpdateChecker {
                     var apkDownloadUrl: String? = null
                     var apkDigest: String? = null
                     var apkSize: Long? = null
-                    for (asset in assets) {
-                        val assetObj = asset.jsonObject
-                        val name = assetObj["name"]?.jsonPrimitive?.content ?: ""
-                        val downloadUrl = assetObj["browser_download_url"]?.jsonPrimitive?.content ?: ""
-                        if (name.endsWith(".apk", ignoreCase = true)) {
-                            apkDownloadUrl = downloadUrl
-                            // GitHub 资产摘要格式为 "sha256:<hex>"
-                            apkDigest = assetObj["digest"]?.jsonPrimitive?.content
-                                ?.removePrefix("sha256:")
-                                ?.takeIf { it.length == 64 }
-                            apkSize = assetObj["size"]?.jsonPrimitive?.content?.toLongOrNull()
-                            break
-                        }
-                    }
+                    // MOB-P1-62：同一个 Release 里现在有两个 APK（公网版 / 局域网版），
+                    // 必须按**当前安装的变体**挑对应的那个 ——
+                    // 挑错的话轻则装错包名（变成另一个 App），重则明文策略对不上。
+                    val picked = selectApkAsset(assets, wantLan = BuildConfig.FLAVOR == "lan")
+                    apkDownloadUrl = picked?.url
+                    apkDigest = picked?.digest
+                    apkSize = picked?.size
 
                     val finalUrl = apkDownloadUrl ?: "https://github.com/$REPO/releases/tag/$tagName"
 
@@ -261,6 +254,46 @@ object UpdateChecker {
             Log.w(TAG, "Signature check failed: ${e.message}")
             false
         }
+    }
+
+    /**
+     * MOB-P1-62：从 Release 的资产列表里挑出属于当前发行变体的那个 APK。
+     *
+     * 命名约定（发布流水线负责产出）：
+     *   公网版   LooseLeaf-v<版本>.apk      ← 与旧命名一致，旧版更新器也能挑对
+     *   局域网版 LooseLeaf-v<版本>.lan.apk  ← 字典序排在公网版之后
+     *
+     * 找不到匹配变体时回落到第一个 APK —— 兼容「老版本 Release 里只有一个包」的情况 ✓。
+     */
+    internal data class ApkAsset(
+        val name: String,
+        val url: String,
+        val digest: String?,
+        val size: Long?
+    )
+
+    internal fun selectApkAsset(
+        assets: kotlinx.serialization.json.JsonArray,
+        wantLan: Boolean
+    ): ApkAsset? {
+        var fallback: ApkAsset? = null
+        for (asset in assets) {
+            val assetObj = asset.jsonObject
+            val name = assetObj["name"]?.jsonPrimitive?.content ?: ""
+            if (!name.endsWith(".apk", ignoreCase = true)) continue
+            val url = assetObj["browser_download_url"]?.jsonPrimitive?.content ?: ""
+            // GitHub 资产摘要格式为 "sha256:<hex>"
+            val digest = assetObj["digest"]?.jsonPrimitive?.content
+                ?.removePrefix("sha256:")
+                ?.takeIf { it.length == 64 }
+            val size = assetObj["size"]?.jsonPrimitive?.content?.toLongOrNull()
+            val isLan = name.contains(".lan.", ignoreCase = true) ||
+                name.contains("-lan", ignoreCase = true)
+            val picked = ApkAsset(name, url, digest, size)
+            if (isLan == wantLan) return picked
+            if (fallback == null) fallback = picked
+        }
+        return fallback
     }
 
     /**

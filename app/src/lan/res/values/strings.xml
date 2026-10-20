@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MOB-P1-62：局域网变体的应用名 —— 与公网版区分，避免两个包在桌面上分不清。
+  包名也不同（applicationIdSuffix = .lan），两个版本可以并存。
+-->
+<resources>
+    <string name="app_name">散页 · 局域网版</string>
+</resources>

@@ -104,16 +104,19 @@ jobs:
             -PLOOSELEAF_KEY_PASSWORD="$LOOSELEAF_KEY_PASSWORD" \
             -Pkotlin.compiler.execution.strategy=in-process
 
+      # MOB-P1-62：公网版与局域网版两个变体都要验签
       - name: Verify Release APK is signed
         run: |
-          APK=app/build/outputs/apk/release/app-release.apk
-          test -f "$APK" || { echo "::error title=产物缺失::未找到 $APK"; exit 1; }
           APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | tail -n 1)
-          if [ -n "$APKSIGNER" ]; then
-            "$APKSIGNER" verify --print-certs "$APK"
-          else
-            echo "::warning title=跳过签名校验::未找到 apksigner"
-          fi
+          for APK in app/build/outputs/apk/public/release/app-public-release.apk \
+                     app/build/outputs/apk/lan/release/app-lan-release.apk; do
+            test -f "$APK" || { echo "::error title=产物缺失::未找到 $APK"; exit 1; }
+            if [ -n "$APKSIGNER" ]; then
+              "$APKSIGNER" verify --print-certs "$APK"
+            else
+              echo "::warning title=跳过签名校验::未找到 apksigner"
+            fi
+          done
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

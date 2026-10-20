@@ -24,6 +24,36 @@ android {
         versionName = "1.6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // MOB-P1-62：明文 HTTP 的准入按「使用场景」切成两个发行变体。
+        // 默认（公网版）只允许 https；局域网版由 productFlavor 覆盖为 true。
+        manifestPlaceholders["cleartextTraffic"] = "false"
+    }
+
+    /**
+     * MOB-P1-62：发行变体 —— 把「系统层是否放行明文」按场景切开。
+     *
+     * - `public`：中枢在公网（有域名）⇒ 只允许 https，系统层直接禁掉明文。
+     * - `lan`：中枢在自家局域网，或通过 Tailscale / WireGuard 等组网工具异地访问
+     *   ⇒ 允许 http，但**应用层**仍然只放行私有地址与组网网段（见 HubUrlPolicy）。
+     *
+     * 两个变体**用同一把签名密钥**、但**包名不同**（applicationIdSuffix）⇒
+     * 可以并存、随时切换，且切换只是普通覆盖更新，不会丢本地数据。
+     */
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("public") {
+            dimension = "distribution"
+            manifestPlaceholders["cleartextTraffic"] = "false"
+        }
+        create("lan") {
+            dimension = "distribution"
+            manifestPlaceholders["cleartextTraffic"] = "true"
+            applicationIdSuffix = ".lan"
+            // 刻意**不加** versionNameSuffix：内置更新器拿本地 versionName 与远端
+            // tag 比大小，带了 "-lan" 后缀会永远判成「已是最新」，局域网用户就收不到更新了。
+            // 两个变体靠包名与桌面名称区分即可。
+        }
     }
 
     signingConfigs {
