@@ -89,7 +89,6 @@ jobs:
           LOOSELEAF_KEYSTORE_BASE64: ${{ secrets.LOOSELEAF_KEYSTORE_BASE64 }}
           LOOSELEAF_STORE_PASSWORD: ${{ secrets.LOOSELEAF_STORE_PASSWORD }}
           LOOSELEAF_KEY_PASSWORD: ${{ secrets.LOOSELEAF_KEY_PASSWORD }}
-          LOOSELEAF_KEY_ALIAS: ${{ secrets.LOOSELEAF_KEY_ALIAS || 'looseleaf' }}
           # MOB-P1-xx：别名也做成可注入 —— 换密钥时若用了别的别名，
           # CI 就能跟着变，不必去改 build.gradle.kts 里的硬编码。
           LOOSELEAF_KEY_ALIAS: ${{ secrets.LOOSELEAF_KEY_ALIAS || 'looseleaf' }}
