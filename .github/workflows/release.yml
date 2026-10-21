@@ -99,6 +99,11 @@ jobs:
         env:
           LOOSELEAF_STORE_PASSWORD: ${{ secrets.LOOSELEAF_STORE_PASSWORD }}
           LOOSELEAF_KEY_PASSWORD: ${{ secrets.LOOSELEAF_KEY_PASSWORD }}
+          # MOB-P1-xx：构建用的 env 里也必须带上别名 ——
+          # 少了它，下面 -PLOOSELEAF_KEY_ALIAS="$LOOSELEAF_KEY_ALIAS" 传的是**空串**，
+          # 会把 build.gradle.kts 里的默认值覆盖掉 ⇒ 签名时
+          # "No key with alias '' found"。
+          LOOSELEAF_KEY_ALIAS: ${{ secrets.LOOSELEAF_KEY_ALIAS || 'looseleaf' }}
         run: |
           set +e
           ./gradlew assembleRelease --no-daemon \
