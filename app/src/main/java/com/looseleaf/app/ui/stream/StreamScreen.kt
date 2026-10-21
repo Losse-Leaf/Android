@@ -241,8 +241,33 @@ fun StreamScreen(
     // 首屏永远停在「正在翻阅你的时间流…」（firstSyncCompleted 只在成功拉取后才置位）。
     //
     // 与其它页面保持一致：进入即增量拉一次（游标推进后几乎不产生流量）。
+    // MOB-P1-xx：拉取失败**必须留痕**。
+    //
+    // 原来这里写的是 runCatching { pullStreamData() } —— 而 pullStreamData 返回的是
+    // Result（失败不抛异常），于是 runCatching 什么也没抓到，失败被**整个吞掉**：
+    // 首屏既不显示数据、也不显示原因，只有 forever 转圈（firstSyncCompleted 永不置位）。
+    // 用户看到的只有「一直转圈」，完全无从判断是没配对、还是服务器挂了、还是网络断了。
+    var streamLoadError by remember { mutableStateOf<String?>(null) }
+    var isRetryingStream by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        runCatching { syncManager.pullStreamData() }
+        isRetryingStream = true
+        val result = runCatching { syncManager.pullStreamData() }
+        isRetryingStream = false
+        result.onSuccess { streamLoadError = null }
+        result.onFailure { error ->
+            // 401 单独提示：多半是设备凭据失效（换了密钥 / 重装 / 服务端清了设备表）
+            val message = when {
+                error.message?.contains("401") == true ||
+                    error.message?.contains("未授权") == true ||
+                    error.message?.contains("缺少有效的访问凭证") == true ->
+                    "设备凭据已失效，请重新配对中枢"
+                else -> error.message ?: "无法连接中枢"
+            }
+            streamLoadError = message
+            // 同时写 logcat：用户抓一份 logcat 就能定位，不用靠猜
+            Log.w("LooseLeaf/Stream", "时间流拉取失败: $message", error)
+            ArchiveToastManager.show("时间流拉取失败：$message", isError = true)
+        }
     }
 
     // 那年今日：进入时间流时向服务端对齐一次（同一天内有本地缓存，MOB-P2-35）
@@ -687,7 +712,51 @@ fun StreamScreen(
                         .padding(24.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        if (!firstSyncCompleted) {
+                        val loadError = streamLoadError
+                        if (loadError != null) {
+                            // MOB-P1-xx：拉取失败时给出**原因 + 重试**，不再永远转圈
+                            Text(
+                                text = "时间流没能取回来",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 16.sp,
+                                color = colors.inkPrimary
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = loadError,
+                                fontFamily = ArchiveFontFamilies.BodySans,
+                                fontSize = 13.sp,
+                                color = colors.inkMuted
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            androidx.compose.material3.Button(
+                                onClick = {
+                                    if (!isRetryingStream) {
+                                        scope.launch {
+                                            isRetryingStream = true
+                                            val result = runCatching { syncManager.pullStreamData() }
+                                            isRetryingStream = false
+                                            result.onSuccess { streamLoadError = null }
+                                            result.onFailure { error ->
+                                                streamLoadError = error.message ?: "无法连接中枢"
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = !isRetryingStream,
+                                shape = RoundedCornerShape(3.dp),
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = colors.accentWarm,
+                                    contentColor = colors.archivePaper
+                                )
+                            ) {
+                                Text(
+                                    text = if (isRetryingStream) "正在重试…" else "重新拉取",
+                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        } else if (!firstSyncCompleted) {
                             // 加载中：给出明确反馈，而不是「空列表」
                             CircularProgressIndicator(
                                 modifier = Modifier.size(22.dp),

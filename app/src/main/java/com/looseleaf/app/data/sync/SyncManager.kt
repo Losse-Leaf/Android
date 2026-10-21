@@ -1055,9 +1055,16 @@ class SyncManager private constructor(private val context: Context) {
         val maxEntryUpdated = maxUpdatedCursor(updatedCandidates)
         if (maxEntryUpdated != null) {
             syncPrefs.edit().putString(KEY_ENTRIES_CURSOR, maxEntryUpdated).apply()
-        } else if (entriesCursor.isNullOrBlank()) {
-            syncPrefs.edit().putString(KEY_ENTRIES_CURSOR, FormatUtils.beijingNowIsoString()).apply()
         }
+        // MOB-P1-xx：**不要**用手机当前时间当游标。
+        //
+        // 原先这里还有一条兜底：拉取没拿到任何记录时，把游标写成 beijingNowIsoString()（= 手机时钟）。
+        // 若**服务器时钟比手机慢**（超过 cursorForRequest 的 120 秒回退窗口），
+        // 此后增量拉取用的游标就永远比服务器上所有记录还新 ⇒
+        // 服务器上后来新增的记录**永远拉不到**（静默漏拉，且没有任何报错）。
+        //
+        // 正确做法：拿不到游标就**不写**。下一次拉取仍是全量（entriesCursor 为空 ⇒ useIncremental=false），
+        // 代价只是多拉一次，收益是不会把游标推到未来。
         return null
     }
 
@@ -1117,9 +1124,8 @@ class SyncManager private constructor(private val context: Context) {
         val maxTxUpdated = maxUpdatedCursor(updatedCandidates)
         if (maxTxUpdated != null) {
             syncPrefs.edit().putString(KEY_TX_CURSOR, maxTxUpdated).apply()
-        } else if (txCursor.isNullOrBlank()) {
-            syncPrefs.edit().putString(KEY_TX_CURSOR, FormatUtils.beijingNowIsoString()).apply()
         }
+        // MOB-P1-xx：同生活档案 —— 不拿不到游标就拿手机时钟顶上（服务器时钟慢于手机时会静默漏拉）
         return null
     }
 

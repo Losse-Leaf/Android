@@ -329,9 +329,15 @@ class MainActivity : FragmentActivity() {
             showCrashNotice = CrashReporter.lastCrashReport(this@MainActivity) != null
         }
         val apiClient = remember { com.looseleaf.app.data.api.APIClient.getInstance(this@MainActivity) }
+        // MOB-P1-xx：replay=1 之后，早于订阅的那次 401 也会被送来 ——
+        // 但**只应该提示一次**（replay 会在重新订阅时再送一次，例如旋转屏幕）。
+        var repairPromptShown by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
             apiClient.unauthorizedEvents.collect {
-                if (isPaired) showRepairDialog = true
+                if (isPaired && !repairPromptShown) {
+                    repairPromptShown = true
+                    showRepairDialog = true
+                }
             }
         }
 

@@ -105,7 +105,22 @@ class APIClient private constructor(private val context: Context) {
      * extraBufferCapacity = 1 + tryEmit：后台同步与前台请求可能同时撞上 401，
      * 不阻塞调用方，也不丢「至少一次」的提示机会。
      */
-    val unauthorizedEvents = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    // MOB-P1-xx：**必须 replay = 1**。
+    //
+    // SharedFlow 默认不重放 ⇒ 事件在「还没有订阅者」时发出就被**丢弃**。
+    // 而 Compose 的副作用执行顺序是**子节点先于父节点** ⇒
+    // 时间流页的首次拉取（StreamScreen 的 LaunchedEffect）会**先于**
+    // MainActivity 订阅 unauthorizedEvents ⇒ 首次拉取拿到的 401 事件直接丢了！
+    //
+    // 后果：设备凭据明明已失效，App 却既不弹「重新扫码配对」引导、
+    // 也只是把首屏卡在「正在翻阅你的时间流…」（拉取失败 ⇒ firstSyncCompleted 永不置位），
+    // 用户完全无从判断出了什么事。
+    //
+    // replay = 1 让「早于订阅」的那次 401 在订阅建立后仍能被收到。
+    val unauthorizedEvents = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(
+        replay = 1,
+        extraBufferCapacity = 1
+    )
 
     /**
      * R2 预签名直传专用客户端：直传对象存储用于超大视频 / RAW 底片，
