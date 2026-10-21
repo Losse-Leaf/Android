@@ -648,7 +648,14 @@ data class CreateEntryRequest(
     @SerialName("project_id") val projectId: Long? = null,
     @SerialName("wish_id") val wishId: Long? = null,
     @SerialName("footprint_id") val footprintId: Long? = null,
-    val featured: Boolean = false,
+    // MOB-P1-xx：改成可空 —— 「false」必须能**显式**发出去。
+    //
+    // 客户端开启了 encodeDefaults=false，等于默认值的字段会被整个省略。
+    // featured 的默认值若为 false，那么「取消精选」这个操作（featured=false）
+    // 就会被省略掉 ⇒ 服务端收不到 ⇒ 静默不生效 ⇒ 下次拉取又变回精选。
+    // 改成 Boolean? = null 之后：null = 这次不涉及精选（省略），
+    // false = 明确取消精选（一定会被序列化并发出去）。
+    val featured: Boolean? = null,
     @SerialName("attachment_ids") val attachmentIds: List<Long>? = null
 )
 

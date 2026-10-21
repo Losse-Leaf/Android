@@ -991,16 +991,24 @@ class SyncManager private constructor(private val context: Context) {
         val remoteIds = mutableSetOf<Long>()
         val updatedCandidates = mutableListOf<String?>()
 
+        // MOB-P1-xx：全量拉取时**先收口历史重复行，再建本地索引**。
+        //
+        // 顺序反了会出事：deleteDuplicateServerIds() 保留的是 MIN(local_id) 那条，
+        // 而若索引是在去重之前建的，toMap() 对重复 server_id 保留的是**最后一条**
+        // （通常是 local_id 最大的那条）—— 也就是刚被删掉的那条。
+        // 随后 upsertEntries 用这个已被删除的 local_id 做 insertAll(REPLACE)，
+        // 重复行就复活了，去重每轮都被抵消。
+        if (!useIncremental) {
+            // 全量拉取：先收口历史重复行（必须在 upsert 之前，否则重复行会被再插回来）
+            database.entryDao().deleteDuplicateServerIds()
+        }
+
         // MOB-P1-41：本地索引**只建一次**（逐页合并时复用，避免每页重建全表索引）
         val localIndex = database.entryDao().getEntrySyncIndex()
             .mapNotNull { index -> index.serverId?.let { it to index } }
             .toMap()
 
         try {
-            if (!useIncremental) {
-                // 全量拉取：先收口历史重复行（必须在 upsert 之前，否则重复行会被再插回来）
-                database.entryDao().deleteDuplicateServerIds()
-            }
             var page = 1
             var pages = 0
             while (pages < MAX_PAGES) {

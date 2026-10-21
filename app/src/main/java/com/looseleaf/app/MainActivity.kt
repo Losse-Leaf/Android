@@ -18,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import kotlinx.coroutines.CancellationException
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
@@ -219,7 +220,13 @@ class MainActivity : FragmentActivity() {
         // MOB-P2-73：返回栈 —— 此前从「造物」按返回会直接跳到「时间流」，
         // 用户在多个分段之间来回切换后无法回到原处。
         // 这里记录「离开时的路由」，返回时逐级回退。
-        val routeStack = remember { mutableStateListOf<String>() }
+        // MOB-P1-xx：用 rememberSaveable —— 旋转 / 配置变更后 currentRouteState 会被恢复，
+        // 但普通 remember 的返回栈会一并丢失 ⇒ 返回键行为突变（直接回时间流）。
+        // mutableStateListOf 需要 Saver 才能进 rememberSaveable，这里用数组中转。
+        val routeStack = rememberSaveable(saver = listSaver(
+            save = { it.toList() },
+            restore = { it.toMutableStateList() }
+        )) { mutableStateListOf<String>() }
 
         fun sectionOf(route: String): String = when (route) {
             // 造物 / 心愿 / 足迹同属一个分段，内部切换不单独入栈
@@ -231,8 +238,16 @@ class MainActivity : FragmentActivity() {
         val onRouteSelected: (String) -> Unit = remember(currentRouteState) {
             { route: String ->
                 if (route != currentRouteState.value) {
-                    if (sectionOf(route) != sectionOf(currentRouteState.value)) {
-                        routeStack.add(currentRouteState.value)
+                    val fromSection = sectionOf(currentRouteState.value)
+                    val toSection = sectionOf(route)
+                    if (fromSection != toSection) {
+                        // MOB-P1-xx：不压入**重复**的段 ——
+                        // 原先栈只增不减且允许重复：时间流→账本→时间流→账本 会压成
+                        // ["stream","ledger","stream"]，此后返回键就在两个分段之间来回横跳，
+                        // 必须按多次才能退出到首页。
+                        if (routeStack.isEmpty() || routeStack.last() != fromSection) {
+                            routeStack.add(fromSection)
+                        }
                     }
                     currentRouteState.value = route
                 }
@@ -250,7 +265,10 @@ class MainActivity : FragmentActivity() {
                 }
                 if (target != currentRouteState.value) {
                     if (sectionOf(target) != sectionOf(currentRouteState.value)) {
-                        routeStack.add(currentRouteState.value)
+                        val fromSection = sectionOf(currentRouteState.value)
+                        if (routeStack.isEmpty() || routeStack.last() != fromSection) {
+                            routeStack.add(fromSection)
+                        }
                     }
                     currentRouteState.value = target
                 }

@@ -78,7 +78,15 @@ android {
             storePassword = providers.gradleProperty("LOOSELEAF_STORE_PASSWORD").orNull
                 ?: localProps.getProperty("LOOSELEAF_STORE_PASSWORD")
                 ?: ""
-            keyAlias = localProps.getProperty("LOOSELEAF_KEY_ALIAS") ?: "looseleaf"
+            // MOB-P1-xx：别名也走 -P / 环境变量 ——
+            // 原先只读 local.properties，而 CI 环境里根本没有这个文件，
+            // 别名只能落到硬编码的 "looseleaf"。一旦换密钥时用了别的别名，
+            // CI 会在签名阶段报一句难懂的 "Cannot find key with alias"，
+            // 而不是在校验阶段就告诉你「别名对不上」。
+            keyAlias = providers.gradleProperty("LOOSELEAF_KEY_ALIAS").orNull
+                ?: providers.environmentVariable("LOOSELEAF_KEY_ALIAS").orNull
+                ?: localProps.getProperty("LOOSELEAF_KEY_ALIAS")
+                ?: "looseleaf"
             keyPassword = providers.gradleProperty("LOOSELEAF_KEY_PASSWORD").orNull
                 ?: localProps.getProperty("LOOSELEAF_KEY_PASSWORD")
                 ?: ""

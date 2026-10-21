@@ -184,6 +184,8 @@ fun StreamScreen(
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val isWideLayout = screenWidthDp >= WIDE_LAYOUT_MIN_WIDTH_DP
     // 右侧详情栏占 45%（最多 560dp）——「记随笔」浮动印章要据此让位
+    // MOB-P1-xx：与右栏实际渲染宽度同源（widthIn(max=560) + fillMaxWidth(0.45) 的较小者），
+    // 否则「记随笔」浮动印章的让位宽度会和真实栏宽对不上。
     val paneWidthDp = (screenWidthDp * 0.45f).coerceAtMost(560f)
     var selectedEntryForDetail by remember { mutableStateOf<LifeEntry?>(null) }
     var detailDialogEntry by remember { mutableStateOf<LifeEntry?>(null) }
@@ -194,6 +196,19 @@ fun StreamScreen(
         if (!isWideLayout) detailDialogEntry = entry
     } }
     var lightboxPhoto by remember { mutableStateOf<Pair<String, String?>?>(null) }
+
+    // MOB-P1-xx：宽屏 / 窄屏切换时收敛。
+    //
+    // 之前是「两套独立状态」：窄屏点条目会同时写 selectedEntryForDetail 与 detailDialogEntry，
+    // 折叠/旋转到宽屏后全屏 Sheet 仍盖在双栏布局上 —— 同一条记录在弹窗和右栏**重复呈现**。
+    // 这里在切到宽屏时关掉全屏 Sheet（宽屏由右栏负责展示），切回窄屏时用右栏的选中项补上弹窗。
+    LaunchedEffect(isWideLayout) {
+        if (isWideLayout) {
+            detailDialogEntry = null
+        } else if (detailDialogEntry == null && selectedEntryForDetail != null) {
+            detailDialogEntry = selectedEntryForDetail
+        }
+    }
 
     // 更新检查：整个进程只查一次，失败静默（避免每次切 Tab 都打 GitHub API）
     LaunchedEffect(Unit) {
@@ -319,6 +334,7 @@ fun StreamScreen(
             loadedEntries.mapIndexed { index, entry ->
                 StreamRowItem(
                     entry = entry,
+                    localKey = "${entry.id}#$index",
                     gapDays = if (index == 0) 0L else FormatUtils.calculateDaysBetween(
                         entry.occurredAt,
                         loadedEntries[index - 1].occurredAt
@@ -358,6 +374,8 @@ fun StreamScreen(
             Column(
                 modifier = Modifier
                     // MOB-P2-40：宽屏时列表只占 55% 并靠左，把右侧空间让给详情栏
+                    // MOB-P1-xx：同上 —— 上限要写在 fillMaxWidth 之前才有效
+                    .widthIn(max = 620.dp)
                     .fillMaxWidth(if (isWideLayout) 0.55f else 1f)
                     .fillMaxHeight()
                     .widthIn(max = if (isWideLayout) 620.dp else 680.dp)
@@ -756,7 +774,8 @@ fun StreamScreen(
                     // 每条都要解析两次 ISO 字符串，快速滑动时主线程出现帧毛刺（AOPT-03b）
                     items(
                         items = streamRows,
-                        key = { row -> row.entry.id },
+                        // MOB-P1-xx：用带序号的 localKey，避免同 server_id 的重复行撞 key 崩掉
+                        key = { row -> row.localKey },
                         contentType = { row ->
                             if (row.entry.attachments.isEmpty()) "text_entry" else "media_entry"
                         }
@@ -817,8 +836,11 @@ fun StreamScreen(
                 onPhotoClick = { url, meta -> lightboxPhoto = url to meta },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .fillMaxWidth(0.45f)
+                    // MOB-P1-xx：widthIn 必须写在 fillMaxWidth **之前** ——
+                    // fillMaxWidth 会用固定宽约束测量子节点，内侧的 widthIn 再也收不窄，
+                    // 于是 560.dp 的上限成了死代码，实际宽度恒为 0.45×屏宽。
                     .widthIn(max = 560.dp)
+                    .fillMaxWidth(0.45f)
                     .fillMaxHeight()
                     .padding(start = 4.dp, end = 20.dp, top = 16.dp, bottom = 16.dp)
             )
@@ -838,7 +860,11 @@ fun StreamScreen(
                         syncManager.updateEntryOptimistic(activeEntry.id, req)
                         ArchiveToastManager.show("已修订归册")
                         detailDialogEntry = null
-                        selectedEntryForDetail = null
+                        // MOB-P1-xx：与 onDismiss 的清理规则保持一致 ——
+                        // 宽屏下右栏继续显示这条记录，窄屏下弹窗本身就是详情，清掉选中项。
+                        // 原先无条件清空，导致宽屏保存后右栏退回占位符，
+                        // 而「取消」却会保留选中项，两个出口行为不一致。
+                        if (!isWideLayout) selectedEntryForDetail = null
                     }
                 },
                 onDelete = {

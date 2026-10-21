@@ -261,6 +261,20 @@ object UpdateChecker {
                 selfInfo.signatures?.map { it.toByteArray() }.orEmpty()
             }
 
+            // MOB-P1-xx：两个发行变体（public / lan）**共用同一把签名密钥**，
+            // 所以「证书相同」根本区分不出是哪个变体的包 ——
+            // 拿错变体时这道校验会放行，流程一路走到系统安装器，
+            // 最后因 applicationId 不同被 PackageInstaller 拒绝，
+            // 用户只看到「装不上」这种毫无指向性的提示。
+            // 因此额外比��包名：必须是**当前安装的这个变体**。
+            if (archiveInfo.packageName != context.packageName) {
+                Log.w(
+                    TAG,
+                    "Signature matches but package differs: archive=${archiveInfo.packageName} current=${context.packageName}"
+                )
+                return false
+            }
+
             archiveCerts.isNotEmpty() && archiveCerts.any { candidate ->
                 selfCerts.any { it.contentEquals(candidate) }
             }
@@ -277,7 +291,7 @@ object UpdateChecker {
      *   公网版   LooseLeaf-v<版本>.apk      ← 与旧命名一致，旧版更新器也能挑对
      *   局域网版 LooseLeaf-v<版本>.lan.apk  ← 字典序排在公网版之后
      *
-     * 找不到匹配变体时回落到第一个 APK —— 兼容「老版本 Release 里只有一个包」的情况 ✓。
+     * 找不到匹配变体时返回 null —— **绝不**回落到另一个变体的包（见 selectApkAsset 内的说明）。
      */
     internal data class ApkAsset(
         val name: String,
@@ -290,7 +304,6 @@ object UpdateChecker {
         assets: kotlinx.serialization.json.JsonArray,
         wantLan: Boolean
     ): ApkAsset? {
-        var fallback: ApkAsset? = null
         for (asset in assets) {
             val assetObj = asset.jsonObject
             val name = assetObj["name"]?.jsonPrimitive?.content ?: ""
@@ -304,10 +317,16 @@ object UpdateChecker {
             val isLan = name.contains(".lan.", ignoreCase = true) ||
                 name.contains("-lan", ignoreCase = true)
             val picked = ApkAsset(name, url, digest, size)
+            // MOB-P1-xx：**只返回自己变体的包**，绝不回落到另一个变体。
+            //
+            // 两个变体共用同一把签名密钥，所以「签名校验通过」并不能区分它们 ——
+            // 一旦把 public 的包交给 lan 变体，签名校验会通过、流程一路走到系统安装器，
+            // 最后因 applicationId 不同被 PackageInstaller 拒绝，
+            // 用户看到的是「装不上」这种毫无指向性的提示。
+            // 现在找不到本变体就返回 null，由上层明确提示「该版本没有你的变体」。
             if (isLan == wantLan) return picked
-            if (fallback == null) fallback = picked
         }
-        return fallback
+        return null
     }
 
     /**

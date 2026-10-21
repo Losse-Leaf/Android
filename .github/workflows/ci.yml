@@ -89,6 +89,10 @@ jobs:
           LOOSELEAF_KEYSTORE_BASE64: ${{ secrets.LOOSELEAF_KEYSTORE_BASE64 }}
           LOOSELEAF_STORE_PASSWORD: ${{ secrets.LOOSELEAF_STORE_PASSWORD }}
           LOOSELEAF_KEY_PASSWORD: ${{ secrets.LOOSELEAF_KEY_PASSWORD }}
+          LOOSELEAF_KEY_ALIAS: ${{ secrets.LOOSELEAF_KEY_ALIAS || 'looseleaf' }}
+          # MOB-P1-xx：别名也做成可注入 —— 换密钥时若用了别的别名，
+          # CI 就能跟着变，不必去改 build.gradle.kts 里的硬编码。
+          LOOSELEAF_KEY_ALIAS: ${{ secrets.LOOSELEAF_KEY_ALIAS || 'looseleaf' }}
         run: |
           if [ -z "$LOOSELEAF_KEYSTORE_BASE64" ] || [ -z "$LOOSELEAF_STORE_PASSWORD" ] || [ -z "$LOOSELEAF_KEY_PASSWORD" ]; then
             echo "::error title=缺少签名凭据::请在仓库 Settings → Secrets and variables → Actions 中添加 LOOSELEAF_KEYSTORE_BASE64 / LOOSELEAF_STORE_PASSWORD / LOOSELEAF_KEY_PASSWORD"
@@ -105,6 +109,7 @@ jobs:
           ./gradlew assembleRelease --no-daemon \
             -PLOOSELEAF_STORE_PASSWORD="$LOOSELEAF_STORE_PASSWORD" \
             -PLOOSELEAF_KEY_PASSWORD="$LOOSELEAF_KEY_PASSWORD" \
+            -PLOOSELEAF_KEY_ALIAS="$LOOSELEAF_KEY_ALIAS" \
             -Pkotlin.compiler.execution.strategy=in-process
 
       # MOB-P1-62：公网版与局域网版两个变体都要验签
@@ -125,5 +130,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: LooseLeaf-Android-APK
-          path: app/build/outputs/apk/release/*.apk
+          # MOB-P1-xx：引入 productFlavors 后，release 产物落在
+          # app/build/outputs/apk/<flavor>/release/，旧的 apk/release/ 目录已不存在
+          # ⇒ 路径不改的话 upload-artifact 会静默上传空目录
+          # （v4 的 if-no-files-found 默认是 warn，不报错，下载时才发现没东西）。
+          path: app/build/outputs/apk/*/release/*.apk
           retention-days: 30

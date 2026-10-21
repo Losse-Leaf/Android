@@ -65,10 +65,23 @@ class UpdateAssetSelectionTest {
     }
 
     @Test
-    fun `只有单个 APK 的老 Release 回落到它`() {
+    fun `只有单个 APK 的老 Release 局域网版拿不到包`() {
+        // MOB-P1-xx：老 Release 只有公网版一个包。局域网版**不能**拿它 ——
+        // 两个变体共用同一把签名密钥，签名校验区分不出来，
+        // 拿错包会一路走到系统安装器，最后因 applicationId 不同被拒，
+        // 用户只看到「装不上」这种毫无指向性的提示。
         val picked = UpdateChecker.selectApkAsset(
             assets("LooseLeaf-v1.6.1.apk"),
             wantLan = true
+        )
+        assertNull("局域网版不应拿到公网版的包", picked)
+    }
+
+    @Test
+    fun `只有单个公网 APK 时公网版照常可用`() {
+        val picked = UpdateChecker.selectApkAsset(
+            assets("LooseLeaf-v1.6.1.apk"),
+            wantLan = false
         )
         assertEquals("LooseLeaf-v1.6.1.apk", picked?.name)
     }

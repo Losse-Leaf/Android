@@ -544,6 +544,16 @@ internal fun StreamEntryCard(
 @Immutable
 internal data class StreamRowItem(
     val entry: LifeEntry,
+    /**
+     * MOB-P1-xx：LazyColumn 的 item key。
+     *
+     * 不能直接用 entry.id —— 它是 `serverId ?: -localId`，
+     * 而本地库里**可能**残留同 server_id 的重复行（历史脏数据），
+     * 两条行会算出同一个 id ⇒ LazyColumn 抛
+     * `IllegalArgumentException: Key ... was already used` 直接崩。
+     * 这里带上出现序号，保证 key 绝对唯一。
+     */
+    val localKey: String,
     val gapDays: Long,
     /** MOB-P0-06：预格式化的时间戳 —— 避免滚动期每帧每项重新解析 ISO 字符串 */
     val displayTime: String,
