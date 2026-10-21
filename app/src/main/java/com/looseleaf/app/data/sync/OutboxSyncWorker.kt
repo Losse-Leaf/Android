@@ -63,7 +63,12 @@ class OutboxSyncWorker(
             val attemptedEventIds = mutableSetOf<String>()
 
             while (true) {
-            val pendingEvents = outboxDao.getAllPendingEvents().filter { it.eventId !in attemptedEventIds }
+            val pendingEvents = outboxDao.getAllPendingEvents()
+                .filter { it.eventId !in attemptedEventIds }
+                // MOB-P2-47：宽限期内的删除事件**先不上传** ——
+                // 删除刚发生时发件箱 Worker 可能正好被别的事件唤醒，
+                // 那样 DELETE 会立刻送到服务端，纸签上的「撤销」就永远赶不上。
+                .filterNot { SyncManager.isDeleteWithinGracePeriod(it) }
             if (pendingEvents.isEmpty()) {
                 if (outboxDao.getAllPendingEvents().isEmpty()) {
                     return@withLock Result.success()

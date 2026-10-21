@@ -217,6 +217,19 @@ fun StreamScreen(
         }
     }
 
+    // 进入时间流时向云端增量拉一次。
+    //
+    // MOB-P1-37 把「一次拉五类数据」拆成「各页只拉自己渲染的那一类」时，
+    // 漏掉了这一处 —— 旧版的 pullRemoteData() 会顺带把时间流也填上，
+    // 拆分后账本页只拉账本、造物页只拉造物，**时间流就成了唯一没人拉的那一类**。
+    // 后果：本地库为空时，时间流既不显示数据、也不会去云端取，
+    // 首屏永远停在「正在翻阅你的时间流…」（firstSyncCompleted 只在成功拉取后才置位）。
+    //
+    // 与其它页面保持一致：进入即增量拉一次（游标推进后几乎不产生流量）。
+    LaunchedEffect(Unit) {
+        runCatching { syncManager.pullStreamData() }
+    }
+
     // 那年今日：进入时间流时向服务端对齐一次（同一天内有本地缓存，MOB-P2-35）
     LaunchedEffect(Unit) {
         runCatching { remoteOnThisDay = syncManager.fetchOnThisDayCached() }

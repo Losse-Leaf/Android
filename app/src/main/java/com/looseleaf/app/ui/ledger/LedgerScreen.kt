@@ -198,6 +198,9 @@ fun LedgerScreen(
     }
 
     LaunchedEffect(Unit) {
+        // MOB-P1-37 遗留：账目流水来自本地库（Room），而拆分后各页只拉自己渲染的那一类数据 ——
+        // 账本页若不在进入时拉一次，「账单明细」永远是 0（只有分类与资产是直连 API 取的）。
+        runCatching { syncManager.pullLedgerData() }
         reloadCategoriesAndAssets(forceLoadingSpinner = false)
     }
 

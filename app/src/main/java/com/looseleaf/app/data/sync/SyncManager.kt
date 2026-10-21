@@ -97,6 +97,27 @@ class SyncManager private constructor(private val context: Context) {
         /** 增量游标回退窗口，避免「同一秒内多条更新」被 since 过滤掉（重复行由 upsert 吸收） */
         private const val CURSOR_OVERLAP_SECONDS = 120L
 
+        /**
+         * MOB-P2-47：删除事件的**宽限期**（毫秒）。
+         *
+         * 删除若立即上传，「撤销」就永远来不及 —— 发件箱 Worker 1 秒内就把 DELETE 送出去了，
+         * 用户点「撤销」只会得到「已同步到服务端，无法撤销」（实测如此）。
+         * 现在删除事件先在发件箱里**压 8 秒**再上传，纸签上的「撤销」按钮 6 秒内有效 ⇒ 撤销真正可用。
+         */
+        const val DELETE_GRACE_PERIOD_MS = 8_000L
+
+        /**
+         * MOB-P2-47：删除事件是否还在宽限期内（期内不上传，给「撤销」留机会）。
+         *
+         * 以事件的入队时间为基准 —— 不需要改表结构。
+         */
+        fun isDeleteWithinGracePeriod(event: OutboxEventEntity): Boolean {
+            if (event.action != "DELETE") return false
+            val created = FormatUtils.parseOccurredInstantOrNull(event.createdAt) ?: return false
+            val elapsed = (System.currentTimeMillis() - created.toEpochMilli())
+            return elapsed < DELETE_GRACE_PERIOD_MS
+        }
+
         /** project/wish 这类没有本地行的事件用 -1 哨兵，绝不能用 0（会误删全表同类事件） */
         const val LOCAL_TARGET_ID_NONE = -1L
 
@@ -824,7 +845,8 @@ class SyncManager private constructor(private val context: Context) {
             database.entryDao().deleteByLocalId(entity.localId)
         }
         orphanMediaPaths.forEach { path -> runCatching { File(path).delete() } }
-        scheduleSync()
+        // MOB-P2-47：给「撤销」留出宽限期（立即上传的话撤销就永远赶不上）
+        scheduleDelayedSync(DELETE_GRACE_PERIOD_MS)
 
         // 已同步的条目：删除事件仍在发件箱里（尚未上传）⇒ 可以撤销
         val undoable = entity.serverId != null && entity.serverId > 0 && orphanMediaPaths.isEmpty()
@@ -864,7 +886,8 @@ class SyncManager private constructor(private val context: Context) {
             }
             database.transactionDao().deleteByLocalId(entity.localId)
         }
-        scheduleSync()
+        // MOB-P2-47：同 deleteEntry，删除事件先压一会儿再上传
+        scheduleDelayedSync(DELETE_GRACE_PERIOD_MS)
 
         val undoable = entity.serverId != null && entity.serverId > 0
         return if (undoable) DeleteUndoTicket(entity = entity, kind = DeleteUndoKind.TRANSACTION) else null
@@ -1163,6 +1186,16 @@ class SyncManager private constructor(private val context: Context) {
         FormatUtils.parseOccurredInstantOrNull(cursor)
             ?.minusSeconds(CURSOR_OVERLAP_SECONDS)
             ?.let { FormatUtils.toBeijingIsoString(it) }
+
+    /**
+     * MOB-P2-47：延迟一段时间后再排空发件箱（用于删除事件的宽限期）。
+     */
+    private fun scheduleDelayedSync(delayMs: Long) {
+        scope.launch {
+            delay(delayMs)
+            scheduleSync()
+        }
+    }
 
     /**
      * 立即调度发件箱同步。
