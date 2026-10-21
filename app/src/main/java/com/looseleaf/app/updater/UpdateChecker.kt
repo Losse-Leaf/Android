@@ -12,6 +12,7 @@ import androidx.core.content.FileProvider
 import com.looseleaf.app.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -24,6 +25,19 @@ import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
+/**
+ * 云端发布信息。
+ *
+ * MOB-P1-xx 修复：必须标注 @Serializable ——
+ * StreamScreen 为了让「云端有新版本」这张提示在进程被杀后还能恢复，
+ * 会把它 encodeToString 成 JSON 存进 rememberSaveable，再解回来。
+ * 而 kotlinx.serialization 的序列化器是**编译期插件生成**的：
+ * 少了这个注解，`encodeToString` 能编译通过，却会在**运行时**抛
+ * "Serializer for class 'xxx' is not found" —— 而且只���「云端确实有新版本」时才会走到，
+ * 也就是**最需要更新功能的那一刻**直接把 App 崩掉（debug 包不混淆时类名更直观，
+ * release 包里被 R8 混淆成一个字母，排查起来极其困难）。
+ */
+@Serializable
 data class ReleaseInfo(
     val tagName: String,
     val versionName: String,

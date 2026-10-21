@@ -27,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import android.util.Log
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -198,12 +199,20 @@ fun StreamScreen(
     LaunchedEffect(Unit) {
         if (!updateCheckedThisProcess && cloudUpdate == null && shouldCheckForUpdate(context)) {
             updateCheckedThisProcess = true
-            // 检查本身放到后台线程，避免阻塞首帧
-            val result = withContext(Dispatchers.IO) { UpdateChecker.checkForUpdates() }
-            when (result) {
-                is UpdateCheckResult.HasUpdate ->
-                    cloudUpdateJson = Json { ignoreUnknownKeys = true }.encodeToString(result.release)
-                else -> Unit
+            // 检查本身放到后台线程，避免阻塞首帧。
+            //
+            // MOB-P1-xx：整段必须兜住 —— 「检测到新版本」这条链路一旦抛异常，
+            // 会直接把**时间流**连带整个 App 送走（协程里的未捕获异常 = 进程崩溃），
+            // 而用户此刻只是想看看自己的记录。更新提示是可选项，崩 App 不是。
+            runCatching {
+                val result = withContext(Dispatchers.IO) { UpdateChecker.checkForUpdates() }
+                when (result) {
+                    is UpdateCheckResult.HasUpdate ->
+                        cloudUpdateJson = Json { ignoreUnknownKeys = true }.encodeToString(result.release)
+                    else -> Unit
+                }
+            }.onFailure { error ->
+                Log.w("StreamScreen", "更新检查失败，已忽略: ${error.message}")
             }
         }
     }
