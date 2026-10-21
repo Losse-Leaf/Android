@@ -64,15 +64,22 @@ internal fun EntryDetailSheetDialog(
     val colors = LooseLeafTheme.colors
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    var isEditing by remember { mutableStateOf(false) }
-    var editType by remember(entry) { mutableStateOf(entry.type) }
-    var editTitle by remember(entry) { mutableStateOf(entry.title) }
-    var editContent by remember(entry) { mutableStateOf(entry.content) }
-    var editCityCode by remember(entry) { mutableStateOf(entry.cityCode ?: "") }
-    var editCityName by remember(entry) { mutableStateOf(entry.cityName ?: entry.location ?: "") }
-    var editOccurredAt by remember(entry) { mutableStateOf(FormatUtils.parseToLocalDateTime(entry.occurredAt)) }
-    var editFeatured by remember(entry) { mutableStateOf(entry.featured ?: false) }
-    var editAttachments by remember(entry) { mutableStateOf(entry.attachments) }
+    // MOB-P1-xx：编辑态的 key 用 **entry.id** 而不是 entry 对象本身。
+    //
+    // 为什么：同步刷新（entriesRevisionFlow → 列表重载）会用**同一条记录的新实例**
+    // 替换掉旧实例（数据类按值比较，内容一样但引用不同）。
+    // 若用 remember(entry) 作 key，新实例一到，remember 的 key 就变了 ⇒
+    // 用户正在输入的标题/正文被**重置回服务器上的旧值** —— 表现为「打字打到一半被清空」。
+    // 用 entry.id 作 key：同一条记录的刷新不会打断输入；切换到另一条记录才重置。
+    var isEditing by remember(entry.id) { mutableStateOf(false) }
+    var editType by remember(entry.id) { mutableStateOf(entry.type) }
+    var editTitle by remember(entry.id) { mutableStateOf(entry.title) }
+    var editContent by remember(entry.id) { mutableStateOf(entry.content) }
+    var editCityCode by remember(entry.id) { mutableStateOf(entry.cityCode ?: "") }
+    var editCityName by remember(entry.id) { mutableStateOf(entry.cityName ?: entry.location ?: "") }
+    var editOccurredAt by remember(entry.id) { mutableStateOf(FormatUtils.parseToLocalDateTime(entry.occurredAt)) }
+    var editFeatured by remember(entry.id) { mutableStateOf(entry.featured ?: false) }
+    var editAttachments by remember(entry.id) { mutableStateOf(entry.attachments) }
     var isUploadingPhoto by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
