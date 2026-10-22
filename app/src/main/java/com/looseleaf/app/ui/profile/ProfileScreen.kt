@@ -490,7 +490,7 @@ fun ProfileScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(0.95f)) {
-                                Text("散页手稿", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
+                                Text(stringResource(R.string.profile_screen_drafts), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
                                 Spacer(modifier = Modifier.height(2.dp))
                                 // MOB-P2-69：加载完成前显示占位符，避免「0」被误读为「真的没有」
                                 Text(
@@ -503,7 +503,7 @@ fun ProfileScreen(
                                 )
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(0.95f)) {
-                                Text("暗房底片", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
+                                Text(stringResource(R.string.profile_screen_films), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     if (globalStats == null) "—" else "${globalStats?.totalPhotos}",
@@ -515,12 +515,12 @@ fun ProfileScreen(
                                 )
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(0.95f)) {
-                                Text("造物项目", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
+                                Text(stringResource(R.string.profile_screen_projects), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text("${globalStats?.totalProjects ?: 0}", fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.accentMoss, maxLines = 1)
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1.15f)) {
-                                Text("当月支出", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
+                                Text(stringResource(R.string.profile_screen_expense), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = FormatUtils.centsToYuanString(globalStats?.monthExpense ?: 0),
@@ -617,7 +617,7 @@ fun ProfileScreen(
                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                                 enabled = !isIssuingPairTicket
                             ) {
-                                Text(if (isIssuingPairTicket) "签发中…" else "+ 配对新设备", fontSize = 11.5.sp, fontFamily = ArchiveFontFamilies.BodySans, color = colors.accentWarm)
+                                Text(if (isIssuingPairTicket) stringResource(R.string.profile_screen_issuing_ticket) else stringResource(R.string.profile_screen_pair_new_device), fontSize = 11.5.sp, fontFamily = ArchiveFontFamilies.BodySans, color = colors.accentWarm)
                             }
                         }
 
@@ -648,7 +648,7 @@ fun ProfileScreen(
                                             onClick = { issuedPairTicket = null },
                                             contentPadding = PaddingValues(0.dp)
                                         ) {
-                                            Text("收起", fontSize = 11.sp, color = colors.inkMuted)
+                                            Text(stringResource(R.string.profile_screen_collapse), fontSize = 11.sp, color = colors.inkMuted)
                                         }
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
@@ -673,7 +673,7 @@ fun ProfileScreen(
                                         shape = RoundedCornerShape(3.dp),
                                         contentPadding = PaddingValues(0.dp)
                                     ) {
-                                        Text("一键复制配对链接", fontSize = 11.sp)
+                                        Text(stringResource(R.string.profile_screen_copy_link), fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -766,8 +766,8 @@ fun ProfileScreen(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            Text("纸墨外观 (Appearance)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
-                            Text("跟随系统 / 暖色棉纸 / 暗房安全灯，三态可切", fontSize = 11.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.profile_screen_appearance), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
+                            Text(stringResource(R.string.profile_screen_appearance_desc), fontSize = 11.sp, color = colors.inkMuted)
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -806,6 +806,7 @@ fun ProfileScreen(
                                         )
                                     }
                                 }
+                            }
 
                             // MOB-P2-45：高对比度模式开关（次级文字与分隔线显著加强）
                             Spacer(modifier = Modifier.height(10.dp))
@@ -835,7 +836,6 @@ fun ProfileScreen(
                                     )
                                 )
                             }
-                            }
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -848,8 +848,8 @@ fun ProfileScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                                Text("生物识别守护 (Biometrics)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
-                                Text("解锁账本与敏感收支柱状图", fontSize = 11.sp, color = colors.inkMuted)
+                                Text(stringResource(R.string.profile_screen_biometrics), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
+                                Text(stringResource(R.string.profile_screen_biometrics_desc), fontSize = 11.sp, color = colors.inkMuted)
                             }
                             Switch(
                                 checked = isBiometricsEnabled,
@@ -889,7 +889,7 @@ fun ProfileScreen(
                             ) {
                                 Icon(painter = painterResource(R.drawable.ic_tune), contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(13.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("配置与管理", fontSize = 11.5.sp, fontFamily = ArchiveFontFamilies.BodySans, color = colors.accentWarm)
+                                Text(stringResource(R.string.profile_screen_config_manage), fontSize = 11.5.sp, fontFamily = ArchiveFontFamilies.BodySans, color = colors.accentWarm)
                             }
                         }
 
@@ -990,7 +990,7 @@ fun ProfileScreen(
                 ) {
                     Icon(painter = painterResource(R.drawable.ic_link_off), contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("解除此设备绑定", fontFamily = ArchiveFontFamilies.BodySans)
+                    Text(stringResource(R.string.profile_screen_unbind_device), fontFamily = ArchiveFontFamilies.BodySans)
                 }
                 }
                 item {

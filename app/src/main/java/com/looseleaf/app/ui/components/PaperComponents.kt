@@ -861,7 +861,7 @@ fun PaperDatePickerDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(onClick = onDismiss) {
-                        Text("取消", color = colors.inkSecondary, fontSize = 13.sp)
+                        Text(stringResource(R.string.paper_components_cancel), color = colors.inkSecondary, fontSize = 13.sp)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
@@ -876,7 +876,7 @@ fun PaperDatePickerDialog(
                         shape = RoundedCornerShape(4.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
                     ) {
-                        Text("确定日期", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp)
+                        Text(stringResource(R.string.paper_components_confirm_date), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp)
                     }
                 }
             }
@@ -1024,7 +1024,7 @@ fun PaperTimePickerDialog(
                             ) {
                                 Icon(painter = painterResource(R.drawable.ic_remove), contentDescription = stringResource(R.string.paper_components_contentDescription_06), tint = colors.accentWarm, modifier = Modifier.size(16.dp))
                             }
-                            Text("时 (00-23)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.paper_components_hour_range), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
                         }
 
                         Text(
@@ -1060,7 +1060,7 @@ fun PaperTimePickerDialog(
                             ) {
                                 Icon(painter = painterResource(R.drawable.ic_remove), contentDescription = stringResource(R.string.paper_components_contentDescription_08), tint = colors.accentWarm, modifier = Modifier.size(16.dp))
                             }
-                            Text("分 (00-59)", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.paper_components_minute_range), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted)
                         }
                     }
                 }
@@ -1074,7 +1074,7 @@ fun PaperTimePickerDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(onClick = onDismiss) {
-                        Text("取消", color = colors.inkSecondary, fontSize = 13.sp)
+                        Text(stringResource(R.string.paper_components_cancel), color = colors.inkSecondary, fontSize = 13.sp)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
@@ -1089,7 +1089,7 @@ fun PaperTimePickerDialog(
                         shape = RoundedCornerShape(4.dp),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
                     ) {
-                        Text("确定时刻", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp)
+                        Text(stringResource(R.string.paper_components_confirm_time), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp)
                     }
                 }
             }

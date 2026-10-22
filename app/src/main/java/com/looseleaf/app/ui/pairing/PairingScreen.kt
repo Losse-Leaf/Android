@@ -283,7 +283,7 @@ fun PairingScreen(
                             ) {
                                 Icon(painter = painterResource(R.drawable.ic_content_paste), contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("一键读取剪贴板链接", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp)
+                                Text(stringResource(R.string.pairing_screen_clipboard), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp)
                             }
 
                             Spacer(modifier = Modifier.height(16.dp))
@@ -365,7 +365,7 @@ fun PairingScreen(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("中枢节点", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.pairing_screen_hub), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
                             Text(pairedHubUrl, fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 12.sp, color = colors.inkPrimary)
                         }
 
@@ -373,7 +373,7 @@ fun PairingScreen(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("设备编号", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.pairing_screen_device_id), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
                             Text(pairedDeviceId, fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 12.sp, color = colors.accentWarm)
                         }
                     }

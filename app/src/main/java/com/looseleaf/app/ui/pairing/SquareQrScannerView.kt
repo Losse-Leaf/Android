@@ -147,7 +147,7 @@ fun SquareQrScannerView(
                         contentColor = colors.archivePaper
                     )
                 ) {
-                    Text("授予相机权限", fontFamily = ArchiveFontFamilies.EditorialSerif)
+                    Text(stringResource(R.string.scanner_grant_permission), fontFamily = ArchiveFontFamilies.EditorialSerif)
                 }
             }
         }
@@ -365,7 +365,7 @@ fun SquareQrScannerView(
             ) {
                 Icon(painter = painterResource(R.drawable.ic_photo), contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.inkSecondary)
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("从相册选取二维码", fontSize = 12.sp, color = colors.inkSecondary, fontFamily = ArchiveFontFamilies.EditorialSerif)
+                Text(stringResource(R.string.scanner_pick_from_album), fontSize = 12.sp, color = colors.inkSecondary, fontFamily = ArchiveFontFamilies.EditorialSerif)
             }
 
             TextButton(
@@ -382,7 +382,7 @@ fun SquareQrScannerView(
             ) {
                 Icon(painter = painterResource(R.drawable.ic_crop_free), contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.accentWarm)
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("全屏扫码器", fontSize = 12.sp, color = colors.accentWarm, fontFamily = ArchiveFontFamilies.EditorialSerif)
+                Text(stringResource(R.string.scanner_full_screen), fontSize = 12.sp, color = colors.accentWarm, fontFamily = ArchiveFontFamilies.EditorialSerif)
             }
         }
     }

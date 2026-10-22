@@ -35,7 +35,6 @@ data class LifeEntry(
     val location: String? = null,
     @SerialName("city_code") val cityCode: String? = null,
     @SerialName("city_name") val cityName: String? = null,
-    val featured: Boolean? = null,
     @SerialName("project_id") val projectId: Long? = null,
     val project: Project? = null,
     @SerialName("wish_id") val wishId: Long? = null,
@@ -85,7 +84,7 @@ data class Transaction(
     @SerialName("footprint_id") val footprintId: Long? = null,
     @SerialName("city_code") val cityCode: String? = null,
     @SerialName("occurred_at") val occurredAt: String = FormatUtils.beijingNowIsoString(),
-    @SerialName("is_installment") val isInstallment: Boolean? = false,
+    @SerialName("is_installment") val isInstallment: Boolean? = null,
     @SerialName("installment_channel_code") val installmentChannelCode: String? = null,
     @SerialName("installment_total_amount") val installmentTotalAmount: Long? = null,
     @SerialName("installment_months") val installmentMonths: Int? = null,
@@ -176,7 +175,6 @@ data class Project(
     val category: String? = null,
     @SerialName("github_url") val githubUrl: String? = null,
     val status: String? = "Active",
-    val featured: Boolean? = null,
     val order: Int? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null
@@ -191,7 +189,6 @@ data class CreateProjectRequest(
     val category: String? = null,
     val status: String? = "进行中",
     @SerialName("github_url") val githubUrl: String? = null,
-    val featured: Boolean = false,
     val order: Int = 0
 )
 
@@ -258,7 +255,10 @@ data class ResolveWishRequest(
     @SerialName("create_footprint") val createFootprint: Boolean = false,
     @SerialName("entry_content") val entryContent: String? = null,
     @SerialName("attachment_ids") val attachmentIds: List<Long>? = null,
-    @SerialName("is_installment") val isInstallment: Boolean = false,
+    // 三态：null = 不携带（服务端保持原值）；true = 明确是分期。
+    // 客户端用 encodeDefaults=false，等于默认值的字段会被整个省略，
+    // 所以默认值**必须**是 null，才能区分「不携带」与「明确 false」。
+    @SerialName("is_installment") val isInstallment: Boolean? = null,
     @SerialName("installment_channel_code") val installmentChannelCode: String? = null,
     @SerialName("installment_months") val installmentMonths: Int? = null,
     @SerialName("repayment_day") val repaymentDay: Int? = null
@@ -436,7 +436,8 @@ data class AddGearAssetRequest(
     // 若省略（encodeDefaults=false 时 true 会被省掉）就会悄悄少记一笔账。
     // 去掉默认值后该字段永远随请求下发。
     @SerialName("create_transaction") val createTransaction: Boolean,
-    @SerialName("is_installment") val isInstallment: Boolean = false,
+    // 同上：null = 不携带，true = 明确是分期
+    @SerialName("is_installment") val isInstallment: Boolean? = null,
     @SerialName("installment_channel_code") val installmentChannelCode: String? = null,
     @SerialName("installment_total_amount") val installmentTotalAmount: Long? = null,
     @SerialName("installment_months") val installmentMonths: Int? = null,
@@ -648,14 +649,6 @@ data class CreateEntryRequest(
     @SerialName("project_id") val projectId: Long? = null,
     @SerialName("wish_id") val wishId: Long? = null,
     @SerialName("footprint_id") val footprintId: Long? = null,
-    // MOB-P1-xx：改成可空 —— 「false」必须能**显式**发出去。
-    //
-    // 客户端开启了 encodeDefaults=false，等于默认值的字段会被整个省略。
-    // featured 的默认值若为 false，那么「取消精选」这个操作（featured=false）
-    // 就会被省略掉 ⇒ 服务端收不到 ⇒ 静默不生效 ⇒ 下次拉取又变回精选。
-    // 改成 Boolean? = null 之后：null = 这次不涉及精选（省略），
-    // false = 明确取消精选（一定会被序列化并发出去）。
-    val featured: Boolean? = null,
     @SerialName("attachment_ids") val attachmentIds: List<Long>? = null
 )
 
@@ -671,7 +664,23 @@ data class CreateTransactionRequest(
     @SerialName("city_code") val cityCode: String? = null,
     @SerialName("wish_id") val wishId: Long? = null,
     @SerialName("footprint_id") val footprintId: Long? = null,
-    @SerialName("is_installment") val isInstallment: Boolean = false,
+    // ── 分期三态（后端契约）─────────────────────────────────
+    //   null                    = 本次**不携带**该字段 → 服务端保持原值
+    //   true                    = 明确是分期
+    //   false                   = 配合 clearInstallment=true 才会真的降级
+    //
+    // 关键：客户端用 encodeDefaults=false，等于默认值的字段会被整个省略。
+    // 原先 `isInstallment: Boolean = false` 让「取消分期」这个动作
+    // 被整个省掉 ⇒ 服务端收不到 ⇒ 分期没被取消；
+    // 而本地乐观写却把它写成 false ⇒ 本地显示「一次性」、服务端仍是「分期」，
+    // 两端当场分叉。
+    @SerialName("is_installment") val isInstallment: Boolean? = null,
+    // ClearInstallment 显式声明「本次要取消分期」
+    //
+    // 单发 `is_installment: false` **不足以**表达取消 —— 服务端为了保护
+    // 老客户端（它们的字段不可选，必定发 false），只在携带
+    // `clear_installment: true` 时才真的把分期降级并清空账期字段。
+    @SerialName("clear_installment") val clearInstallment: Boolean = false,
     @SerialName("installment_channel_code") val installmentChannelCode: String? = null,
     @SerialName("installment_total_amount") val installmentTotalAmount: Long? = null,
     @SerialName("installment_months") val installmentMonths: Int? = null,

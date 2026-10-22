@@ -59,7 +59,7 @@ internal fun EditProfileSheet(
         }
     ) {
         // 1. 称谓输入
-        Text("称谓", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.5.sp, color = colors.inkMuted)
+        Text(stringResource(R.string.profile_sheets_title), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.5.sp, color = colors.inkMuted)
         Spacer(modifier = Modifier.height(3.dp))
         androidx.compose.foundation.text.BasicTextField(
             value = name,
@@ -91,7 +91,7 @@ internal fun EditProfileSheet(
         Spacer(modifier = Modifier.height(14.dp))
 
         // 2. 头衔与身份
-        Text("头衔与身份", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.5.sp, color = colors.inkMuted)
+        Text(stringResource(R.string.profile_sheets_identity), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.5.sp, color = colors.inkMuted)
         Spacer(modifier = Modifier.height(3.dp))
         androidx.compose.foundation.text.BasicTextField(
             value = title,
@@ -139,7 +139,7 @@ internal fun EditProfileSheet(
         Spacer(modifier = Modifier.height(14.dp))
 
         // 4. 生活信条与格言
-        Text("生活格言", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.5.sp, color = colors.inkMuted)
+        Text(stringResource(R.string.profile_sheets_motto), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.5.sp, color = colors.inkMuted)
         Spacer(modifier = Modifier.height(3.dp))
         androidx.compose.foundation.text.BasicTextField(
             value = motto,
@@ -170,7 +170,7 @@ internal fun EditProfileSheet(
         Spacer(modifier = Modifier.height(14.dp))
 
         // 5. 自白手记正文
-        Text("自白手记", fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.5.sp, color = colors.inkMuted)
+        Text(stringResource(R.string.profile_sheets_confession), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.5.sp, color = colors.inkMuted)
         Spacer(modifier = Modifier.height(6.dp))
         androidx.compose.foundation.text.BasicTextField(
             value = manifesto,

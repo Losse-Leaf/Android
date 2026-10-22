@@ -415,4 +415,123 @@
     <string name="stream_screen_text_tpl_04">正在应用内下载: %1$s%%</string>
     <string name="stream_screen_text_tpl_05">%1$s%%</string>
     <string name="stream_screen_text_tpl_06">处置 %1$s 条失败记录</string>
+    <!-- MainActivity -->
+    <string name="main_activity_verify_biometrics">验证指纹 / 面容解锁</string>
+
+    <!-- ArchiveReleaseDialog -->
+    <string name="archive_release_dialog_remind_later">稍后提醒</string>
+    <string name="archive_release_dialog_update_now">立即更新并安装</string>
+
+    <!-- PaperComponents -->
+    <string name="paper_components_cancel">取消</string>
+    <string name="paper_components_confirm_date">确定日期</string>
+    <string name="paper_components_hour_range">时 (00-23)</string>
+    <string name="paper_components_minute_range">分 (00-59)</string>
+    <string name="paper_components_confirm_time">确定时刻</string>
+
+    <!-- LedgerAssetsTab -->
+    <string name="ledger_assets_calibration">校准资金底数</string>
+    <string name="ledger_assets_fluid">流动可用资金</string>
+    <string name="ledger_assets_fixed">在役固定资产</string>
+    <string name="ledger_assets_credit">待还信贷负债</string>
+    <string name="ledger_assets_manage_channels">管理渠道</string>
+    <string name="ledger_assets_add_equipment">+ 登记新装备</string>
+
+    <!-- LedgerDialogs -->
+    <string name="ledger_dialogs_add">添加</string>
+    <string name="ledger_dialogs_new">新增</string>
+    <string name="ledger_dialogs_loading">加载中…</string>
+
+    <!-- LedgerScreen -->
+    <string name="ledger_screen_clear">清空</string>
+    <string name="ledger_screen_disassemble">拆解</string>
+    <string name="ledger_screen_manage_categories">管理分类</string>
+    <string name="ledger_screen_sync_purchase">同步生成一笔购置支出账目</string>
+    <string name="ledger_screen_delete_equipment">彻底删除此设备</string>
+
+    <!-- LedgerTransactionsTab -->
+    <string name="ledger_transactions_expense">本月总支出</string>
+    <string name="ledger_transactions_income">本月总收入</string>
+    <string name="ledger_transactions_balance">月收支结余</string>
+
+    <!-- PairingScreen -->
+    <string name="pairing_screen_clipboard">一键读取剪贴板链接</string>
+    <string name="pairing_screen_hub">中枢节点</string>
+    <string name="pairing_screen_device_id">设备编号</string>
+
+    <!-- SquareQrScannerView -->
+    <string name="scanner_grant_permission">授予相机权限</string>
+    <string name="scanner_pick_from_album">从相册选取二维码</string>
+    <string name="scanner_full_screen">全屏扫码器</string>
+
+    <!-- ProfileScreen -->
+    <string name="profile_screen_drafts">散页手稿</string>
+    <string name="profile_screen_films">暗房底片</string>
+    <string name="profile_screen_projects">造物项目</string>
+    <string name="profile_screen_expense">当月支出</string>
+    <string name="profile_screen_pair_new_device">+ 配对新设备</string>
+    <string name="profile_screen_collapse">收起</string>
+    <string name="profile_screen_copy_link">一键复制配对链接</string>
+    <string name="profile_screen_appearance">纸墨外观 (Appearance)</string>
+    <string name="profile_screen_appearance_desc">跟随系统 / 暖色棉纸 / 暗房安全灯，三态可切</string>
+    <string name="profile_screen_biometrics">生物识别守护 (Biometrics)</string>
+    <string name="profile_screen_biometrics_desc">解锁账本与敏感收支柱状图</string>
+    <string name="profile_screen_config_manage">配置与管理</string>
+    <string name="profile_screen_unbind_device">解除此设备绑定</string>
+    <string name="profile_screen_issuing_ticket">签发中…</string>
+
+    <!-- ProfileSheets -->
+    <string name="profile_sheets_title">称谓</string>
+    <string name="profile_sheets_identity">头衔与身份</string>
+    <string name="profile_sheets_motto">生活格言</string>
+    <string name="profile_sheets_confession">自白手记</string>
+
+    <!-- StorageBackupSheetDialog -->
+    <string name="storage_backup_fetching">正在拉取备份清单…</string>
+    <string name="storage_backup_empty">暂无任何快照备份，点击右上角「立即备份」开始初次备份</string>
+    <string name="storage_backup_test">测试连通性</string>
+    <string name="storage_backup_save">保存并生效</string>
+    <string name="storage_backup_sync_r2">一键将本地媒体同步至 R2</string>
+    <string name="storage_backup_restore">恢复本地存储</string>
+
+    <!-- ProjectsWishesLists -->
+    <string name="projects_wishes_empty_projects">暂无造物记录</string>
+    <string name="projects_wishes_empty_wishes">暂无匹配的心愿记录</string>
+    <string name="projects_wishes_achieve">达成归册</string>
+    <string name="projects_wishes_empty_footprints">暂无山川足迹记录</string>
+
+    <!-- ProjectsWishesScreen -->
+    <string name="projects_wishes_cancel">取消</string>
+    <string name="projects_wishes_province_drawer">省级回忆抽屉</string>
+    <string name="projects_wishes_edit_ticket">编辑票根</string>
+    <string name="projects_wishes_remove">移除</string>
+    <string name="projects_wishes_delete_project">删除此造物项目</string>
+
+    <!-- ProjectsWishesSheets -->
+    <string name="projects_wishes_fetching_province">正在聚合全省行迹票根与属地手记…</string>
+    <string name="projects_wishes_city_dist">到访城市分布</string>
+    <string name="projects_wishes_local_notes">属地散页手记</string>
+    <string name="projects_wishes_note_title">散页手记</string>
+
+    <!-- QuickNoteSheet -->
+    <string name="quick_note_cancel">取消</string>
+    <string name="quick_note_mount_paper">装裱相纸</string>
+    <string name="quick_note_album_mount">相册装裱</string>
+    <string name="quick_note_create_project">立即立项新造物</string>
+
+    <!-- StreamDialogs -->
+    <string name="stream_dialogs_empty_footprints">本年度暂无远行足迹记录</string>
+    <string name="stream_dialogs_empty_footprints_desc">四季流转，静待更多影像沉淀</string>
+    <string name="stream_dialogs_untitled">无题随笔</string>
+    <string name="stream_dialogs_footprint_default">足迹</string>
+    <string name="stream_dialogs_entries_count">生活印记 (%1$d)</string>
+    <string name="stream_dialogs_footprints_count">山川足迹 (%1$d)</string>
+    <string name="stream_dialogs_wishes_count">心愿清单 (%1$d)</string>
+    <string name="stream_dialogs_projects_count">造物项目 (%1$d)</string>
+
+    <!-- StreamScreen -->
+    <string name="stream_screen_install_now">立即安装</string>
+    <string name="stream_screen_in_app_update">应用内更新</string>
+    <string name="stream_screen_discard">放弃</string>
+    <string name="stream_screen_retry_all">全部重试</string>
 </resources>

@@ -126,7 +126,7 @@ internal fun TransactionsLedgerTab(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
-                            Text("本月总支出", fontSize = 11.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.ledger_transactions_expense), fontSize = 11.sp, color = colors.inkMuted)
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = if (isPrivacyMasked) "****" else FormatUtils.centsToYuanString(totalExpense),
@@ -138,7 +138,7 @@ internal fun TransactionsLedgerTab(
                         }
 
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("本月总收入", fontSize = 11.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.ledger_transactions_income), fontSize = 11.sp, color = colors.inkMuted)
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = if (isPrivacyMasked) "****" else FormatUtils.centsToYuanString(totalIncome),
@@ -150,7 +150,7 @@ internal fun TransactionsLedgerTab(
                         }
 
                         Column(horizontalAlignment = Alignment.End) {
-                            Text("月收支结余", fontSize = 11.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.ledger_transactions_balance), fontSize = 11.sp, color = colors.inkMuted)
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = if (isPrivacyMasked) "****" else FormatUtils.centsToYuanString(monthBalance),

@@ -11,7 +11,7 @@
         <item name="postSplashScreenTheme">@style/Theme.LooseLeaf</item>
     </style>
 
-    <style name="Theme.LooseLeaf" parent="Theme.AppCompat.NoActionBar">
+    <style name="Theme.LooseLeaf" parent="android:Theme.DeviceDefault.NoActionBar">
         <item name="android:statusBarColor">@color/archive_paper</item>
         <item name="android:navigationBarColor">@color/archive_paper</item>
         <item name="android:windowBackground">@color/archive_paper</item>

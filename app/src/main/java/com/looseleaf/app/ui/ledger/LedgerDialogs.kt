@@ -186,7 +186,7 @@ internal fun CreditChannelsManagerDialog(
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
                     ) {
-                        Text("添加", fontSize = 12.sp)
+                        Text(stringResource(R.string.ledger_dialogs_add), fontSize = 12.sp)
                     }
                 }
 
@@ -388,7 +388,7 @@ internal fun CategoriesManagerDialog(
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
                     ) {
-                        Text("新增", fontSize = 12.sp)
+                        Text(stringResource(R.string.ledger_dialogs_new), fontSize = 12.sp)
                     }
                 }
 
@@ -397,7 +397,7 @@ internal fun CategoriesManagerDialog(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 if (isLoading) {
-                    Text("加载中…", fontSize = 12.sp, color = colors.inkMuted)
+                    Text(stringResource(R.string.ledger_dialogs_loading), fontSize = 12.sp, color = colors.inkMuted)
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
                         items(categories, key = { it.id }) { cat ->

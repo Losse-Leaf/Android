@@ -315,7 +315,7 @@ fun ProjectsWishesScreen(
                             onClick = { showCreateDialog = false },
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                         ) {
-                            Text("取消", color = colors.inkSecondary, fontSize = 14.sp)
+                            Text(stringResource(R.string.projects_wishes_cancel), color = colors.inkSecondary, fontSize = 14.sp)
                         }
 
                         Text(
@@ -801,7 +801,7 @@ fun ProjectsWishesScreen(
                                     selectedProvinceDrawerAdcode = foot.cityCode to prov
                                 }
                             ) {
-                                Text("省级回忆抽屉", fontSize = 12.sp, color = colors.accentWarm)
+                                Text(stringResource(R.string.projects_wishes_province_drawer), fontSize = 12.sp, color = colors.accentWarm)
                             }
 
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -810,7 +810,7 @@ fun ProjectsWishesScreen(
                                         editingFootprint = foot
                                     }
                                 ) {
-                                    Text("编辑票根", fontSize = 12.sp, color = colors.inkPrimary)
+                                    Text(stringResource(R.string.projects_wishes_edit_ticket), fontSize = 12.sp, color = colors.inkPrimary)
                                 }
 
                                 TextButton(
@@ -819,7 +819,7 @@ fun ProjectsWishesScreen(
                                         footprintToDelete = foot
                                     }
                                 ) {
-                                    Text("移除", fontSize = 12.sp, color = colors.accentWarm)
+                                    Text(stringResource(R.string.projects_wishes_remove), fontSize = 12.sp, color = colors.accentWarm)
                                 }
                             }
                         }
@@ -854,7 +854,6 @@ fun ProjectsWishesScreen(
                                     category = proj.category,
                                     status = editStatus,
                                     githubUrl = editGithub.trim().takeIf { it.isNotBlank() },
-                                    featured = proj.featured ?: false,
                                     order = proj.order ?: 0
                                 )
                             )
@@ -913,7 +912,7 @@ fun ProjectsWishesScreen(
                         },
                         modifier = Modifier.align(Alignment.End)
                     ) {
-                        Text("删除此造物项目", fontSize = 12.sp, color = colors.accentWarm)
+                        Text(stringResource(R.string.projects_wishes_delete_project), fontSize = 12.sp, color = colors.accentWarm)
                     }
                 }
             }

@@ -269,14 +269,14 @@ fun StorageBackupSheetDialog(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier.fillMaxWidth().height(120.dp)
                         ) {
-                            Text("正在拉取备份清单…", fontSize = 12.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.storage_backup_fetching), fontSize = 12.sp, color = colors.inkMuted)
                         }
                     } else if (backups.isEmpty()) {
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier.fillMaxWidth().height(120.dp)
                         ) {
-                            Text("暂无任何快照备份，点击右上角「立即备份」开始初次备份", fontSize = 12.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.storage_backup_empty), fontSize = 12.sp, color = colors.inkMuted)
                         }
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -481,7 +481,7 @@ fun StorageBackupSheetDialog(
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                             modifier = Modifier.weight(1f).height(36.dp)
                         ) {
-                            Text("测试连通性", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.BodySans)
+                            Text(stringResource(R.string.storage_backup_test), fontSize = 12.sp, fontFamily = ArchiveFontFamilies.BodySans)
                         }
 
                         Button(
@@ -511,7 +511,7 @@ fun StorageBackupSheetDialog(
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                             modifier = Modifier.weight(1f).height(36.dp)
                         ) {
-                            Text("保存并生效", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.BodySans)
+                            Text(stringResource(R.string.storage_backup_save), fontSize = 12.sp, fontFamily = ArchiveFontFamilies.BodySans)
                         }
                     }
 
@@ -537,7 +537,7 @@ fun StorageBackupSheetDialog(
                             },
                             enabled = isConfigured && !isOperating
                         ) {
-                            Text("一键将本地媒体同步至 R2", fontSize = 11.sp, color = if (isConfigured) colors.accentWarm else colors.inkMuted)
+                            Text(stringResource(R.string.storage_backup_sync_r2), fontSize = 11.sp, color = if (isConfigured) colors.accentWarm else colors.inkMuted)
                         }
 
                         TextButton(
@@ -557,7 +557,7 @@ fun StorageBackupSheetDialog(
                             },
                             enabled = isConfigured && !isOperating
                         ) {
-                            Text("恢复本地存储", fontSize = 11.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.storage_backup_restore), fontSize = 11.sp, color = colors.inkMuted)
                         }
                     }
                 }

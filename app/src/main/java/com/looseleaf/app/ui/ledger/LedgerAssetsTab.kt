@@ -82,7 +82,7 @@ internal fun AssetsAndGearTab(
                             color = colors.inkMuted
                         )
                         TextButton(onClick = onCalibrateBalanceClick) {
-                            Text("校准资金底数", fontSize = 11.sp, color = colors.accentWarm)
+                            Text(stringResource(R.string.ledger_assets_calibration), fontSize = 11.sp, color = colors.accentWarm)
                         }
                     }
 
@@ -105,7 +105,7 @@ internal fun AssetsAndGearTab(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
-                            Text("流动可用资金", fontSize = 11.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.ledger_assets_fluid), fontSize = 11.sp, color = colors.inkMuted)
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = if (isPrivacyMasked) "****" else FormatUtils.centsToYuanString(ov.liquidBalance),
@@ -117,7 +117,7 @@ internal fun AssetsAndGearTab(
                         }
 
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("在役固定资产", fontSize = 11.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.ledger_assets_fixed), fontSize = 11.sp, color = colors.inkMuted)
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = if (isPrivacyMasked) "****" else FormatUtils.centsToYuanString(ov.fixedAssets),
@@ -129,7 +129,7 @@ internal fun AssetsAndGearTab(
                         }
 
                         Column(horizontalAlignment = Alignment.End) {
-                            Text("待还信贷负债", fontSize = 11.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.ledger_assets_credit), fontSize = 11.sp, color = colors.inkMuted)
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = if (isPrivacyMasked) "****" else FormatUtils.centsToYuanString(ov.totalLiabilities),
@@ -166,7 +166,7 @@ internal fun AssetsAndGearTab(
                                 onClick = onManageChannelsClick,
                                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                             ) {
-                                Text("管理渠道", fontSize = 11.5.sp, color = colors.accentWarm)
+                                Text(stringResource(R.string.ledger_assets_manage_channels), fontSize = 11.5.sp, color = colors.accentWarm)
                             }
                         }
                         if (ov.monthlyLiabilities > 0) {
@@ -250,7 +250,7 @@ internal fun AssetsAndGearTab(
                             color = colors.inkPrimary
                         )
                         TextButton(onClick = onAddGearClick) {
-                            Text("+ 登记新装备", fontSize = 11.sp, color = colors.accentWarm)
+                            Text(stringResource(R.string.ledger_assets_add_equipment), fontSize = 11.sp, color = colors.accentWarm)
                         }
                     }
 

@@ -171,7 +171,7 @@ fun ArchiveReleaseDialog(
                         enabled = !isDownloading,
                         shape = RoundedCornerShape(2.dp)
                     ) {
-                        Text("稍后提醒", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp, color = colors.inkMuted)
+                        Text(stringResource(R.string.archive_release_dialog_remind_later), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp, color = colors.inkMuted)
                     }
 
                     Spacer(modifier = Modifier.width(10.dp))
@@ -185,7 +185,7 @@ fun ArchiveReleaseDialog(
                             contentColor = colors.archivePaper
                         )
                     ) {
-                        Text("立即更新并安装", fontFamily = ArchiveFontFamilies.EditorialSerif, fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
+                        Text(stringResource(R.string.archive_release_dialog_update_now), fontFamily = ArchiveFontFamilies.EditorialSerif, fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
                     }
                 }
             }

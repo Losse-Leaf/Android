@@ -249,24 +249,30 @@ fun StreamScreen(
     // 用户看到的只有「一直转圈」，完全无从判断是没配对、还是服务器挂了、还是网络断了。
     var streamLoadError by remember { mutableStateOf<String?>(null) }
     var isRetryingStream by remember { mutableStateOf(false) }
+    var hasPulledStreamThisSession by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        isRetryingStream = true
-        val result = runCatching { syncManager.pullStreamData() }
-        isRetryingStream = false
-        result.onSuccess { streamLoadError = null }
-        result.onFailure { error ->
-            // 401 单独提示：多半是设备凭据失效（换了密钥 / 重装 / 服务端清了设备表）
-            val message = when {
-                error.message?.contains("401") == true ||
-                    error.message?.contains("未授权") == true ||
-                    error.message?.contains("缺少有效的访问凭证") == true ->
-                    "设备凭据已失效，请重新配对中枢"
-                else -> error.message ?: "无法连接中枢"
+        if (!hasPulledStreamThisSession) {
+            isRetryingStream = true
+            val result = runCatching { syncManager.pullStreamData() }
+            isRetryingStream = false
+            result.onSuccess {
+                streamLoadError = null
+                hasPulledStreamThisSession = true
             }
-            streamLoadError = message
-            // 同时写 logcat：用户抓一份 logcat 就能定位，不用靠猜
-            Log.w("LooseLeaf/Stream", "时间流拉取失败: $message", error)
-            ArchiveToastManager.show("时间流拉取失败：$message", isError = true)
+            result.onFailure { error ->
+                // 401 单独提示：多半是设备凭据失效（换了密钥 / 重装 / 服务端清了设备表）
+                val message = when {
+                    error.message?.contains("401") == true ||
+                        error.message?.contains("未授权") == true ||
+                        error.message?.contains("缺少有效的访问凭证") == true ->
+                        "设备凭据已失效，请重新配对中枢"
+                    else -> error.message ?: "无法连接中枢"
+                }
+                streamLoadError = message
+                // 同时写 logcat：用户抓一份 logcat 就能定位，不用靠猜
+                Log.w("LooseLeaf/Stream", "时间流拉取失败: $message", error)
+                ArchiveToastManager.show("时间流拉取失败：$message", isError = true)
+            }
         }
     }
 
@@ -616,7 +622,7 @@ fun StreamScreen(
                             shape = RoundedCornerShape(2.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
                         ) {
-                            Text("立即安装", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.EditorialSerif)
+                            Text(stringResource(R.string.stream_screen_install_now), fontSize = 12.sp, fontFamily = ArchiveFontFamilies.EditorialSerif)
                         }
                     } else if (isDownloading) {
                         Text(
@@ -658,7 +664,7 @@ fun StreamScreen(
                             shape = RoundedCornerShape(2.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
                         ) {
-                            Text("应用内更新", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.EditorialSerif)
+                            Text(stringResource(R.string.stream_screen_in_app_update), fontSize = 12.sp, fontFamily = ArchiveFontFamilies.EditorialSerif)
                         }
                     }
                 }
@@ -1006,7 +1012,7 @@ fun StreamScreen(
                                     ArchiveToastManager.show("已放弃失败事件；本地记录保留")
                                 }
                             }) {
-                                Text("放弃", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp, color = colors.inkMuted)
+                                Text(stringResource(R.string.stream_screen_discard), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp, color = colors.inkMuted)
                             }
                             Spacer(modifier = Modifier.width(6.dp))
                             Button(
@@ -1023,7 +1029,7 @@ fun StreamScreen(
                                     contentColor = colors.archivePaper
                                 )
                             ) {
-                                Text("全部重试", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp)
+                                Text(stringResource(R.string.stream_screen_retry_all), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp)
                             }
                         }
                     }

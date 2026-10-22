@@ -17,7 +17,7 @@ import java.io.File
         CachedWishEntity::class,
         CachedFootprintEntity::class
     ],
-    version = 7,
+    version = 8,
     // 导出 schema 到 app/schemas，后续迁移必须能和它逐字段对齐
     exportSchema = true
 )
@@ -63,13 +63,13 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 tables.forEach { db.execSQL("DROP TABLE IF EXISTS `$it`") }
 
-                // 以下 DDL 与 app/schemas/.../6.json 逐字段一致；改动 schema 时必须同步更新这里
+                // 以下 DDL 与 app/schemas/.../8.json 逐字段一致；改动 schema 时必须同步更新这里
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `cached_entries` (" +
                         "`local_id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
                         "`server_id` INTEGER, `type` TEXT NOT NULL, `title` TEXT NOT NULL, " +
                         "`content` TEXT NOT NULL, `occurred_at` TEXT NOT NULL, `location` TEXT, " +
-                        "`city_code` TEXT, `city_name` TEXT, `featured` INTEGER, `project_id` INTEGER, " +
+                        "`city_code` TEXT, `city_name` TEXT, `project_id` INTEGER, " +
                         "`wish_id` INTEGER, `footprint_id` INTEGER, `attachments_json` TEXT NOT NULL, " +
                         "`sync_status` TEXT NOT NULL, `created_at` TEXT NOT NULL)"
                 )
@@ -109,7 +109,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "CREATE TABLE IF NOT EXISTS `cached_projects` (" +
                         "`id` INTEGER NOT NULL, `title` TEXT NOT NULL, `subtitle` TEXT, `description` TEXT, " +
                         "`story` TEXT, `category` TEXT, `status` TEXT, `github_url` TEXT, " +
-                        "`featured` INTEGER, `order` INTEGER, `updated_at` TEXT, PRIMARY KEY(`id`))"
+                        "`order` INTEGER, `updated_at` TEXT, PRIMARY KEY(`id`))"
                 )
 
                 db.execSQL(
@@ -320,6 +320,70 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 7 → 8：移除 `featured`（精选）列。
+         *
+         * 背景：后端已**彻底删除** `featured` 字段（模型、请求体、响应全都没有了），
+         * 而客户端还在维护这一列 —— 于是「设为精选」的星标按钮点下去
+         * 后端静默忽略、响应也不再返回，**星标永远点不亮，且没有任何报错**。
+         * 与其留一列永远为假的死数据，不如把列本身去掉。
+         *
+         * 与 3 → 4 同样的理由：**不能用 `ALTER TABLE DROP COLUMN`** ——
+         * 它要求 SQLite ≥ 3.35（Android 12+），在 minSdk 26 的设备上必然失败，
+         * 因此统一走「建新表 + 拷数据 + 换名」。
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 上次迁移若中途失败可能留下临时表，先清掉，避免重复拷数据
+                db.execSQL("DROP TABLE IF EXISTS `cached_entries_new`")
+                db.execSQL("DROP TABLE IF EXISTS `cached_projects_new`")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `cached_entries_new` (" +
+                        "`local_id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`server_id` INTEGER, `type` TEXT NOT NULL, `title` TEXT NOT NULL, " +
+                        "`content` TEXT NOT NULL, `occurred_at` TEXT NOT NULL, `location` TEXT, " +
+                        "`city_code` TEXT, `city_name` TEXT, `project_id` INTEGER, " +
+                        "`wish_id` INTEGER, `footprint_id` INTEGER, `attachments_json` TEXT NOT NULL, " +
+                        "`sync_status` TEXT NOT NULL, `created_at` TEXT NOT NULL)"
+                )
+                db.execSQL(
+                    "INSERT INTO `cached_entries_new` (`local_id`, `server_id`, `type`, `title`, " +
+                        "`content`, `occurred_at`, `location`, `city_code`, `city_name`, " +
+                        "`project_id`, `wish_id`, `footprint_id`, `attachments_json`, " +
+                        "`sync_status`, `created_at`) " +
+                        "SELECT `local_id`, `server_id`, `type`, `title`, `content`, `occurred_at`, " +
+                        "`location`, `city_code`, `city_name`, `project_id`, `wish_id`, " +
+                        "`footprint_id`, `attachments_json`, `sync_status`, `created_at` " +
+                        "FROM `cached_entries`"
+                )
+                db.execSQL("DROP TABLE `cached_entries`")
+                db.execSQL("ALTER TABLE `cached_entries_new` RENAME TO `cached_entries`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cached_entries_occurred_at` ON `cached_entries` (`occurred_at`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cached_entries_server_id` ON `cached_entries` (`server_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cached_entries_sync_status` ON `cached_entries` (`sync_status`)")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_cached_entries_sync_status_occurred_at` " +
+                        "ON `cached_entries` (`sync_status`, `occurred_at`)"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `cached_projects_new` (" +
+                        "`id` INTEGER NOT NULL, `title` TEXT NOT NULL, `subtitle` TEXT, `description` TEXT, " +
+                        "`story` TEXT, `category` TEXT, `status` TEXT, `github_url` TEXT, " +
+                        "`order` INTEGER, `updated_at` TEXT, PRIMARY KEY(`id`))"
+                )
+                db.execSQL(
+                    "INSERT INTO `cached_projects_new` (`id`, `title`, `subtitle`, `description`, " +
+                        "`story`, `category`, `status`, `github_url`, `order`, `updated_at`) " +
+                        "SELECT `id`, `title`, `subtitle`, `description`, `story`, `category`, " +
+                        "`status`, `github_url`, `order`, `updated_at` FROM `cached_projects`"
+                )
+                db.execSQL("DROP TABLE `cached_projects`")
+                db.execSQL("ALTER TABLE `cached_projects_new` RENAME TO `cached_projects`")
+            }
+        }
+
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 addColumnIfMissing(db, "outbox_events", "failed_at", "ALTER TABLE `outbox_events` ADD COLUMN `failed_at` TEXT")
@@ -339,7 +403,8 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_3_4,
                     MIGRATION_4_5,
                     MIGRATION_5_6,
-                    MIGRATION_6_7
+                    MIGRATION_6_7,
+                    MIGRATION_7_8
                 )
                 // 只在「降级安装」时清库；版本前进时缺迁移宁可显式失败，也不静默抹掉未同步数据。
                 .fallbackToDestructiveMigrationOnDowngrade()

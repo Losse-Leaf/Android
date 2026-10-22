@@ -13,7 +13,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.*
-import okhttp3.Cache
+import okhttp3.Dispatcher
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -143,7 +143,7 @@ class APIClient private constructor(private val context: Context) {
 
     val okHttpClient: OkHttpClient by lazy {
         val builder = OkHttpClient.Builder()
-            .dispatcher(Dispatcher().apply {
+            .dispatcher(okhttp3.Dispatcher().apply {
                 maxRequests = 64
                 maxRequestsPerHost = 16
             })

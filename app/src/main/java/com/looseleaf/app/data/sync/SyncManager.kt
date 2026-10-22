@@ -451,7 +451,6 @@ class SyncManager private constructor(private val context: Context) {
             location = req.location,
             cityCode = req.cityCode,
             cityName = req.cityName,
-            featured = req.featured,
             projectId = req.projectId,
             wishId = req.wishId,
             footprintId = req.footprintId,
@@ -499,7 +498,6 @@ class SyncManager private constructor(private val context: Context) {
         location: String? = null,
         cityCode: String? = null,
         cityName: String? = null,
-        featured: Boolean = false,
         attachmentIds: List<Long>? = null,
         attachments: List<Attachment> = emptyList(),
         projectId: Long? = null,
@@ -516,7 +514,6 @@ class SyncManager private constructor(private val context: Context) {
             location = location,
             cityCode = cityCode,
             cityName = cityName,
-            featured = featured,
             projectId = projectId,
             wishId = wishId,
             footprintId = footprintId,
@@ -532,7 +529,6 @@ class SyncManager private constructor(private val context: Context) {
             location = location,
             cityCode = cityCode,
             cityName = cityName,
-            featured = featured,
             attachmentIds = attachmentIds,
             projectId = projectId,
             wishId = wishId,
@@ -586,7 +582,6 @@ class SyncManager private constructor(private val context: Context) {
             location = req.location,
             cityCode = req.cityCode,
             cityName = req.cityName ?: entity.cityName,
-            featured = req.featured,
             projectId = req.projectId ?: entity.projectId,
             wishId = req.wishId ?: entity.wishId,
             footprintId = req.footprintId ?: entity.footprintId,
@@ -694,7 +689,10 @@ class SyncManager private constructor(private val context: Context) {
             cityCode = cityCode,
             wishId = wishId,
             footprintId = footprintId,
-            isInstallment = isInstallment,
+            // 新建时只有「是分期」与「不是分期」两种真实语义，
+            // 发 false 没有意义（服务端新建默认就是非分期），
+            // 因此只在是分期时携带 true。
+            isInstallment = isInstallment.takeIf { it },
             installmentChannelCode = installmentChannelCode,
             installmentTotalAmount = installmentTotalAmount,
             installmentMonths = installmentMonths,
@@ -753,13 +751,25 @@ class SyncManager private constructor(private val context: Context) {
             cityCode = req.cityCode,
             wishId = req.wishId ?: entity.wishId,
             footprintId = req.footprintId ?: entity.footprintId,
-            isInstallment = req.isInstallment,
-            installmentChannelCode = req.installmentChannelCode,
-            installmentTotalAmount = req.installmentTotalAmount,
-            installmentMonths = req.installmentMonths,
-            installmentMonthlyPay = req.installmentMonthlyPay,
-            installmentRemainMonths = req.installmentRemainMonths,
-            repaymentDay = req.repaymentDay,
+            // ── 分期三态的本地落地 ──────────────────────────────
+            // 关键：req.isInstallment 为 null 表示「本次不携带该字段」，
+            // 服务端会**保持原值** —— 那本地也必须保持原值，
+            // 不能乐观写成 false（否则本地显示「一次性」、服务端仍是「分期」，
+            // 两端当场分叉，下一次拉取又跳回去）。
+            //
+            // 只有明确带了 clear_installment（= 显式取消分期）时，
+            // 才真的把分期降级并清空账期字段 —— 与服务端行为完全对齐。
+            isInstallment = if (req.clearInstallment) {
+                false
+            } else {
+                req.isInstallment ?: entity.isInstallment
+            },
+            installmentChannelCode = if (req.clearInstallment) null else (req.installmentChannelCode ?: entity.installmentChannelCode),
+            installmentTotalAmount = if (req.clearInstallment) null else (req.installmentTotalAmount ?: entity.installmentTotalAmount),
+            installmentMonths = if (req.clearInstallment) null else (req.installmentMonths ?: entity.installmentMonths),
+            installmentMonthlyPay = if (req.clearInstallment) null else (req.installmentMonthlyPay ?: entity.installmentMonthlyPay),
+            installmentRemainMonths = if (req.clearInstallment) null else (req.installmentRemainMonths ?: entity.installmentRemainMonths),
+            repaymentDay = if (req.clearInstallment) null else (req.repaymentDay ?: entity.repaymentDay),
             syncStatus = newSyncStatus
         )
         database.withTransaction {
@@ -1628,7 +1638,6 @@ fun CachedEntryEntity.toDomainModel(
         location = location,
         cityCode = cityCode,
         cityName = cityName,
-        featured = featured,
         projectId = projectId,
         wishId = wishId,
         footprintId = footprintId,
@@ -1673,7 +1682,6 @@ fun CachedProjectEntity.toProject(): Project {
         category = category,
         status = status,
         githubUrl = githubUrl,
-        featured = featured,
         order = order,
         updatedAt = updatedAt
     )
@@ -1742,7 +1750,6 @@ fun LifeEntry.toCacheEntity(localId: Long, json: Json): CachedEntryEntity = Cach
     location = location,
     cityCode = cityCode,
     cityName = cityName,
-    featured = featured,
     projectId = projectId,
     wishId = wishId,
     footprintId = footprintId,
@@ -1784,7 +1791,6 @@ fun Project.toCacheEntity(): CachedProjectEntity = CachedProjectEntity(
     category = category,
     status = status,
     githubUrl = githubUrl,
-    featured = featured,
     order = order,
     updatedAt = updatedAt
 )

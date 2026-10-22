@@ -1,6 +1,7 @@
 package com.looseleaf.app.theme
 
 import androidx.compose.material3.Typography
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -13,9 +14,12 @@ import androidx.compose.ui.unit.sp
  * - 古典衬线体 (Serif Editorial): Noto Serif SC -> 系统衬线
  * - 现代无衬线 (Sans Body): Roboto -> Noto Sans SC -> 系统无衬线
  * - 等宽刻度 (Monospace Scale): JetBrains Mono -> 系统等宽
+ *
+ * 注意：在 Compose Material3 中，Typography 样式不应硬编码 color（应保持 Color.Unspecified），
+ * 这样可让 Text 自动继承组件层级的 LocalContentColor（如 Button、Surface 的前景文字颜色），
+ * 避免出现按钮深色背景上渲染黑字导致文字不可见的 UI 对比度 Bug。
  */
 object ArchiveFontFamilies {
-    // 衬线 / 无衬线必须在字形上真的不同，否则「纸本编辑体」只是名义上的
     val EditorialSerif: FontFamily = FontFamily.Serif
     val BodySans: FontFamily = FontFamily.SansSerif
     val MonoScale: FontFamily = FontFamily.Monospace
@@ -28,86 +32,85 @@ fun createArchiveTypography(colors: ArchiveColors): Typography {
             fontWeight = FontWeight.Normal,
             fontSize = 32.sp,
             lineHeight = 40.sp,
-            color = colors.inkPrimary
+            color = Color.Unspecified
         ),
         displayMedium = TextStyle(
             fontFamily = ArchiveFontFamilies.EditorialSerif,
             fontWeight = FontWeight.Normal,
             fontSize = 26.sp,
             lineHeight = 34.sp,
-            color = colors.inkPrimary
+            color = Color.Unspecified
         ),
         displaySmall = TextStyle(
             fontFamily = ArchiveFontFamilies.EditorialSerif,
             fontWeight = FontWeight.Normal,
             fontSize = 22.sp,
             lineHeight = 30.sp,
-            color = colors.inkPrimary
+            color = Color.Unspecified
         ),
         headlineMedium = TextStyle(
             fontFamily = ArchiveFontFamilies.EditorialSerif,
             fontWeight = FontWeight.Medium,
             fontSize = 20.sp,
             lineHeight = 28.sp,
-            color = colors.inkPrimary
+            color = Color.Unspecified
         ),
         headlineSmall = TextStyle(
             fontFamily = ArchiveFontFamilies.EditorialSerif,
             fontWeight = FontWeight.Medium,
             fontSize = 18.sp,
             lineHeight = 26.sp,
-            color = colors.inkPrimary
+            color = Color.Unspecified
         ),
         titleLarge = TextStyle(
             fontFamily = ArchiveFontFamilies.EditorialSerif,
             fontWeight = FontWeight.Medium,
             fontSize = 17.sp,
             lineHeight = 24.sp,
-            color = colors.inkPrimary
+            color = Color.Unspecified
         ),
         titleMedium = TextStyle(
             fontFamily = ArchiveFontFamilies.BodySans,
             fontWeight = FontWeight.Medium,
             fontSize = 15.sp,
             lineHeight = 22.sp,
-            color = colors.inkPrimary
+            color = Color.Unspecified
         ),
         titleSmall = TextStyle(
             fontFamily = ArchiveFontFamilies.BodySans,
             fontWeight = FontWeight.Medium,
             fontSize = 13.sp,
             lineHeight = 18.sp,
-            color = colors.inkSecondary
+            color = Color.Unspecified
         ),
         bodyLarge = TextStyle(
             fontFamily = ArchiveFontFamilies.BodySans,
             fontWeight = FontWeight.Normal,
             fontSize = 16.sp,
             lineHeight = 24.sp,
-            color = colors.inkPrimary
+            color = Color.Unspecified
         ),
         bodyMedium = TextStyle(
             fontFamily = ArchiveFontFamilies.BodySans,
             fontWeight = FontWeight.Normal,
             fontSize = 14.sp,
             lineHeight = 20.sp,
-            color = colors.inkPrimary
+            color = Color.Unspecified
         ),
         bodySmall = TextStyle(
             fontFamily = ArchiveFontFamilies.BodySans,
             fontWeight = FontWeight.Normal,
             fontSize = 12.sp,
             lineHeight = 16.sp,
-            color = colors.inkSecondary
+            color = Color.Unspecified
         ),
         labelLarge = TextStyle(
             fontFamily = ArchiveFontFamilies.MonoScale,
             fontWeight = FontWeight.Medium,
             fontSize = 14.sp,
             lineHeight = 18.sp,
-            // tnum：等宽表格数字，保证金额列严格对齐（AOPT-08c）
             fontFeatureSettings = "tnum",
-            color = colors.inkPrimary
+            color = Color.Unspecified
         ),
         labelMedium = TextStyle(
             fontFamily = ArchiveFontFamilies.MonoScale,
@@ -115,7 +118,7 @@ fun createArchiveTypography(colors: ArchiveColors): Typography {
             fontSize = 12.sp,
             lineHeight = 16.sp,
             fontFeatureSettings = "tnum",
-            color = colors.inkSecondary
+            color = Color.Unspecified
         ),
         labelSmall = TextStyle(
             fontFamily = ArchiveFontFamilies.MonoScale,
@@ -123,7 +126,7 @@ fun createArchiveTypography(colors: ArchiveColors): Typography {
             fontSize = 11.sp,
             lineHeight = 14.sp,
             fontFeatureSettings = "tnum",
-            color = colors.inkMuted
+            color = Color.Unspecified
         )
     )
 }

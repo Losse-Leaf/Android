@@ -78,7 +78,6 @@ internal fun EntryDetailSheetDialog(
     var editCityCode by remember(entry.id) { mutableStateOf(entry.cityCode ?: "") }
     var editCityName by remember(entry.id) { mutableStateOf(entry.cityName ?: entry.location ?: "") }
     var editOccurredAt by remember(entry.id) { mutableStateOf(FormatUtils.parseToLocalDateTime(entry.occurredAt)) }
-    var editFeatured by remember(entry.id) { mutableStateOf(entry.featured ?: false) }
     var editAttachments by remember(entry.id) { mutableStateOf(entry.attachments) }
     var isUploadingPhoto by remember { mutableStateOf(false) }
 
@@ -138,34 +137,6 @@ internal fun EntryDetailSheetDialog(
                     )
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = {
-                            val targetFeatured = !(entry.featured ?: false)
-                            val code = entry.cityCode
-                            val cityName = entry.cityName ?: entry.location
-                            val req = CreateEntryRequest(
-                                type = entry.type,
-                                title = entry.title,
-                                content = entry.content,
-                                occurredAt = entry.occurredAt,
-                                // 精选只改 featured，不得把「西湖区龙井村」这类精确地点覆盖成城市名
-                                location = entry.location,
-                                cityCode = code,
-                                cityName = cityName,
-                                projectId = entry.projectId,
-                                wishId = entry.wishId,
-                                footprintId = entry.footprintId,
-                                featured = targetFeatured,
-                                attachmentIds = entry.attachments.mapNotNull { it.id.takeIf { id -> id > 0 } }
-                            )
-                            onSaveEdit(req)
-                        }) {
-                            Icon(
-                                painter = if (entry.featured == true) painterResource(R.drawable.ic_star_filled) else painterResource(R.drawable.ic_star_border),
-                                contentDescription = if (entry.featured == true) "取消精选" else "设为精选",
-                                tint = if (entry.featured == true) colors.featuredGold else colors.inkSecondary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
                         IconButton(onClick = { isEditing = !isEditing }) {
                             Icon(
                                 imageVector = Icons.Outlined.Edit,
@@ -377,31 +348,6 @@ internal fun EntryDetailSheetDialog(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // 精选印记标记
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { editFeatured = !editFeatured }
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = editFeatured,
-                            onCheckedChange = { editFeatured = it },
-                            colors = CheckboxDefaults.colors(
-                                checkedColor = colors.accentWarm,
-                                uncheckedColor = colors.inkMuted
-                            )
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.quick_note_sheet_text_05),
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 13.sp,
-                            color = colors.inkPrimary
-                        )
-                    }
-
                     Spacer(modifier = Modifier.height(16.dp))
 
                     TerracottaStampButton(
@@ -421,7 +367,6 @@ internal fun EntryDetailSheetDialog(
                                 projectId = entry.projectId,
                                 wishId = entry.wishId,
                                 footprintId = entry.footprintId,
-                                featured = editFeatured,
                                 attachmentIds = editAttachments.mapNotNull { it.id.takeIf { id -> id > 0 } }
                             )
                             onSaveEdit(req)
@@ -440,23 +385,6 @@ internal fun EntryDetailSheetDialog(
                             fontSize = 12.sp,
                             color = colors.inkMuted
                         )
-                        if (entry.featured == true) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(colors.featuredGoldBg)
-                                    .border(0.5.dp, colors.featuredGoldBorder, RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.stream_dialogs_text_04),
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 11.sp,
-                                    color = colors.featuredGold,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
                     }
 
                     val detailPlace = listOfNotNull(entry.cityName, entry.location).distinct().filter { it.isNotBlank() }.joinToString(" · ")
@@ -666,7 +594,7 @@ internal fun AlmanacDialog(
                         title = stringResource(R.string.stream_dialogs_title_tpl_01, data.atlas.totalCities)
                     ) {
                         if (data.atlas.cities.isEmpty()) {
-                            Text("本年度暂无远行足迹记录", fontSize = 12.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.stream_dialogs_empty_footprints), fontSize = 12.sp, color = colors.inkMuted)
                         } else {
                             Text(
                                 text = data.atlas.cities.joinToString(" · ") { it.cityName },
@@ -715,7 +643,7 @@ internal fun AlmanacDialog(
                             data.highlights.winter?.let { "冬 · ${it.title}" }
                         )
                         if (seasonItems.isEmpty()) {
-                            Text("四季流转，静待更多影像沉淀", fontSize = 12.sp, color = colors.inkMuted)
+                            Text(stringResource(R.string.stream_dialogs_empty_footprints_desc), fontSize = 12.sp, color = colors.inkMuted)
                         } else {
                             seasonItems.forEach { line ->
                                 Text(
@@ -923,7 +851,7 @@ internal fun GlobalSearchDialog(
                     ) {
                         if (res.entries.isNotEmpty()) {
                             item {
-                                Text("生活印记 (${res.entries.size})", fontSize = 11.sp, color = colors.inkMuted)
+                                Text(stringResource(R.string.stream_dialogs_entries_count, res.entries.size), fontSize = 11.sp, color = colors.inkMuted)
                             }
                             items(res.entries, key = { "e_${it.id}" }) { entry ->
                                 Row(
@@ -940,7 +868,7 @@ internal fun GlobalSearchDialog(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(entry.title.ifBlank { "无题随笔" }, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = colors.inkPrimary)
+                                        Text(entry.title.ifBlank { stringResource(R.string.stream_dialogs_untitled) }, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = colors.inkPrimary)
                                         if (entry.content.isNotBlank()) {
                                             Text(entry.content, fontSize = 11.sp, color = colors.inkSecondary, maxLines = 1)
                                         }
@@ -953,7 +881,7 @@ internal fun GlobalSearchDialog(
                         if (res.footprints.isNotEmpty()) {
                             item {
                                 Spacer(modifier = Modifier.height(6.dp))
-                                Text("山川足迹 (${res.footprints.size})", fontSize = 11.sp, color = colors.inkMuted)
+                                Text(stringResource(R.string.stream_dialogs_footprints_count, res.footprints.size), fontSize = 11.sp, color = colors.inkMuted)
                             }
                             items(res.footprints, key = { "f_${it.id}" }) { foot ->
                                 Row(
@@ -972,7 +900,7 @@ internal fun GlobalSearchDialog(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("${foot.cityName} · ${foot.title ?: "足迹"}", fontSize = 12.sp, color = colors.inkPrimary)
+                                    Text("${foot.cityName} · ${foot.title ?: stringResource(R.string.stream_dialogs_footprint_default)}", fontSize = 12.sp, color = colors.inkPrimary)
                                     Text(foot.visitedAt?.take(10) ?: "", fontSize = 11.sp, color = colors.inkMuted)
                                 }
                             }
@@ -981,7 +909,7 @@ internal fun GlobalSearchDialog(
                         if (res.wishes.isNotEmpty()) {
                             item {
                                 Spacer(modifier = Modifier.height(6.dp))
-                                Text("心愿清单 (${res.wishes.size})", fontSize = 11.sp, color = colors.inkMuted)
+                                Text(stringResource(R.string.stream_dialogs_wishes_count, res.wishes.size), fontSize = 11.sp, color = colors.inkMuted)
                             }
                             items(res.wishes, key = { "w_${it.id}" }) { wish ->
                                 Row(
@@ -1012,7 +940,7 @@ internal fun GlobalSearchDialog(
                         if (res.projects.isNotEmpty()) {
                             item {
                                 Spacer(modifier = Modifier.height(6.dp))
-                                Text("造物项目 (${res.projects.size})", fontSize = 11.sp, color = colors.inkMuted)
+                                Text(stringResource(R.string.stream_dialogs_projects_count, res.projects.size), fontSize = 11.sp, color = colors.inkMuted)
                             }
                             items(res.projects, key = { "p_${it.id}" }) { proj ->
                                 Row(

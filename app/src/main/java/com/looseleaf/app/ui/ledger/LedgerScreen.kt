@@ -197,11 +197,15 @@ fun LedgerScreen(
         }
     }
 
+    var hasPulledThisSession by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        // MOB-P1-37 遗留：账目流水来自本地库（Room），而拆分后各页只拉自己渲染的那一类数据 ——
-        // 账本页若不在进入时拉一次，「账单明细」永远是 0（只有分类与资产是直连 API 取的）。
-        runCatching { syncManager.pullLedgerData() }
-        reloadCategoriesAndAssets(forceLoadingSpinner = false)
+        if (!hasPulledThisSession) {
+            // MOB-P1-37 遗留：账目流水来自本地库（Room），而拆分后各页只拉自己渲染的那一类数据 ——
+            // 账本页若不在进入时拉一次，「账单明细」永远是 0（只有分类与资产是直连 API 取的）。
+            runCatching { syncManager.pullLedgerData() }
+            reloadCategoriesAndAssets(forceLoadingSpinner = false)
+            hasPulledThisSession = true
+        }
     }
 
     // 账单明细下拉刷新状态（AOPT-06）：必须在 reloadCategoriesAndAssets 之后定义
@@ -589,7 +593,7 @@ fun LedgerScreen(
                                     )
                                     if (inputAmountString != "0") {
                                         TextButton(onClick = { clearAll() }) {
-                                            Text("清空", fontSize = 11.sp, color = colors.inkMuted)
+                                            Text(stringResource(R.string.ledger_screen_clear), fontSize = 11.sp, color = colors.inkMuted)
                                         }
                                     }
                                 }
@@ -618,7 +622,7 @@ fun LedgerScreen(
                                                 },
                                                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                                             ) {
-                                                Text("拆解", fontSize = 11.sp, color = colors.accentWarm)
+                                                Text(stringResource(R.string.ledger_screen_disassemble), fontSize = 11.sp, color = colors.accentWarm)
                                             }
                                         }
                                     }
@@ -686,7 +690,7 @@ fun LedgerScreen(
                             ) {
                                 Icon(painter = painterResource(R.drawable.ic_tune), contentDescription = null, modifier = Modifier.size(12.dp), tint = colors.accentWarm)
                                 Spacer(modifier = Modifier.width(3.dp))
-                                Text("管理分类", fontSize = 11.5.sp, color = colors.accentWarm)
+                                Text(stringResource(R.string.ledger_screen_manage_categories), fontSize = 11.5.sp, color = colors.accentWarm)
                             }
                         }
 
@@ -1037,6 +1041,22 @@ fun LedgerScreen(
                     if (cents > 0) {
                         scope.launch {
                             val monthlyPay = if (editIsInstallment && editInstallmentMonths > 0) cents / editInstallmentMonths else 0L
+                            // ── 分期三态（后端契约）──────────────────────────
+                            // 关键：原先这里发的是 `isInstallment = editIsInstallment && editType == "expense"`，
+                            // 也就是「不是分期」时发 **false**。
+                            // 但客户端用 encodeDefaults=false，false 恰好是默认值 →
+                            // 整个 key 被**省略** → 服务端收到 nil → 走「保持原值」分支 →
+                            // **分期根本没被取消**，界面却弹「已保存账目修订」。
+                            // 更糟的是本地缓存被乐观写成 isInstallment=false，
+                            // 于是本地显示「一次性」、服务端仍是「分期」，两端当场分叉。
+                            //
+                            // 现在按三态分别处理：
+                            //   仍是分期   → is_installment: true
+                            //   取消分期   → is_installment: false + clear_installment: true
+                            //   与分期无关 → is_installment 不携带（服务端保持原值）
+                            val wantInstallment = editIsInstallment && editType == "expense"
+                            val wasInstallment = (tx.isInstallment ?: false)
+                            val cancelInstallment = !wantInstallment && wasInstallment
                             val req = CreateTransactionRequest(
                                 amount = cents,
                                 type = editType,
@@ -1048,13 +1068,18 @@ fun LedgerScreen(
                                 occurredAt = FormatUtils.toBeijingIsoString(editOccurredAt),
                                 wishId = tx.wishId,
                                 footprintId = tx.footprintId,
-                                isInstallment = editIsInstallment && editType == "expense",
-                                installmentChannelCode = editInstallmentChannelCode.takeIf { editIsInstallment && editType == "expense" },
-                                installmentTotalAmount = cents.takeIf { editIsInstallment && editType == "expense" },
-                                installmentMonths = editInstallmentMonths.takeIf { editIsInstallment && editType == "expense" },
-                                installmentMonthlyPay = monthlyPay.takeIf { editIsInstallment && editType == "expense" },
-                                installmentRemainMonths = tx.installmentRemainMonths?.takeIf { editIsInstallment && editType == "expense" } ?: editInstallmentMonths.takeIf { editIsInstallment && editType == "expense" },
-                                repaymentDay = editRepaymentDay.takeIf { editIsInstallment && editType == "expense" }
+                                isInstallment = when {
+                                    wantInstallment -> true
+                                    cancelInstallment -> false
+                                    else -> null // 不携带：本次与分期无关，服务端保持原值
+                                },
+                                clearInstallment = cancelInstallment,
+                                installmentChannelCode = editInstallmentChannelCode.takeIf { wantInstallment },
+                                installmentTotalAmount = cents.takeIf { wantInstallment },
+                                installmentMonths = editInstallmentMonths.takeIf { wantInstallment },
+                                installmentMonthlyPay = monthlyPay.takeIf { wantInstallment },
+                                installmentRemainMonths = tx.installmentRemainMonths?.takeIf { wantInstallment } ?: editInstallmentMonths.takeIf { wantInstallment },
+                                repaymentDay = editRepaymentDay.takeIf { wantInstallment }
                             )
                             syncManager.updateTransactionOptimistic(tx.id, req)
                             // MOB-P1-59：提交成功后清空草稿
@@ -1397,7 +1422,7 @@ fun LedgerScreen(
                             onCheckedChange = { isAutoTx = it },
                             colors = CheckboxDefaults.colors(checkedColor = colors.accentWarm)
                         )
-                        Text("同步生成一笔购置支出账目", fontSize = 12.sp, color = colors.inkPrimary)
+                        Text(stringResource(R.string.ledger_screen_sync_purchase), fontSize = 12.sp, color = colors.inkPrimary)
                     }
                 }
             }
@@ -1463,7 +1488,7 @@ fun LedgerScreen(
                         },
                         modifier = Modifier.align(Alignment.End)
                     ) {
-                        Text("彻底删除此设备", fontSize = 11.sp, color = colors.accentWarm)
+                        Text(stringResource(R.string.ledger_screen_delete_equipment), fontSize = 11.sp, color = colors.accentWarm)
                     }
                 }
             }

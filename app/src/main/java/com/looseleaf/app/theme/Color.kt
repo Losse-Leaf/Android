@@ -22,9 +22,6 @@ data class ArchiveColors(
     val frameShadowAmbient: Color,
     val frameShadowSpot: Color,
     val filmMatteBg: Color,
-    val featuredGold: Color,
-    val featuredGoldBg: Color,
-    val featuredGoldBorder: Color,
     /** 相机取景框的纯黑衬底：Preview surface 外的 letterbox 必须是绝对黑，两种模式共用 */
     val cameraViewfinderBg: Color = Color(0xFF000000),
     val isDark: Boolean = false
@@ -47,9 +44,6 @@ val LightArchiveColors = ArchiveColors(
     frameShadowAmbient = Color(0x1F181716),
     frameShadowSpot = Color(0x2E181716),
     filmMatteBg = Color(0xFFE8E5DF),
-    featuredGold = Color(0xFFD48806),
-    featuredGoldBg = Color(0xFFFFF7E6),
-    featuredGoldBorder = Color(0xFFFFD591),
     isDark = false
 )
 
@@ -69,9 +63,6 @@ val DarkArchiveColors = ArchiveColors(
     frameShadowAmbient = Color(0x26000000),
     frameShadowSpot = Color(0x40000000),
     filmMatteBg = Color(0xFF0D0C0B),
-    featuredGold = Color(0xFFFFB84D),
-    featuredGoldBg = Color(0x33D48806),
-    featuredGoldBorder = Color(0x66D48806),
     isDark = true
 )
 

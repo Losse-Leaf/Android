@@ -117,7 +117,6 @@ internal fun QuickNoteSheet(
     var noteCityName by remember { mutableStateOf(draftPrefs.getString("city_name", null)) }
     var noteLocation by remember { mutableStateOf(draftPrefs.getString("location", "").orEmpty()) }
     var isLocating by remember { mutableStateOf(false) }
-    var noteFeatured by remember { mutableStateOf(false) }
     var noteOccurredAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
     var isSubmitting by remember { mutableStateOf(false) }
 
@@ -338,7 +337,7 @@ internal fun QuickNoteSheet(
                     onClick = onDismiss,
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                 ) {
-                    Text("取消", color = colors.inkSecondary, fontSize = 14.sp)
+                    Text(stringResource(R.string.quick_note_cancel), color = colors.inkSecondary, fontSize = 14.sp)
                 }
 
                 Text(
@@ -383,7 +382,6 @@ internal fun QuickNoteSheet(
                                                 location = noteLocation.trim().takeIf { it.isNotBlank() },
                                                 cityCode = finalCode,
                                                 cityName = finalCityName,
-                                                featured = noteFeatured
                                             )
                                             syncManager.createMediaEntryOffline(
                                                 localImageFilePath = primary.savedFile.absolutePath,
@@ -403,7 +401,6 @@ internal fun QuickNoteSheet(
                                                 location = noteLocation.trim().takeIf { it.isNotBlank() },
                                                 cityCode = finalCode,
                                                 cityName = finalCityName,
-                                                featured = noteFeatured
                                             )
                                             ArchiveToastManager.show("随笔已归册")
                                         }
@@ -432,7 +429,6 @@ internal fun QuickNoteSheet(
                                                 location = noteLocation.trim().takeIf { it.isNotBlank() },
                                                 cityCode = finalCode,
                                                 cityName = finalCityName,
-                                                featured = noteFeatured,
                                                 footprintId = selectedFootprintId
                                             )
                                             syncManager.createMediaEntryOffline(
@@ -453,7 +449,6 @@ internal fun QuickNoteSheet(
                                                 location = noteLocation.trim().takeIf { it.isNotBlank() },
                                                 cityCode = finalCode,
                                                 cityName = finalCityName,
-                                                featured = noteFeatured,
                                                 footprintId = selectedFootprintId
                                             )
                                             ArchiveToastManager.show("游历手记已归册")
@@ -629,7 +624,7 @@ internal fun QuickNoteSheet(
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Spacer(modifier = Modifier.width(3.dp))
-                                    Text("装裱相纸", fontSize = 11.5.sp, color = colors.accentWarm)
+                                    Text(stringResource(R.string.quick_note_mount_paper), fontSize = 11.5.sp, color = colors.accentWarm)
                                 }
                             }
                         }
@@ -747,7 +742,7 @@ internal fun QuickNoteSheet(
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("相册装裱", fontSize = 12.sp, fontFamily = ArchiveFontFamilies.BodySans)
+                            Text(stringResource(R.string.quick_note_album_mount), fontSize = 12.sp, fontFamily = ArchiveFontFamilies.BodySans)
                         }
                     }
 
@@ -861,33 +856,6 @@ internal fun QuickNoteSheet(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(4.dp))
-                        .clickable { noteFeatured = !noteFeatured }
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // MOB-P1-88：原先是手绘的 16dp 方块 —— 热区只有 16dp（远低于 48dp），
-                    // 且没有 toggleable 语义，读屏只会念出一个「16×16」的图形。
-                    // 改用 M3 Checkbox：自带 48dp 热区、Role.Checkbox 与选中态朗读。
-                    Checkbox(
-                        checked = noteFeatured,
-                        onCheckedChange = { noteFeatured = it },
-                        colors = CheckboxDefaults.colors(
-                            checkedColor = colors.accentWarm,
-                            uncheckedColor = colors.borderDivider
-                        )
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.quick_note_sheet_text_05),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 12.5.sp,
-                        color = if (noteFeatured) colors.accentWarm else colors.inkPrimary
-                    )
-                }
             }
 
             // ==================== 2. 游历 (travel) ====================
@@ -1021,38 +989,6 @@ internal fun QuickNoteSheet(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(4.dp))
-                        .clickable { noteFeatured = !noteFeatured }
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(16.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(if (noteFeatured) colors.accentWarm else colors.archiveSubtle)
-                            .border(
-                                0.8.dp,
-                                if (noteFeatured) colors.accentWarm else colors.borderDivider,
-                                RoundedCornerShape(3.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (noteFeatured) {
-                            Text("✓", fontSize = 11.sp, color = colors.archivePaper, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.quick_note_sheet_text_09),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 12.5.sp,
-                        color = if (noteFeatured) colors.accentWarm else colors.inkPrimary
-                    )
-                }
             }
 
             // ==================== 3. 造物 (project) ====================
@@ -1106,7 +1042,7 @@ internal fun QuickNoteSheet(
                                     shape = RoundedCornerShape(4.dp),
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
-                                    Text("立即立项新造物", fontSize = 12.sp)
+                                    Text(stringResource(R.string.quick_note_create_project), fontSize = 12.sp)
                                 }
                             }
                         }

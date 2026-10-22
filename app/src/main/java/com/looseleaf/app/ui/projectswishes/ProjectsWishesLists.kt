@@ -43,7 +43,7 @@ internal fun ProjectsList(
 
     if (projects.isEmpty()) {
         Box(contentAlignment = Alignment.Center, modifier = modifier.fillMaxSize()) {
-            Text("暂无造物记录", fontFamily = ArchiveFontFamilies.EditorialSerif, color = colors.inkMuted)
+            Text(stringResource(R.string.projects_wishes_empty_projects), fontFamily = ArchiveFontFamilies.EditorialSerif, color = colors.inkMuted)
         }
         return
     }
@@ -171,7 +171,7 @@ internal fun WishesList(
 
         if (filteredWishes.isEmpty()) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().weight(1f)) {
-                Text("暂无匹配的心愿记录", fontFamily = ArchiveFontFamilies.EditorialSerif, color = colors.inkMuted)
+                Text(stringResource(R.string.projects_wishes_empty_wishes), fontFamily = ArchiveFontFamilies.EditorialSerif, color = colors.inkMuted)
             }
             return
         }
@@ -216,7 +216,7 @@ internal fun WishesList(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 if (!isFulfilled) {
                                     TextButton(onClick = { onResolveClick(wish) }) {
-                                        Text("达成归册", fontSize = 12.sp, color = colors.accentMoss)
+                                        Text(stringResource(R.string.projects_wishes_achieve), fontSize = 12.sp, color = colors.accentMoss)
                                     }
                                 } else {
                                     Text(
@@ -287,7 +287,7 @@ internal fun FootprintsList(
 
     if (footprints.isEmpty()) {
         Box(contentAlignment = Alignment.Center, modifier = modifier.fillMaxSize()) {
-            Text("暂无山川足迹记录", fontFamily = ArchiveFontFamilies.EditorialSerif, color = colors.inkMuted)
+            Text(stringResource(R.string.projects_wishes_empty_footprints), fontFamily = ArchiveFontFamilies.EditorialSerif, color = colors.inkMuted)
         }
         return
     }

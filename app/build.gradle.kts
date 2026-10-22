@@ -133,7 +133,6 @@ android {
     }
 
     testOptions {
-        unitTests.isReturnDefaultValues = true
         unitTests.all {
             it.testLogging {
                 events("passed", "skipped", "failed", "standardOut", "standardError")
@@ -159,6 +158,8 @@ dependencies {
     // MOB-P1-20：启动闪屏（消除冷启动的「白闪 → 纸色 → 内容」三段跳变）
     implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    // Replace appcompat with fragment-ktx to remove redundant views and resources
+    implementation("androidx.fragment:fragment-ktx:1.8.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
     // ProcessLifecycleOwner：区分「应用切后台」与「Activity 被系统相机/相册临时盖住」

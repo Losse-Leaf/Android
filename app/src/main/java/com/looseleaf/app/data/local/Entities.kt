@@ -33,7 +33,6 @@ data class CachedEntryEntity(
     @ColumnInfo(name = "location") val location: String? = null,
     @ColumnInfo(name = "city_code") val cityCode: String? = null,
     @ColumnInfo(name = "city_name") val cityName: String? = null,
-    @ColumnInfo(name = "featured") val featured: Boolean? = false,
     @ColumnInfo(name = "project_id") val projectId: Long? = null,
     @ColumnInfo(name = "wish_id") val wishId: Long? = null,
     @ColumnInfo(name = "footprint_id") val footprintId: Long? = null,
@@ -122,7 +121,6 @@ data class CachedProjectEntity(
     @ColumnInfo(name = "category") val category: String? = null,
     @ColumnInfo(name = "status") val status: String? = null,
     @ColumnInfo(name = "github_url") val githubUrl: String? = null,
-    @ColumnInfo(name = "featured") val featured: Boolean? = false,
     @ColumnInfo(name = "order") val order: Int? = 0,
     @ColumnInfo(name = "updated_at") val updatedAt: String? = null
 )

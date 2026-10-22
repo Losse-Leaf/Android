@@ -257,7 +257,7 @@ internal fun ProvinceMemoryDrawerBottomSheet(
                     .clickable(role = Role.Button) { scope.launch { loadDrawer() } }
             )
         } else if (isLoading || d == null) {
-            Text("正在聚合全省行迹票根与属地手记…", fontSize = 12.sp, color = colors.inkMuted, modifier = Modifier.padding(vertical = 16.dp))
+            Text(stringResource(R.string.projects_wishes_fetching_province), fontSize = 12.sp, color = colors.inkMuted, modifier = Modifier.padding(vertical = 16.dp))
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
@@ -282,7 +282,7 @@ internal fun ProvinceMemoryDrawerBottomSheet(
                 }
 
                 if (d.visitedCities.isNotEmpty()) {
-                    Text("到访城市分布", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 12.5.sp, color = colors.inkSecondary)
+                    Text(stringResource(R.string.projects_wishes_city_dist), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 12.5.sp, color = colors.inkSecondary)
                     Row(
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -306,7 +306,7 @@ internal fun ProvinceMemoryDrawerBottomSheet(
                 }
 
                 if (d.entries.isNotEmpty()) {
-                    Text("属地散页手记", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 12.5.sp, color = colors.inkSecondary)
+                    Text(stringResource(R.string.projects_wishes_local_notes), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 12.5.sp, color = colors.inkSecondary)
                     d.entries.take(5).forEach { entry ->
                         Column(
                             modifier = Modifier
@@ -315,7 +315,7 @@ internal fun ProvinceMemoryDrawerBottomSheet(
                                 .background(colors.archiveSubtle)
                                 .padding(8.dp)
                         ) {
-                            Text(text = entry.title.ifBlank { "散页手记" }, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, color = colors.inkPrimary)
+                            Text(text = entry.title.ifBlank { stringResource(R.string.projects_wishes_note_title) }, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, color = colors.inkPrimary)
                             Text(text = FormatUtils.formatDisplayDate(entry.occurredAt), fontSize = 11.sp, fontFamily = ArchiveFontFamilies.MonoScale, color = colors.inkMuted)
                         }
                     }

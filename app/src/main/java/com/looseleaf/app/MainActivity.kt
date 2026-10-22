@@ -178,27 +178,27 @@ class MainActivity : FragmentActivity() {
                     )
                 }
                 CompositionLocalProvider(LocalDensity provides clampedDensity) {
-                // Toast 宿主挂在最外层：配对页（!isPaired）与锁屏页（!isUnlocked）也有
-                // 错误提示——挂在主界面分支里的话，配对阶段的「密钥库不可用」「连接失败」
-                // 会因为没有 Collector 被直接丢弃，新用户入网第一路径零反馈。
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        // MOB-P1-85：全局离线横幅 ——
-                        // 此前「离线」这件事只有时间流页的一枚小徽标在表达，
-                        // 账本 / 造物 / 展台页完全没有任何提示，
-                        // 用户在其它页面断网保存后根本不知道数据还没同步。
-                        OfflineBanner(pendingCount = pendingEventCount)
-                        MainContent(
-                            modifier = Modifier.weight(1f),
-                            isDarkTheme = isDarkTheme,
-                            appearanceMode = appearanceMode,
-                            onAppearanceModeChanged = onAppearanceModeChanged
-                        )
-                    }
+                    // Toast 宿主挂在最外层：配对页（!isPaired）与锁屏页（!isUnlocked）也有
+                    // 错误提示——挂在主界面分支里的话，配对阶段的「密钥库不可用」「连接失败」
+                    // 会因为没有 Collector 被直接丢弃，新用户入网第一路径零反馈。
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // MOB-P1-85：全局离线横幅 ——
+                            // 此前「离线」这件事只有时间流页的一枚小徽标在表达，
+                            // 账本 / 造物 / 展台页完全没有任何提示，
+                            // 用户在其它页面断网保存后根本不知道数据还没同步。
+                            OfflineBanner(pendingCount = pendingEventCount)
+                            MainContent(
+                                modifier = Modifier.weight(1f),
+                                isDarkTheme = isDarkTheme,
+                                appearanceMode = appearanceMode,
+                                onAppearanceModeChanged = onAppearanceModeChanged
+                            )
+                        }
 
-                    // 顶层全局自研纸墨 Toast 通知覆盖层
-                    ArchiveToastHost()
-                }
+                        // 顶层全局自研纸墨 Toast 通知覆盖层
+                        ArchiveToastHost()
+                    }
                 }
             }
         }
@@ -370,6 +370,9 @@ class MainActivity : FragmentActivity() {
                 onConfirm = {
                     showRepairDialog = false
                     isPaired = false
+                    // 彻底清除会话状态
+                    credentialStore.deviceToken = null
+                    syncManager.cancelScheduledSync()
                 },
                 onDismiss = { showRepairDialog = false }
             )
@@ -437,7 +440,7 @@ class MainActivity : FragmentActivity() {
                         ),
                         shape = RoundedCornerShape(2.dp)
                     ) {
-                        Text("验证指纹 / 面容解锁", fontFamily = ArchiveFontFamilies.EditorialSerif)
+                        Text(stringResource(R.string.main_activity_verify_biometrics), fontFamily = ArchiveFontFamilies.EditorialSerif)
                     }
                 }
             }
@@ -529,6 +532,9 @@ class MainActivity : FragmentActivity() {
                                 "profile" -> ProfileScreen(
                                     onUnpair = {
                                         isPaired = false
+                                        // 彻底清除会话状态
+                                        credentialStore.deviceToken = null
+                                        syncManager.cancelScheduledSync()
                                     },
                                     onAppearanceModeChanged = onAppearanceModeChanged,
                                     highContrast = highContrastState.value,
