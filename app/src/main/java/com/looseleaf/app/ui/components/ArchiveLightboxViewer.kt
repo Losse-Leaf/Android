@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,6 +32,7 @@ import coil.request.ImageRequest
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import coil.size.Precision
+import coil.size.Scale
 import coil.size.Size
 import androidx.compose.ui.res.stringResource
 import com.looseleaf.app.R
@@ -38,12 +40,17 @@ import com.looseleaf.app.R
 /**
  * 随行暗房全屏相纸灯箱 (ArchiveLightboxViewer)
  * 提供双指捏合缩放、双击还原与全屏暗房银盐观片体验
+ *
+ * @param requestOriginalResolution 兜底入口：仅当用户显式选择「查看原图」时才传 true。
+ * 当前灯箱 UI 没有该入口，默认路径始终按容器尺寸解码；保留此开关而不是在默认路径里
+ * 请求 ORIGINAL，避免高像素照片在解码瞬间 OOM。
  */
 @Composable
 fun ArchiveLightboxViewer(
     imageUrl: String,
     metadataText: String? = null,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    requestOriginalResolution: Boolean = false
 ) {
     val colors = LooseLeafTheme.colors
     var scale by remember { mutableFloatStateOf(1f) }
@@ -90,7 +97,7 @@ fun ArchiveLightboxViewer(
             }
 
             // 图像主视口（支持缩放与拖移）
-            Box(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 8.dp, vertical = 60.dp)
@@ -132,17 +139,40 @@ fun ArchiveLightboxViewer(
                 contentAlignment = Alignment.Center
             ) {
                 val context = LocalContext.current
-                val imageRequest = remember(imageUrl) {
+                val density = LocalDensity.current.density
+                // P0：按容器尺寸 × density 计算解码目标（默认 2× 过采样），
+                // 单边 ≤ 4096 且总像素 ≤ 16MP，避免 12MP/48MP 原图直接解码导致 OOM。
+                val targetSize = remember(maxWidth, maxHeight, density) {
+                    LightboxDecodeSize.compute(
+                        widthDp = maxWidth.value,
+                        heightDp = maxHeight.value,
+                        density = density
+                    )
+                }
+                val imageRequest = remember(imageUrl, targetSize, requestOriginalResolution) {
                     ImageRequest.Builder(context)
                         .data(imageUrl)
                         .crossfade(true)
-                        // 不设 memoryCacheKey：让 Coil 按容器尺寸分别缓存缩略图与全屏大图（AOPT-04b）
+                        // 不设 memoryCacheKey：沿用 Coil 默认 key（同一张图只保留一份），
+                        // 请求尺寸不匹配时 Coil 会自行淘汰重解码（AOPT-04b）
                         .diskCacheKey(imageUrl)
-                        // MOB-P2-66：灯箱是「放大看」的场合 ——
-                        // Coil 默认按**布局尺寸**解码，缩放只是把已解码的位图拉大，
-                        // 4× 放大后就是真实像素马赛克。这里显式请求更大尺寸的解码。
-                        .size(Size.ORIGINAL)
+                        .apply {
+                            if (requestOriginalResolution) {
+                                // 兜底路径：只有用户显式「查看原图」才走这里。
+                                // 当前 UI 未提供入口，默认路径不会命中，避免峰值内存失控。
+                                size(Size.ORIGINAL)
+                            } else {
+                                // MOB-P2-66：灯箱要「放大看」，按布局尺寸解码会在 4× 放大后
+                                // 出现马赛克；这里按容器尺寸过采样，而不是请求整张原图。
+                                // FIT 保证解码宽高都落在目标框内，像素上限才真正成立
+                                // （默认 FILL 遇到宽高比差异大的照片会解出更大的尺寸）。
+                                size(targetSize.width, targetSize.height)
+                                scale(Scale.FIT)
+                            }
+                        }
                         .precision(Precision.INEXACT)
+                        // 硬件位图（API 26+）：解码后驻留 GPU 显存，减少 Java 堆占用。
+                        .allowHardware(true)
                         .build()
                 }
 
