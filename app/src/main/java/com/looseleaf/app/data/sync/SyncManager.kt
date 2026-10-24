@@ -768,7 +768,9 @@ class SyncManager private constructor(private val context: Context) {
      */
     suspend fun updateEntryOptimistic(
         entryId: Long,
-        req: CreateEntryRequest
+        req: CreateEntryRequest,
+        /** 编辑弹窗当前选中的完整附件列表；未同步图文的本地相纸（负 id）也在此。 */
+        selectedAttachments: List<Attachment>? = null
     ) {
         val entity = if (entryId < 0) {
             database.entryDao().getEntryByLocalId(-entryId)
@@ -807,6 +809,8 @@ class SyncManager private constructor(private val context: Context) {
             // file:// 预览、id 为负数，不在服务端附件 id 域内——按 attachmentIds
             // 过滤会把预览全部清空，离线图文条目编辑一次照片就从时间流消失了。
             attachmentsJson = when {
+                // 编辑弹窗给了完整选择集时直接以它为准：本地负数预览也能正确保留/移除。
+                selectedAttachments != null -> json.encodeToString(selectedAttachments)
                 // 删光全部照片：无论是否同步过都必须立即清空本地预览。
                 req.clearAttachments -> "[]"
                 // 已同步条目按服务端附件 id 过滤；未同步条目的本地预览是负数/本地 id，
@@ -818,13 +822,52 @@ class SyncManager private constructor(private val context: Context) {
             },
             syncStatus = newSyncStatus
         )
+        val filesToDelete = mutableListOf<File>()
         database.withTransaction {
             database.entryDao().update(updatedEntity)
+
+            // 未同步图文：把媒体 CREATE 的待上传文件收窄到当前选择，
+            // 避免已删照片仍被 Worker 上传；内容与幂等键保持原样，交给 UPDATE 补发。
+            if (selectedAttachments != null) {
+                val mediaCreate = database.outboxDao().findEventByTarget(
+                    entityType = "media_entry",
+                    localTargetId = entity.localId,
+                    action = "CREATE"
+                )
+                if (mediaCreate != null) {
+                    val mediaPayload = runCatching {
+                        json.decodeFromString<OfflineMediaEntryPayload>(mediaCreate.payload)
+                    }.getOrNull()
+                    if (mediaPayload != null) {
+                        val keptFiles = selectMediaFiles(mediaPayload.files, selectedAttachments)
+                        val keptPaths = keptFiles.map { it.filePath }.toSet()
+                        filesToDelete += mediaPayload.files
+                            .filter { it.filePath !in keptPaths }
+                            .map { File(it.filePath) }
+                        val patched = mediaPayload.copy(
+                            files = keptFiles,
+                            localImageFilePath = keptFiles.firstOrNull()?.filePath ?: "",
+                            mimeType = keptFiles.firstOrNull()?.mimeType ?: mediaPayload.mimeType,
+                            width = keptFiles.firstOrNull()?.width ?: 0,
+                            height = keptFiles.firstOrNull()?.height ?: 0
+                        )
+                        database.outboxDao().insert(
+                            mediaCreate.copy(payload = json.encodeToString(patched))
+                        )
+                    }
+                }
+            }
 
             // 编辑不覆盖已投递的 CREATE（可能服务端已按旧内容建档、只是响应丢失）。
             // 保持 CREATE 的原始载荷与幂等键，另起一条 UPDATE 携带最新内容：
             // CREATE 成功后把 server_target_id 绑定到 UPDATE，再按序补发。
-            val updatePayload = req.copy(clientRequestId = null)
+            val updatePayload = req.copy(
+                clientRequestId = null,
+                attachmentIds = selectedAttachments
+                    ?.mapNotNull { it.id.takeIf { id -> id > 0 } }
+                    ?: req.attachmentIds,
+                clearAttachments = selectedAttachments?.isEmpty() ?: req.clearAttachments
+            )
             val existingUpdate = database.outboxDao().findEventByTarget(
                 entityType = "entry",
                 localTargetId = entity.localId,
@@ -852,6 +895,9 @@ class SyncManager private constructor(private val context: Context) {
                 )
             }
         }
+
+        // 事务成功后才删除被移除的相纸文件；事务回滚时文件仍在，CREATE 仍可正常上传。
+        filesToDelete.forEach { runCatching { it.delete() } }
 
         notifyLocalWrite()
         scheduleSync()
@@ -1640,16 +1686,19 @@ class SyncManager private constructor(private val context: Context) {
                         database.outboxDao().delete(event)
                     }
                     "UPDATE" -> {
-                        val local = database.entryDao().getEntryByLocalId(event.localTargetId)
-                        val targetId = event.serverTargetId ?: local?.serverId
+                        // 同一轮 flush 内事件可能已被合并编辑 / 补绑服务端 id，
+                        // 不能继续使用 Worker 启动时的旧快照载荷。
+                        val current = database.outboxDao().findEventById(event.eventId) ?: return
+                        val local = database.entryDao().getEntryByLocalId(current.localTargetId)
+                        val targetId = current.serverTargetId ?: local?.serverId
                         if (targetId == null || targetId <= 0) {
                             // CREATE 尚未完成（响应丢失/仍在队列）：保留 UPDATE，
                             // 等 CREATE 成功后由 bindPendingUpdatesToServerId 补绑再发。
-                            if (local == null) database.outboxDao().delete(event)
+                            if (local == null) database.outboxDao().delete(current)
                             return
                         }
                         try {
-                            val req = json.decodeFromString<CreateEntryRequest>(event.payload)
+                            val req = json.decodeFromString<CreateEntryRequest>(current.payload)
                             val serverEntry = apiClient.updateEntry(targetId, req)
                             // 用服务端权威响应回写附件列表：编辑时新增的照片
                             // 只存在于服务端（本地 attachmentsJson 里没有），
@@ -1663,15 +1712,15 @@ class SyncManager private constructor(private val context: Context) {
                                     )
                                 )
                             } else {
-                                database.entryDao().markSynced(event.localTargetId, serverEntry.id)
+                                database.entryDao().markSynced(current.localTargetId, serverEntry.id)
                             }
-                            database.outboxDao().delete(event)
+                            database.outboxDao().delete(current)
                         } catch (e: APIException) {
                             // 服务端已删（网页/其他设备）：本地修改已无处可去，
                             // 与 DELETE 同样宽容地消费事件，而不是反复重试进失败态
                             if (e.code == 404) {
-                                database.entryDao().deleteByLocalId(event.localTargetId)
-                                database.outboxDao().delete(event)
+                                database.entryDao().deleteByLocalId(current.localTargetId)
+                                database.outboxDao().delete(current)
                             } else {
                                 throw e
                             }
@@ -1771,6 +1820,32 @@ class SyncManager private constructor(private val context: Context) {
                     database.outboxDao().bindPendingUpdatesToServerId(
                         "entry", event.localTargetId, serverEntry.id
                     )
+                    // 编辑期间排队的 UPDATE 里只有当时已知的 id；本次 CREATE 上传的
+                    // 保留相纸现在拿到了服务端 id，补进 UPDATE 才能精确替换附件集合。
+                    val pendingUpdate = database.outboxDao().findEventByTarget(
+                        "entry", event.localTargetId, "UPDATE"
+                    )
+                    if (pendingUpdate != null) {
+                        val updateReq = runCatching {
+                            json.decodeFromString<CreateEntryRequest>(pendingUpdate.payload)
+                        }.getOrNull()
+                        if (updateReq != null) {
+                            val finalIds = (
+                                (updateReq.attachmentIds ?: emptyList()) +
+                                    uploadedAttachments.map { it.id }
+                                ).distinct()
+                            database.outboxDao().insert(
+                                pendingUpdate.copy(
+                                    payload = json.encodeToString(
+                                        updateReq.copy(
+                                            attachmentIds = finalIds.takeIf { it.isNotEmpty() },
+                                            clearAttachments = finalIds.isEmpty()
+                                        )
+                                    )
+                                )
+                            )
+                        }
+                    }
 
                     // 先删事件、后删本地文件：若中途崩溃，重试时事件已不在，
                     // 顶多留下一个孤儿文件（可被清理），绝不出现「文件没了但事件还在」
@@ -1799,22 +1874,23 @@ class SyncManager private constructor(private val context: Context) {
                         database.outboxDao().delete(event)
                     }
                     "UPDATE" -> {
-                        val local = database.transactionDao().getTransactionByLocalId(event.localTargetId)
-                        val targetServerId = event.serverTargetId ?: local?.serverId
+                        val current = database.outboxDao().findEventById(event.eventId) ?: return
+                        val local = database.transactionDao().getTransactionByLocalId(current.localTargetId)
+                        val targetServerId = current.serverTargetId ?: local?.serverId
                         if (targetServerId == null || targetServerId <= 0) {
                             // CREATE 尚未完成：保留 UPDATE，等它拿到服务端 id 后再补发。
-                            if (local == null) database.outboxDao().delete(event)
+                            if (local == null) database.outboxDao().delete(current)
                             return
                         }
                         try {
-                            val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
+                            val req = json.decodeFromString<CreateTransactionRequest>(current.payload)
                             apiClient.updateTransaction(targetServerId, req)
-                            database.transactionDao().markSynced(event.localTargetId, targetServerId)
-                            database.outboxDao().delete(event)
+                            database.transactionDao().markSynced(current.localTargetId, targetServerId)
+                            database.outboxDao().delete(current)
                         } catch (e: APIException) {
                             if (e.code == 404) {
-                                database.transactionDao().deleteByLocalId(event.localTargetId)
-                                database.outboxDao().delete(event)
+                                database.transactionDao().deleteByLocalId(current.localTargetId)
+                                database.outboxDao().delete(current)
                             } else {
                                 throw e
                             }
@@ -2105,6 +2181,23 @@ fun Transaction.toCacheEntity(localId: Long): CachedTransactionEntity = CachedTr
     syncStatus = SyncManager.STATUS_SYNCED,
     createdAt = createdAt ?: occurredAt
 )
+
+/**
+ * 把媒体 CREATE 的待上传文件收窄到编辑弹窗的当前选择。
+ *
+ * 本地相纸的 [Attachment.objectKey] 形如 `local_outbox/<file.name>`，
+ * 负 id 表示尚未上传；按文件名与 [OfflineMediaFileItem.filePath] 对应。
+ */
+internal fun selectMediaFiles(
+    files: List<OfflineMediaFileItem>,
+    selected: List<Attachment>
+): List<OfflineMediaFileItem> {
+    val keptNames = selected
+        .filter { it.id < 0 }
+        .map { it.objectKey.substringAfterLast('/') }
+        .toSet()
+    return files.filter { File(it.filePath).name in keptNames }
+}
 
 fun Project.toCacheEntity(): CachedProjectEntity = CachedProjectEntity(
     id = id,

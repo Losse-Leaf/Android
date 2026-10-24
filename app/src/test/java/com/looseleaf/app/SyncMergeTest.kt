@@ -298,6 +298,35 @@ class SyncMergeTest {
         }
     }
 
+    @Test
+    fun `媒体待上传文件按当前选择集收窄`() {
+        val files = listOf(
+            com.looseleaf.app.data.sync.OfflineMediaFileItem(filePath = "/tmp/a.jpg"),
+            com.looseleaf.app.data.sync.OfflineMediaFileItem(filePath = "/tmp/b.jpg"),
+            com.looseleaf.app.data.sync.OfflineMediaFileItem(filePath = "/tmp/c.jpg")
+        )
+        val selected = listOf(
+            com.looseleaf.app.model.Attachment(
+                id = -2L,
+                objectKey = "local_outbox/a.jpg",
+                originalFilename = "a.jpg",
+                mimeType = "image/jpeg",
+                size = 0,
+                url = "file:///tmp/a.jpg"
+            ),
+            com.looseleaf.app.model.Attachment(
+                id = 99L,
+                objectKey = "entries/server.jpg",
+                originalFilename = "server.jpg",
+                mimeType = "image/jpeg",
+                size = 0,
+                url = "https://example.com/server.jpg"
+            )
+        )
+        val kept = com.looseleaf.app.data.sync.selectMediaFiles(files, selected)
+        assertEquals(listOf("/tmp/a.jpg"), kept.map { it.filePath })
+    }
+
     /** 简单的协程桥接 */
     private fun <T> runBlocking(block: suspend () -> T): T {
         var result: T? = null

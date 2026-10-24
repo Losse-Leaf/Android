@@ -968,9 +968,9 @@ fun StreamScreen(
                     detailDialogEntry = null
                     if (!isWideLayout) selectedEntryForDetail = null
                 },
-                onSaveEdit = { req ->
+                onSaveEdit = { req, selectedAttachments ->
                     scope.launch {
-                        syncManager.updateEntryOptimistic(activeEntry.id, req)
+                        syncManager.updateEntryOptimistic(activeEntry.id, req, selectedAttachments)
                         ArchiveToastManager.show("已修订归册")
                         detailDialogEntry = null
                         // MOB-P1-xx：与 onDismiss 的清理规则保持一致 ——

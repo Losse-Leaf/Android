@@ -345,6 +345,10 @@ interface OutboxDao {
     )
     suspend fun findEventByTarget(entityType: String, localTargetId: Long, action: String): OutboxEventEntity?
 
+    /** 投递前重读最新载荷：同一轮 flush 内事件可能被合并编辑或补绑服务端 id。 */
+    @Query("SELECT * FROM outbox_events WHERE event_id = :eventId")
+    suspend fun findEventById(eventId: String): OutboxEventEntity?
+
     @Query("SELECT * FROM outbox_events WHERE failed_at IS NOT NULL ORDER BY failed_at DESC")
     suspend fun getFailedEvents(): List<OutboxEventEntity>
 

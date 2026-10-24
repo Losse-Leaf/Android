@@ -57,7 +57,7 @@ internal fun EntryDetailSheetDialog(
     entry: LifeEntry,
     apiClient: APIClient,
     onDismiss: () -> Unit,
-    onSaveEdit: (CreateEntryRequest) -> Unit,
+    onSaveEdit: (CreateEntryRequest, List<Attachment>) -> Unit,
     onDelete: () -> Unit,
     onPhotoClick: (String, String?) -> Unit
 ) {
@@ -397,7 +397,7 @@ internal fun EntryDetailSheetDialog(
                                 // 单发 attachment_ids: [] 会被服务端按「保持原值」忽略
                                 clearAttachments = finalAttachmentIds.isEmpty()
                             )
-                            onSaveEdit(req)
+                            onSaveEdit(req, editAttachments)
                         }
                     )
                 } else {
