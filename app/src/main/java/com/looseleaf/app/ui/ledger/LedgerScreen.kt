@@ -1092,8 +1092,9 @@ fun LedgerScreen(
                                 amount = cents,
                                 type = editType,
                                 category = editCategory.trim(),
-                                title = editTitle.trim().ifBlank { editCategory.trim() },
-                                note = editNote.trim().takeIf { it.isNotBlank() },
+                                // 空串是显式清空；列表展示层已有「空标题回退类目」。
+                                title = editTitle.trim(),
+                                note = editNote.trim(),
                                 paymentMethod = editPaymentMethod.trim(),
                                 // 契约 A：清空属地不再被「省略 = 保持原值」吞掉——
                                 // 城市选择器清空后发 clear_city: true，本地乐观写同步清空，

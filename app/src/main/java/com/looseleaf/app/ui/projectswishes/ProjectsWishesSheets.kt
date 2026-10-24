@@ -180,10 +180,11 @@ internal fun EditFootprintSheetDialog(
                         req = CreateFootprintRequest(
                             cityCode = cityCode.ifBlank { footprint.cityCode },
                             cityName = cityName.ifBlank { footprint.cityName },
-                            title = title.trim().takeIf { it.isNotBlank() },
+                            // 空串是显式清空；takeIf 省略会被服务端按保持原值处理。
+                            title = title.trim(),
                             visitedAt = FormatUtils.toBeijingIsoString(visitedAtDt),
                             departedAt = footprint.departedAt,
-                            note = note.trim().takeIf { it.isNotBlank() }
+                            note = note.trim()
                         )
                     )
                     ArchiveToastManager.show("票根已更新")

@@ -355,6 +355,10 @@ interface OutboxDao {
     @Query("SELECT COUNT(*) FROM outbox_events WHERE failed_at IS NULL")
     suspend fun countPendingEvents(): Int
 
+    /** 解绑前警告用：待发 + 失败态都属于「只存在于本机」的数据。 */
+    @Query("SELECT COUNT(*) FROM outbox_events")
+    suspend fun countAllEvents(): Int
+
     @Query("SELECT COUNT(*) FROM outbox_events WHERE failed_at IS NOT NULL")
     fun getFailedEventCountFlow(): Flow<Int>
 
@@ -369,6 +373,19 @@ interface OutboxDao {
 
     @Query("DELETE FROM outbox_events WHERE entity_type = :entityType AND local_target_id = :localTargetId")
     suspend fun deleteByLocalTarget(entityType: String, localTargetId: Long)
+
+    /**
+     * CREATE 拿到服务端 id 后，把同一本地目标待发的 UPDATE 绑定到该 id。
+     *
+     * 这是「CREATE 响应丢失后再编辑」的关键：CREATE 载荷保持首次内容不变，
+     * 后续编辑独立入队为 UPDATE；服务端按幂等键返回旧记录后，UPDATE 才真正把新内容补上去。
+     */
+    @Query(
+        "UPDATE outbox_events SET server_target_id = :serverId, failed_at = NULL, " +
+            "last_error = NULL, retry_count = 0 " +
+            "WHERE entity_type = :entityType AND local_target_id = :localTargetId AND action = 'UPDATE'"
+    )
+    suspend fun bindPendingUpdatesToServerId(entityType: String, localTargetId: Long, serverId: Long)
 
     @Query("DELETE FROM outbox_events")
     suspend fun clearAll()

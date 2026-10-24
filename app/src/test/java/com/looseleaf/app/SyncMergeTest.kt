@@ -233,6 +233,71 @@ class SyncMergeTest {
         }
     }
 
+    @Test
+    fun `撤销删除只移除DELETE事件并保留待同步编辑`() {
+        runBlocking {
+            val entity = localRow(3, 33L, "删除前标题", syncStatus = "PENDING_UPDATE")
+            db.entryDao().insertAll(listOf(entity))
+            // 删除前已有一条待上传的 UPDATE：撤销必须保留它，否则恢复后的行永远停在旧内容。
+            db.outboxDao().insert(
+                OutboxEventEntity(
+                    eventId = "upd-3", entityType = "entry", action = "UPDATE",
+                    payload = "{}", localTargetId = 3L, serverTargetId = 33L
+                )
+            )
+            db.outboxDao().insert(
+                OutboxEventEntity(
+                    eventId = "del-3", entityType = "entry", action = "DELETE",
+                    payload = "{}", localTargetId = 3L, serverTargetId = 33L
+                )
+            )
+            db.entryDao().deleteByLocalId(3)
+
+            val ticket = DeleteUndoTicket(entity = entity, kind = DeleteUndoKind.ENTRY)
+            assertTrue(SyncMerger.undoDeleteEntry(db, ticket))
+
+            val remaining = db.outboxDao().getAllPendingEvents().filter { it.localTargetId == 3L }
+            assertEquals(listOf("UPDATE"), remaining.map { it.action })
+            assertEquals("删除前标题", db.entryDao().getEntryByLocalId(3)?.title)
+        }
+    }
+
+    @Test
+    fun `失败态删除事件不允许撤销`() {
+        runBlocking {
+            val entity = localRow(4, 44L, "失败删除")
+            db.outboxDao().insert(
+                OutboxEventEntity(
+                    eventId = "del-4", entityType = "entry", action = "DELETE",
+                    payload = "{}", localTargetId = 4L, serverTargetId = 44L,
+                    failedAt = "2026-10-24T00:00:00+08:00"
+                )
+            )
+            val ticket = DeleteUndoTicket(entity = entity, kind = DeleteUndoKind.ENTRY)
+            assertEquals(false, SyncMerger.undoDeleteEntry(db, ticket))
+        }
+    }
+
+    @Test
+    fun `解绑计数包含失败事件`() {
+        runBlocking {
+            db.outboxDao().insert(
+                OutboxEventEntity(
+                    eventId = "pending-1", entityType = "entry", action = "CREATE",
+                    payload = "{}", localTargetId = 1L
+                )
+            )
+            db.outboxDao().insert(
+                OutboxEventEntity(
+                    eventId = "failed-1", entityType = "entry", action = "CREATE",
+                    payload = "{}", localTargetId = 2L,
+                    failedAt = "2026-10-24T00:00:00+08:00"
+                )
+            )
+            assertEquals(2, db.outboxDao().countAllEvents())
+        }
+    }
+
     /** 简单的协程桥接 */
     private fun <T> runBlocking(block: suspend () -> T): T {
         var result: T? = null

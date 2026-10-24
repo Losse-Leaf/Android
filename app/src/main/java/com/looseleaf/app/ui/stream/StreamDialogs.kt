@@ -380,8 +380,9 @@ internal fun EntryDetailSheetDialog(
                             val finalAttachmentIds = editAttachments.mapNotNull { it.id.takeIf { id -> id > 0 } }
                             val req = CreateEntryRequest(
                                 type = editType,
-                                title = editTitle.ifBlank { "无题随笔" },
-                                content = editContent.ifBlank { "无文字记录" },
+                                // 空串是显式清空，不能把占位文案当内容写进数据库。
+                                title = editTitle.trim(),
+                                content = editContent.trim(),
                                 occurredAt = FormatUtils.toBeijingIsoString(editOccurredAt),
                                 // 始终带上地点：空串 = 显式清空（后端已支持 key 语义）
                                 location = editLocation.trim(),

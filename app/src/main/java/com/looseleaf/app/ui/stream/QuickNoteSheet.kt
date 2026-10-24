@@ -173,6 +173,18 @@ internal fun QuickNoteSheet(
     var attachedPhotos by remember { mutableStateOf<List<AttachedPhotoItem>>(emptyList()) }
     var isProcessingPhoto by remember { mutableStateOf(false) }
 
+    fun clearAttachedPhotos() {
+        attachedPhotos.forEach { photo -> runCatching { photo.savedFile.delete() } }
+        attachedPhotos = emptyList()
+    }
+
+    // 心愿模式不展示装裱区：从其它形态带过来的相纸不能继续被静默上传。
+    LaunchedEffect(noteType) {
+        if (noteType == "wish" && attachedPhotos.isNotEmpty()) {
+            clearAttachedPhotos()
+        }
+    }
+
     // 未提交就关闭速记抽屉：清掉已落盘的压缩图，避免 outbox_media 无限堆积孤儿文件
     // （DarkroomScreen 有同样的 DisposableEffect 清理，这里此前漏了）
     var noteSubmitted by remember { mutableStateOf(false) }
@@ -520,8 +532,10 @@ internal fun QuickNoteSheet(
                                                 ArchiveToastManager.show("造物进展已归册")
                                             }
                                         } else {
+                                            // 新建造物不展示装裱区：隐藏的相纸不能阻止提交，
+                                            // 也不能在提交成功后留下孤儿文件。
                                             if (attachedPhotos.isNotEmpty()) {
-                                                throw IllegalStateException("新建造物暂不支持照片，请先移除相纸或改用「为已有造物写手记」")
+                                                clearAttachedPhotos()
                                             }
                                             val req = CreateProjectRequest(
                                                 title = projTitle.trim(),

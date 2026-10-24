@@ -229,7 +229,8 @@ fun ProfileScreen(
     var pendingOutboxCount by remember { mutableStateOf(0) }
     LaunchedEffect(showUnpairDialog) {
         if (showUnpairDialog) {
-            pendingOutboxCount = syncManager.pendingEventCountNow()
+            // 失败态事件同样只在本机，清库后无法找回，必须计入警告。
+            pendingOutboxCount = syncManager.unsyncedEventCountNow()
         }
     }
 

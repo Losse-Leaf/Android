@@ -256,7 +256,13 @@ fun StreamScreen(
         // 失败同样标记（进程内不反复自动重试，重试交给用户手上的按钮）。
         if (!SyncManager.isSessionPullDone("stream")) {
             isRetryingStream = true
-            val result = runCatching { syncManager.pullStreamData() }
+            // pullStreamData 本身返回 Result；再套 runCatching 会把
+            // Result.failure 包成「外层成功」，失败被吞掉、首屏永远转圈。
+            val result = try {
+                syncManager.pullStreamData()
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
             isRetryingStream = false
             result.onSuccess {
                 streamLoadError = null
@@ -765,9 +771,16 @@ fun StreamScreen(
                                     if (!isRetryingStream) {
                                         scope.launch {
                                             isRetryingStream = true
-                                            val result = runCatching { syncManager.pullStreamData() }
+                                            val result = try {
+                                                syncManager.pullStreamData()
+                                            } catch (e: Exception) {
+                                                Result.failure(e)
+                                            }
                                             isRetryingStream = false
-                                            result.onSuccess { streamLoadError = null }
+                                            result.onSuccess {
+                                                streamLoadError = null
+                                                SyncManager.markSessionPullDone("stream")
+                                            }
                                             result.onFailure { error ->
                                                 streamLoadError = error.message ?: "无法连接中枢"
                                             }

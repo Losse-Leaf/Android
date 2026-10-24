@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.api.HubUrlPolicy
 import com.looseleaf.app.data.security.CredentialStore
+import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
@@ -112,6 +113,9 @@ fun PairingScreen(
                 credentialStore.deviceToken = resp.deviceToken
                 credentialStore.deviceId = resp.deviceId
                 credentialStore.deviceName = resp.deviceName.ifBlank { chosenName }
+                // 同一进程内重新配对：旧的「本会话已首拉」门禁必须失效，
+                // 否则清空/切换中枢后的页面不会再自动拉取。
+                SyncManager.resetSessionPulls()
                 pairedDeviceId = resp.deviceId
                 pairedHubUrl = resp.hubUrl ?: parsed.hubUrl
                 customDeviceName = resp.deviceName.ifBlank { chosenName }

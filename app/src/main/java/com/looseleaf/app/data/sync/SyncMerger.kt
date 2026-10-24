@@ -119,12 +119,14 @@ internal object SyncMerger {
         ticket: DeleteUndoTicket
     ): Boolean {
         val entity = ticket.entity as? CachedEntryEntity ?: return false
-        val stillQueued = database.outboxDao().getAllPendingEvents().any {
-            it.entityType == "entry" && it.action == "DELETE" && it.localTargetId == entity.localId
-        }
-        if (!stillQueued) return false
+        val deleteEvent = database.outboxDao().findEventByTarget("entry", entity.localId, "DELETE")
+            ?: return false
+        // 失败态 DELETE 可能已在服务端生效（只是响应丢失），恢复会造成幽灵记录。
+        if (deleteEvent.failedAt != null) return false
         database.withTransaction {
-            database.outboxDao().deleteByLocalTarget("entry", entity.localId)
+            // 只撤销这次 DELETE，不能按 localTargetId 清空全部事件：
+            // 那会连带删掉删除前尚未上传的 UPDATE，恢复后的行永远停在旧内容。
+            database.outboxDao().deleteById(deleteEvent.eventId)
             database.entryDao().insertAll(listOf(entity))
         }
         return true
@@ -136,12 +138,11 @@ internal object SyncMerger {
         ticket: DeleteUndoTicket
     ): Boolean {
         val entity = ticket.entity as? CachedTransactionEntity ?: return false
-        val stillQueued = database.outboxDao().getAllPendingEvents().any {
-            it.entityType == "transaction" && it.action == "DELETE" && it.localTargetId == entity.localId
-        }
-        if (!stillQueued) return false
+        val deleteEvent = database.outboxDao().findEventByTarget("transaction", entity.localId, "DELETE")
+            ?: return false
+        if (deleteEvent.failedAt != null) return false
         database.withTransaction {
-            database.outboxDao().deleteByLocalTarget("transaction", entity.localId)
+            database.outboxDao().deleteById(deleteEvent.eventId)
             database.transactionDao().insertAll(listOf(entity))
         }
         return true
