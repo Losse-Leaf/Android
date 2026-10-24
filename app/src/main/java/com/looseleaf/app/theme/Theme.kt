@@ -38,17 +38,19 @@ fun LooseLeafTheme(
     highContrast: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    // MOB-P2-45：高对比度模式下换用更高对比的墨色与更实的分隔线，
-    // 否则低视力用户在纸色背景上很难分辨次级文字与卡片边界。
-    val baseColors = if (darkTheme) DarkArchiveColors else LightArchiveColors
-    val archiveColors = if (highContrast) {
-        baseColors.copy(
-            inkMuted = if (darkTheme) Color(0xFFC9C4BA) else Color(0xFF4F4B44),
-            borderDivider = if (darkTheme) Color(0x66EDE8E1) else Color(0x4D181716),
-            borderSubtle = if (darkTheme) Color(0x40EDE8E1) else Color(0x33181716)
-        )
-    } else {
-        baseColors
+    // AND-7：颜色盘与 M3 ColorScheme 都缓存 —— 原先每次重组都会重建
+    // 两个 ColorScheme（几十个 Color 装箱 + 拷贝），下游全部被判为「参数已变」。
+    val archiveColors = remember(darkTheme, highContrast) {
+        val baseColors = if (darkTheme) DarkArchiveColors else LightArchiveColors
+        if (highContrast) {
+            baseColors.copy(
+                inkMuted = if (darkTheme) Color(0xFFC9C4BA) else Color(0xFF4F4B44),
+                borderDivider = if (darkTheme) Color(0x66EDE8E1) else Color(0x4D181716),
+                borderSubtle = if (darkTheme) Color(0x40EDE8E1) else Color(0x33181716)
+            )
+        } else {
+            baseColors
+        }
     }
 
     // MOB-P1-74：原先只覆写了 7 个角色，其余全部沿用 Material3 基线 ——
@@ -56,7 +58,8 @@ fun LooseLeafTheme(
     // 于是 Switch 的未选中轨道、Checkbox 的未选中描边、原生 AlertDialog 的正文
     // 全都带上了 M3 默认紫调，与「宣纸 + 朱砂」的纸张美学完全冲突。
     // 这里把整套角色映射到大地色盘。
-    val materialColorScheme = if (darkTheme) {
+    val materialColorScheme = remember(darkTheme, highContrast, archiveColors) {
+        if (darkTheme) {
         darkColorScheme(
             primary = archiveColors.accentWarm,
             onPrimary = archiveColors.archivePaper,
@@ -134,6 +137,7 @@ fun LooseLeafTheme(
             surfaceContainerLowest = archiveColors.archivePaper,
             surfaceDim = archiveColors.archiveSubtle
         )
+    }
     }
 
     val view = LocalView.current

@@ -649,7 +649,20 @@ data class CreateEntryRequest(
     @SerialName("project_id") val projectId: Long? = null,
     @SerialName("wish_id") val wishId: Long? = null,
     @SerialName("footprint_id") val footprintId: Long? = null,
-    @SerialName("attachment_ids") val attachmentIds: List<Long>? = null
+    @SerialName("attachment_ids") val attachmentIds: List<Long>? = null,
+    // ── 契约 A:显式清空属地 ──────────────────────────────
+    // 服务端对省略的 city_code 走「保持原值」;清空城市时必须携带 clear_city: true
+    // (clear 优先,city_code 可不携带),否则「清空属地」会被静默忽略、下次拉取又复活。
+    @SerialName("clear_city") val clearCity: Boolean = false,
+    // ── 契约 B:显式解绑全部附件 ──────────────────────────
+    // attachment_ids: [] 单独发送会被服务端按「保持原值」忽略(保护老客户端),
+    // 删光照片时必须同时携带 clear_attachments: true。
+    @SerialName("clear_attachments") val clearAttachments: Boolean = false,
+    // ── 契约 C:幂等创建键 ────────────────────────────────
+    // 发件箱 CREATE 事件创建时生成 UUID 并随载荷持久化,重试复用同一个;
+    // 服务端按它查重,命中直接返回已有记录——worker 在「已建档、未 markSynced」
+    // 窗口被杀后重试不会重复建档。
+    @SerialName("client_request_id") val clientRequestId: String? = null
 )
 
 @Serializable
@@ -686,7 +699,11 @@ data class CreateTransactionRequest(
     @SerialName("installment_months") val installmentMonths: Int? = null,
     @SerialName("installment_monthly_pay") val installmentMonthlyPay: Long? = null,
     @SerialName("installment_remain_months") val installmentRemainMonths: Int? = null,
-    @SerialName("repayment_day") val repaymentDay: Int? = null
+    @SerialName("repayment_day") val repaymentDay: Int? = null,
+    // ── 契约 A:显式清空属地(与 CreateEntryRequest 同语义)──────────
+    @SerialName("clear_city") val clearCity: Boolean = false,
+    // ── 契约 C:幂等创建键(发件箱 CREATE 事件生成,重试复用)────────
+    @SerialName("client_request_id") val clientRequestId: String? = null
 )
 
 @Serializable

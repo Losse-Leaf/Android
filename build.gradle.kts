@@ -7,5 +7,5 @@ plugins {
     id("org.jetbrains.compose") version "1.6.11" apply false
     id("com.google.devtools.ksp") version "2.0.21-1.0.28" apply false
     // MOB-P1-22：Baseline Profile 生成（app 模块启用后即可跑 generateBaselineProfile）
-    id("androidx.baselineprofile") version "1.3.3" apply false
+    id("androidx.baselineprofile") version "1.4.1" apply false
 }

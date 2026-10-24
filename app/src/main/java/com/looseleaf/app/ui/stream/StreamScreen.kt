@@ -63,6 +63,7 @@ import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.security.BiometricHelper
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.OfflineMediaFileItem
+import com.looseleaf.app.data.sync.StreamWindowPage
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.model.AlmanacSummaryResponse
 import com.looseleaf.app.model.Attachment
@@ -249,15 +250,17 @@ fun StreamScreen(
     // 用户看到的只有「一直转圈」，完全无从判断是没配对、还是服务器挂了、还是网络断了。
     var streamLoadError by remember { mutableStateOf<String?>(null) }
     var isRetryingStream by remember { mutableStateOf(false) }
-    var hasPulledStreamThisSession by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        if (!hasPulledStreamThisSession) {
+        // 会话门禁改为**进程级**标志：原先 rememberSaveable 在系统回收进程后恢复时
+        // 仍为 true，新会话里时间流不再首拉，用户对着陈旧数据无提示。
+        // 失败同样标记（进程内不反复自动重试，重试交给用户手上的按钮）。
+        if (!SyncManager.isSessionPullDone("stream")) {
             isRetryingStream = true
             val result = runCatching { syncManager.pullStreamData() }
             isRetryingStream = false
             result.onSuccess {
                 streamLoadError = null
-                hasPulledStreamThisSession = true
+                SyncManager.markSessionPullDone("stream")
             }
             result.onFailure { error ->
                 // 401 单独提示：多半是设备凭据失效（换了密钥 / 重装 / 服务端清了设备表）
@@ -294,51 +297,81 @@ fun StreamScreen(
     val availableYears by syncManager.availableYearsFlow.collectAsStateWithLifecycle()
 
     // ============================================================
-    // MOB-P1-32：时间流改为**分页窗口**
+    // MOB-P1-32 / AND-2：时间流分页窗口 + 增量行模型
     // ============================================================
     // 改造前：把全量档案一次性物化进内存（2 万条 ≈ 20MB 常驻），
     // 再在 Kotlin 侧做分类/年份过滤与行模型装配 —— 每次同步后都要重算一遍。
     // 改造后：
     //   1) 过滤（分类 / 年份）下沉到 SQL，只取当前窗口；
     //   2) 列表只持有「已加载窗口」的数据，内存与数据量解耦；
-    //   3) 行模型装配仍在后台线程（间隔天数 / 时间戳文本 / 属地）。
-    var loadedEntries by remember { mutableStateOf<List<LifeEntry>>(emptyList()) }
-    var streamRows by remember { mutableStateOf<List<StreamRowItem>>(emptyList()) }
+    //   3) 行模型由 StreamRowsBuilder 增量维护：翻页只算新行，
+    //      key 用稳定业务 id（重复 id 才加出现次序号），顶部插入不会洗掉旧 key。
+    val loadedEntries = remember { mutableStateListOf<LifeEntry>() }
+    val streamRows = remember { mutableStateListOf<StreamRowItem>() }
+    val rowsBuilder = remember { StreamRowsBuilder() }
     var totalCount by remember { mutableIntStateOf(0) }
     var hasMore by remember { mutableStateOf(true) }
     var isLoadingMore by remember { mutableStateOf(false) }
+    // 窗口代号：筛选切换 / 同步刷新会让在途的分页结果作废，防止旧页追加到新窗口。
+    var windowGeneration by remember { mutableIntStateOf(0) }
+    // 刷新窗口期间禁止分页：否则「刷新先取 N 条、分页后补一页」时，
+    // 先完成的分页会被后完成的整窗替换吞掉。
+    var isRefreshingWindow by remember { mutableStateOf(false) }
 
     // 热力图计数改为 SQL GROUP BY（不再全表物化）
     val dayCounts by syncManager.dayCountsFlow.collectAsStateWithLifecycle()
 
-    suspend fun loadWindow(offset: Int, limit: Int): List<LifeEntry> =
+    suspend fun loadWindow(offset: Int, limit: Int): StreamWindowPage =
         withContext(Dispatchers.IO) {
-            syncManager.loadStreamPage(selectedFilter, selectedYear, offset, limit)
+            // AND-3：窗口数据与总数在**同一次 IO** 里取回，避免两次调度 / 两次往返
+            syncManager.loadStreamWindow(selectedFilter, selectedYear, offset, limit)
         }
 
     // 1) 筛选 / 年份变化 → 重置窗口并加载第一页
     LaunchedEffect(selectedFilter, selectedYear) {
-        loadedEntries = emptyList()
-        streamRows = emptyList()
+        val generation = ++windowGeneration
+        isLoadingMore = false
+        isRefreshingWindow = true
+        loadedEntries.clear()
+        streamRows.clear()
+        rowsBuilder.clear()
         hasMore = true
-        val first = loadWindow(0, STREAM_PAGE_SIZE)
-        loadedEntries = first
-        totalCount = withContext(Dispatchers.IO) {
-            syncManager.countStreamEntries(selectedFilter, selectedYear)
+        try {
+            val firstPage = loadWindow(0, STREAM_PAGE_SIZE)
+            if (generation != windowGeneration) return@LaunchedEffect
+            loadedEntries.addAll(firstPage.entries)
+            streamRows.addAll(rowsBuilder.replace(firstPage.entries))
+            totalCount = firstPage.totalCount
+            hasMore = firstPage.entries.size < firstPage.totalCount
+        } finally {
+            if (generation == windowGeneration) isRefreshingWindow = false
         }
-        hasMore = first.size < totalCount
     }
 
     // 2) 数据变更（同步完成 / 本地乐观写入）→ 刷新当前窗口（保持滚动位置）
+    //
+    // AND-3：entriesRevisionFlow 在 SyncManager 里已经做了 debounce + conflate，
+    // 一次分页同步最多只在这里触发一次重载（原来每写一页就整窗重载一次）。
     LaunchedEffect(Unit) {
         syncManager.entriesRevisionFlow.collect {
-            val window = maxOf(loadedEntries.size, STREAM_PAGE_SIZE)
-            val refreshed = loadWindow(0, window)
-            loadedEntries = refreshed
-            totalCount = withContext(Dispatchers.IO) {
-                syncManager.countStreamEntries(selectedFilter, selectedYear)
+            val generation = ++windowGeneration
+            isLoadingMore = false
+            isRefreshingWindow = true
+            try {
+                val windowSize = maxOf(loadedEntries.size, STREAM_PAGE_SIZE)
+                val refreshed = loadWindow(0, windowSize)
+                if (generation != windowGeneration) return@collect
+                val rows = rowsBuilder.replace(refreshed.entries)
+                // SnapshotStateList 原地替换：不产生 `loadedEntries + more` 的全量拷贝
+                loadedEntries.clear()
+                loadedEntries.addAll(refreshed.entries)
+                streamRows.clear()
+                streamRows.addAll(rows)
+                totalCount = refreshed.totalCount
+                hasMore = refreshed.entries.size < refreshed.totalCount
+            } finally {
+                if (generation == windowGeneration) isRefreshingWindow = false
             }
-            hasMore = refreshed.size < totalCount
         }
     }
 
@@ -346,11 +379,23 @@ fun StreamScreen(
     LaunchedEffect(listState) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
             .collect { lastVisible ->
-                if (hasMore && !isLoadingMore && lastVisible >= loadedEntries.size - 6) {
+                // loadedEntries 为空时首屏加载与这里会同时取第 1 页，导致整页重复。
+                if (
+                    loadedEntries.isNotEmpty() &&
+                    !isRefreshingWindow &&
+                    hasMore && !isLoadingMore && lastVisible >= loadedEntries.size - 6
+                ) {
                     isLoadingMore = true
-                    val more = loadWindow(loadedEntries.size, STREAM_PAGE_SIZE)
+                    val generation = windowGeneration
+                    val more = loadWindow(loadedEntries.size, STREAM_PAGE_SIZE).entries
+                    if (generation != windowGeneration) {
+                        isLoadingMore = false
+                        return@collect
+                    }
                     if (more.isNotEmpty()) {
-                        loadedEntries = loadedEntries + more
+                        // 增量追加：只算新页的行，旧行对象原样复用
+                        loadedEntries.addAll(more)
+                        streamRows.addAll(rowsBuilder.append(more))
                     }
                     hasMore = more.isNotEmpty()
                     isLoadingMore = false
@@ -358,27 +403,7 @@ fun StreamScreen(
             }
     }
 
-    // 4) 行模型装配（间隔天数 / 时间戳文本 / 属地 / 年份 / 类型小写）在后台线程完成
-    //    —— MOB-P0-05 / MOB-P0-06 / MOB-P0-07
-    LaunchedEffect(loadedEntries) {
-        streamRows = withContext(Dispatchers.Default) {
-            loadedEntries.mapIndexed { index, entry ->
-                StreamRowItem(
-                    entry = entry,
-                    localKey = "${entry.id}#$index",
-                    gapDays = if (index == 0) 0L else FormatUtils.calculateDaysBetween(
-                        entry.occurredAt,
-                        loadedEntries[index - 1].occurredAt
-                    ),
-                    displayTime = FormatUtils.formatDisplayDateTime(entry.occurredAt),
-                    displayPlace = listOfNotNull(entry.cityName, entry.location)
-                        .distinct()
-                        .filter { it.isNotBlank() }
-                        .joinToString(" · "),
-                )
-            }
-        }
-    }
+    // 4) 行模型装配已并入上面的增量路径（AND-2），不再有「loadedEntries 变化 → 全量 mapIndexed」。
 
     // 下拉刷新与顶栏按钮共用的同步动作（AOPT-06）
     val refreshArchive: () -> Unit = {

@@ -37,10 +37,10 @@ internal object SyncMerger {
         json: Json
     ) {
         if (remote.isEmpty()) return
-        val activeRemote = remote.filter { it.deletedAt.isNullOrBlank() }
+        val activeRemote = remote.filter { it.deletedAt.isNullOrBlank() }.distinctBy { it.id }
 
         // 服务端已软删除 → 本地一并移除
-        val softDeleted = remote.filter { !it.deletedAt.isNullOrBlank() }
+        val softDeleted = remote.filter { !it.deletedAt.isNullOrBlank() }.distinctBy { it.id }
         if (softDeleted.isNotEmpty()) {
             database.withTransaction {
                 softDeleted.forEach { database.entryDao().deleteByServerId(it.id) }
@@ -84,8 +84,10 @@ internal object SyncMerger {
         localByServerId: Map<Long, EntrySyncIndex>
     ) {
         if (remote.isEmpty()) return
-        val activeRemote = remote.filter { it.deletedAt.isNullOrBlank() }
-        val softDeleted = remote.filter { !it.deletedAt.isNullOrBlank() }
+        // 分页边界若有重叠，同一 server_id 会在一批里出现两次；
+        // 直接 insertAll 会生成两条同 server_id 的行 → LazyColumn key 冲突。
+        val activeRemote = remote.filter { it.deletedAt.isNullOrBlank() }.distinctBy { it.id }
+        val softDeleted = remote.filter { !it.deletedAt.isNullOrBlank() }.distinctBy { it.id }
         if (softDeleted.isNotEmpty()) {
             database.withTransaction {
                 softDeleted.forEach { database.transactionDao().deleteByServerId(it.id) }

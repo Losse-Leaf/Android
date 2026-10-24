@@ -44,8 +44,6 @@ import androidx.core.content.ContextCompat
 import com.google.zxing.*
 import com.google.zxing.common.GlobalHistogramBinarizer
 import com.google.zxing.common.HybridBinarizer
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import java.io.InputStream
@@ -110,15 +108,10 @@ fun SquareQrScannerView(
         }
     }
 
-    // 全屏扫码器备用选项 (ZXing 原生)
-    val fullscreenScanLauncher = rememberLauncherForActivityResult(
-        contract = ScanContract()
-    ) { result ->
-        val contents = result.contents
-        if (!contents.isNullOrBlank()) {
-            onQrCodeScanned(contents)
-        }
-    }
+    // 全屏扫码备用入口已移除（AND-6）：主路径始终是下方 CameraX 取景器，
+    // 备用入口当年依赖 journeyapps，仅为「预览不可用」时兜底；
+    // 它同时带来一套独立的 Activity / 资源与约 0.3MB 体积。
+    // CameraX 路径本身已覆盖权限、对焦、相册解码与防反光二值化。
 
     if (!hasCameraPermission) {
         Box(
@@ -349,10 +342,10 @@ fun SquareQrScannerView(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // 辅助工具行：相册选取与全屏扫描
+        // 辅助工具行：相册选取
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(
@@ -366,23 +359,6 @@ fun SquareQrScannerView(
                 Icon(painter = painterResource(R.drawable.ic_photo), contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.inkSecondary)
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(stringResource(R.string.scanner_pick_from_album), fontSize = 12.sp, color = colors.inkSecondary, fontFamily = ArchiveFontFamilies.EditorialSerif)
-            }
-
-            TextButton(
-                onClick = {
-                    val options = ScanOptions().apply {
-                        setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                        setOrientationLocked(false)
-                        setPrompt("请对准配对二维码")
-                        setBeepEnabled(true)
-                    }
-                    fullscreenScanLauncher.launch(options)
-                },
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
-            ) {
-                Icon(painter = painterResource(R.drawable.ic_crop_free), contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.accentWarm)
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(stringResource(R.string.scanner_full_screen), fontSize = 12.sp, color = colors.accentWarm, fontFamily = ArchiveFontFamilies.EditorialSerif)
             }
         }
     }

@@ -50,6 +50,7 @@ import com.looseleaf.app.ui.projectswishes.ProjectsWishesScreen
 import com.looseleaf.app.ui.stream.StreamScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
@@ -79,8 +80,11 @@ class MainActivity : FragmentActivity() {
         private const val MAX_FONT_SCALE = 1.5f
     }
 
-    private lateinit var credentialStore: CredentialStore
-    private lateinit var syncManager: SyncManager
+    // AND-7：不再在 onCreate 同步构建这两个单例。
+    // by lazy 保证首次真正使用才初始化；常见冷启动路径（首帧渲染）
+    // 不会因为 KeyStore / Room / WorkManager 而阻塞主线程。
+    private val credentialStore by lazy { CredentialStore.getInstance(this) }
+    private val syncManager by lazy { SyncManager.getInstance(this) }
     private var requestedRouteState = mutableStateOf<String?>(null)
     private var pendingDeepLinkPayloadState = mutableStateOf<String?>(null)
 
@@ -91,10 +95,30 @@ class MainActivity : FragmentActivity() {
     /** MOB-P2-45：高对比度模式（应用内开关） */
     private val highContrastState = mutableStateOf(false)
 
+    /**
+     * 生物识别门禁状态必须放在 Activity 字段并用 SnapshotState 暴露给 Compose：
+     * 之前只用 `remember { mutableStateOf(...) }` + 静态 `sessionUnlocked`，
+     * 切后台时只改了静态变量，Compose 里的 `isUnlocked` 仍是 true ⇒ 回前台不重锁。
+     */
+    private val isUnlockedState = mutableStateOf(false)
+    private val biometricsEnabledState = mutableStateOf(false)
+
     /** MOB-P1-34：进程级生命周期观察者（持有引用，需在 onDestroy 移除） */
     private val processLifecycleObserver = LifecycleEventObserver { _, event ->
-        if (event == Lifecycle.Event.ON_STOP && credentialStore.isBiometricsEnabled) {
-            sessionUnlocked = false
+        when (event) {
+            Lifecycle.Event.ON_STOP -> {
+                if (credentialStore.isBiometricsEnabled) {
+                    sessionUnlocked = false
+                    isUnlockedState.value = false
+                }
+            }
+            Lifecycle.Event.ON_START -> {
+                // 设置页可能刚开关过生物识别，回前台时重新读取，而不是沿用冷启动时的值。
+                val enabled = credentialStore.isBiometricsEnabled
+                biometricsEnabledState.value = enabled
+                isUnlockedState.value = !enabled || sessionUnlocked
+            }
+            else -> Unit
         }
     }
 
@@ -109,9 +133,6 @@ class MainActivity : FragmentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             WindowCompat.setDecorFitsSystemWindows(window, false)
         }
-
-        credentialStore = CredentialStore.getInstance(this)
-        syncManager = SyncManager.getInstance(this)
 
         // 只在「首次创建」时消费 Intent：否则旋转屏幕会把用户拽回快捷方式指定的 Tab
         if (savedInstanceState == null) {
@@ -129,9 +150,12 @@ class MainActivity : FragmentActivity() {
         // 否则每次旋转 / 配置变更都会再叠加一个观察者，
         // 泄漏的 Activity 实例线性增长，且 ON_STOP 被重复触发（重复置锁）。
         ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
+        biometricsEnabledState.value = credentialStore.isBiometricsEnabled
+        isUnlockedState.value = sessionUnlocked || !biometricsEnabledState.value
 
+        // 外观偏好必须在首帧前读到：否则暗房用户冷启动会先闪一下纸色界面。
+        // 这里只读普通 SharedPreferences（非加密存储），开销远小于一次主题闪变。
         appearanceModeState.value = credentialStore.appearanceMode
-        // MOB-P2-45：高对比度开关
         highContrastState.value = credentialStore.highContrast
 
         setContent {
@@ -139,7 +163,9 @@ class MainActivity : FragmentActivity() {
             var pendingEventCount by remember { mutableIntStateOf(0) }
             LaunchedEffect(Unit) {
                 runCatching {
-                    SyncManager.getInstance(this@MainActivity).pendingEventCountFlow.collect { count ->
+                    // AND-7：先显式启动后台基础设施，再订阅计数（幂等）
+                    syncManager.ensureStarted()
+                    syncManager.pendingEventCountFlow.collect { count ->
                         pendingEventCount = count
                     }
                 }
@@ -284,30 +310,53 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        // 生物识别保护触发
-        val canAuth = remember { BiometricHelper.canAuthenticate(this@MainActivity) }
-        var isUnlocked by remember {
-            mutableStateOf(
-                sessionUnlocked || !credentialStore.isBiometricsEnabled || !canAuth
-            )
+        // AND-7：先读应用内开关（普通 Prefs，代价极低）。
+        // 关闭生物识别时**完全不碰** BiometricManager / canAuthenticate；
+        // 开启时才把它放到 IO 线程，首帧先用 null 表示「检测中」。
+        val biometricsEnabled by biometricsEnabledState
+        var canAuth by remember {
+            mutableStateOf<Boolean?>(if (biometricsEnabled) null else true)
+        }
+        // 直接委托到 Activity 字段：ON_STOP 改它，Compose 会立即重锁。
+        var isUnlocked by isUnlockedState
+
+        LaunchedEffect(biometricsEnabled) {
+            if (biometricsEnabled) {
+                val allowed = withContext(Dispatchers.IO) {
+                    BiometricHelper.canAuthenticate(this@MainActivity)
+                }
+                canAuth = allowed
+                // 设备没有任何可用生物识别 / 锁屏口令：与旧行为一致，直接放行
+                if (!allowed) isUnlocked = true
+            }
         }
 
         val biometricUnlockTitle = stringResource(R.string.main_activity_title_01)
 
         fun requestBiometricUnlock() {
-            if (credentialStore.isBiometricsEnabled && BiometricHelper.canAuthenticate(this@MainActivity)) {
-                BiometricHelper.authenticate(
-                    activity = this@MainActivity,
-                    title = biometricUnlockTitle,
-                    subtitle = "验证面容或指纹以解锁散页随行手账",
-                    onSuccess = {
-                        sessionUnlocked = true
-                        isUnlocked = true
-                    },
-                    onError = { /* 保持锁屏门禁态 */ }
-                )
-            } else {
+            if (!biometricsEnabled || canAuth == false) {
                 isUnlocked = true
+                return
+            }
+            // 后台检测尚未完成：等 LaunchedEffect(canAuth) 再决定，避免主线程同步探测
+            if (canAuth == null) return
+
+            BiometricHelper.authenticate(
+                activity = this@MainActivity,
+                title = biometricUnlockTitle,
+                subtitle = "验证面容或指纹以解锁散页随行手账",
+                onSuccess = {
+                    sessionUnlocked = true
+                    isUnlocked = true
+                },
+                onError = { /* 保持锁屏门禁态 */ }
+            )
+        }
+
+        // 后台检测完成后补一次解锁（首次进入时 ON_START 可能早于检测结果）
+        LaunchedEffect(canAuth) {
+            if (isPaired && !isUnlocked && canAuth == true) {
+                requestBiometricUnlock()
             }
         }
 

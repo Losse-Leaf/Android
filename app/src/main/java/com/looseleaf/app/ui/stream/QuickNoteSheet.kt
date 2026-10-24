@@ -117,10 +117,22 @@ internal fun QuickNoteSheet(
     var noteCityName by remember { mutableStateOf(draftPrefs.getString("city_name", null)) }
     var noteLocation by remember { mutableStateOf(draftPrefs.getString("location", "").orEmpty()) }
     var isLocating by remember { mutableStateOf(false) }
-    var noteOccurredAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
+    // 草稿同样覆盖「发生时刻」（epoch millis）：原先不落草稿，
+    // 意外关闭后重开时正文/属地都恢复、唯独时刻被静默重置为现在。
+    var noteOccurredAt by remember {
+        mutableStateOf(
+            draftPrefs.getString("occurred_at_millis", null)?.toLongOrNull()
+                ?.let { millis ->
+                    java.time.Instant.ofEpochMilli(millis)
+                        .atZone(FormatUtils.BeijingZone)
+                        .toLocalDateTime()
+                }
+                ?: LocalDateTime.now(FormatUtils.BeijingZone)
+        )
+    }
     var isSubmitting by remember { mutableStateOf(false) }
 
-    LaunchedEffect(noteType, noteTitle, noteContent, noteCityCode, noteCityName, noteLocation) {
+    LaunchedEffect(noteType, noteTitle, noteContent, noteCityCode, noteCityName, noteLocation, noteOccurredAt) {
         draftPrefs.edit()
             .putString("type", noteType)
             .putString("title", noteTitle)
@@ -128,6 +140,10 @@ internal fun QuickNoteSheet(
             .putString("city_code", noteCityCode)
             .putString("city_name", noteCityName)
             .putString("location", noteLocation)
+            .putString(
+                "occurred_at_millis",
+                noteOccurredAt.atZone(FormatUtils.BeijingZone).toInstant().toEpochMilli().toString()
+            )
             .apply()
     }
 
@@ -504,6 +520,9 @@ internal fun QuickNoteSheet(
                                                 ArchiveToastManager.show("造物进展已归册")
                                             }
                                         } else {
+                                            if (attachedPhotos.isNotEmpty()) {
+                                                throw IllegalStateException("新建造物暂不支持照片，请先移除相纸或改用「为已有造物写手记」")
+                                            }
                                             val req = CreateProjectRequest(
                                                 title = projTitle.trim(),
                                                 subtitle = projSubtitle.trim().takeIf { it.isNotBlank() },
@@ -515,7 +534,10 @@ internal fun QuickNoteSheet(
                                             )
                                             val queued = withContext(Dispatchers.IO) {
                                                 val q = syncManager.createProjectOrQueue(req)
-                                                if (!q) syncManager.pullStreamData()
+                                                // 拉对数据集：造物页读的是 cached_projects，
+                                                // 只拉时间流（ENTRIES）会让新造物在本会话里
+                                                // 一直不可见（造物页首拉门禁已过）。
+                                                if (!q) syncManager.pullProjectsWishesData()
                                                 q
                                             }
                                             ArchiveToastManager.show(
@@ -528,6 +550,20 @@ internal fun QuickNoteSheet(
                                     "wish" -> {
                                         val budgetCents = FormatUtils.yuanStringToCents(wishBudgetYuan)
                                         val targetIso = wishTargetDate?.atStartOfDay()?.let { FormatUtils.toBeijingIsoString(it) }
+                                        // 心愿支持附件：先上传相纸再带着 attachment_ids 建档。
+                                        // 原先生成的照片被直接丢弃（且提交成功后不再清理），既丢图又留孤儿文件。
+                                        val attachmentIds = withContext(Dispatchers.IO) {
+                                            attachedPhotos.map { photo ->
+                                                ImagePipeline.uploadImage(
+                                                    apiClient = apiClient,
+                                                    file = photo.savedFile,
+                                                    mimeType = photo.processed.mimeType,
+                                                    filename = photo.savedFile.name,
+                                                    width = photo.processed.width,
+                                                    height = photo.processed.height
+                                                ).id
+                                            }
+                                        }
                                         val req = CreateWishRequest(
                                             title = wishTitle.trim(),
                                             kind = wishKind,
@@ -536,11 +572,14 @@ internal fun QuickNoteSheet(
                                             cityCode = if (wishKind == "travel") finalCode else null,
                                             cityName = if (wishKind == "travel") finalCityName else null,
                                             budget = budgetCents,
-                                            targetDate = targetIso
+                                            targetDate = targetIso,
+                                            attachmentIds = attachmentIds.takeIf { it.isNotEmpty() }
                                         )
                                         val queued = withContext(Dispatchers.IO) {
                                             val q = syncManager.createWishOrQueue(req)
-                                            if (!q) syncManager.pullStreamData()
+                                            // 同「立项新造物」：心愿页读的是 cached_wishes，
+                                            // 必须拉 WISHES 数据集，否则新心愿本会话不可见。
+                                            if (!q) syncManager.pullProjectsWishesData()
                                             q
                                         }
                                         ArchiveToastManager.show(
@@ -660,6 +699,10 @@ internal fun QuickNoteSheet(
                                         .clip(CircleShape)
                                         .background(colors.inkPrimary.copy(alpha = 0.65f))
                                         .clickable {
+                                            // 移除即删盘上的临时相纸：否则它既不会被提交
+                                            //（已从列表摘除）也不会被关闭清理（仍被列表外的
+                                            // 无人引用），成为 outbox_media 里的永久孤儿文件。
+                                            runCatching { photo.savedFile.delete() }
                                             attachedPhotos = attachedPhotos.filterIndexed { i, _ -> i != idx }
                                         },
                                     contentAlignment = Alignment.Center
@@ -1281,7 +1324,10 @@ internal fun QuickNoteSheet(
                         placeholder = stringResource(R.string.quick_note_sheet_placeholder_11)
                     )
 
-                    PhotoMountingSection()
+                    // 心愿模式不提供装裱入口：提交分支不携带附件（attachment_ids 未接线），
+                    // 装了也只是既不上传也不清理、留给 outbox_media 变孤儿文件。
+                    // 需要给心愿配图时请先在别处上传后再编辑心愿附件。
+                    // PhotoMountingSection()
                 }
             }
 

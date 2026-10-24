@@ -201,6 +201,9 @@ class CredentialStore private constructor(context: Context) {
      *
      * 存储上仍以 isDarkroomMode 布尔为事实源并追加 mode 键：
      * 旧版只写了布尔值，读取时若 mode 键缺失则按布尔回退，升级用户外观不跳变。
+     *
+     * 两个键都**不存在**（全新安装）时默认 SYSTEM——原先回落 PAPER，
+     * 新装机会因此停在「暖色棉纸」而不跟随系统深色，与「跟随系统」的默认预期不符。
      */
     var appearanceMode: AppearanceMode
         get() {
@@ -208,11 +211,15 @@ class CredentialStore private constructor(context: Context) {
             if (raw != null) {
                 return runCatching { AppearanceMode.valueOf(raw) }.getOrDefault(AppearanceMode.SYSTEM)
             }
-            return if (settings.getBoolean(KEY_DARKROOM_MODE, false)) {
-                AppearanceMode.DARKROOM
-            } else {
-                AppearanceMode.PAPER
+            if (settings.contains(KEY_DARKROOM_MODE)) {
+                // 旧版升级：按布尔键回退，外观不跳变
+                return if (settings.getBoolean(KEY_DARKROOM_MODE, false)) {
+                    AppearanceMode.DARKROOM
+                } else {
+                    AppearanceMode.PAPER
+                }
             }
+            return AppearanceMode.SYSTEM
         }
         set(value) {
             settings.edit()

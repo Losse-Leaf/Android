@@ -165,10 +165,11 @@ class FeaturedColumnMigrationTest {
         helper.close()
 
         val context = ApplicationProvider.getApplicationContext<Context>()
-        // 用 Room 打开同一个文件：Room 会跑 MIGRATION_7_8，并在迁移后
-        // 用 8.json 校验真实表结构 —— 结构对不上会直接抛异常。
+        // 用 Room 打开同一个文件：Room 会跑 MIGRATION_7_8（随后接 MIGRATION_8_9
+        // 把 occurred_at 归一为 +08:00），并在迁移后用 9.json 校验真实表结构 ——
+        // 结构对不上会直接抛异常。
         val room = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_7_8)
+            .addMigrations(AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9)
             .allowMainThreadQueries()
             .build()
 
@@ -223,7 +224,7 @@ class FeaturedColumnMigrationTest {
 
         val context = ApplicationProvider.getApplicationContext<Context>()
         val room = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_7_8)
+            .addMigrations(AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9)
             .allowMainThreadQueries()
             .build()
         val sqlite = room.openHelper.writableDatabase

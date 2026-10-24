@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.looseleaf.app.data.api.APIClient
+import com.looseleaf.app.data.api.APIException
 import com.looseleaf.app.data.local.LedgerRepository
 import com.looseleaf.app.data.local.ProfileRepository
 import com.looseleaf.app.data.security.AppearanceMode
@@ -207,10 +208,10 @@ fun ProfileScreen(
         }
     }
 
-    var hasInitializedProfile by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(hasInitializedProfile) {
-        if (!hasInitializedProfile) {
+    LaunchedEffect(Unit) {
+        // 会话门禁改为**进程级**标志：原先 rememberSaveable 在系统回收进程后恢复时
+        // 仍为 true，新会话里展台页不再首拉档案，用户对着陈旧数据无提示。
+        if (!SyncManager.isSessionPullDone("profile")) {
             runCatching {
                 val remoteProfile = apiClient.fetchCuratorProfile()
                 ProfileRepository.updateProfile(context, remoteProfile)
@@ -219,7 +220,16 @@ fun ProfileScreen(
                 ProfileRepository.updateSiteConfig(context, remoteConfig)
                 siteConfig = remoteConfig
             }
-            hasInitializedProfile = true
+            SyncManager.markSessionPullDone("profile")
+        }
+    }
+
+    // 解绑确认对话框要交代的「未同步记录」数量：打开对话框时现查，
+    // 让用户在清库前明确知道有 N 条离线内容将被删除。
+    var pendingOutboxCount by remember { mutableStateOf(0) }
+    LaunchedEffect(showUnpairDialog) {
+        if (showUnpairDialog) {
+            pendingOutboxCount = syncManager.pendingEventCountNow()
         }
     }
 
@@ -1041,7 +1051,13 @@ fun ProfileScreen(
                 if (showUnpairDialog) {
                     ArchiveConfirmDialog(
                         title = stringResource(R.string.profile_screen_title_01),
-                        content = "解除后将清除本机 KeyStore 中的 Device Token，本机将无法再向中枢提交任何记录，需重新扫码配对。",
+                        content = if (pendingOutboxCount > 0) {
+                            "解除后将清除本机 KeyStore 中的 Device Token，本机将无法再向中枢提交任何记录，需重新扫码配对。" +
+                                "注意：本机还有 $pendingOutboxCount 条未同步记录（含离线日记/账目/相纸），" +
+                                "解绑将连同删除且**无法找回**。建议先联网同步完成后再解绑。"
+                        } else {
+                            "解除后将清除本机 KeyStore 中的 Device Token，本机将无法再向中枢提交任何记录，需重新扫码配对。"
+                        },
                         confirmText = stringResource(R.string.profile_screen_confirmText_01),
                         isDestructive = true,
                         onConfirm = {
@@ -1049,7 +1065,18 @@ fun ProfileScreen(
                             showUnpairDialog = false
                             scope.launch {
                                 if (!currentDeviceId.isNullOrBlank()) {
-                                    runCatching { apiClient.revokeDevice(currentDeviceId) }
+                                    val revoke = runCatching { apiClient.revokeDevice(currentDeviceId) }
+                                    if (revoke.isFailure) {
+                                        val code = (revoke.exceptionOrNull() as? APIException)?.code
+                                        // 401/404 = 服务端已经不认识这台设备，等价于已吊销。
+                                        if (code !in listOf(401, 404)) {
+                                            ArchiveToastManager.show(
+                                                "解除失败：无法联系中枢，本机数据与待同步记录均未清除，请联网后重试",
+                                                isError = true
+                                            )
+                                            return@launch
+                                        }
+                                    }
                                 }
                                 syncManager.cancelScheduledSync()
                                 runCatching { syncManager.clearAllLocalData() }

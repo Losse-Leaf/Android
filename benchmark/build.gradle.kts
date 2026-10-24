@@ -17,6 +17,25 @@ android {
     // 基准测试需要访问被测 App 的内部状态（读取 SharedPreferences 里的中枢地址等）
     targetProjectPath = ":app"
 
+    // 被测 App 有 public / lan 两个分发变体；基准模块必须声明同名 flavor，
+    // 否则 Gradle 无法在 lanNonMinifiedRelease / publicNonMinifiedRelease
+    // 之间做出选择，generatePublicReleaseBaselineProfile 会在依赖解析阶段直接失败。
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("public") {
+            dimension = "distribution"
+            buildConfigField("String", "TESTED_PACKAGE", "\"com.looseleaf.app\"")
+        }
+        create("lan") {
+            dimension = "distribution"
+            buildConfigField("String", "TESTED_PACKAGE", "\"com.looseleaf.app.lan\"")
+        }
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -33,7 +52,7 @@ dependencies {
     implementation("androidx.test.uiautomator:uiautomator:2.3.0")
     implementation("androidx.test:runner:1.6.2")
     implementation("androidx.test:rules:1.6.1")
-    implementation("androidx.benchmark:benchmark-macro-junit4:1.3.3")
+    implementation("androidx.benchmark:benchmark-macro-junit4:1.4.1")
 }
 
 baselineProfile {

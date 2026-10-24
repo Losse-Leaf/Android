@@ -35,6 +35,8 @@ import com.looseleaf.app.data.security.BiometricHelper
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.data.local.LedgerRepository
+import com.looseleaf.app.data.local.MonthlyTotalsRow
+import com.looseleaf.app.data.local.monthRangeOf
 import com.looseleaf.app.model.*
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
@@ -71,8 +73,6 @@ fun LedgerScreen(
     val syncManager = remember { SyncManager.getInstance(context) }
     val credentialStore = remember { CredentialStore.getInstance(context) }
     val apiClient = remember { APIClient.getInstance(context) }
-
-    val transactions by syncManager.transactionsFlow.collectAsStateWithLifecycle()
 
     // 分类 / 支付方式 / 信贷渠道 / 资产大盘的生命周期与进程一致，切 Tab 不再丢状态
     val ledgerSnapshot by LedgerRepository.snapshot.collectAsStateWithLifecycle()
@@ -174,6 +174,19 @@ fun LedgerScreen(
         mutableStateOf(YearMonth.now(FormatUtils.BeijingZone))
     }
 
+    // AND-4：账本页只订阅**当月**流水；汇总与分类占比由 SQL 聚合后单独下发，
+    // 不再把全量流水物化到 Compose 里做月份 filter + 三遍遍历。
+    val monthRange = remember(selectedYearMonth) { monthRangeOf(selectedYearMonth) }
+    val transactions by remember(monthRange) {
+        syncManager.transactionsForMonth(monthRange)
+    }.collectAsStateWithLifecycle(emptyList())
+    val monthlyTotals by remember(monthRange) {
+        syncManager.monthlyTotalsFlow(monthRange)
+    }.collectAsStateWithLifecycle(MonthlyTotalsRow())
+    val monthlyCategoryTotals by remember(monthRange) {
+        syncManager.monthlyCategoryTotalsFlow(monthRange)
+    }.collectAsStateWithLifecycle(emptyList())
+
     // MOB-P1-87：账本各 Tab 此前**没有任何错误态** ——
     // 拉取失败时列表只是「空着」，用户完全无法区分「真的没有账目」与「没拉到」。
     var ledgerLoadError by remember { mutableStateOf<String?>(null) }
@@ -197,14 +210,16 @@ fun LedgerScreen(
         }
     }
 
-    var hasPulledThisSession by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        if (!hasPulledThisSession) {
+        // 会话门禁改为**进程级**标志：原先用 rememberSaveable，系统回收进程后
+        // 从 savedInstanceState 恢复时标志仍为 true，这个新会话里账本页
+        // 永远不做首次拉取，用户对着陈旧数据无提示。
+        if (!SyncManager.isSessionPullDone("ledger")) {
             // MOB-P1-37 遗留：账目流水来自本地库（Room），而拆分后各页只拉自己渲染的那一类数据 ——
             // 账本页若不在进入时拉一次，「账单明细」永远是 0（只有分类与资产是直连 API 取的）。
             runCatching { syncManager.pullLedgerData() }
             reloadCategoriesAndAssets(forceLoadingSpinner = false)
-            hasPulledThisSession = true
+            SyncManager.markSessionPullDone("ledger")
         }
     }
 
@@ -915,6 +930,8 @@ fun LedgerScreen(
                     ) {
                     TransactionsLedgerTab(
                         transactions = transactions,
+                        monthlyTotals = monthlyTotals,
+                        monthlyCategoryTotals = monthlyCategoryTotals,
                         isPrivacyMasked = isPrivacyMasked,
                         isRefreshing = isRefreshingLedger,
                         selectedYearMonth = selectedYearMonth,
@@ -987,7 +1004,17 @@ fun LedgerScreen(
                 )
             }
             var editOccurredAt by remember(tx.id) {
-                mutableStateOf(FormatUtils.parseToLocalDateTime(tx.occurredAt))
+                // 草稿同样覆盖「发生时间」（epoch millis）：原先不落草稿，
+                // 误关抽屉重开后金额/分类/分期全部恢复、唯独日期被静默重置回原值。
+                mutableStateOf(
+                    draftStore.getString("${draftPrefix}occurred_at_millis")?.toLongOrNull()
+                        ?.let { millis ->
+                            java.time.Instant.ofEpochMilli(millis)
+                                .atZone(FormatUtils.BeijingZone)
+                                .toLocalDateTime()
+                        }
+                        ?: FormatUtils.parseToLocalDateTime(tx.occurredAt)
+                )
             }
             var editIsInstallment by remember(tx.id) {
                 mutableStateOf(draftStore.getString("${draftPrefix}installment")?.toBoolean() ?: (tx.isInstallment ?: false))
@@ -1015,7 +1042,7 @@ fun LedgerScreen(
             // 字段变化即落草稿
             LaunchedEffect(
                 editAmountYuan, editType, editCategory, editTitle, editNote,
-                editPaymentMethod, editCityCode, editCityName,
+                editPaymentMethod, editCityCode, editCityName, editOccurredAt,
                 editIsInstallment, editInstallmentChannelCode, editInstallmentMonths, editRepaymentDay
             ) {
                 draftStore.putString("${draftPrefix}amount", editAmountYuan)
@@ -1026,6 +1053,10 @@ fun LedgerScreen(
                 draftStore.putString("${draftPrefix}payment", editPaymentMethod)
                 draftStore.putString("${draftPrefix}city_code", editCityCode)
                 draftStore.putString("${draftPrefix}city_name", editCityName)
+                draftStore.putString(
+                    "${draftPrefix}occurred_at_millis",
+                    editOccurredAt.atZone(FormatUtils.BeijingZone).toInstant().toEpochMilli().toString()
+                )
                 draftStore.putString("${draftPrefix}installment", editIsInstallment.toString())
                 draftStore.putString("${draftPrefix}channel", editInstallmentChannelCode)
                 draftStore.putString("${draftPrefix}months", editInstallmentMonths.toString())
@@ -1064,7 +1095,11 @@ fun LedgerScreen(
                                 title = editTitle.trim().ifBlank { editCategory.trim() },
                                 note = editNote.trim().takeIf { it.isNotBlank() },
                                 paymentMethod = editPaymentMethod.trim(),
+                                // 契约 A：清空属地不再被「省略 = 保持原值」吞掉——
+                                // 城市选择器清空后发 clear_city: true，本地乐观写同步清空，
+                                // 否则本地显示「无属地」、服务端仍是旧城市，下次拉取又「复活」。
                                 cityCode = editCityCode.trim().takeIf { it.isNotBlank() },
+                                clearCity = editCityCode.isBlank(),
                                 occurredAt = FormatUtils.toBeijingIsoString(editOccurredAt),
                                 wishId = tx.wishId,
                                 footprintId = tx.footprintId,

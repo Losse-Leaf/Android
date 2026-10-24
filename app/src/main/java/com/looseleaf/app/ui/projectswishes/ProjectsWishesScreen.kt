@@ -78,7 +78,6 @@ fun ProjectsWishesScreen(
     val wishes by syncManager.wishesFlow.collectAsStateWithLifecycle()
     val footprints by syncManager.footprintsFlow.collectAsStateWithLifecycle()
 
-    var hasInitializedProjectsWishes by rememberSaveable { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
 
@@ -105,10 +104,12 @@ fun ProjectsWishesScreen(
         isLoading = false
     }
 
-    LaunchedEffect(hasInitializedProjectsWishes) {
-        if (!hasInitializedProjectsWishes) {
+    LaunchedEffect(Unit) {
+        // 会话门禁改为**进程级**标志：原先 rememberSaveable 在系统回收进程后恢复时
+        // 仍为 true，新会话里造物/心愿/足迹不再首拉，用户对着陈旧数据无提示。
+        if (!com.looseleaf.app.data.sync.SyncManager.isSessionPullDone("projects_wishes")) {
             reloadAll(forceLoading = false)
-            hasInitializedProjectsWishes = true
+            com.looseleaf.app.data.sync.SyncManager.markSessionPullDone("projects_wishes")
         }
     }
 

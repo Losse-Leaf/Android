@@ -545,13 +545,12 @@ internal fun StreamEntryCard(
 internal data class StreamRowItem(
     val entry: LifeEntry,
     /**
-     * MOB-P1-xx：LazyColumn 的 item key。
+     * LazyColumn 的 item key（AND-2）。
      *
-     * 不能直接用 entry.id —— 它是 `serverId ?: -localId`，
-     * 而本地库里**可能**残留同 server_id 的重复行（历史脏数据），
-     * 两条行会算出同一个 id ⇒ LazyColumn 抛
-     * `IllegalArgumentException: Key ... was already used` 直接崩。
-     * 这里带上出现序号，保证 key 绝对唯一。
+     * 基础值就是 `entry.id`（`serverId ?: -localId`）；本地库里若残留同 id 的
+     * 重复行（历史脏数据），第二行起追加**出现次序号**，例如 `42#1`。
+     * 序号只与「同一 id 的第几次出现」有关，与全局下标无关 ——
+     * 顶部插入新记录时旧 key 保持不变，LazyColumn 可以继续复用已有行。
      */
     val localKey: String,
     val gapDays: Long,
@@ -559,4 +558,11 @@ internal data class StreamRowItem(
     val displayTime: String,
     /** MOB-P0-06：预拼接的属地字符串 */
     val displayPlace: String,
+    /**
+     * 上一条记录的 key（首条为 null）。
+     *
+     * 间隔天数依赖「上一条是谁」，刷新窗口时用它判断某一行能否原样复用，
+     * 避免为新插入的记录把后面所有行都重新格式化一遍。
+     */
+    val previousKey: String? = null,
 )

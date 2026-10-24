@@ -462,7 +462,6 @@
     <!-- SquareQrScannerView -->
     <string name="scanner_grant_permission">授予相机权限</string>
     <string name="scanner_pick_from_album">从相册选取二维码</string>
-    <string name="scanner_full_screen">全屏扫码器</string>
 
     <!-- ProfileScreen -->
     <string name="profile_screen_drafts">散页手稿</string>

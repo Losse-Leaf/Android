@@ -116,6 +116,35 @@ jobs:
             -PLOOSELEAF_KEY_ALIAS="$LOOSELEAF_KEY_ALIAS" \
             -Pkotlin.compiler.execution.strategy=in-process
 
+      - name: Verify Baseline Profile contains app rules
+        # AND-1：之前 APK 内的 baseline.prof 只有三方库规则（com.looseleaf 计数 = 0），
+        # 等于「装了 Profile 却没预编译自己的代码」。这里同时校验提交的源文件
+        # 与合并后的产物，任一缺失就失败，防止再次静默退化。
+        run: |
+          PROFILE=app/src/main/baseline-prof.txt
+          # 生成 baseline-prof.txt 需要真机/无 GMS 模拟器，CI 无法自行产出。
+          # 文件尚未提交时只告警，不阻断流水线；一旦提交则必须是含应用规则的版本。
+          if [ ! -f "$PROFILE" ]; then
+            echo "::warning title=Baseline Profile 尚未提交::跳过校验（生成方式见 benchmark/BaselineProfileGenerator）"
+            exit 0
+          fi
+          COUNT=$(grep -c 'com\.looseleaf' "$PROFILE" || true)
+          echo "app/src/main/baseline-prof.txt 中 com.looseleaf 规则数：$COUNT"
+          if [ "$COUNT" -le 0 ]; then
+            echo "::error title=Baseline Profile 不含应用规则::请重新生成 baseline-prof.txt（见 benchmark/BaselineProfileGenerator）"
+            exit 1
+          fi
+          # 合并后的 profile 已经过 R8 混淆，包名会被改写成短名，
+          # 不能再按 com.looseleaf 计数。改为验证「产物里确实带了 baseline profile」。
+          APK=app/build/outputs/apk/public/release/app-public-release.apk
+          if [ -f "$APK" ]; then
+            if ! unzip -l "$APK" | grep -Eq 'assets/dexopt/baseline\.(prof|profm)'; then
+              echo "::error title=APK 未包含 baseline profile::baseline-prof.txt 未被构建采纳"
+              exit 1
+            fi
+            echo "APK 已包含 baseline.prof"
+          fi
+
       # MOB-P1-62：公网版与局域网版两个变体都要验签
       - name: Verify Release APK is signed
         run: |

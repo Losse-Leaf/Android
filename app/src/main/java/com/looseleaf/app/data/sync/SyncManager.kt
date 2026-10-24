@@ -52,6 +52,18 @@ data class OfflineMediaEntryPayload(
 )
 
 /**
+ * 时间流一个分页窗口的完整结果（AND-3）。
+ *
+ * [entries] 与 [totalCount] 在**同一次 IO** 里取回 ——
+ * 原先窗口查询与 COUNT 是两次独立的 `withContext(Dispatchers.IO)`，
+ * 每次刷新都要多一次线程切换与一次查询往返。
+ */
+data class StreamWindowPage(
+    val entries: List<LifeEntry>,
+    val totalCount: Int
+)
+
+/**
  * 散页离线优先数据同步调度中枢 (SyncManager)
  * 职责：
  * 1. 0ms 本地乐观入库 (Optimistic UI Update)
@@ -121,6 +133,24 @@ class SyncManager private constructor(private val context: Context) {
         /** project/wish 这类没有本地行的事件用 -1 哨兵，绝不能用 0（会误删全表同类事件） */
         const val LOCAL_TARGET_ID_NONE = -1L
 
+        /**
+         * 各页面「本会话已首拉」的**进程级**门禁。
+         *
+         * 原先各屏用 rememberSaveable 存这个标志：系统回收进程后从 savedInstanceState
+         * 恢复时标志仍是 true ⇒ 这个新会话里该屏幕**永远不做首次增量拉取**，
+         * 用户对着陈旧数据且无任何提示。改成进程级单例后：进程死亡重建 ⇒
+         * object 重建 ⇒ 标志自动失效，恢复的屏幕会重新首拉；
+         * 同进程内的旋转 / 切 Tab 仍被正确跳过。
+         */
+        private val sessionPullDone: MutableSet<String> =
+            java.util.Collections.synchronizedSet(HashSet())
+
+        fun markSessionPullDone(key: String) {
+            sessionPullDone.add(key)
+        }
+
+        fun isSessionPullDone(key: String): Boolean = key in sessionPullDone
+
         /** MOB-P1-32：附件解码记忆化的最大条目数（超出按 LRU 淘汰） */
         private const val ATTACHMENT_MEMO_MAX = 4_000
 
@@ -137,9 +167,13 @@ class SyncManager private constructor(private val context: Context) {
         }
     }
 
-    private val database = AppDatabase.getInstance(context)
-    private val apiClient = APIClient.getInstance(context)
-    private val workManager = WorkManager.getInstance(context)
+    // AND-7：这些依赖原先把 Room / OkHttp / WorkManager 的初始化全部压在
+    // SyncManager 构造期（即 MainActivity.onCreate 的主线程上）。
+    // 改成 lazy 后，getInstance() 只是一次对象分配；真正的重量级初始化
+    // 推迟到首次实际使用（或后台 ensureStarted()）时发生。
+    private val database by lazy { AppDatabase.getInstance(context) }
+    private val apiClient by lazy { APIClient.getInstance(context) }
+    private val workManager by lazy { WorkManager.getInstance(context) }
     private val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
         Log.e("SyncManager", "SyncManager uncaught exception: ${throwable.message}", throwable)
     }
@@ -157,7 +191,6 @@ class SyncManager private constructor(private val context: Context) {
         context.getSharedPreferences(SYNC_PREFS_NAME, Context.MODE_PRIVATE)
     }
 
-    // 观察待同步队列总数 (数据量极小，保持 Eagerly 让徽标即时生效)
     /**
      * MOB-P1-86：是否已完成**首轮**同步。
      * 时间流此前用「entries 为空」同时表达「正在加载」与「本来就没有记录」，
@@ -167,16 +200,72 @@ class SyncManager private constructor(private val context: Context) {
     private val _firstSyncCompleted = MutableStateFlow(false)
     val firstSyncCompletedFlow: StateFlow<Boolean> = _firstSyncCompleted.asStateFlow()
 
-    val pendingEventCountFlow: StateFlow<Int> = database.outboxDao().getPendingEventCountFlow()
-        .catch { emit(0) }
-        .flowOn(Dispatchers.Default)
-        .stateIn(scope, SharingStarted.Eagerly, 0)
+    // AND-7：待同步 / 失败计数原先用 stateIn(scope, Eagerly) —— 构造即订阅两条
+    // Room Flow，冷启动首帧就要进 InvalidationTracker。现在由 ensureStarted()
+    // 显式启动（Application 的 IO 协程里调用），首帧不再触碰数据库。
+    private val _pendingEventCount = MutableStateFlow(0)
+    val pendingEventCountFlow: StateFlow<Int> = _pendingEventCount.asStateFlow()
 
-    // 观察进入失败态、等待用户处置的事件数
-    val failedEventCountFlow: StateFlow<Int> = database.outboxDao().getFailedEventCountFlow()
-        .catch { emit(0) }
-        .flowOn(Dispatchers.Default)
-        .stateIn(scope, SharingStarted.Eagerly, 0)
+    private val _failedEventCount = MutableStateFlow(0)
+    val failedEventCountFlow: StateFlow<Int> = _failedEventCount.asStateFlow()
+
+    @Volatile
+    private var started = false
+
+    /**
+     * AND-7：显式启动 SyncManager 的后台基础设施。
+     *
+     * 幂等；只应从后台协程调用（Application.onCreate 的 appScope / 首帧后的 LaunchedEffect）。
+     */
+    fun ensureStarted() {
+        if (started) return
+        synchronized(this) {
+            if (started) return
+            started = true
+            scope.launch {
+                database.outboxDao().getPendingEventCountFlow()
+                    .catch { emit(0) }
+                    .collect { _pendingEventCount.value = it }
+            }
+            scope.launch {
+                database.outboxDao().getFailedEventCountFlow()
+                    .catch { emit(0) }
+                    .collect { _failedEventCount.value = it }
+            }
+            scope.launch { normalizeLegacyTimestamps() }
+        }
+    }
+
+    /**
+     * 一次性把历史 occurred_at 归一成北京时间 ISO（`+08:00`）。
+     *
+     * 旧版本的本地行可能存过点号格式或带其它偏移的串；账本的月度/按年查询是
+     * 字符串范围比较，混入不同偏移会把记录放进错误月份。只改格式，不改真实时刻。
+     */
+    private suspend fun normalizeLegacyTimestamps() = withContext(Dispatchers.IO) {
+        val key = "timestamps_normalized_v1"
+        if (syncPrefs.getBoolean(key, false)) return@withContext
+        runCatching {
+            database.entryDao().getEntryTimeRows().forEach { row ->
+                val normalized = FormatUtils.normalizeBeijingIsoOrRaw(row.occurredAt)
+                if (normalized != row.occurredAt) {
+                    database.entryDao().updateEntryOccurredAt(row.localId, normalized)
+                }
+            }
+            database.transactionDao().getTransactionTimeRows().forEach { row ->
+                val normalized = FormatUtils.normalizeBeijingIsoOrRaw(row.occurredAt)
+                if (normalized != row.occurredAt) {
+                    database.transactionDao().updateTransactionOccurredAt(row.localId, normalized)
+                }
+            }
+            syncPrefs.edit().putBoolean(key, true).apply()
+        }
+    }
+
+    /** AND-7：供 Application 在后台判断「是否确有积压」，避免无脑唤醒 WorkManager。 */
+    suspend fun pendingEventCountNow(): Int = withContext(Dispatchers.IO) {
+        runCatching { database.outboxDao().countPendingEvents() }.getOrDefault(0)
+    }
 
     // 以下五个档案流改用 WhileSubscribed(5000)：Eagerly 会让 Room InvalidationTracker
     // 在没有任何界面订阅时也持续观察六张表，并把每行 attachmentsJson 反序列化——
@@ -219,14 +308,18 @@ class SyncManager private constructor(private val context: Context) {
     // 观察全量生活档案 (合并本地乐观与云端权威，后台 Default 线程反序列化，0ms 即刻上屏杜绝白屏闪烁)
     // MOB-P1-48：distinctUntilChanged 抑制「表级失效 → 全表重发射」的下游抖动：
     // 内容没变就不通知 UI，避免列表无谓重组。
-    val entriesFlow: StateFlow<List<LifeEntry>> = database.entryDao().getAllEntriesFlow()
-        .catch { emit(emptyList()) }
-        .map { entities ->
-            entities.map { it.toDomainModel(json) { raw -> decodeAttachments(raw) } }
-        }
-        .distinctUntilChanged()
-        .flowOn(Dispatchers.Default)
-        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    // AND-7：所有 DAO 流改为 lazy —— 构造 SyncManager 时不再碰 Room；
+    // 首次真正订阅时才建立观察者（Application 已把它放到 IO 线程预热）。
+    val entriesFlow: StateFlow<List<LifeEntry>> by lazy {
+        flow { emitAll(database.entryDao().getAllEntriesFlow()) }
+            .catch { emit(emptyList()) }
+            .map { entities ->
+                entities.map { it.toDomainModel(json) { raw -> decodeAttachments(raw) } }
+            }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+            .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }
 
     /**
      * 时间流的可用年份。
@@ -234,12 +327,14 @@ class SyncManager private constructor(private val context: Context) {
      * MOB-P1-32：改为 **SQL DISTINCT** —— 原先依赖 entriesFlow（把全量档案物化到内存）
      * 再遍历取年份，等于为了 10 个年份付出全表物化的代价。
      */
-    val availableYearsFlow: StateFlow<List<Int>> = database.entryDao().getAvailableYearStringsFlow()
-        .catch { emit(emptyList()) }
-        .map { list -> list.mapNotNull { it.trim().toIntOrNull() }.sortedDescending() }
-        .distinctUntilChanged()
-        .flowOn(Dispatchers.Default)
-        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val availableYearsFlow: StateFlow<List<Int>> by lazy {
+        flow { emitAll(database.entryDao().getAvailableYearStringsFlow()) }
+            .catch { emit(emptyList()) }
+            .map { list -> list.mapNotNull { it.trim().toIntOrNull() }.sortedDescending() }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+            .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }
 
     /**
      * 热力图的按日计数（SQL GROUP BY）。
@@ -247,12 +342,14 @@ class SyncManager private constructor(private val context: Context) {
      * MOB-P1-32：原先在 Kotlin 侧对全量档案 groupBy + 每条一次日期解析，
      * 2 万条时是 2 万次解析 + 一个巨大的 Map。
      */
-    val dayCountsFlow: StateFlow<Map<String, Int>> = database.entryDao().getDayCountsFlow()
-        .catch { emit(emptyList()) }
-        .map { rows -> rows.associate { it.day to it.count } }
-        .distinctUntilChanged()
-        .flowOn(Dispatchers.Default)
-        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    val dayCountsFlow: StateFlow<Map<String, Int>> by lazy {
+        flow { emitAll(database.entryDao().getDayCountsFlow()) }
+            .catch { emit(emptyList()) }
+            .map { rows -> rows.associate { it.day to it.count } }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+            .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }
 
     /**
      * 往年同月同日的本地条目（不含今年），作为「那年今日」服务端结果缺失时的本地兜底。
@@ -291,7 +388,10 @@ class SyncManager private constructor(private val context: Context) {
                 json.decodeFromString<List<LifeEntry>>(cached)
             }.getOrDefault(emptyList())
         }
-        val fresh = runCatching { apiClient.fetchOnThisDay().entries }.getOrDefault(emptyList())
+        // 失败必须抛出去：原先 getOrDefault(emptyList()) 之后无条件写缓存，
+        // 会把「网络瞬断」缓存成「今天真的没有」，此后一整天不再请求远端。
+        // 现在仅请求成功才写缓存与日期键；失败保留旧缓存，当天内可重试。
+        val fresh = apiClient.fetchOnThisDay().entries
         runCatching {
             syncPrefs.edit()
                 .putString(KEY_ON_THIS_DAY_DATE, todayKey)
@@ -302,17 +402,39 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     /**
-     * MOB-P1-32：数据变更信号（表级失效 → 重新发射）。
+     * MOB-P1-32 / AND-3：数据变更信号（表级失效 → 重新发射）。
      * 时间流用它来感知「同步完成 / 本地乐观写入」，从而刷新当前窗口。
+     *
+     * AND-3：一次全量同步会逐页写入，Room 的表级失效因此会连续发射几十次。
+     * 这里统一做 400ms 去抖 + conflate：同步期间只保留最后一次信号，
+     * 结束后的最后一次刷新不会被吞掉（debounce 仍会在静默窗口后发射末值）。
      */
-    val entriesRevisionFlow: Flow<Long> = database.entryDao().getEntriesRevisionFlow()
-        .catch { emit(0L) }
-        // drop(1)：Room 的 Flow 订阅时会先发一次当前值，
-        // 而首屏加载本来就会读到最新数据，这一次发射是多余的。
-        .drop(1)
+    @OptIn(FlowPreview::class)
+    val entriesRevisionFlow: Flow<Long> by lazy {
+        val roomRevisions = flow { emitAll(database.entryDao().getEntriesRevisionFlow()) }
+            .catch { emit(0L) }
+            // drop(1)：Room 的 Flow 订阅时会先发一次当前值，
+            // 而首屏加载本来就会读到最新数据，这一次发射是多余的。
+            .drop(1)
+            .coalesceBursts()
+        // 本地写入立即通知一次；Room 的批量失效仍按 400ms 合并。
+        merge(roomRevisions, localWriteSignal.map { 0L })
+            // 收集方在 Compose 主线程；把 Room 订阅切到 Default，避免首帧初始化数据库。
+            .flowOn(Dispatchers.Default)
+    }
 
     /**
-     * MOB-P1-32：时间流的**分页加载**入口。
+     * 本地乐观写入的即时信号（不等 Room 的表级失效 + 400ms 去抖）。
+     * 用户自己刚保存的记录应当立刻出现在时间流；同步批量写入仍走去抖管道。
+     */
+    private val _localWriteSignal = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val localWriteSignal: SharedFlow<Unit> = _localWriteSignal.asSharedFlow()
+    private fun notifyLocalWrite() {
+        _localWriteSignal.tryEmit(Unit)
+    }
+
+    /**
+     * MOB-P1-32 / AND-3：时间流的**分页加载**入口。
      *
      * 列表不再把全量档案物化进内存，只按需取当前窗口；
      * 过滤（分类 / 年份）下沉到 SQL，避免在内存里做全表筛选。
@@ -331,38 +453,106 @@ class SyncManager private constructor(private val context: Context) {
         ).map { it.toDomainModel(json) { raw -> decodeAttachments(raw) } }
     }
 
+    /**
+     * AND-3：窗口数据 + 总数一次取回。
+     *
+     * 首屏 / 同步后刷新都走这里，避免「先查窗口再查 COUNT」两次 IO 调度。
+     */
+    suspend fun loadStreamWindow(
+        filter: String,
+        year: Int?,
+        offset: Int,
+        limit: Int
+    ): StreamWindowPage = withContext(Dispatchers.IO) {
+        val dao = database.entryDao()
+        val entries = dao.getEntriesPage(
+            filter = filter,
+            year = year?.toString(),
+            limit = limit,
+            offset = offset
+        ).map { it.toDomainModel(json) { raw -> decodeAttachments(raw) } }
+        StreamWindowPage(
+            entries = entries,
+            totalCount = dao.countEntries(filter = filter, year = year?.toString())
+        )
+    }
+
     /** MOB-P1-32：分页列表的总数 */
     suspend fun countStreamEntries(filter: String, year: Int?): Int = withContext(Dispatchers.IO) {
         database.entryDao().countEntries(filter = filter, year = year?.toString())
     }
 
     // 观察全量记账明细 (合并本地乐观与云端权威，0ms 内存态直出)
-    val transactionsFlow: StateFlow<List<Transaction>> = database.transactionDao().getAllTransactionsFlow()
-        .catch { emit(emptyList()) }
-        .map { entities ->
-            entities.map { it.toTransaction() }
-        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    //
+    // AND-4：保留全量流供搜索/导出等仍需要完整数据的路径使用，
+    // 但补上 distinctUntilChanged —— Room 表级失效会整表重发射，
+    // 内容没变时不必让下游重新映射。
+    val transactionsFlow: StateFlow<List<Transaction>> by lazy {
+        flow { emitAll(database.transactionDao().getAllTransactionsFlow()) }
+            .catch { emit(emptyList()) }
+            .map { entities ->
+                // 拉取中途若出现重复 server_id，至少不能让 UI 因 LazyColumn key 冲突崩溃。
+                // 数据库侧的真正收口见 pullTransactionsDataset。
+                entities.map { it.toTransaction() }.distinctBy { it.id }
+            }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+            .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }
+
+    /**
+     * AND-4：账本页**只观察当月**的流水。
+     *
+     * 月份过滤下推到 SQL（命中 occurred_at 索引），Compose 侧不再拿全量列表
+     * 做 `filter` + 三遍 `sumOf`。
+     */
+    fun transactionsForMonth(range: MonthRange): Flow<List<Transaction>> =
+        flow { emitAll(database.transactionDao().getTransactionsInRangeFlow(range.startIso, range.endIso)) }
+            .catch { emit(emptyList()) }
+            .map { entities -> entities.map { it.toTransaction() }.distinctBy { it.id } }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+
+    /** AND-4：月度收支汇总（SQL 聚合） */
+    fun monthlyTotalsFlow(range: MonthRange): Flow<MonthlyTotalsRow> =
+        flow { emitAll(database.transactionDao().getMonthlyTotalsFlow(range.startIso, range.endIso)) }
+            .catch { emit(MonthlyTotalsRow()) }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+
+    /** AND-4：月度分类支出（SQL GROUP BY） */
+    fun monthlyCategoryTotalsFlow(range: MonthRange): Flow<List<CategoryTotalRow>> =
+        flow { emitAll(database.transactionDao().getMonthlyCategoryTotalsFlow(range.startIso, range.endIso)) }
+            .catch { emit(emptyList()) }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
 
     // 观察全量造物项目 (离线缓存即时上屏)
-    val projectsFlow: StateFlow<List<Project>> = database.projectDao().getAllProjectsFlow()
-        .catch { emit(emptyList()) }
-        .map { entities ->
-            entities.map { it.toProject() }
-        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val projectsFlow: StateFlow<List<Project>> by lazy {
+        flow { emitAll(database.projectDao().getAllProjectsFlow()) }
+            .catch { emit(emptyList()) }
+            .map { entities ->
+                entities.map { it.toProject() }
+            }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }
 
     // 观察全量三维心愿 (离线缓存即时上屏)
-    val wishesFlow: StateFlow<List<Wish>> = database.wishDao().getAllWishesFlow()
-        .catch { emit(emptyList()) }
-        .map { entities ->
-            entities.map { it.toWish(json) }
-        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val wishesFlow: StateFlow<List<Wish>> by lazy {
+        flow { emitAll(database.wishDao().getAllWishesFlow()) }
+            .catch { emit(emptyList()) }
+            .map { entities ->
+                entities.map { it.toWish(json) }
+            }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }
 
     // 观察全量山川足迹 (离线缓存即时上屏)
-    val footprintsFlow: StateFlow<List<Footprint>> = database.footprintDao().getAllFootprintsFlow()
-        .catch { emit(emptyList()) }
-        .map { entities ->
-            entities.map { it.toFootprint(json) }
-        }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val footprintsFlow: StateFlow<List<Footprint>> by lazy {
+        flow { emitAll(database.footprintDao().getAllFootprintsFlow()) }
+            .catch { emit(emptyList()) }
+            .map { entities ->
+                entities.map { it.toFootprint(json) }
+            }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }
 
     /**
      * 将压制后的相纸字节保存至离线发件箱目录
@@ -441,19 +631,24 @@ class SyncManager private constructor(private val context: Context) {
             )
         }
 
+        // 契约 C：幂等创建键在**事件创建时**生成并随载荷持久化，重试复用同一个。
+        // 服务端按它查重——worker 在「已建档、未 markSynced」窗口被中断后重试，
+        // 不会在服务端重复建档。
+        val idempotentReq = req.copy(clientRequestId = UUID.randomUUID().toString())
+
         val entryEntity = CachedEntryEntity(
             localId = 0,
             serverId = null,
-            type = req.type,
-            title = req.title,
-            content = req.content,
-            occurredAt = req.occurredAt,
-            location = req.location,
-            cityCode = req.cityCode,
-            cityName = req.cityName,
-            projectId = req.projectId,
-            wishId = req.wishId,
-            footprintId = req.footprintId,
+            type = idempotentReq.type,
+            title = idempotentReq.title,
+            content = idempotentReq.content,
+            occurredAt = idempotentReq.occurredAt,
+            location = idempotentReq.location,
+            cityCode = idempotentReq.cityCode,
+            cityName = idempotentReq.cityName,
+            projectId = idempotentReq.projectId,
+            wishId = idempotentReq.wishId,
+            footprintId = idempotentReq.footprintId,
             attachmentsJson = json.encodeToString(previewAttachments),
             syncStatus = STATUS_PENDING_CREATE,
             createdAt = FormatUtils.beijingNowIsoString()
@@ -468,7 +663,7 @@ class SyncManager private constructor(private val context: Context) {
                 width = primaryItem?.width ?: width,
                 height = primaryItem?.height ?: height,
                 files = allItems,
-                req = req
+                req = idempotentReq
             )
             database.outboxDao().insert(
                 OutboxEventEntity(
@@ -483,6 +678,7 @@ class SyncManager private constructor(private val context: Context) {
             id
         }
 
+        notifyLocalWrite()
         scheduleSync()
         localId
     }
@@ -521,6 +717,7 @@ class SyncManager private constructor(private val context: Context) {
             syncStatus = STATUS_PENDING_CREATE,
             createdAt = FormatUtils.beijingNowIsoString()
         )
+        // 契约 C：幂等创建键在事件创建时生成、随载荷持久化，重试复用（见 createMediaEntryOffline）
         val req = CreateEntryRequest(
             type = type,
             title = title,
@@ -532,7 +729,8 @@ class SyncManager private constructor(private val context: Context) {
             attachmentIds = attachmentIds,
             projectId = projectId,
             wishId = wishId,
-            footprintId = footprintId
+            footprintId = footprintId,
+            clientRequestId = UUID.randomUUID().toString()
         )
 
         val localId = database.withTransaction {
@@ -550,6 +748,7 @@ class SyncManager private constructor(private val context: Context) {
             id
         }
 
+        notifyLocalWrite()
         scheduleSync()
         return localId
     }
@@ -580,11 +779,28 @@ class SyncManager private constructor(private val context: Context) {
             content = req.content,
             occurredAt = req.occurredAt,
             location = req.location,
-            cityCode = req.cityCode,
-            cityName = req.cityName ?: entity.cityName,
+            // ── 契约 A 的本地落地 ──────────────────────────────
+            // 服务端对省略的 city_code 走「保持原值」，清空城市必须靠 clear_city: true。
+            // 本地乐观写必须同步清空，否则本地显示「无属地」、服务端仍是旧城市，
+            // 两端分叉，下一次增量拉取又把城市「复活」回来。
+            cityCode = if (req.clearCity) null else req.cityCode,
+            cityName = if (req.clearCity) null else (req.cityName ?: entity.cityName),
             projectId = req.projectId ?: entity.projectId,
             wishId = req.wishId ?: entity.wishId,
             footprintId = req.footprintId ?: entity.footprintId,
+            // ── 契约 B 的本地落地 ──────────────────────────────
+            // attachmentIds 非 null 表示「附件集合就是这份」：删掉的照片立即从本地
+            // 消失（原先不重写 attachmentsJson，删掉的照片要等下一次拉取才消失，
+            // 看起来像「删了又回来」）。新增的照片由 UPDATE 成功后的权威回写补齐。
+            //
+            // 仅对**已同步条目**生效：未同步条目（尤其 media_entry）的本地附件是
+            // file:// 预览、id 为负数，不在服务端附件 id 域内——按 attachmentIds
+            // 过滤会把预览全部清空，离线图文条目编辑一次照片就从时间流消失了。
+            attachmentsJson = req.attachmentIds?.takeIf { entity.serverId != null }?.let { requestedIds ->
+                json.encodeToString(
+                    decodeAttachments(entity.attachmentsJson).filter { it.id in requestedIds }
+                )
+            } ?: entity.attachmentsJson,
             syncStatus = newSyncStatus
         )
         database.withTransaction {
@@ -618,18 +834,38 @@ class SyncManager private constructor(private val context: Context) {
                     createEvent == null -> Unit
                     createEvent.entityType == "media_entry" -> {
                         val oldPayload = json.decodeFromString<OfflineMediaEntryPayload>(createEvent.payload)
-                        val newPayload = oldPayload.copy(req = req)
+                        // 契约 C：改写 CREATE 载荷时保留原幂等键——
+                        // 换一个新的会让「编辑过的未同步条目」在服务端失去查重锚点。
+                        val newPayload = oldPayload.copy(
+                            req = req.copy(
+                                clientRequestId = oldPayload.req.clientRequestId
+                                    ?: UUID.randomUUID().toString()
+                            )
+                        )
                         database.outboxDao().insert(
                             createEvent.copy(payload = json.encodeToString(newPayload))
                         )
                     }
-                    else -> database.outboxDao().insert(
-                        createEvent.copy(payload = json.encodeToString(req))
-                    )
+                    else -> {
+                        val oldReq = runCatching {
+                            json.decodeFromString<CreateEntryRequest>(createEvent.payload)
+                        }.getOrNull()
+                        database.outboxDao().insert(
+                            createEvent.copy(
+                                payload = json.encodeToString(
+                                    req.copy(
+                                        clientRequestId = oldReq?.clientRequestId
+                                            ?: UUID.randomUUID().toString()
+                                    )
+                                )
+                            )
+                        )
+                    }
                 }
             }
         }
 
+        notifyLocalWrite()
         scheduleSync()
     }
 
@@ -698,7 +934,9 @@ class SyncManager private constructor(private val context: Context) {
             installmentMonths = installmentMonths,
             installmentMonthlyPay = installmentMonthlyPay,
             installmentRemainMonths = installmentRemainMonths,
-            repaymentDay = repaymentDay
+            repaymentDay = repaymentDay,
+            // 契约 C：幂等创建键在事件创建时生成、随载荷持久化，重试复用（见 createMediaEntryOffline）
+            clientRequestId = UUID.randomUUID().toString()
         )
 
         val localId = database.withTransaction {
@@ -716,6 +954,7 @@ class SyncManager private constructor(private val context: Context) {
             id
         }
 
+        notifyLocalWrite()
         scheduleSync()
         return localId
     }
@@ -748,7 +987,10 @@ class SyncManager private constructor(private val context: Context) {
             note = req.note,
             paymentMethod = req.paymentMethod,
             occurredAt = req.occurredAt,
-            cityCode = req.cityCode,
+            // ── 契约 A 的本地落地（与 updateEntryOptimistic 同语义）──────────
+            // 服务端对省略的 city_code 保持原值；清空属地必须靠 clear_city: true，
+            // 本地乐观写同步清空，避免「清掉了又自己回来」。
+            cityCode = if (req.clearCity) null else req.cityCode,
             wishId = req.wishId ?: entity.wishId,
             footprintId = req.footprintId ?: entity.footprintId,
             // ── 分期三态的本地落地 ──────────────────────────────
@@ -794,13 +1036,25 @@ class SyncManager private constructor(private val context: Context) {
                     action = "CREATE"
                 )
                 if (createEvent != null) {
+                    // 契约 C：改写 CREATE 载荷时保留原幂等键，维持服务端查重锚点。
+                    val oldReq = runCatching {
+                        json.decodeFromString<CreateTransactionRequest>(createEvent.payload)
+                    }.getOrNull()
                     database.outboxDao().insert(
-                        createEvent.copy(payload = json.encodeToString(req))
+                        createEvent.copy(
+                            payload = json.encodeToString(
+                                req.copy(
+                                    clientRequestId = oldReq?.clientRequestId
+                                        ?: UUID.randomUUID().toString()
+                                )
+                            )
+                        )
                     )
                 }
             }
         }
 
+        notifyLocalWrite()
         scheduleSync()
     }
 
@@ -855,6 +1109,7 @@ class SyncManager private constructor(private val context: Context) {
             database.entryDao().deleteByLocalId(entity.localId)
         }
         orphanMediaPaths.forEach { path -> runCatching { File(path).delete() } }
+        notifyLocalWrite()
         // MOB-P2-47：给「撤销」留出宽限期（立即上传的话撤销就永远赶不上）
         scheduleDelayedSync(DELETE_GRACE_PERIOD_MS)
 
@@ -863,9 +1118,18 @@ class SyncManager private constructor(private val context: Context) {
         return if (undoable) DeleteUndoTicket(entity = entity, kind = DeleteUndoKind.ENTRY) else null
     }
 
-    /** MOB-P2-47：撤销一次删除（实现见 [SyncMerger]） */
+    /**
+     * MOB-P2-47：撤销一次删除（实现见 [SyncMerger]）。
+     *
+     * 必须在 [outboxMutex] 临界区内执行：原先「查 DELETE 事件仍在 → 删事件 + 回插行」
+     * 与 worker 的取事件存在 check-then-act 竞态——若 worker 恰在两步之间取走该 DELETE
+     * 并完成服务端删除，它随后的 deleteByLocalId 会把刚恢复的行再删掉，
+     * 而用户已经看到「已恢复该条记录」。worker 的整个 doWork 都持同一把锁，
+     * 这里加锁后要么 undo 先完成（事件已删，worker 拿不到）、要么 worker 先完成
+     * （undo 查不到事件，如实返回 false 提示「已同步，无法撤销」）。
+     */
     suspend fun undoDeleteEntry(ticket: DeleteUndoTicket): Boolean =
-        SyncMerger.undoDeleteEntry(database, ticket)
+        outboxMutex.withLock { SyncMerger.undoDeleteEntry(database, ticket) }
 
     /**
      * 删除单笔记账 (支持已同步正数 serverId 与未同步负数 -localId)
@@ -896,6 +1160,7 @@ class SyncManager private constructor(private val context: Context) {
             }
             database.transactionDao().deleteByLocalId(entity.localId)
         }
+        notifyLocalWrite()
         // MOB-P2-47：同 deleteEntry，删除事件先压一会儿再上传
         scheduleDelayedSync(DELETE_GRACE_PERIOD_MS)
 
@@ -903,9 +1168,9 @@ class SyncManager private constructor(private val context: Context) {
         return if (undoable) DeleteUndoTicket(entity = entity, kind = DeleteUndoKind.TRANSACTION) else null
     }
 
-    /** MOB-P2-47：撤销一次账目删除（实现见 [SyncMerger]） */
+    /** MOB-P2-47：撤销一次账目删除（同 [undoDeleteEntry]，必须在 outboxMutex 临界区内执行） */
     suspend fun undoDeleteTransaction(ticket: DeleteUndoTicket): Boolean =
-        SyncMerger.undoDeleteTransaction(database, ticket)
+        outboxMutex.withLock { SyncMerger.undoDeleteTransaction(database, ticket) }
 
     /**
      * 清空本地缓存与待发队列 (设备解绑时调用)
@@ -1008,8 +1273,10 @@ class SyncManager private constructor(private val context: Context) {
         // （通常是 local_id 最大的那条）—— 也就是刚被删掉的那条。
         // 随后 upsertEntries 用这个已被删除的 local_id 做 insertAll(REPLACE)，
         // 重复行就复活了，去重每轮都被抵消。
+        // 收口历史重复行（必须在 upsert 之前，否则重复行会被再插回来）；
+        // 先删「已同步旧行」，保证同 id 的 pending 本地编辑不会被 MIN(local_id) 误删。
+        database.entryDao().deleteSyncedShadowsOfPending()
         if (!useIncremental) {
-            // 全量拉取：先收口历史重复行（必须在 upsert 之前，否则重复行会被再插回来）
             database.entryDao().deleteDuplicateServerIds()
         }
 
@@ -1061,6 +1328,9 @@ class SyncManager private constructor(private val context: Context) {
         if (!useIncremental) {
             SyncMerger.finalizeFullEntries(database, remoteIds, localIndex)
         }
+        // 分页重叠/排序抖动同样可能给档案留下重复 server_id（Lazy 列表会 key 冲突）。
+        database.entryDao().deleteSyncedShadowsOfPending()
+        database.entryDao().deleteDuplicateServerIds()
 
         val maxEntryUpdated = maxUpdatedCursor(updatedCandidates)
         if (maxEntryUpdated != null) {
@@ -1086,6 +1356,14 @@ class SyncManager private constructor(private val context: Context) {
 
         val remoteIds = mutableSetOf<Long>()
         val updatedCandidates = mutableListOf<String?>()
+
+        // 重复 server_id 会让账本 LazyColumn 的 key 冲突直接崩溃，
+        // 也会让 SQL 汇总把同一笔钱算两遍。拉取前先收口历史重复，
+        // 且优先保留 pending 本地行（同步状态才代表用户最新的编辑）。
+        database.transactionDao().deleteSyncedShadowsOfPending()
+        if (!useIncremental) {
+            database.transactionDao().deleteDuplicateServerIds()
+        }
 
         // MOB-P1-41：本地索引只建一次，逐页复用
         val localIndex = database.transactionDao().getTransactionSyncIndex()
@@ -1126,6 +1404,10 @@ class SyncManager private constructor(private val context: Context) {
         } catch (e: Exception) {
             return "记账流水：${e.message}"
         }
+
+        // 分页期间若有重叠/排序抖动，收口一次重复 server_id（含 pending 优先规则）。
+        database.transactionDao().deleteSyncedShadowsOfPending()
+        database.transactionDao().deleteDuplicateServerIds()
 
         if (!useIncremental) {
             SyncMerger.finalizeFullTransactions(database, remoteIds, localIndex)
@@ -1215,10 +1497,29 @@ class SyncManager private constructor(private val context: Context) {
      * MOB-P2-47：延迟一段时间后再排空发件箱（用于删除事件的宽限期）。
      */
     private fun scheduleDelayedSync(delayMs: Long) {
-        scope.launch {
-            delay(delayMs)
-            scheduleSync()
-        }
+        // 不能只靠进程内的 scope.delay：进程被杀后没人再排空，删除事件会永远卡在
+        // 宽限期里（Worker 下次启动又会把它当成「还在宽限期」直接跳过）。
+        // 交给 WorkManager 持久化的 initialDelay，进程重启也仍然有效。
+        scheduleGraceSync(delayMs)
+    }
+
+    /**
+     * 为「宽限期内的删除事件」安排一次延迟排空。
+     * 使用独立的唯一任务名：主同步任务可能正在运行（KEEP 会忽略新请求）。
+     */
+    fun scheduleGraceSync(delayMs: Long) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val request = OneTimeWorkRequestBuilder<OutboxSyncWorker>()
+            .setConstraints(constraints)
+            .setInitialDelay(delayMs.coerceAtLeast(0), java.util.concurrent.TimeUnit.MILLISECONDS)
+            .build()
+        workManager.enqueueUniqueWork(
+            OutboxSyncWorker.GRACE_WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
     }
 
     /**
@@ -1357,7 +1658,21 @@ class SyncManager private constructor(private val context: Context) {
                             try {
                                 val req = json.decodeFromString<CreateEntryRequest>(event.payload)
                                 val serverEntry = apiClient.updateEntry(targetId, req)
-                                database.entryDao().markSynced(event.localTargetId, serverEntry.id)
+                                // 用服务端权威响应回写附件列表：编辑时新增的照片
+                                // 只存在于服务端（本地 attachmentsJson 里没有），
+                                // 只 markSynced 的话新照片要等下一次拉取才出现。
+                                val local = database.entryDao().getEntryByLocalId(event.localTargetId)
+                                if (local != null) {
+                                    database.entryDao().update(
+                                        local.copy(
+                                            serverId = serverEntry.id,
+                                            syncStatus = STATUS_SYNCED,
+                                            attachmentsJson = json.encodeToString(serverEntry.attachments)
+                                        )
+                                    )
+                                } else {
+                                    database.entryDao().markSynced(event.localTargetId, serverEntry.id)
+                                }
                             } catch (e: APIException) {
                                 // 服务端已删（网页/其他设备）：本地修改已无处可去，
                                 // 与 DELETE 同样宽容地消费事件，而不是反复重试进失败态
@@ -1746,7 +2061,9 @@ fun LifeEntry.toCacheEntity(localId: Long, json: Json): CachedEntryEntity = Cach
     type = type,
     title = title,
     content = content,
-    occurredAt = occurredAt,
+    // 统一成北京时间 ISO：SQL 的年份/日期范围比较是字符串比较，
+    // 混入 "Z"/其它偏移会让同一天的记录落到错误月份。
+    occurredAt = FormatUtils.normalizeBeijingIsoOrRaw(occurredAt),
     location = location,
     cityCode = cityCode,
     cityName = cityName,
@@ -1767,7 +2084,7 @@ fun Transaction.toCacheEntity(localId: Long): CachedTransactionEntity = CachedTr
     title = title,
     note = note,
     paymentMethod = paymentMethod,
-    occurredAt = occurredAt,
+    occurredAt = FormatUtils.normalizeBeijingIsoOrRaw(occurredAt),
     cityCode = cityCode,
     wishId = wishId,
     footprintId = footprintId,

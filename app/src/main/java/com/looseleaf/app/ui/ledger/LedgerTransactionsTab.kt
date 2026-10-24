@@ -37,14 +37,21 @@ import androidx.compose.ui.text.withStyle
 import com.looseleaf.app.ui.components.PaperSkeleton
 import androidx.compose.ui.res.stringResource
 import com.looseleaf.app.R
+import com.looseleaf.app.data.local.CategoryTotalRow
+import com.looseleaf.app.data.local.MonthlyTotalsRow
 import com.looseleaf.app.data.sync.SyncManager
 import androidx.compose.ui.res.painterResource
 /**
  * 账单明细选项卡：月份切换、月度指标看板、分类光谱比例条、流水明细卡片
+ *
+ * AND-4：传入的 [transactions] 已经是**当月**窗口；收支与分类占比由调用方
+ * 从 SQL 聚合结果传入，本组件不再遍历全量流水。
  */
 @Composable
 internal fun TransactionsLedgerTab(
     transactions: List<Transaction>,
+    monthlyTotals: MonthlyTotalsRow = MonthlyTotalsRow(),
+    monthlyCategoryTotals: List<CategoryTotalRow> = emptyList(),
     isPrivacyMasked: Boolean,
     /** MOB-P2-44：同步中时用纸墨骨架代替「暂无记账明细」 */
     isRefreshing: Boolean = false,
@@ -56,31 +63,14 @@ internal fun TransactionsLedgerTab(
 ) {
     val colors = LooseLeafTheme.colors
 
-    // 过滤属于选中年月的明细
-    val monthTransactions = remember(transactions, selectedYearMonth) {
-        val targetPrefix = String.format(java.util.Locale.US, "%04d-%02d", selectedYearMonth.year, selectedYearMonth.monthValue)
-        val targetDotPrefix = String.format(java.util.Locale.US, "%04d.%02d", selectedYearMonth.year, selectedYearMonth.monthValue)
-        transactions.filter { tx ->
-            tx.occurredAt.startsWith(targetPrefix) || tx.occurredAt.startsWith(targetDotPrefix)
-        }
-    }
+    val monthTransactions = transactions
 
-    val totalExpense = remember(monthTransactions) {
-        monthTransactions.filter { it.type == "expense" }.sumOf { it.amount }
-    }
-    val totalIncome = remember(monthTransactions) {
-        monthTransactions.filter { it.type == "income" }.sumOf { it.amount }
-    }
+    val totalExpense = monthlyTotals.totalExpense
+    val totalIncome = monthlyTotals.totalIncome
     val monthBalance = totalIncome - totalExpense
 
-    // 分类支出占比
-    val categoryBreakdown = remember(monthTransactions) {
-        monthTransactions.filter { it.type == "expense" }
-            .groupBy { it.category }
-            .mapValues { (_, list) -> list.sumOf { it.amount } }
-            .toList()
-            .sortedByDescending { it.second }
-    }
+    // 分类支出占比（SQL GROUP BY 的结果，已按金额降序）
+    val categoryBreakdown = monthlyCategoryTotals.map { it.category to it.total }
 
     val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 

@@ -45,15 +45,18 @@ internal fun EditProfileSheet(
         actionButtonText = "保存档案",
         isActionEnabled = name.isNotBlank(),
         onActionClick = {
+            // 契约 D：可清空文本字段「出现且空串 = 清空；缺省/null = 保持」。
+            // 原先 takeIf { isNotBlank } 会把用户删空的字段整个省略，
+            // 服务端按「保持原值」处理——「删空格言/头衔」从未真正生效。
             val finalCity = cityName.trim()
             onSave(
                 UpdateProfileRequest(
                     name = name.trim(),
-                    title = title.trim().takeIf { it.isNotBlank() },
-                    currentCity = finalCity.takeIf { it.isNotBlank() },
-                    location = finalCity.takeIf { it.isNotBlank() },
-                    motto = motto.trim().takeIf { it.isNotBlank() },
-                    manifesto = manifesto.trim().takeIf { it.isNotBlank() }
+                    title = title.trim(),
+                    currentCity = finalCity,
+                    location = finalCity,
+                    motto = motto.trim(),
+                    manifesto = manifesto.trim()
                 )
             )
         }

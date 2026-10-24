@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.looseleaf.app.utils.FormatUtils
 import java.io.File
 
 @Database(
@@ -17,7 +18,7 @@ import java.io.File
         CachedWishEntity::class,
         CachedFootprintEntity::class
     ],
-    version = 8,
+    version = 9,
     // 导出 schema 到 app/schemas，后续迁移必须能和它逐字段对齐
     exportSchema = true
 )
@@ -392,6 +393,47 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 8 → 9：把存量 `occurred_at` 统一归一为北京时间 ISO（+08:00）。
+         *
+         * `FormatUtils.normalizeBeijingIsoOrRaw` 只在**拉取 upsert** 时生效，
+         * 历史库里经由旧版本写入的行（早期直接落了 "Z"/"+00:00" 等偏移格式）从未被刷写。
+         * 这些行在 SQL 里按**字符串**参与年份截取（substr(1,4)）、月度范围比较
+         * （monthRangeOf 的 [startIso, endIso)）与热力图分组——混入其它偏移格式会让
+         * UTC 晚 8 小时之后的记录落到错误的月份/年份桶（月度汇总、按年归档随之错位）。
+         *
+         * 纯 SQL 无法完成任意格式的弹性解析，因此读全表 → Java 侧逐行归一 → 回写。
+         * 不可解析的行保持原样（normalizeBeijingIsoOrRaw 的「宁可查不到也不乱改」语义）。
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                normalizeOccurredAtInPlace(db, "cached_entries")
+                normalizeOccurredAtInPlace(db, "cached_transactions")
+            }
+        }
+
+        /** MIGRATION_8_9 的单表归一：只回写「归一结果与原文不同」的行，幂等且最小化写放大。 */
+        private fun normalizeOccurredAtInPlace(db: SupportSQLiteDatabase, table: String) {
+            val pendingUpdates = mutableListOf<Pair<Long, String>>()
+            db.query("SELECT local_id, occurred_at FROM `$table`").use { cursor ->
+                val idIdx = cursor.getColumnIndex("local_id")
+                val atIdx = cursor.getColumnIndex("occurred_at")
+                while (cursor.moveToNext()) {
+                    val raw = cursor.getString(atIdx) ?: continue
+                    val normalized = FormatUtils.normalizeBeijingIsoOrRaw(raw)
+                    if (normalized != raw) {
+                        pendingUpdates += cursor.getLong(idIdx) to normalized
+                    }
+                }
+            }
+            pendingUpdates.forEach { (localId, normalized) ->
+                db.execSQL(
+                    "UPDATE `$table` SET occurred_at = ? WHERE local_id = ?",
+                    arrayOf(normalized, localId)
+                )
+            }
+        }
+
         private fun buildDatabase(context: Context): AppDatabase {
             return Room.databaseBuilder(
                 context.applicationContext,
@@ -404,7 +446,8 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_4_5,
                     MIGRATION_5_6,
                     MIGRATION_6_7,
-                    MIGRATION_7_8
+                    MIGRATION_7_8,
+                    MIGRATION_8_9
                 )
                 // 只在「降级安装」时清库；版本前进时缺迁移宁可显式失败，也不静默抹掉未同步数据。
                 .fallbackToDestructiveMigrationOnDowngrade()

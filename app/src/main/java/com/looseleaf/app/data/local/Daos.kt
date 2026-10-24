@@ -11,9 +11,32 @@ data class EntrySyncIndex(
 )
 
 /** MOB-P1-32：热力图的按日计数行（SQL 侧 GROUP BY 的结果） */
+/** 仅用于一次性时间迁移的轻量投影 */
+data class TimeRow(
+    @ColumnInfo(name = "local_id") val localId: Long,
+    @ColumnInfo(name = "occurred_at") val occurredAt: String
+)
+
 data class DayCountRow(
     val day: String,
     val count: Int
+)
+
+/**
+ * AND-4：账本月度汇总（金额单位：分）。
+ *
+ * 直接在 SQL 里用 `SUM(CASE WHEN ...)` 一次算完，
+ * 不再把整月流水物化到 Compose 后做三遍遍历。
+ */
+data class MonthlyTotalsRow(
+    @ColumnInfo(name = "total_expense") val totalExpense: Long = 0,
+    @ColumnInfo(name = "total_income") val totalIncome: Long = 0
+)
+
+/** AND-4：按分类聚合的月度支出（用于光谱条与图例） */
+data class CategoryTotalRow(
+    val category: String,
+    val total: Long
 )
 
 
@@ -158,12 +181,26 @@ interface EntryDao {
     @Query("DELETE FROM cached_entries")
     suspend fun clearAll()
 
+    @Query("SELECT local_id, occurred_at FROM cached_entries")
+    suspend fun getEntryTimeRows(): List<TimeRow>
+
+    @Query("UPDATE cached_entries SET occurred_at = :iso WHERE local_id = :localId")
+    suspend fun updateEntryOccurredAt(localId: Long, iso: String)
+
     /** 旧版增量合并可能给同一个 server_id 插过重复行，全量同步时收口到最早的一行 */
     @Query(
         "DELETE FROM cached_entries WHERE server_id IS NOT NULL AND local_id NOT IN " +
             "(SELECT MIN(local_id) FROM cached_entries WHERE server_id IS NOT NULL GROUP BY server_id)"
     )
     suspend fun deleteDuplicateServerIds()
+
+    /** 同一 server_id 同时存在待同步本地行与已同步旧行时，保留本地行 */
+    @Query(
+        "DELETE FROM cached_entries WHERE server_id IS NOT NULL AND sync_status = 'SYNCED' " +
+            "AND EXISTS (SELECT 1 FROM cached_entries p WHERE p.server_id = cached_entries.server_id " +
+            "AND p.sync_status != 'SYNCED')"
+    )
+    suspend fun deleteSyncedShadowsOfPending()
 }
 
 @Dao
@@ -173,6 +210,49 @@ interface TransactionDao {
 
     @Query("SELECT * FROM cached_transactions WHERE sync_status != 'PENDING_DELETE' ORDER BY occurred_at DESC")
     suspend fun getAllTransactions(): List<CachedTransactionEntity>
+
+    /**
+     * AND-4：只取某个月份的流水。
+     *
+     * `occurred_at` 是 ISO 字符串（北京时间 +08:00），同格式下可直接做范围比较，
+     * 从而命中 `index_cached_transactions_occurred_at`（见 EXPLAIN QUERY PLAN 测试）。
+     * 边界：[startIso] 含、[endIso] 不含。
+     */
+    @Query(
+        "SELECT * FROM cached_transactions WHERE sync_status != 'PENDING_DELETE' " +
+            "AND occurred_at >= :startIso AND occurred_at < :endIso " +
+            "ORDER BY occurred_at DESC"
+    )
+    fun getTransactionsInRangeFlow(
+        startIso: String,
+        endIso: String
+    ): Flow<List<CachedTransactionEntity>>
+
+    /**
+     * AND-4：月度收支汇总下推 SQL。
+     *
+     * 金额是 Long（分），SUM 结果用 COALESCE 兜住空月份。
+     */
+    @Query(
+        "SELECT " +
+            "COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS total_expense, " +
+            "COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS total_income " +
+            "FROM cached_transactions WHERE sync_status != 'PENDING_DELETE' " +
+            "AND occurred_at >= :startIso AND occurred_at < :endIso"
+    )
+    fun getMonthlyTotalsFlow(startIso: String, endIso: String): Flow<MonthlyTotalsRow>
+
+    /** AND-4：月度分类支出下推 SQL（GROUP BY category，按金额降序） */
+    @Query(
+        "SELECT category AS category, COALESCE(SUM(amount), 0) AS total " +
+            "FROM cached_transactions WHERE sync_status != 'PENDING_DELETE' AND type = 'expense' " +
+            "AND occurred_at >= :startIso AND occurred_at < :endIso " +
+            "GROUP BY category ORDER BY total DESC"
+    )
+    fun getMonthlyCategoryTotalsFlow(
+        startIso: String,
+        endIso: String
+    ): Flow<List<CategoryTotalRow>>
 
     /** MOB-P1-41：账务合并用的轻量同步索引（只取三列，避免拖大文本列进事务） */
     @Query(
@@ -212,12 +292,29 @@ interface TransactionDao {
     @Query("DELETE FROM cached_transactions")
     suspend fun clearAll()
 
+    @Query("SELECT local_id, occurred_at FROM cached_transactions")
+    suspend fun getTransactionTimeRows(): List<TimeRow>
+
+    @Query("UPDATE cached_transactions SET occurred_at = :iso WHERE local_id = :localId")
+    suspend fun updateTransactionOccurredAt(localId: Long, iso: String)
+
     /** 同 cached_entries：收口历史遗留的重复 server_id */
     @Query(
         "DELETE FROM cached_transactions WHERE server_id IS NOT NULL AND local_id NOT IN " +
             "(SELECT MIN(local_id) FROM cached_transactions WHERE server_id IS NOT NULL GROUP BY server_id)"
     )
     suspend fun deleteDuplicateServerIds()
+
+    /**
+     * 同一 server_id 同时存在「待同步本地行」与「已同步旧行」时，保留本地行。
+     * 直接按 MIN(local_id) 去重会删掉后创建的 pending 行，等于把用户刚改的内容丢掉。
+     */
+    @Query(
+        "DELETE FROM cached_transactions WHERE server_id IS NOT NULL AND sync_status = 'SYNCED' " +
+            "AND EXISTS (SELECT 1 FROM cached_transactions p WHERE p.server_id = cached_transactions.server_id " +
+            "AND p.sync_status != 'SYNCED')"
+    )
+    suspend fun deleteSyncedShadowsOfPending()
 }
 
 @Dao
@@ -253,6 +350,10 @@ interface OutboxDao {
 
     @Query("SELECT COUNT(*) FROM outbox_events WHERE failed_at IS NULL")
     fun getPendingEventCountFlow(): Flow<Int>
+
+    /** AND-7：一次性判重（仅供后台决定是否唤醒 WorkManager） */
+    @Query("SELECT COUNT(*) FROM outbox_events WHERE failed_at IS NULL")
+    suspend fun countPendingEvents(): Int
 
     @Query("SELECT COUNT(*) FROM outbox_events WHERE failed_at IS NOT NULL")
     fun getFailedEventCountFlow(): Flow<Int>

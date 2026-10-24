@@ -77,6 +77,7 @@ internal fun EntryDetailSheetDialog(
     var editContent by remember(entry.id) { mutableStateOf(entry.content) }
     var editCityCode by remember(entry.id) { mutableStateOf(entry.cityCode ?: "") }
     var editCityName by remember(entry.id) { mutableStateOf(entry.cityName ?: entry.location ?: "") }
+    var editLocation by remember(entry.id) { mutableStateOf(entry.location ?: "") }
     var editOccurredAt by remember(entry.id) { mutableStateOf(FormatUtils.parseToLocalDateTime(entry.occurredAt)) }
     var editAttachments by remember(entry.id) { mutableStateOf(entry.attachments) }
     var isUploadingPhoto by remember { mutableStateOf(false) }
@@ -245,6 +246,24 @@ internal fun EntryDetailSheetDialog(
                         placeholder = stringResource(R.string.ledger_screen_placeholder_02)
                     )
 
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // 自定义地点文本（城市之外的「西湖边 / 外婆家」）。
+                    // 原先编辑弹窗没有这个输入框，用户手写的地点既改不了也清不掉。
+                    PaperTextField(
+                        value = editLocation,
+                        onValueChange = { editLocation = it },
+                        placeholder = stringResource(R.string.quick_note_sheet_text_04),
+                        isUnderline = true,
+                        textStyle = TextStyle(
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 13.sp,
+                            color = colors.inkPrimary
+                        ),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
                     Spacer(modifier = Modifier.height(14.dp))
 
                     // 照片附件管理与增删
@@ -354,20 +373,28 @@ internal fun EntryDetailSheetDialog(
                         text = stringResource(R.string.stream_dialogs_text_03),
                         enabled = editTitle.isNotBlank() || editContent.isNotBlank(),
                         onClick = {
-                            val code = editCityCode.ifBlank { entry.cityCode }
-                            val cityName = editCityName.ifBlank { entry.cityName }
+                            // 契约 A：清空城市时不再用 ifBlank 回退旧值（那会被服务端
+                            // 按「保持原值」忽略、下次拉取又「复活」），改为显式 clear_city。
+                            val code = editCityCode.trim()
+                            val cityName = editCityName.trim().takeIf { it.isNotBlank() }
+                            val finalAttachmentIds = editAttachments.mapNotNull { it.id.takeIf { id -> id > 0 } }
                             val req = CreateEntryRequest(
                                 type = editType,
                                 title = editTitle.ifBlank { "无题随笔" },
                                 content = editContent.ifBlank { "无文字记录" },
                                 occurredAt = FormatUtils.toBeijingIsoString(editOccurredAt),
-                                location = cityName,
-                                cityCode = code,
+                                // 始终带上地点：空串 = 显式清空（后端已支持 key 语义）
+                                location = editLocation.trim(),
+                                cityCode = code.takeIf { it.isNotBlank() },
                                 cityName = cityName,
+                                clearCity = code.isBlank(),
                                 projectId = entry.projectId,
                                 wishId = entry.wishId,
                                 footprintId = entry.footprintId,
-                                attachmentIds = editAttachments.mapNotNull { it.id.takeIf { id -> id > 0 } }
+                                attachmentIds = finalAttachmentIds,
+                                // 契约 B：删光照片时显式声明解绑——
+                                // 单发 attachment_ids: [] 会被服务端按「保持原值」忽略
+                                clearAttachments = finalAttachmentIds.isEmpty()
                             )
                             onSaveEdit(req)
                         }

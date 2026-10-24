@@ -20,8 +20,8 @@ android {
         resourceConfigurations += listOf("zh", "en")
         minSdk = 26
         targetSdk = 35
-        versionCode = 38
-        versionName = "1.6.8"
+        versionCode = 39
+        versionName = "1.6.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -157,7 +157,9 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     // MOB-P1-20：启动闪屏（消除冷启动的「白闪 → 纸色 → 内容」三段跳变）
     implementation("androidx.core:core-splashscreen:1.0.1")
-    implementation("androidx.appcompat:appcompat:1.7.0")
+    // AND-6：不再显式引入 appcompat —— 源码 0 引用，且它仍会由
+    // camera-view / coil / biometric 作为传递依赖带入（版本由 Gradle 冲突解析决定）。
+    // 显式声明只会把版本钉在 1.7.0，并不能缩小最终产物。
     // Replace appcompat with fragment-ktx to remove redundant views and resources
     implementation("androidx.fragment:fragment-ktx:1.8.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
@@ -206,8 +208,9 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.biometric:biometric:1.1.0")
 
-    // 启动性能：接收云端下发的 Baseline Profile
-    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
+    // 启动性能：接收云端下发的 Baseline Profile。
+    // 1.4.0 起才支持 API 34+；1.3.x 在 Android 14/15/16 上会直接拒绝安装 profile。
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     // Camera & EXIF
     implementation("androidx.camera:camera-camera2:1.4.0")
@@ -215,12 +218,14 @@ dependencies {
     implementation("androidx.camera:camera-view:1.4.0")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
 
-    // QR Code Scanning
-    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    // QR Code Scanning（AND-6：移除 journeyapps 备用全屏扫码，主路径为 CameraX）
     implementation("com.google.zxing:core:3.5.3")
 
     // Testing
+    baselineProfile(project(":benchmark"))
     testImplementation("junit:junit:4.13.2")
+    // AND-3：用虚拟时间验证 revision 去抖 / conflate 的刷新次数
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     // MOB-P1-71：JVM 侧（Robolectric）直接跑 Room 的真实 SQLite ——
     // 分页查询 / 增量游标 / 迁移这类逻辑必须在 CI 里可回归，而不是靠手点。
     testImplementation("org.robolectric:robolectric:4.13")

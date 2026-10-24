@@ -46,12 +46,14 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
         appScope.launch {
             runCatching { ProfileRepository.init(this@LooseLeafApp) }
             runCatching { credentialStore.warmUp() }
-            // MOB-P2-28：原先每次冷启动都无条件排空发件箱 ——
-            // 即使队列是空的，也会唤醒 WorkManager、跑一次进程调度。
-            // 现在只在**确有积压**时才排空，冷启动的调度开销降为零。
+            // AND-7：SyncManager 的 Room / 计数 Flow 订阅改为显式后台启动，
+            // 冷启动首帧不再构建数据库观察者。
             runCatching {
                 val syncManager = SyncManager.getInstance(this@LooseLeafApp)
-                if (syncManager.pendingEventCountFlow.value > 0) {
+                syncManager.ensureStarted()
+                // MOB-P2-28 / AND-7：只在**确有积压**时才唤醒 WorkManager，
+                // 且用一次 COUNT 查询判断，无需先建立两条常驻 Flow。
+                if (syncManager.pendingEventCountNow() > 0) {
                     syncManager.scheduleSync()
                 }
             }

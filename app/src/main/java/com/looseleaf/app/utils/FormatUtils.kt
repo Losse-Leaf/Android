@@ -67,6 +67,18 @@ object FormatUtils {
     }
 
     /**
+     * 把任意可解析时间串统一成 `yyyy-MM-dd'T'HH:mm:ss+08:00`。
+     * 解析失败时**原样返回**（宁可这条记录暂时查不到，也不静默改成现在）。
+     */
+    fun normalizeBeijingIsoOrRaw(raw: String?): String {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isEmpty()) return beijingNowIsoString()
+        return parseOccurredInstantOrNull(trimmed)
+            ?.let { toBeijingIsoString(it) }
+            ?: trimmed
+    }
+
+    /**
      * 将任意支持的日期时间串解析为北京时间 LocalDateTime (可空容错，为空或异常时安全兜底当前北京时间)
      */
     fun parseToLocalDateTime(raw: String?): LocalDateTime {

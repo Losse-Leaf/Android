@@ -82,16 +82,20 @@ internal fun EditWishSheetDialog(
             scope.launch {
                 runCatching {
                     val cents = FormatUtils.yuanStringToCents(budgetYuan)
+                    // 契约 D：可清空文本字段「出现且空串 = 清空；缺省/null = 保持」。
+                    // 原先 takeIf { isNotBlank } 会把用户删空的字段整个省略，
+                    // 服务端按「保持原值」处理——用户删不干净、界面还提示「已保存」。
+                    // 现在删空就发送空串，真的清空。
                     apiClient.updateWish(
                         id = wish.id,
                         req = CreateWishRequest(
                             title = title.trim(),
                             kind = kind,
                             budget = cents,
-                            spec = spec.trim().takeIf { it.isNotBlank() },
-                            cityCode = cityCode.takeIf { it.isNotBlank() },
-                            cityName = cityName.takeIf { it.isNotBlank() },
-                            note = note.trim().takeIf { it.isNotBlank() },
+                            spec = spec.trim(),
+                            cityCode = cityCode,
+                            cityName = cityName,
+                            note = note.trim(),
                             targetDate = wish.targetDate,
                             attachmentIds = wish.attachments.map { it.id }.takeIf { it.isNotEmpty() }
                         )
