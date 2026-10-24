@@ -128,8 +128,8 @@ jobs:
             echo "::warning title=Baseline Profile 尚未提交::跳过校验（生成方式见 benchmark/BaselineProfileGenerator）"
             exit 0
           fi
-          COUNT=$(grep -c 'com\.looseleaf' "$PROFILE" || true)
-          echo "app/src/main/baseline-prof.txt 中 com.looseleaf 规则数：$COUNT"
+          COUNT=$(grep -c 'com/looseleaf' "$PROFILE" || true)
+          echo "app/src/main/baseline-prof.txt 中 com/looseleaf 规则数：$COUNT"
           if [ "$COUNT" -le 0 ]; then
             echo "::error title=Baseline Profile 不含应用规则::请重新生成 baseline-prof.txt（见 benchmark/BaselineProfileGenerator）"
             exit 1
