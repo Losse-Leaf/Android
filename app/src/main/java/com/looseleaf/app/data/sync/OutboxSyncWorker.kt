@@ -96,7 +96,13 @@ class OutboxSyncWorker(
             // 现在改为「逐条处理、失败不中断」，只有当**全部**事件都失败时才整体重试。
             for (event in pendingEvents) {
                 try {
-                    syncManager.processOutboxEvent(event)
+                    syncManager.processOutboxEvent(event, onPayloadSuperseded = {
+                        // UPDATE 载荷在投递期间被 UI 编辑替换（竞态收口跳过回写）：
+                        // 把本 eventId 移出已尝试集合，让下一轮 drain 立即按新载荷重发；
+                        // 否则 KEEP 策略吞掉编辑时的 scheduleSync，事件要等到下次写入
+                        // 或进程重启才被投递，其它端一直看到旧内容。
+                        attemptedEventIds.remove(event.eventId)
+                    })
                     anySucceeded = true
                 } catch (e: Exception) {
                     val code = (e as? APIException)?.code

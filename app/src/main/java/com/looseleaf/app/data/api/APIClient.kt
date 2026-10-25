@@ -333,20 +333,6 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/auth/pair/confirm", "POST", body = body)
     }
 
-    suspend fun verifyMasterPasscode(
-        passcode: String,
-        deviceName: String
-    ): VerifyPasscodeResponse {
-        val req = VerifyPasscodeRequest(
-            passcode = passcode,
-            deviceName = deviceName,
-            platform = "android",
-            deviceModel = "Android"
-        )
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/auth/verify", "POST", body = body)
-    }
-
     suspend fun updateDeviceName(deviceId: String, name: String): DeviceInfo {
         val req = UpdateDeviceNameRequest(name = name)
         val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())

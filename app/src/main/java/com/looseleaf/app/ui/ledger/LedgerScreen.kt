@@ -217,9 +217,20 @@ fun LedgerScreen(
         if (!SyncManager.isSessionPullDone("ledger")) {
             // MOB-P1-37 遗留：账目流水来自本地库（Room），而拆分后各页只拉自己渲染的那一类数据 ——
             // 账本页若不在进入时拉一次，「账单明细」永远是 0（只有分类与资产是直连 API 取的）。
-            runCatching { syncManager.pullLedgerData() }
+            // pullLedgerData 本身返回 Result；再套 runCatching 会把 Result.failure 包成
+            // 「外层成功」，失败被吞掉、门禁照常标记，本会话不再自动重试。
+            val result = try {
+                syncManager.pullLedgerData()
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
             reloadCategoriesAndAssets(forceLoadingSpinner = false)
-            SyncManager.markSessionPullDone("ledger")
+            result.onSuccess {
+                SyncManager.markSessionPullDone("ledger")
+            }
+            result.onFailure { error ->
+                ledgerLoadError = error.message ?: "无法连接中枢"
+            }
         }
     }
 
@@ -402,6 +413,10 @@ fun LedgerScreen(
                         .clickable {
                             scope.launch {
                                 ledgerLoadError = null
+                                // 重试必须包含流水拉取：ledgerLoadError 可能来自首拉
+                                // pullLedgerData 失败，只重拉分类/资产等于没修好根因
+                                runCatching { syncManager.pullLedgerData() }
+                                    .onFailure { ledgerLoadError = it.message ?: "无法连接中枢" }
                                 reloadCategoriesAndAssets(force = true)
                             }
                         }
@@ -1117,7 +1132,13 @@ fun LedgerScreen(
                                 installmentRemainMonths = tx.installmentRemainMonths?.takeIf { wantInstallment } ?: editInstallmentMonths.takeIf { wantInstallment },
                                 repaymentDay = editRepaymentDay.takeIf { wantInstallment }
                             )
-                            syncManager.updateTransactionOptimistic(tx.id, req)
+                            val written = syncManager.updateTransactionOptimistic(tx.id, req)
+                            if (!written) {
+                                // 目标账目已被并发删除，不能假报「已保存」
+                                ArchiveToastManager.show("该账目已不存在，修订未保存", isError = true)
+                                editingTransaction = null
+                                return@launch
+                            }
                             // MOB-P1-59：提交成功后清空草稿
                             draftStore.clearPrefix(draftPrefix)
                             editingTransaction = null
@@ -1373,6 +1394,10 @@ fun LedgerScreen(
                             apiClient.updateLiquidBalance(cents)
                             LedgerRepository.refreshAssets(apiClient)
                             ArchiveToastManager.show("流动资金底数已校准")
+                        }.onFailure { err ->
+                            // 失败保留抽屉与输入，让用户重试而不是静默丢改动
+                            ArchiveToastManager.show("校准失败: ${err.message}", isError = true)
+                            return@launch
                         }
                         showCalibrateBalanceDialog = false
                     }
@@ -1425,6 +1450,9 @@ fun LedgerScreen(
                             LedgerRepository.refreshAssets(apiClient)
                             syncManager.pullLedgerData()
                             ArchiveToastManager.show("装备已入库")
+                        }.onFailure { err ->
+                            ArchiveToastManager.show("录入装备失败: ${err.message}", isError = true)
+                            return@launch
                         }
                         showAddGearDialog = false
                     }
@@ -1490,6 +1518,9 @@ fun LedgerScreen(
                             LedgerRepository.refreshAssets(apiClient)
                             syncManager.pullLedgerData()
                             ArchiveToastManager.show("已变卖归档并入账")
+                        }.onFailure { err ->
+                            ArchiveToastManager.show("变卖失败: ${err.message}", isError = true)
+                            return@launch
                         }
                         sellingGearItem = null
                     }

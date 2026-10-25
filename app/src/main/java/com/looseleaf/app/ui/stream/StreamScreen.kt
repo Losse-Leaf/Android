@@ -970,7 +970,15 @@ fun StreamScreen(
                 },
                 onSaveEdit = { req, selectedAttachments ->
                     scope.launch {
-                        syncManager.updateEntryOptimistic(activeEntry.id, req, selectedAttachments)
+                        val written = syncManager.updateEntryOptimistic(activeEntry.id, req, selectedAttachments)
+                        if (!written) {
+                            // 目标行已被并发删除（如编辑期间另一端的删除被同步下来），
+                            // 不能假报「已保存」让用户内容凭空消失。
+                            ArchiveToastManager.show("该记录已不存在，修订未保存", isError = true)
+                            detailDialogEntry = null
+                            if (!isWideLayout) selectedEntryForDetail = null
+                            return@launch
+                        }
                         ArchiveToastManager.show("已修订归册")
                         detailDialogEntry = null
                         // MOB-P1-xx：与 onDismiss 的清理规则保持一致 ——

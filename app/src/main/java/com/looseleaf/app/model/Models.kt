@@ -758,21 +758,6 @@ data class PairTicketResponse(
 )
 
 @Serializable
-data class VerifyPasscodeRequest(
-    val passcode: String,
-    @SerialName("device_name") val deviceName: String,
-    val platform: String = "android",
-    @SerialName("device_model") val deviceModel: String = "Android"
-)
-
-@Serializable
-data class VerifyPasscodeResponse(
-    val token: String,
-    @SerialName("device_id") val deviceId: String,
-    @SerialName("device_name") val deviceName: String
-)
-
-@Serializable
 data class PresignUploadRequest(
     val filename: String,
     @SerialName("content_type") val contentType: String,

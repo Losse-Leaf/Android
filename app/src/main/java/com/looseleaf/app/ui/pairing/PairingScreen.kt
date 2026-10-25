@@ -50,6 +50,7 @@ fun PairingScreen(
     val colors = LooseLeafTheme.colors
     val apiClient = remember { APIClient.getInstance(context) }
     val credentialStore = remember { CredentialStore.getInstance(context) }
+    val syncManager = remember { SyncManager.getInstance(context) }
 
     // 0: 连接配对阶段 (扫码/粘贴链接), 1: 配对成功设置设备名称阶段
     var currentStep by remember { mutableStateOf(0) }
@@ -113,6 +114,19 @@ fun PairingScreen(
                 credentialStore.deviceToken = resp.deviceToken
                 credentialStore.deviceId = resp.deviceId
                 credentialStore.deviceName = resp.deviceName.ifBlank { chosenName }
+                // 换中枢防线（与 macOS 端 discardOutboxAndPending 同款）：
+                // 401-修复等路径刻意保留的发件箱与本地数据只属于**旧中枢**，
+                // 若本次配对的是另一个中枢（迁移换址/误扫他人码），不加清理
+                // 会把旧中枢的离线日记/账目/相纸投递给新中枢——跨中枢数据外发。
+                // 检测到中枢地址变化时清空本地库与发件箱（保留已建立的新凭据），
+                // 随后 resetSessionPulls 让各页对新中枢重新首拉。
+                val canonical = resp.hubUrl?.takeIf { it.isNotBlank() } ?: parsed.hubUrl
+                if (previousBaseUrl.isNotBlank() &&
+                    HubUrlPolicy.normalize(previousBaseUrl) != HubUrlPolicy.normalize(canonical)
+                ) {
+                    syncManager.clearAllLocalData()
+                    ArchiveToastManager.show("已切换到新的数据中枢，旧中枢的本地数据与待同步记录已清除")
+                }
                 // 同一进程内重新配对：旧的「本会话已首拉」门禁必须失效，
                 // 否则清空/切换中枢后的页面不会再自动拉取。
                 SyncManager.resetSessionPulls()

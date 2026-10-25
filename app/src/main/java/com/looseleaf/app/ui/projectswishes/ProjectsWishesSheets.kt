@@ -172,6 +172,15 @@ internal fun EditFootprintSheetDialog(
         actionButtonText = "保存票根",
         isActionEnabled = cityName.isNotBlank() && !isSubmitting,
         onActionClick = {
+            // 返程（若有）不得早于到访：编辑可改到访时刻，改到返程之后会产生
+            // 自相矛盾的负跨度旅程（Web 端已有同款校验）
+            footprint.departedAt?.let { departed ->
+                val departedDt = FormatUtils.parseToLocalDateTime(departed)
+                if (departedDt != null && departedDt.isBefore(visitedAtDt)) {
+                    ArchiveToastManager.show("返程时刻早于到访时刻，请修正到访时间", isError = true)
+                    return@ArchiveBottomSheet
+                }
+            }
             isSubmitting = true
             scope.launch {
                 runCatching {

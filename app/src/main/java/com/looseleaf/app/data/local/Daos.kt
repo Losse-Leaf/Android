@@ -172,6 +172,19 @@ interface EntryDao {
     @Query("UPDATE cached_entries SET server_id = :serverId, sync_status = 'SYNCED' WHERE local_id = :localId")
     suspend fun markSynced(localId: Long, serverId: Long)
 
+    /**
+     * UPDATE 投递成功后的**条件化定向回写**（服务端权威附件清单）。
+     *
+     * 只写 attachments_json 一列，绝不整行覆盖——UI 的乐观编辑不持 outboxMutex，
+     * API 往返期间本地行可能已被换成新内容。行若仍处于待发态（PENDING_*，
+     * 即编辑窗口内又被改过），服务端快照不落库，等下一轮 UPDATE 投递成功后再写。
+     */
+    @Query(
+        "UPDATE cached_entries SET attachments_json = :attachmentsJson " +
+            "WHERE local_id = :localId AND sync_status NOT LIKE 'PENDING_%'"
+    )
+    suspend fun updateAttachmentsIfNotPending(localId: Long, attachmentsJson: String)
+
     @Query("DELETE FROM cached_entries WHERE local_id = :localId")
     suspend fun deleteByLocalId(localId: Long)
 

@@ -187,24 +187,153 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        /** MOB-P1-50：重建完成后回灌发件箱。 */
+        /** MOB-P1-50：重建完成后回灌发件箱。
+         *
+         * 关键：不能只回灌事件本身。Worker 投递 CREATE 前会复核「目标本地行仍在」
+         * （getEntryByLocalId），而表已重建、行全没了——回灌事件会被**消费而不投递**，
+         * 未同步内容实际全丢；且 AUTOINCREMENT 重新从 1 起，旧事件的 local_target_id
+         * 会与新首条记录撞号，旧事件先投递会把新记录误标成已同步。
+         * 因此对 entry / transaction / media_entry 的 CREATE 事件，按载荷里的完整
+         * 请求体重建 PENDING 本地行，并把事件的 local_target_id 重映射到新行主键。
+         * 重建失败（载荷损坏等）的事件直接丢弃并记日志，绝不留死事件。
+         */
         private fun restoreOutboxAfterReset(
             db: SupportSQLiteDatabase,
             rows: List<Array<Any?>>
         ) {
+            var restored = 0
+            var rebuilt = 0
+            // 旧 local_target_id → 重建后的新行 id：UPDATE / media_entry 事件
+            // 的目标行也会随表重建消失，必须跟着 CREATE 重映射，否则成为孤儿事件
+            val remap = mutableMapOf<Long, Long>()
             try {
                 rows.forEach { r ->
+                    val entityType = r[1] as? String ?: return@forEach
+                    val action = r[2] as? String ?: return@forEach
+                    val payload = r[3] as? String ?: return@forEach
+                    var targetId = r[4] as Long
+
+                    // CREATE 事件：重建本地 PENDING 行并重映射目标 id
+                    if (action == "CREATE" && (entityType == "entry" || entityType == "transaction" || entityType == "media_entry")) {
+                        val newLocalId = rebuildPendingRowFromPayload(db, entityType, payload)
+                        if (newLocalId == null) {
+                            android.util.Log.w("AppDatabase", "回灌：无法从载荷重建本地行，丢弃事件 ${r[0]}")
+                            return@forEach
+                        }
+                        if (entityType != "media_entry") remap[targetId] = newLocalId
+                        targetId = newLocalId
+                        rebuilt++
+                    } else if (entityType == "entry" || entityType == "transaction" || entityType == "media_entry") {
+                        // UPDATE / DELETE / media_entry：跟随重建出的新行
+                        remap[targetId]?.let { targetId = it }
+                    }
+
                     db.execSQL(
                         "INSERT OR REPLACE INTO outbox_events " +
                             "(event_id, entity_type, action, payload, local_target_id, server_target_id, retry_count, created_at) " +
                             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                        arrayOf(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7])
+                        arrayOf(r[0], r[1], r[2], r[3], targetId, r[5], r[6], r[7])
                     )
+                    restored++
                 }
-                android.util.Log.i("AppDatabase", "已回灌 ${rows.size} 条未同步发件箱事件")
+                android.util.Log.i("AppDatabase", "已回灌 $restored 条未同步发件箱事件（重建本地行 $rebuilt 条）")
+                // 回灌成功后，落盘保险文件完成使命，清理掉避免永久残留
+                runCatching {
+                    File(db.path).parentFile?.parentFile?.resolve("legacy_backup")
+                        ?.resolve("outbox_backup.json")?.delete()
+                }
             } catch (e: Exception) {
                 android.util.Log.w("AppDatabase", "回灌旧发件箱失败：${e.message}")
             }
+        }
+
+        /**
+         * 按事件载荷重建 PENDING 本地行，返回新行 local_id；解析失败返回 null。
+         * 载荷是 kotlinx 序列化的请求体（键为 @SerialName 蛇形名），用 org.json 提取。
+         */
+        private fun rebuildPendingRowFromPayload(
+            db: SupportSQLiteDatabase,
+            entityType: String,
+            payload: String
+        ): Long? {
+            return try {
+                val root = org.json.JSONObject(payload)
+                // media_entry 的请求体嵌在 "req" 子对象里；entry/transaction 就是载荷本身
+                val req = if (entityType == "media_entry") root.optJSONObject("req") ?: return null else root
+                val now = FormatUtilsBeijingNow()
+
+                if (entityType == "transaction") {
+                    db.execSQL(
+                        "INSERT INTO cached_transactions " +
+                            "(server_id, amount, type, category, title, note, payment_method, occurred_at, " +
+                            "city_code, wish_id, footprint_id, is_installment, installment_channel_code, " +
+                            "installment_total_amount, installment_months, installment_monthly_pay, " +
+                            "installment_remain_months, repayment_day, sync_status, created_at) " +
+                            "VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_CREATE', ?)",
+                        arrayOf(
+                            req.getLong("amount"),
+                            req.optString("type", "expense"),
+                            req.getString("category"),
+                            req.getString("title"),
+                            req.optString("note", "").ifEmpty { null },
+                            req.optString("payment_method", "").ifEmpty { null },
+                            req.getString("occurred_at"),
+                            req.optString("city_code", "").ifEmpty { null },
+                            req.optLong("wish_id", 0).takeIf { it > 0 },
+                            req.optLong("footprint_id", 0).takeIf { it > 0 },
+                            if (req.optBoolean("is_installment", false)) 1 else 0,
+                            req.optString("installment_channel_code", "").ifEmpty { null },
+                            req.optLong("installment_total_amount", 0).takeIf { it > 0 },
+                            req.optInt("installment_months", 0).takeIf { it > 0 },
+                            req.optLong("installment_monthly_pay", 0).takeIf { it > 0 },
+                            req.optInt("installment_remain_months", 0).takeIf { it > 0 },
+                            req.optInt("repayment_day", 0).takeIf { it > 0 },
+                            now
+                        )
+                    )
+                } else {
+                    db.execSQL(
+                        "INSERT INTO cached_entries " +
+                            "(server_id, type, title, content, occurred_at, location, city_code, city_name, " +
+                            "project_id, wish_id, footprint_id, attachments_json, sync_status, created_at) " +
+                            "VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', 'PENDING_CREATE', ?)",
+                        arrayOf(
+                            req.optString("type", "life"),
+                            req.getString("title"),
+                            req.getString("content"),
+                            req.getString("occurred_at"),
+                            req.optString("location", "").ifEmpty { null },
+                            req.optString("city_code", "").ifEmpty { null },
+                            req.optString("city_name", "").ifEmpty { null },
+                            req.optLong("project_id", 0).takeIf { it > 0 },
+                            req.optLong("wish_id", 0).takeIf { it > 0 },
+                            req.optLong("footprint_id", 0).takeIf { it > 0 },
+                            now
+                        )
+                    )
+                }
+                // 新行主键 = 最后插入的 rowid
+                db.query("SELECT last_insert_rowid()").use { c ->
+                    if (c.moveToFirst()) c.getLong(0) else null
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("AppDatabase", "重建本地行失败：${e.message}")
+                null
+            }
+        }
+
+        /** 迁移内使用的北京时间时间戳（避免依赖 Android 格式化工具）。 */
+        private fun FormatUtilsBeijingNow(): String {
+            val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("GMT+08:00"))
+            return String.format(
+                "%04d-%02d-%02dT%02d:%02d:%02d+08:00",
+                cal.get(java.util.Calendar.YEAR),
+                cal.get(java.util.Calendar.MONTH) + 1,
+                cal.get(java.util.Calendar.DAY_OF_MONTH),
+                cal.get(java.util.Calendar.HOUR_OF_DAY),
+                cal.get(java.util.Calendar.MINUTE),
+                cal.get(java.util.Calendar.SECOND)
+            )
         }
 
         /** 只在列不存在时执行 ADD COLUMN，避免重复迁移直接崩库。 */

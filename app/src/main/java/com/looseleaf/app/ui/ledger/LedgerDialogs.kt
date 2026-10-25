@@ -2,6 +2,7 @@ package com.looseleaf.app.ui.ledger
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -92,6 +93,9 @@ internal fun CreditChannelsManagerDialog(
                         )
                         editingChannel = null
                         onChannelsChanged()
+                    }.onFailure { err ->
+                        // 失败保留抽屉与已填内容，供用户修改后重试
+                        ArchiveToastManager.show("保存渠道失败: ${err.message}", isError = true)
                     }
                 }
             }
@@ -177,6 +181,8 @@ internal fun CreditChannelsManagerDialog(
                                         )
                                         newChannelName = ""
                                         onChannelsChanged()
+                                    }.onFailure { err ->
+                                        ArchiveToastManager.show("新增渠道失败: ${err.message}", isError = true)
                                     }
                                     isSubmitting = false
                                 }
@@ -262,12 +268,17 @@ internal fun CategoriesManagerDialog(
     var categoryToDelete by remember { mutableStateOf<CategoryOption?>(null) }
     var newCategoryName by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
 
 
     suspend fun loadCats() {
         isLoading = true
+        loadError = null
+        // 离线/5xx 时给可感知的错误态：原先静默吞掉，列表显示为空像「没有分类」
         runCatching {
             categories = apiClient.fetchCategories(selectedScope)
+        }.onFailure { err ->
+            loadError = err.message ?: "加载分类失败"
         }
         isLoading = false
     }
@@ -380,6 +391,8 @@ internal fun CategoriesManagerDialog(
                                         newCategoryName = ""
                                         loadCats()
                                         onCategoriesChanged()
+                                    }.onFailure { err ->
+                                        ArchiveToastManager.show("新增分类失败: ${err.message}", isError = true)
                                     }
                                 }
                             }
@@ -398,6 +411,16 @@ internal fun CategoriesManagerDialog(
 
                 if (isLoading) {
                     Text(stringResource(R.string.ledger_dialogs_loading), fontSize = 12.sp, color = colors.inkMuted)
+                } else if (loadError != null) {
+                    Text(
+                        text = "${loadError}，点击重试",
+                        fontSize = 12.sp,
+                        color = colors.accentWarm,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { scope.launch { loadCats() } }
+                            .padding(vertical = 8.dp)
+                    )
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
                         items(categories, key = { it.id }) { cat ->

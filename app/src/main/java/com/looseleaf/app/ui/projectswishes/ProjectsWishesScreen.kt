@@ -859,6 +859,10 @@ fun ProjectsWishesScreen(
                                 )
                             )
                             ArchiveToastManager.show("造物项目已更新")
+                        }.onFailure { err ->
+                            // 失败保留抽屉与已填内容，让用户重试而不是静默丢改动
+                            ArchiveToastManager.show("更新造物失败: ${err.message}", isError = true)
+                            return@launch
                         }
                         editingProject = null
                         reloadAll()
@@ -931,6 +935,9 @@ fun ProjectsWishesScreen(
                         runCatching {
                             apiClient.deleteWish(wish.id)
                             ArchiveToastManager.show("心愿已移除")
+                        }.onFailure { err ->
+                            ArchiveToastManager.show("移除心愿失败: ${err.message}", isError = true)
+                            return@launch
                         }
                         wishToDelete = null
                         reloadAll()
@@ -952,6 +959,9 @@ fun ProjectsWishesScreen(
                         runCatching {
                             apiClient.deleteProject(proj.id)
                             ArchiveToastManager.show("造物项目已删除")
+                        }.onFailure { err ->
+                            ArchiveToastManager.show("删除造物失败: ${err.message}", isError = true)
+                            return@launch
                         }
                         projectToDelete = null
                         editingProject = null
@@ -974,6 +984,9 @@ fun ProjectsWishesScreen(
                         runCatching {
                             apiClient.deleteFootprint(foot.id)
                             ArchiveToastManager.show("足迹已移除")
+                        }.onFailure { err ->
+                            ArchiveToastManager.show("移除足迹失败: ${err.message}", isError = true)
+                            return@launch
                         }
                         footprintToDelete = null
                         selectedDrawerFootprint = null

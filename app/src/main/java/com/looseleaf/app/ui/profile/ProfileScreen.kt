@@ -211,6 +211,7 @@ fun ProfileScreen(
     LaunchedEffect(Unit) {
         // 会话门禁改为**进程级**标志：原先 rememberSaveable 在系统回收进程后恢复时
         // 仍为 true，新会话里展台页不再首拉档案，用户对着陈旧数据无提示。
+        // 与时间流/账本页同口径：仅成功才标记门禁，失败可重试且给轻提示。
         if (!SyncManager.isSessionPullDone("profile")) {
             runCatching {
                 val remoteProfile = apiClient.fetchCuratorProfile()
@@ -219,8 +220,11 @@ fun ProfileScreen(
                 val remoteConfig = apiClient.fetchSiteConfig()
                 ProfileRepository.updateSiteConfig(context, remoteConfig)
                 siteConfig = remoteConfig
+            }.onSuccess {
+                SyncManager.markSessionPullDone("profile")
+            }.onFailure { err ->
+                ArchiveToastManager.show("档案刷新失败: ${err.message}", isError = true)
             }
-            SyncManager.markSessionPullDone("profile")
         }
     }
 
@@ -1091,6 +1095,16 @@ fun ProfileScreen(
                                         File(dir, "Download").deleteRecursively()
                                     }
                                 }
+                                // 以及两处表单草稿（修订草稿 + 速记草稿）——
+                                // 与确认框「连同删除且无法找回」的承诺一致，原样留在本机就是可还原内容
+                                runCatching {
+                                    context.getSharedPreferences(
+                                        "looseleaf_form_drafts", android.content.Context.MODE_PRIVATE
+                                    ).edit().clear().apply()
+                                    context.getSharedPreferences(
+                                        "quick_note_draft", android.content.Context.MODE_PRIVATE
+                                    ).edit().clear().apply()
+                                }
                                 onUnpair()
                             }
                         },
@@ -1204,7 +1218,15 @@ fun ProfileScreen(
                         onDismiss = { showStorageBackupDialog = false },
                         onRestored = {
                             scope.launch {
+                                // 恢复成功后的全量拉取失败必须提示：此时各页门禁
+                                // 已标记，不再自动拉取，本地会停在恢复前状态且无提示
                                 syncManager.pullRemoteData(forceFull = true)
+                                    .onFailure { err ->
+                                        ArchiveToastManager.show(
+                                            "恢复完成，但拉取中枢数据失败: ${err.message}，请下拉刷新",
+                                            isError = true
+                                        )
+                                    }
                                 reloadDevices()
                             }
                         }
