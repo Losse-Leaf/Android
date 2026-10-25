@@ -147,11 +147,13 @@ fun LedgerScreen(
         }
     }
 
-    // 分期参数
+    // 分期参数。
+    // 跨端决策（还款日单源化）：不再保存独立 repaymentDay——账单还款日一律派生自
+    // 所选信贷渠道，提交不再携带（后端同步改为强制派生）。
+    // 渠道码不再硬编码 huabei 兜底：初始为空，由 reloadCategoriesAndAssets 修到列表首项。
     var isInstallment by rememberSaveable { mutableStateOf(false) }
-    var installmentChannelCode by rememberSaveable { mutableStateOf("huabei") }
+    var installmentChannelCode by rememberSaveable { mutableStateOf("") }
     var installmentMonths by rememberSaveable { mutableStateOf(12) }
-    var repaymentDay by rememberSaveable { mutableStateOf(10) }
 
     var isPrivacyMasked by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
 
@@ -205,6 +207,14 @@ fun LedgerScreen(
         if (latest.paymentMethods.isNotEmpty() && selectedPaymentMethod !in latest.paymentMethods) {
             selectedPaymentMethod = latest.paymentMethods.first()
         }
+        // MOB 表单审计 #9：分类字典刷新后，所选分类已不在字典（被删除）时同样回落首项——
+        // 原先只复验支付方式与分期渠道，分类会隐形携带已删除值提交、统计出现无名项。
+        val latestActiveCategories =
+            if (selectedType == "income") latest.incomeCategories else latest.expenseCategories
+        if (latestActiveCategories.isNotEmpty() && selectedCategory !in latestActiveCategories) {
+            selectedCategory = latestActiveCategories.first()
+        }
+        // 渠道码单源化：空值或已失效（含删除渠道）时修到列表首项，不再硬编码 huabei。
         if (latest.creditChannels.isNotEmpty() && latest.creditChannels.none { it.code == installmentChannelCode }) {
             installmentChannelCode = latest.creditChannels.first().code
         }
@@ -646,7 +656,16 @@ fun LedgerScreen(
                                                     if (parsed.amountCents > 0) {
                                                         inputAmountString = FormatUtils.centsToYuanString(parsed.amountCents, includeSymbol = false)
                                                         selectedType = parsed.type
-                                                        selectedCategory = parsed.category
+                                                        // MOB 表单审计 #1：解析把类型翻成 income 时必须同步清零分期，
+                                                        // 与类型切换按钮（income 分支 isInstallment = false）对齐——
+                                                        // 否则 income + is_installment=true 会整包落库。
+                                                        if (parsed.type == "income") {
+                                                            isInstallment = false
+                                                        }
+                                                        // 解析分类是基于切型前的字典匹配的：翻型后重新校验归属
+                                                        val targetCats = if (parsed.type == "income") incomeCategories else expenseCategories
+                                                        selectedCategory = if (parsed.category in targetCats) parsed.category
+                                                        else targetCats.firstOrNull() ?: parsed.category
                                                         noteText = parsed.title
                                                     }
                                                 },
@@ -762,26 +781,42 @@ fun LedgerScreen(
                                 val finalCategory = fallback?.category ?: selectedCategory
                                 val finalType = fallback?.type ?: selectedType
                                 val finalNote = if (fallback != null) fallback.title else noteText
-                                val title = if (finalNote.isNotBlank()) finalNote.trim() else finalCategory
+                                // 跨端决策（还款日单源化）：渠道码始终按渠道列表校正；
+                                // 列表为空或匹配不到时不做分期（还款日/负债归属都无源可派生）。
+                                val effectiveChannelCode =
+                                    creditChannels.firstOrNull { it.code == installmentChannelCode }?.code
+                                        ?: creditChannels.firstOrNull()?.code
+                                // MOB 表单审计 #1（跨端决策）：分期仅限支出——解析兜底可能把
+                                // finalType 翻成 income，此时分期字段必须整体不发送。
+                                val effectiveInstallment =
+                                    isInstallment && finalType == "expense" && effectiveChannelCode != null
+                                // MOB 表单审计 #16：标题与备注不再同文双写——
+                                // 标题取备注首行截断（20 字），备注存全文；
+                                // 备注与标题同文时不再重复携带。
+                                val trimmedNote = finalNote.trim()
+                                val title = if (trimmedNote.isNotBlank()) {
+                                    trimmedNote.lineSequence().firstOrNull()
+                                        ?.take(20)?.ifBlank { finalCategory } ?: finalCategory
+                                } else finalCategory
+                                val note = trimmedNote.takeIf { it.isNotBlank() && it != title }
 
                                 scope.launch {
-                                    val monthlyPay = if (isInstallment && installmentMonths > 0) amountCents / installmentMonths else 0L
+                                    val monthlyPay = if (effectiveInstallment && installmentMonths > 0) amountCents / installmentMonths else 0L
                                     syncManager.createTransactionOptimistic(
                                         amountCents = amountCents,
                                         type = finalType,
                                         category = finalCategory,
                                         title = title,
-                                        note = finalNote.takeIf { it.isNotBlank() },
+                                        note = note,
                                         paymentMethod = selectedPaymentMethod,
                                         occurredAt = FormatUtils.toBeijingIsoString(txOccurredAt),
                                         cityCode = selectedCityCode,
-                                        isInstallment = isInstallment,
-                                        installmentChannelCode = installmentChannelCode.takeIf { isInstallment },
-                                        installmentTotalAmount = amountCents.takeIf { isInstallment },
-                                        installmentMonths = installmentMonths.takeIf { isInstallment },
-                                        installmentMonthlyPay = monthlyPay.takeIf { isInstallment },
-                                        installmentRemainMonths = installmentMonths.takeIf { isInstallment },
-                                        repaymentDay = repaymentDay.takeIf { isInstallment }
+                                        isInstallment = effectiveInstallment,
+                                        installmentChannelCode = effectiveChannelCode.takeIf { effectiveInstallment },
+                                        installmentTotalAmount = amountCents.takeIf { effectiveInstallment },
+                                        installmentMonths = installmentMonths.takeIf { effectiveInstallment },
+                                        installmentMonthlyPay = monthlyPay.takeIf { effectiveInstallment },
+                                        installmentRemainMonths = installmentMonths.takeIf { effectiveInstallment }
                                     )
                                     ArchiveToastManager.show("已盖印记下: ¥ ${FormatUtils.centsToYuanString(amountCents)}")
                                     clearAll()
@@ -862,7 +897,15 @@ fun LedgerScreen(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Checkbox(
                                             checked = isInstallment,
-                                            onCheckedChange = { isInstallment = it },
+                                            onCheckedChange = { checked ->
+                                                // 跨端决策：渠道列表为空时禁用分期——
+                                                // 没有渠道就没有还款日与负债归属可派生。
+                                                if (checked && creditChannels.isEmpty()) {
+                                                    ArchiveToastManager.show("请先在信贷渠道管理登记渠道", isError = true)
+                                                } else {
+                                                    isInstallment = checked
+                                                }
+                                            },
                                             colors = CheckboxDefaults.colors(checkedColor = colors.accentWarm)
                                         )
                                         Text(
@@ -873,7 +916,14 @@ fun LedgerScreen(
                                         )
                                     }
                                     if (isInstallment) {
-                                        if (creditChannels.isNotEmpty()) {
+                                        if (creditChannels.isEmpty()) {
+                                            Text(
+                                                text = "请先在「资产与信贷 → 管理渠道」登记分期渠道",
+                                                fontSize = 11.sp,
+                                                fontFamily = ArchiveFontFamilies.BodySans,
+                                                color = colors.accentWarm
+                                            )
+                                        } else {
                                             Row(
                                                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -885,7 +935,6 @@ fun LedgerScreen(
                                                             .background(if (installmentChannelCode == ch.code) colors.accentWarm else colors.archiveSubtle)
                                                             .clickable {
                                                                 installmentChannelCode = ch.code
-                                                                repaymentDay = ch.repaymentDay
                                                             }
                                                             .padding(horizontal = 6.dp, vertical = 3.dp)
                                                     ) {
@@ -897,35 +946,48 @@ fun LedgerScreen(
                                                     }
                                                 }
                                             }
-                                        }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                listOf(3, 6, 12, 24).forEach { m ->
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .clip(RoundedCornerShape(8.dp))
-                                                            .background(if (installmentMonths == m) colors.accentWarm else colors.archiveSubtle)
-                                                            .clickable { installmentMonths = m }
-                                                            .padding(horizontal = 6.dp, vertical = 3.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = stringResource(R.string.ledger_screen_text_tpl_02, m),
-                                                            fontSize = 11.sp,
-                                                            color = if (installmentMonths == m) colors.archivePaper else colors.inkSecondary
-                                                        )
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    listOf(3, 6, 12, 24).forEach { m ->
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .clip(RoundedCornerShape(8.dp))
+                                                                .background(if (installmentMonths == m) colors.accentWarm else colors.archiveSubtle)
+                                                                .clickable { installmentMonths = m }
+                                                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = stringResource(R.string.ledger_screen_text_tpl_02, m),
+                                                                fontSize = 11.sp,
+                                                                color = if (installmentMonths == m) colors.archivePaper else colors.inkSecondary
+                                                            )
+                                                        }
                                                     }
                                                 }
+                                                // 还款日单源化：只读展示所选渠道的还款日，不再保存/提交独立值
+                                                val channelRepayDay =
+                                                    creditChannels.firstOrNull { it.code == installmentChannelCode }?.repaymentDay
+                                                        ?: creditChannels.firstOrNull()?.repaymentDay
+                                                if (channelRepayDay != null) {
+                                                    Text(
+                                                        text = stringResource(R.string.ledger_screen_text_tpl_03, channelRepayDay.toString()),
+                                                        fontSize = 11.sp,
+                                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                                        color = colors.inkMuted
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = "每月还款日跟随所选信贷渠道",
+                                                        fontSize = 11.sp,
+                                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                                        color = colors.inkMuted
+                                                    )
+                                                }
                                             }
-                                            Text(
-                                                text = stringResource(R.string.ledger_screen_text_tpl_03, repaymentDay),
-                                                fontSize = 11.sp,
-                                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                                color = colors.inkMuted
-                                            )
                                         }
                                     }
                                 }
@@ -1035,9 +1097,10 @@ fun LedgerScreen(
                 mutableStateOf(draftStore.getString("${draftPrefix}installment")?.toBoolean() ?: (tx.isInstallment ?: false))
             }
             var editInstallmentChannelCode by remember(tx.id) {
+                // 还款日单源化：渠道码不再硬编码 huabei 兜底，空值由提交时按渠道列表校正
                 mutableStateOf(
                     draftStore.getString("${draftPrefix}channel")
-                        ?: (tx.installmentChannelCode ?: (creditChannels.firstOrNull()?.code ?: "huabei"))
+                        ?: (tx.installmentChannelCode ?: "")
                 )
             }
             var editInstallmentMonths by remember(tx.id) {
@@ -1046,19 +1109,12 @@ fun LedgerScreen(
                         ?: (tx.installmentMonths?.takeIf { it > 0 } ?: 12)
                 )
             }
-            var editRepaymentDay by remember(tx.id) {
-                mutableStateOf(
-                    draftStore.getString("${draftPrefix}repay_day")?.toIntOrNull()?.takeIf { it in 1..31 }
-                        ?: (tx.repaymentDay?.takeIf { it in 1..31 }
-                            ?: (creditChannels.firstOrNull { it.code == editInstallmentChannelCode }?.repaymentDay ?: 10))
-                )
-            }
 
             // 字段变化即落草稿
             LaunchedEffect(
                 editAmountYuan, editType, editCategory, editTitle, editNote,
                 editPaymentMethod, editCityCode, editCityName, editOccurredAt,
-                editIsInstallment, editInstallmentChannelCode, editInstallmentMonths, editRepaymentDay
+                editIsInstallment, editInstallmentChannelCode, editInstallmentMonths
             ) {
                 draftStore.putString("${draftPrefix}amount", editAmountYuan)
                 draftStore.putString("${draftPrefix}type", editType)
@@ -1075,7 +1131,6 @@ fun LedgerScreen(
                 draftStore.putString("${draftPrefix}installment", editIsInstallment.toString())
                 draftStore.putString("${draftPrefix}channel", editInstallmentChannelCode)
                 draftStore.putString("${draftPrefix}months", editInstallmentMonths.toString())
-                draftStore.putString("${draftPrefix}repay_day", editRepaymentDay.toString())
             }
 
             ArchiveBottomSheet(
@@ -1084,69 +1139,84 @@ fun LedgerScreen(
                 actionButtonText = "保存修订",
                 onActionClick = {
                     val cents = FormatUtils.yuanStringToCents(editAmountYuan)
-                    if (cents > 0) {
-                        scope.launch {
-                            val monthlyPay = if (editIsInstallment && editInstallmentMonths > 0) cents / editInstallmentMonths else 0L
-                            // ── 分期三态（后端契约）──────────────────────────
-                            // 关键：原先这里发的是 `isInstallment = editIsInstallment && editType == "expense"`，
-                            // 也就是「不是分期」时发 **false**。
-                            // 但客户端用 encodeDefaults=false，false 恰好是默认值 →
-                            // 整个 key 被**省略** → 服务端收到 nil → 走「保持原值」分支 →
-                            // **分期根本没被取消**，界面却弹「已保存账目修订」。
-                            // 更糟的是本地缓存被乐观写成 isInstallment=false，
-                            // 于是本地显示「一次性」、服务端仍是「分期」，两端当场分叉。
-                            //
-                            // 现在按三态分别处理：
-                            //   仍是分期   → is_installment: true
-                            //   取消分期   → is_installment: false + clear_installment: true
-                            //   与分期无关 → is_installment 不携带（服务端保持原值）
-                            val wantInstallment = editIsInstallment && editType == "expense"
-                            val wasInstallment = (tx.isInstallment ?: false)
-                            val cancelInstallment = !wantInstallment && wasInstallment
-                            val req = CreateTransactionRequest(
-                                amount = cents,
-                                type = editType,
-                                category = editCategory.trim(),
-                                // 空串是显式清空；列表展示层已有「空标题回退类目」。
-                                title = editTitle.trim(),
-                                note = editNote.trim(),
-                                paymentMethod = editPaymentMethod.trim(),
-                                // 契约 A：清空属地不再被「省略 = 保持原值」吞掉——
-                                // 城市选择器清空后发 clear_city: true，本地乐观写同步清空，
-                                // 否则本地显示「无属地」、服务端仍是旧城市，下次拉取又「复活」。
-                                cityCode = editCityCode.trim().takeIf { it.isNotBlank() },
-                                clearCity = editCityCode.isBlank(),
-                                occurredAt = FormatUtils.toBeijingIsoString(editOccurredAt),
-                                wishId = tx.wishId,
-                                footprintId = tx.footprintId,
-                                isInstallment = when {
-                                    wantInstallment -> true
-                                    cancelInstallment -> false
-                                    else -> null // 不携带：本次与分期无关，服务端保持原值
-                                },
-                                clearInstallment = cancelInstallment,
-                                installmentChannelCode = editInstallmentChannelCode.takeIf { wantInstallment },
-                                installmentTotalAmount = cents.takeIf { wantInstallment },
-                                installmentMonths = editInstallmentMonths.takeIf { wantInstallment },
-                                installmentMonthlyPay = monthlyPay.takeIf { wantInstallment },
-                                installmentRemainMonths = tx.installmentRemainMonths?.takeIf { wantInstallment } ?: editInstallmentMonths.takeIf { wantInstallment },
-                                repaymentDay = editRepaymentDay.takeIf { wantInstallment }
-                            )
-                            val written = syncManager.updateTransactionOptimistic(tx.id, req)
-                            if (!written) {
-                                // 目标账目已被并发删除，不能假报「已保存」
-                                ArchiveToastManager.show("该账目已不存在，修订未保存", isError = true)
-                                editingTransaction = null
-                                return@launch
-                            }
-                            // MOB-P1-59：提交成功后清空草稿
-                            draftStore.clearPrefix(draftPrefix)
-                            editingTransaction = null
-                            ArchiveToastManager.show("已保存账目修订")
-                        }
-                    } else {
+                    if (cents <= 0) {
                         // 非法输入（如「一百二十」）换算成 0 时必须提示，否则用户以为按钮坏了
                         ArchiveToastManager.show("金额格式不正确，请输入有效数字", isError = true)
+                        return@ArchiveBottomSheet
+                    }
+                    // MOB 表单审计 #8：分类/支付方式改胶囊选择后，仍对历史值兜底校验——
+                    // 字典非空且所选值不在字典（历史错字/已删分类）时阻断提交并提示。
+                    val editActiveCategories =
+                        if (editType == "income") incomeCategories else expenseCategories
+                    if (editActiveCategories.isNotEmpty() && editCategory.trim() !in editActiveCategories) {
+                        ArchiveToastManager.show("分类「${editCategory.trim()}」不在分类字典中，请重新选择", isError = true)
+                        return@ArchiveBottomSheet
+                    }
+                    if (paymentMethods.isNotEmpty() && editPaymentMethod.trim() !in paymentMethods) {
+                        ArchiveToastManager.show("支付方式不在字典中，请重新选择", isError = true)
+                        return@ArchiveBottomSheet
+                    }
+                    scope.launch {
+                        // 还款日单源化：渠道码按渠道列表校正；列表为空时不做分期
+                        val editChannelCode =
+                            creditChannels.firstOrNull { it.code == editInstallmentChannelCode }?.code
+                                ?: creditChannels.firstOrNull()?.code
+                        val monthlyPay = if (editIsInstallment && editInstallmentMonths > 0) cents / editInstallmentMonths else 0L
+                        // ── 分期三态（后端契约）──────────────────────────
+                        //   仍是分期   → is_installment: true
+                        //   取消分期   → is_installment: false + clear_installment: true
+                        //   与分期无关 → is_installment 不携带（服务端保持原值）
+                        // 跨端决策：分期仅限支出且必须有渠道可派生（还款日/负债归属）。
+                        val wantInstallment = editIsInstallment && editType == "expense" && editChannelCode != null
+                        val wasInstallment = (tx.isInstallment ?: false)
+                        val cancelInstallment = !wantInstallment && wasInstallment
+                        val req = CreateTransactionRequest(
+                            amount = cents,
+                            type = editType,
+                            category = editCategory.trim(),
+                            // 空串是显式清空；列表展示层已有「空标题回退类目」。
+                            title = editTitle.trim(),
+                            note = editNote.trim(),
+                            paymentMethod = editPaymentMethod.trim(),
+                            // 契约 A：清空属地不再被「省略 = 保持原值」吞掉——
+                            // 城市选择器清空后发 clear_city: true，本地乐观写同步清空，
+                            // 否则本地显示「无属地」、服务端仍是旧城市，下次拉取又「复活」。
+                            cityCode = editCityCode.trim().takeIf { it.isNotBlank() },
+                            clearCity = editCityCode.isBlank(),
+                            occurredAt = FormatUtils.toBeijingIsoString(editOccurredAt),
+                            // 跨端决策：wish_id 与 footprint_id 前端互斥——
+                            // 挂着心愿的账目修订时显式解绑旅程（footprint_id=0，
+                            // 后端语义 0=解绑），避免双归属；无心愿时维持原状。
+                            wishId = tx.wishId,
+                            footprintId = if (tx.wishId != null) 0L else tx.footprintId,
+                            isInstallment = when {
+                                wantInstallment -> true
+                                cancelInstallment -> false
+                                else -> null // 不携带：本次与分期无关，服务端保持原值
+                            },
+                            clearInstallment = cancelInstallment,
+                            installmentChannelCode = editChannelCode.takeIf { wantInstallment },
+                            installmentTotalAmount = cents.takeIf { wantInstallment },
+                            installmentMonths = editInstallmentMonths.takeIf { wantInstallment },
+                            installmentMonthlyPay = monthlyPay.takeIf { wantInstallment },
+                            // MOB 表单审计 #4：改小总期数时剩余期数钳制到新总期数——
+                            // 原样发送旧 remain 会让本地乐观写出现「剩 x > 共 x」；
+                            // 服务端虽有 autoRemain 钳制，本地要同口径才不分叉。
+                            installmentRemainMonths = (
+                                tx.installmentRemainMonths ?: editInstallmentMonths
+                                ).coerceAtMost(editInstallmentMonths).takeIf { wantInstallment }
+                        )
+                        val written = syncManager.updateTransactionOptimistic(tx.id, req)
+                        if (!written) {
+                            // 目标账目已被并发删除，不能假报「已保存」
+                            ArchiveToastManager.show("该账目已不存在，修订未保存", isError = true)
+                            editingTransaction = null
+                            return@launch
+                        }
+                        // MOB-P1-59：提交成功后清空草稿
+                        draftStore.clearPrefix(draftPrefix)
+                        editingTransaction = null
+                        ArchiveToastManager.show("已保存账目修订")
                     }
                 }
             ) {
@@ -1158,6 +1228,11 @@ fun LedgerScreen(
                                 onClick = {
                                     editType = k
                                     if (k == "income") editIsInstallment = false
+                                    // 翻型后分类必须归属新字典，否则提交被 #8 校验拦下
+                                    val cats = if (k == "income") incomeCategories else expenseCategories
+                                    if (cats.isNotEmpty() && editCategory !in cats) {
+                                        editCategory = cats.first()
+                                    }
                                 },
                                 label = label
                             )
@@ -1180,21 +1255,56 @@ fun LedgerScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    PaperTextField(
-                        value = editCategory,
-                        onValueChange = { editCategory = it },
-                        label = stringResource(R.string.ledger_screen_label_04),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                    // MOB 表单审计 #8：分类改字典胶囊选择（与极速记账同源），
+                    // 自由文本会把错字/已删分类直接写进账目、统计出现无名项。
+                    Text(
+                        text = stringResource(R.string.ledger_screen_label_04),
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 11.sp,
+                        color = colors.inkMuted
+                    )
+                    CategoryPills(
+                        selectedCategory = editCategory,
+                        categories = if (editType == "income") incomeCategories else expenseCategories,
+                        onCategorySelect = { editCategory = it }
                     )
 
-                    PaperTextField(
-                        value = editPaymentMethod,
-                        onValueChange = { editPaymentMethod = it },
-                        label = stringResource(R.string.ledger_screen_label_05),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                    // 支付方式同样改字典胶囊单选
+                    Text(
+                        text = stringResource(R.string.ledger_screen_label_05),
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 11.sp,
+                        color = colors.inkMuted
                     )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        paymentMethods.forEach { pm ->
+                            val isPmSelected = pm == editPaymentMethod
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isPmSelected) colors.inkPrimary else colors.archiveSubtle)
+                                    .border(
+                                        0.5.dp,
+                                        if (isPmSelected) colors.inkPrimary else colors.borderDivider,
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .clickable { editPaymentMethod = pm }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = pm,
+                                    fontSize = 11.sp,
+                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                    color = if (isPmSelected) colors.archivePaper else colors.inkSecondary
+                                )
+                            }
+                        }
+                    }
 
                     PaperDateTimeSplitRow(
                         selectedDateTime = editOccurredAt,
@@ -1220,7 +1330,14 @@ fun LedgerScreen(
                         ) {
                             Checkbox(
                                 checked = editIsInstallment,
-                                onCheckedChange = { editIsInstallment = it },
+                                onCheckedChange = { checked ->
+                                    // 与极速记账同口径：渠道列表为空时禁用分期
+                                    if (checked && creditChannels.isEmpty()) {
+                                        ArchiveToastManager.show("请先在信贷渠道管理登记渠道", isError = true)
+                                    } else {
+                                        editIsInstallment = checked
+                                    }
+                                },
                                 colors = CheckboxDefaults.colors(checkedColor = colors.accentWarm)
                             )
                             Text(
@@ -1247,8 +1364,8 @@ fun LedgerScreen(
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .background(if (editInstallmentChannelCode == ch.code) colors.accentWarm else colors.archiveSubtle)
                                                     .clickable {
+                                                        // 还款日单源化：切渠道只改渠道码，还款日随渠道派生
                                                         editInstallmentChannelCode = ch.code
-                                                        editRepaymentDay = ch.repaymentDay
                                                     }
                                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
@@ -1260,33 +1377,52 @@ fun LedgerScreen(
                                             }
                                         }
                                     }
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        listOf(3, 6, 12, 24).forEach { m ->
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(if (editInstallmentMonths == m) colors.accentWarm else colors.archiveSubtle)
-                                                    .clickable { editInstallmentMonths = m }
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = stringResource(R.string.ledger_screen_text_tpl_02, m),
-                                                    fontSize = 11.sp,
-                                                    color = if (editInstallmentMonths == m) colors.archivePaper else colors.inkSecondary
-                                                )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            listOf(3, 6, 12, 24).forEach { m ->
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(if (editInstallmentMonths == m) colors.accentWarm else colors.archiveSubtle)
+                                                        .clickable { editInstallmentMonths = m }
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = stringResource(R.string.ledger_screen_text_tpl_02, m),
+                                                        fontSize = 11.sp,
+                                                        color = if (editInstallmentMonths == m) colors.archivePaper else colors.inkSecondary
+                                                    )
+                                                }
                                             }
                                         }
+                                        // 还款日单源化：只读展示所选渠道的还款日
+                                        val editChannelRepayDay =
+                                            creditChannels.firstOrNull { it.code == editInstallmentChannelCode }?.repaymentDay
+                                                ?: creditChannels.firstOrNull()?.repaymentDay
+                                        if (editChannelRepayDay != null) {
+                                            Text(
+                                                text = stringResource(R.string.ledger_screen_text_tpl_04, editChannelRepayDay.toString()),
+                                                fontSize = 11.sp,
+                                                color = colors.inkMuted
+                                            )
+                                        } else {
+                                            Text(
+                                                text = "每月还款日跟随所选信贷渠道",
+                                                fontSize = 11.sp,
+                                                color = colors.inkMuted
+                                            )
+                                        }
                                     }
+                                } else {
                                     Text(
-                                        text = stringResource(R.string.ledger_screen_text_tpl_04, editRepaymentDay),
+                                        text = "请先在「资产与信贷 → 管理渠道」登记分期渠道",
                                         fontSize = 11.sp,
-                                        color = colors.inkMuted
+                                        fontFamily = ArchiveFontFamilies.BodySans,
+                                        color = colors.accentWarm
                                     )
                                 }
                             }
@@ -1428,6 +1564,21 @@ fun LedgerScreen(
             var gearPrice by remember { mutableStateOf("") }
             var gearCategory by remember { mutableStateOf("数码器材") }
             var isAutoTx by remember { mutableStateOf(true) }
+            // MOB 表单审计 #10：器物分类接 gear scope 字典（分类管理里可维护），
+            // 原先硬编码「数码器材」导致所有器物与联动账单分类恒为该值。
+            // 拉取失败时保留默认值，不阻断录入。
+            var gearCategories by remember { mutableStateOf(listOf("数码器材")) }
+            LaunchedEffect(Unit) {
+                runCatching {
+                    val fetched = apiClient.fetchCategories("gear").map { it.name }
+                    if (fetched.isNotEmpty()) {
+                        gearCategories = fetched
+                        if (gearCategory !in gearCategories) {
+                            gearCategory = gearCategories.first()
+                        }
+                    }
+                }
+            }
 
             ArchiveBottomSheet(
                 onDismissRequest = { showAddGearDialog = false },
@@ -1472,6 +1623,17 @@ fun LedgerScreen(
                         label = stringResource(R.string.ledger_screen_label_09),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        text = stringResource(R.string.ledger_screen_label_04),
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 11.sp,
+                        color = colors.inkMuted
+                    )
+                    CategoryPills(
+                        selectedCategory = gearCategory,
+                        categories = gearCategories,
+                        onCategorySelect = { gearCategory = it }
                     )
                     PaperTextField(
                         value = gearPrice,

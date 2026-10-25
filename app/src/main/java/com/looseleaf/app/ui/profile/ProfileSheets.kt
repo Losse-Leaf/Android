@@ -27,17 +27,22 @@ internal fun EditProfileSheet(
     onSave: (UpdateProfileRequest) -> Unit
 ) {
     val colors = LooseLeafTheme.colors
-    var name by remember(profile) { mutableStateOf(profile.name) }
-    var title by remember(profile) { mutableStateOf(profile.title ?: "") }
-    var cityCode by remember(profile) {
+    // MOB 表单审计 #19：remember 的 key 用稳定 id 而不是 profile 对象——
+    // 同步刷新会用同一条档案的新实例替换旧实例（内容相同、引用不同），
+    // 以对象为 key 会让正在输入的字段被整体重置回服务器旧值
+    //（与 StreamDialogs.kt 已修复的「打字打到一半被清空」同类问题）。
+    val profileKey = profile.id ?: 0L
+    var name by remember(profileKey) { mutableStateOf(profile.name) }
+    var title by remember(profileKey) { mutableStateOf(profile.title ?: "") }
+    var cityCode by remember(profileKey) {
         val initialLoc = profile.currentCity.takeIf { !it.isNullOrBlank() } ?: profile.location ?: ""
         mutableStateOf(CityDictionary.codeForLocation(initialLoc) ?: "")
     }
-    var cityName by remember(profile) {
+    var cityName by remember(profileKey) {
         mutableStateOf(profile.currentCity.takeIf { !it.isNullOrBlank() } ?: profile.location ?: "")
     }
-    var motto by remember(profile) { mutableStateOf(profile.motto ?: "") }
-    var manifesto by remember(profile) { mutableStateOf(profile.manifesto ?: "") }
+    var motto by remember(profileKey) { mutableStateOf(profile.motto ?: "") }
+    var manifesto by remember(profileKey) { mutableStateOf(profile.manifesto ?: "") }
 
     ArchiveBottomSheet(
         onDismissRequest = onDismiss,

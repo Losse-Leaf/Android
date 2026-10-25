@@ -71,13 +71,20 @@ internal fun EditWishSheetDialog(
         draftStore.putString("${draftPrefix}city_name", cityName)
     }
     var isSubmitting by remember { mutableStateOf(false) }
+    // MOB 表单审计 #20：金额输入非法（非数字）时禁用保存并提示，
+    // 不再静默按 0 清零预算（与账本修订抽屉的既有提示对齐）。
+    val budgetInvalid = budgetYuan.isNotBlank() && budgetYuan.trim().toDoubleOrNull() == null
 
     ArchiveBottomSheet(
         onDismissRequest = onDismiss,
         title = stringResource(R.string.projects_wishes_sheets_title_tpl_01, wish.title),
         actionButtonText = "保存修订",
-        isActionEnabled = title.isNotBlank() && !isSubmitting,
+        isActionEnabled = title.isNotBlank() && !budgetInvalid && !isSubmitting,
         onActionClick = {
+            if (budgetInvalid) {
+                ArchiveToastManager.show("金额格式不正确，请输入有效数字", isError = true)
+                return@ArchiveBottomSheet
+            }
             isSubmitting = true
             scope.launch {
                 runCatching {
@@ -86,15 +93,21 @@ internal fun EditWishSheetDialog(
                     // 原先 takeIf { isNotBlank } 会把用户删空的字段整个省略，
                     // 服务端按「保持原值」处理——用户删不干净、界面还提示「已保存」。
                     // 现在删空就发送空串，真的清空。
+                    //
+                    // MOB 表单审计 #6：派生字段按 kind 门控——
+                    // spec 仅 item 形态携带（其余形态发空串清除残留）；
+                    // 城市仅 travel 形态携带（切离 travel 即清除目的地），
+                    // 否则「旅程改好物」后旧目的地/规格残留在不相关形态上，
+                    // 达成时伴生散页还会继承旧城市。
                     apiClient.updateWish(
                         id = wish.id,
                         req = CreateWishRequest(
                             title = title.trim(),
                             kind = kind,
                             budget = cents,
-                            spec = spec.trim(),
-                            cityCode = cityCode,
-                            cityName = cityName,
+                            spec = if (kind == "item") spec.trim() else "",
+                            cityCode = if (kind == "travel") cityCode else "",
+                            cityName = if (kind == "travel") cityName else "",
                             note = note.trim(),
                             targetDate = wish.targetDate,
                             attachmentIds = wish.attachments.map { it.id }.takeIf { it.isNotEmpty() }
@@ -126,8 +139,18 @@ internal fun EditWishSheetDialog(
             if (kind == "travel") {
                 PaperCityPickerField(selectedCityCode = cityCode, selectedCityName = cityName, onCitySelected = { c, n -> cityCode = c; cityName = n }, placeholder = stringResource(R.string.projects_wishes_sheets_placeholder_01))
             }
-            PaperTextField(value = spec, onValueChange = { spec = it }, label = stringResource(R.string.projects_wishes_sheets_label_02), singleLine = true)
+            // MOB 表单审计 #6：spec 仅好物心愿显示（对齐速记心愿口径）
+            if (kind == "item") {
+                PaperTextField(value = spec, onValueChange = { spec = it }, label = stringResource(R.string.projects_wishes_sheets_label_02), singleLine = true)
+            }
             PaperTextField(value = budgetYuan, onValueChange = { budgetYuan = it }, label = stringResource(R.string.projects_wishes_sheets_label_03), singleLine = true)
+            if (budgetInvalid) {
+                Text(
+                    text = "金额格式不正确，请输入有效数字",
+                    fontSize = 11.sp,
+                    color = colors.accentWarm
+                )
+            }
             PaperTextEditor(value = note, onValueChange = { note = it }, placeholder = stringResource(R.string.projects_wishes_sheets_placeholder_02), minHeight = 80.dp)
         }
     }

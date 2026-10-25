@@ -1124,10 +1124,13 @@ fun ProfileScreen(
                                     ProfileRepository.updateProfile(context, updated)
                                     profile = updated
                                     ArchiveToastManager.show("主理人档案已保存")
+                                    // MOB 表单审计 #19：仅成功才关闭抽屉——
+                                    // 原先失败也无条件关闭，已填内容直接丢失
+                                    //（与其他编辑抽屉「失败保留待重试」的口径不一致）。
+                                    showEditProfileDialog = false
                                 }.onFailure { err ->
                                     ArchiveToastManager.show("保存档案失败: ${err.message}", isError = true)
                                 }
-                                showEditProfileDialog = false
                             }
                         }
                     )

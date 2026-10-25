@@ -1106,12 +1106,19 @@ fun PaperDateField(
     selectedDate: LocalDate,
     onDateSelected: (LocalDate) -> Unit,
     modifier: Modifier = Modifier,
-    label: String? = null
+    label: String? = null,
+    /**
+     * MOB 表单审计 #14：可选的「未选择」占位文案。
+     * 传入后以它替代日期显示（且不再套用「今天」高亮逻辑）——
+     * 供「允许为空、不选就不提交」的日期字段使用，
+     * 避免出现「界面显示今天、实际什么都没提交」的显示与落库不一致。
+     */
+    unselectedText: String? = null
 ) {
     val colors = LooseLeafTheme.colors
     var showDialog by remember { mutableStateOf(false) }
     val today = remember { LocalDate.now(FormatUtils.BeijingZone) }
-    val isToday = selectedDate == today
+    val isToday = unselectedText == null && selectedDate == today
 
     val displayDate = remember(selectedDate) {
         String.format(Locale.US, "%d.%02d.%02d", selectedDate.year, selectedDate.monthValue, selectedDate.dayOfMonth)
@@ -1148,7 +1155,7 @@ fun PaperDateField(
                 )
             }
             Text(
-                text = displayDate,
+                text = unselectedText ?: displayDate,
                 fontFamily = ArchiveFontFamilies.MonoScale,
                 fontSize = 12.sp,
                 fontWeight = if (!isToday) FontWeight.Medium else FontWeight.Normal,

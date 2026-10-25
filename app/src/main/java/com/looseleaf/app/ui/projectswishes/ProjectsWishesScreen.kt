@@ -580,7 +580,10 @@ fun ProjectsWishesScreen(
                 mutableStateOf(FormatUtils.centsToYuanString(wish.budget, includeSymbol = false))
             }
             var resType by remember(wish.id) { mutableStateOf("exact") }
-            var actualTitleInput by remember(wish.id) { mutableStateOf(wish.title) }
+            // MOB 表单审计 #18：实际物品名留空即不发送（后端空值回落心愿标题，
+            // wishes.go ResolveWish），删除原先「默认复制标题」的同文冗余；
+            // 占位符提示原心愿标题。
+            var actualTitleInput by remember(wish.id) { mutableStateOf("") }
             var entryNote by remember(wish.id) { mutableStateOf("") }
             var fulfilledAtDt by remember(wish.id) {
                 mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone))
@@ -589,12 +592,19 @@ fun ProjectsWishesScreen(
             var createGear by remember(wish.id) { mutableStateOf(wish.kind == "item") }
             var createEntry by remember(wish.id) { mutableStateOf(true) }
             var createFp by remember(wish.id) { mutableStateOf(wish.kind == "travel") }
+            // MOB 表单审计 #20：金额非法（非数字）时阻断提交并提示，不再静默清零
+            val costInvalid = !resType.equals("relinquished") &&
+                costInput.isNotBlank() && costInput.trim().toDoubleOrNull() == null
 
             ArchiveBottomSheet(
                 onDismissRequest = { resolvingWish = null },
                 title = stringResource(R.string.projects_wishes_screen_title_tpl_01, wish.title),
                 actionButtonText = "确认归册",
                 onActionClick = {
+                    if (costInvalid) {
+                        ArchiveToastManager.show("金额格式不正确，请输入有效数字", isError = true)
+                        return@ArchiveBottomSheet
+                    }
                     scope.launch {
                         try {
                             val isRel = resType == "relinquished"
@@ -605,11 +615,14 @@ fun ProjectsWishesScreen(
                                     fulfilledAt = FormatUtils.toBeijingIsoString(fulfilledAtDt),
                                     actualCost = cents,
                                     resolutionType = resType,
-                                    actualTitle = actualTitleInput.ifBlank { wish.title },
+                                    actualTitle = actualTitleInput.trim().takeIf { it.isNotBlank() },
                                     createTransaction = !isRel && createTx && cents > 0,
                                     createGearAsset = !isRel && createGear && wish.kind == "item",
                                     createLifeEntry = createEntry,
-                                    createFootprint = !isRel && createFp && wish.kind == "travel",
+                                    // 跨端决策 + 审计 #15：travel 心愿未设置目的地时不请求建足迹
+                                    //（后端 CityCode 为空会静默跳过，勾了等于没勾）
+                                    createFootprint = !isRel && createFp && wish.kind == "travel" &&
+                                        !wish.cityCode.isNullOrBlank(),
                                     entryContent = entryNote.takeIf { it.isNotBlank() }
                                 )
                             )
@@ -641,6 +654,7 @@ fun ProjectsWishesScreen(
                             value = actualTitleInput,
                             onValueChange = { actualTitleInput = it },
                             label = stringResource(R.string.projects_wishes_screen_label_04),
+                            placeholder = wish.title,
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -651,6 +665,13 @@ fun ProjectsWishesScreen(
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+                        if (costInvalid) {
+                            Text(
+                                text = "金额格式不正确，请输入有效数字",
+                                fontSize = 11.sp,
+                                color = colors.accentWarm
+                            )
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -668,11 +689,21 @@ fun ProjectsWishesScreen(
                                 )
                             }
                             if (wish.kind == "travel") {
-                                PaperFilterPill(
-                                    selected = createFp,
-                                    onClick = { createFp = !createFp },
-                                    label = if (createFp) "✓ 亮足迹" else "不建足迹"
-                                )
+                                // MOB 表单审计 #15：目的地未设置时「亮足迹」不可勾选并提示
+                                if (wish.cityCode.isNullOrBlank()) {
+                                    Text(
+                                        text = "目的地未设置，无法点亮足迹",
+                                        fontSize = 11.sp,
+                                        color = colors.inkMuted,
+                                        modifier = Modifier.align(Alignment.CenterVertically)
+                                    )
+                                } else {
+                                    PaperFilterPill(
+                                        selected = createFp,
+                                        onClick = { createFp = !createFp },
+                                        label = if (createFp) "✓ 亮足迹" else "不建足迹"
+                                    )
+                                }
                             }
                             PaperFilterPill(
                                 selected = createEntry,
@@ -849,12 +880,16 @@ fun ProjectsWishesScreen(
                                 id = proj.id,
                                 req = CreateProjectRequest(
                                     title = editTitle.trim(),
-                                    subtitle = editSubtitle.trim().takeIf { it.isNotBlank() },
+                                    // MOB 表单审计 #7：删空就发空串（后端 *string 空串=清空）——
+                                    // 原先 takeIf{isNotBlank} 会把 null 整个省略，
+                                    // 服务端按「保持原值」处理，副标题/仓库地址永远删不掉；
+                                    // 与同表单本就可清空的 description 同口径。
+                                    subtitle = editSubtitle.trim(),
                                     description = editDesc.trim(),
                                     story = proj.story,
                                     category = proj.category,
                                     status = editStatus,
-                                    githubUrl = editGithub.trim().takeIf { it.isNotBlank() },
+                                    githubUrl = editGithub.trim(),
                                     order = proj.order ?: 0
                                 )
                             )

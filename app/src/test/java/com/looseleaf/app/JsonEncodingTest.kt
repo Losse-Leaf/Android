@@ -43,8 +43,16 @@ class JsonEncodingTest {
         // 必填字段必须还在
         assertTrue(payload.contains("\"title\":\"一则随笔\""))
         assertTrue(payload.contains("\"occurred_at\":\"2026-01-01T08:00:00+08:00\""))
-        // 一串 null 不该再白白占体积
-        assertFalse("null 字段不应出现在请求体里", payload.contains("null"))
+        // project_id / wish_id 携带 @EncodeDefault(ALWAYS)：编辑散页切换类型时
+        // 必须显式下发 null 才能让服务端解绑(携带即写语义),因此这两个键
+        // 恒出现、且允许为 null —— 服务端对 null 等价缺省,创建路径无行为变化。
+        // 除这两个键外,其余可空字段仍按省略语义不出现。
+        assertTrue(
+            "project_id/wish_id 必须显式携带(允许 null,供编辑解绑)",
+            payload.contains("\"project_id\":null") && payload.contains("\"wish_id\":null")
+        )
+        assertFalse("其它可空字段仍应省略", payload.contains("\"location\""))
+        assertFalse("其它可空字段仍应省略", payload.contains("\"city_code\""))
     }
 
     @Test

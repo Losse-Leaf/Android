@@ -375,8 +375,12 @@ internal fun EntryDetailSheetDialog(
                         onClick = {
                             // 契约 A：清空城市时不再用 ifBlank 回退旧值（那会被服务端
                             // 按「保持原值」忽略、下次拉取又「复活」），改为显式 clear_city。
+                            // MOB 表单审计 #2：clear_city 只在「原条目有城市、用户清空了城市」时
+                            // 才允许发送——原本就没有 city_code 的条目（只写了手写地点）编辑保存时
+                            // 不能携带 clear_city，否则后端会连带清掉 location。
                             val code = editCityCode.trim()
                             val cityName = editCityName.trim().takeIf { it.isNotBlank() }
+                            val hadCity = !entry.cityCode.isNullOrBlank()
                             val finalAttachmentIds = editAttachments.mapNotNull { it.id.takeIf { id -> id > 0 } }
                             val req = CreateEntryRequest(
                                 type = editType,
@@ -388,9 +392,13 @@ internal fun EntryDetailSheetDialog(
                                 location = editLocation.trim(),
                                 cityCode = code.takeIf { it.isNotBlank() },
                                 cityName = cityName,
-                                clearCity = code.isBlank(),
-                                projectId = entry.projectId,
-                                wishId = entry.wishId,
+                                clearCity = hadCity && code.isBlank(),
+                                // MOB 表单审计 #5：归属字段按类型门控——
+                                // 非 project 类型显式发 project_id=null（EncodeDefault(ALWAYS)
+                                // 保证 null 落进请求体），后端「携带即写入」→ null = 解绑；
+                                // 原先恒回传会让「造物日志改成日常随笔」仍挂着 project_id 落库。
+                                projectId = if (editType == "project") entry.projectId else null,
+                                wishId = if (editType == "wish") entry.wishId else null,
                                 footprintId = entry.footprintId,
                                 attachmentIds = finalAttachmentIds,
                                 // 契约 B：删光照片时显式声明解绑——

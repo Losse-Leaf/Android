@@ -150,13 +150,15 @@ internal fun QuickNoteSheet(
     // 游历专属字段
     var selectedFootprintId by remember { mutableStateOf<Long?>(null) }
 
-    // 造物专属字段
+    // 造物专属字段。
+    // MOB 表单审计 #17：状态统一中文四态（进行中/已完成/维护中/已搁置），
+    // 与新建弹窗/编辑抽屉同一套枚举（后端白名单中英全集放行，此处收敛为中文）。
     var projectMode by remember { mutableStateOf("entry") } // "entry" (进展手记) vs "new" (立项新造物)
     var selectedProjectId by remember { mutableStateOf<Long?>(null) }
     var projTitle by remember { mutableStateOf("") }
     var projSubtitle by remember { mutableStateOf("") }
     var projCategory by remember { mutableStateOf("软件") }
-    var projStatus by remember { mutableStateOf("Active") }
+    var projStatus by remember { mutableStateOf("进行中") }
     var projDescription by remember { mutableStateOf("") }
     var projStory by remember { mutableStateOf("") }
     var projGithubUrl by remember { mutableStateOf("") }
@@ -168,6 +170,11 @@ internal fun QuickNoteSheet(
     var wishSpec by remember { mutableStateOf("") }
     var wishTargetDate by remember { mutableStateOf<LocalDate?>(null) }
     var wishNote by remember { mutableStateOf("") }
+    // MOB 表单审计 #13：心愿-旅程目的地用独立状态——
+    // 不复用速记共享属地 noteCity*（GPS 定位/上一模式残留会被误预填为「远方旅程」目的地），
+    // 提交也不再借道不可见的 noteLocation 做地名反推。
+    var wishCityCode by remember { mutableStateOf("") }
+    var wishCityName by remember { mutableStateOf("") }
 
     // 照片装裱状态
     var attachedPhotos by remember { mutableStateOf<List<AttachedPhotoItem>>(emptyList()) }
@@ -583,8 +590,10 @@ internal fun QuickNoteSheet(
                                             kind = wishKind,
                                             note = wishNote.trim().takeIf { it.isNotBlank() },
                                             spec = wishSpec.trim().takeIf { it.isNotBlank() && wishKind == "item" },
-                                            cityCode = if (wishKind == "travel") finalCode else null,
-                                            cityName = if (wishKind == "travel") finalCityName else null,
+                                            // MOB 表单审计 #13：目的地取心愿专属状态，
+                                            // 不再复用速记共享属地/地名反推
+                                            cityCode = if (wishKind == "travel") wishCityCode.trim().takeIf { it.isNotBlank() } else null,
+                                            cityName = if (wishKind == "travel") wishCityName.trim().takeIf { it.isNotBlank() } else null,
                                             budget = budgetCents,
                                             targetDate = targetIso,
                                             attachmentIds = attachmentIds.takeIf { it.isNotEmpty() }
@@ -1230,10 +1239,11 @@ internal fun QuickNoteSheet(
                                 label = stringResource(R.string.quick_note_sheet_label_08),
                                 selectedValue = projStatus,
                                 options = listOf(
-                                    "Active" to "活跃",
-                                    "Maintained" to "维护",
-                                    "WIP" to "构思试验",
-                                    "Archived" to "归档"
+                                    // MOB 表单审计 #17：统一中文四态（对齐新建弹窗与编辑抽屉）
+                                    "进行中" to "进行中",
+                                    "已完成" to "已完成",
+                                    "维护中" to "维护中",
+                                    "已搁置" to "已搁置"
                                 ),
                                 onSelected = { projStatus = it },
                                 modifier = Modifier.weight(1f)
@@ -1314,21 +1324,25 @@ internal fun QuickNoteSheet(
                             singleLine = true
                         )
                     } else if (wishKind == "travel") {
+                        // MOB 表单审计 #13：绑定心愿专属目的地状态
                         PaperCityPickerField(
-                            selectedCityCode = noteCityCode,
-                            selectedCityName = noteCityName,
+                            selectedCityCode = wishCityCode,
+                            selectedCityName = wishCityName,
                             onCitySelected = { code, name ->
-                                noteCityCode = code
-                                noteCityName = name
+                                wishCityCode = code
+                                wishCityName = name
                             },
                             placeholder = stringResource(R.string.quick_note_sheet_placeholder_10)
                         )
                     }
 
+                    // MOB 表单审计 #14：未选择目标期时显示「未设置」占位，
+                    // 不再显示一个不会被提交的「今天」
                     PaperDateField(
                         selectedDate = wishTargetDate ?: LocalDate.now(FormatUtils.BeijingZone),
                         onDateSelected = { wishTargetDate = it },
-                        label = stringResource(R.string.quick_note_sheet_label_15)
+                        label = stringResource(R.string.quick_note_sheet_label_15),
+                        unselectedText = if (wishTargetDate == null) "未设置" else null
                     )
 
                     PaperTextField(

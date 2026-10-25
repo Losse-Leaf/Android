@@ -2,6 +2,7 @@ package com.looseleaf.app.model
 
 import androidx.compose.runtime.Immutable
 import com.looseleaf.app.utils.FormatUtils
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -174,7 +175,7 @@ data class Project(
     val story: String? = null,
     val category: String? = null,
     @SerialName("github_url") val githubUrl: String? = null,
-    val status: String? = "Active",
+    val status: String? = "进行中",
     val order: Int? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null
@@ -646,7 +647,15 @@ data class CreateEntryRequest(
     val location: String? = null,
     @SerialName("city_code") val cityCode: String? = null,
     @SerialName("city_name") val cityName: String? = null,
+    // ── 归属绑定（MOB 表单审计 #5）────────────────────────
+    // EncodeDefault(ALWAYS) 让 null 也显式落进请求体（"project_id": null）——
+    // 后端 UpdateLifeEntry 对「携带即写入」：显式 null = 解绑，缺省 = 保持。
+    // 散页编辑把类型从造物/心愿切走时，必须靠显式 null 才能解绑旧归属，
+    // 否则省略的 key 会被服务端按「保持原值」吞掉、类型与绑定矛盾落库。
+    // 创建路径携带 null 与缺省等价（后端仅在非 null 时绑定），无副作用。
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     @SerialName("project_id") val projectId: Long? = null,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     @SerialName("wish_id") val wishId: Long? = null,
     @SerialName("footprint_id") val footprintId: Long? = null,
     @SerialName("attachment_ids") val attachmentIds: List<Long>? = null,

@@ -48,12 +48,29 @@ internal fun CreditChannelsManagerDialog(
     var editChannelName by remember { mutableStateOf("") }
     var editChannelDay by remember { mutableStateOf("") }
     var isSubmitting by remember { mutableStateOf(false) }
+    // MOB 表单审计 #12：删除前现查该渠道名下的分期账目笔数，确认框如实交代影响面
+    var deleteImpactCount by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(channelToDelete?.id) {
+        val target = channelToDelete
+        if (target == null) {
+            deleteImpactCount = null
+        } else {
+            deleteImpactCount = runCatching {
+                apiClient.fetchTransactions(limit = 1000)
+                    .count { it.isInstallment == true && it.installmentChannelCode == target.code }
+            }.getOrNull()
+        }
+    }
 
     // MOB-P0-14：删除信贷渠道二次确认
     channelToDelete?.let { ch ->
         ArchiveConfirmDialog(
             title = stringResource(R.string.ledger_dialogs_title_01),
-            content = "确认删除「${ch.name}」？已记录的该渠道分期账单将失去渠道归属。",
+            content = "确认删除「${ch.name}」？" + when (val n = deleteImpactCount) {
+                null -> "正在核对受影响账目…已记录的该渠道分期账单将失去渠道归属。"
+                0 -> "当前没有分期账目挂在该渠道下。"
+                else -> "名下 $n 笔分期账单将失去渠道归属（账单本身保留）。"
+            },
             confirmText = stringResource(R.string.ledger_dialogs_confirmText_01),
             isDestructive = true,
             onConfirm = {
@@ -361,7 +378,14 @@ internal fun CategoriesManagerDialog(
                     scopes.forEach { (sc, label) ->
                         PaperFilterPill(
                             selected = selectedScope == sc,
-                            onClick = { selectedScope = sc },
+                            // MOB 表单审计 #11：切换 scope 时清空名称输入框——
+                            // 否则在上一个 scope 打好的名称会被直接新增到错误的 scope
+                            onClick = {
+                                if (selectedScope != sc) {
+                                    selectedScope = sc
+                                    newCategoryName = ""
+                                }
+                            },
                             label = label
                         )
                     }

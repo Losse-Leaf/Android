@@ -800,8 +800,13 @@ class SyncManager private constructor(private val context: Context) {
             // 两端分叉，下一次增量拉取又把城市「复活」回来。
             cityCode = if (req.clearCity) null else req.cityCode,
             cityName = if (req.clearCity) null else (req.cityName ?: entity.cityName),
-            projectId = req.projectId ?: entity.projectId,
-            wishId = req.wishId ?: entity.wishId,
+            // ── 归属绑定的本地落地（MOB 表单审计 #5）──────────
+            // 服务端对 project_id / wish_id 是「携带即写入」，编辑弹窗按类型门控：
+            // 非 project/wish 类型显式发 null = 解绑。本地无法区分「缺省」与「显式 null」，
+            // 按类型同口径落地——类型不是 project/wish 时本地同样解绑，
+            // 否则服务端已解绑、本地仍挂着旧归属，下一次拉取又跳回去。
+            projectId = if (req.type == "project") (req.projectId ?: entity.projectId) else null,
+            wishId = if (req.type == "wish") (req.wishId ?: entity.wishId) else null,
             footprintId = req.footprintId ?: entity.footprintId,
             // ── 契约 B 的本地落地 ──────────────────────────────
             // attachmentIds 非 null 表示「附件集合就是这份」：删掉的照片立即从本地
@@ -1058,7 +1063,15 @@ class SyncManager private constructor(private val context: Context) {
             installmentTotalAmount = if (req.clearInstallment) null else (req.installmentTotalAmount ?: entity.installmentTotalAmount),
             installmentMonths = if (req.clearInstallment) null else (req.installmentMonths ?: entity.installmentMonths),
             installmentMonthlyPay = if (req.clearInstallment) null else (req.installmentMonthlyPay ?: entity.installmentMonthlyPay),
-            installmentRemainMonths = if (req.clearInstallment) null else (req.installmentRemainMonths ?: entity.installmentRemainMonths),
+            // MOB 表单审计 #4：剩余期数钳制到（新）总期数——改小总期数时原样保留旧 remain
+            // 会让本地出现「剩 x > 共 x」；服务端有 autoRemain 钳制，本地必须同口径才不分叉。
+            installmentRemainMonths = if (req.clearInstallment) {
+                null
+            } else {
+                val remain = req.installmentRemainMonths ?: entity.installmentRemainMonths
+                val total = req.installmentMonths ?: entity.installmentMonths
+                if (remain != null && total != null && total > 0) remain.coerceAtMost(total) else remain
+            },
             repaymentDay = if (req.clearInstallment) null else (req.repaymentDay ?: entity.repaymentDay),
             syncStatus = newSyncStatus
         )
