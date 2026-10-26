@@ -101,6 +101,7 @@ fun ProfileScreen(
     var localAvatarPreviewUri by remember { mutableStateOf<Uri?>(null) }
     var appearanceMode by remember { mutableStateOf(credentialStore.appearanceMode) }
     var isBiometricsEnabled by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
+    var showSettingsSheet by remember { mutableStateOf(false) }
     var showUnpairDialog by remember { mutableStateOf(false) }
     var showStorageBackupDialog by remember { mutableStateOf(false) }
     var showOtherDevicesSheet by remember { mutableStateOf(false) }
@@ -253,36 +254,51 @@ fun ProfileScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 item {
-                // MOB-P2-75：补顶栏标题 —— 此前展台页直接进入藏书票卡片，
-                // 切过来时看不到 App 名与页面名，与其它页面的语言不一致。
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.Start
+                // 展台顶栏：标题、文学副标题与独立偏好设置入口
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = stringResource(R.string.profile_screen_text_01),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 22.sp,
-                        letterSpacing = 1.sp,
-                        color = colors.inkPrimary
-                    )
-                    Text(
-                        text = stringResource(R.string.profile_screen_text_02),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 11.sp,
-                        color = colors.inkMuted
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Column(horizontalAlignment = Alignment.Start) {
+                        Text(
+                            text = stringResource(R.string.profile_screen_text_01),
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 22.sp,
+                            letterSpacing = 1.sp,
+                            color = colors.inkPrimary
+                        )
+                        Text(
+                            text = stringResource(R.string.profile_screen_text_02),
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 11.sp,
+                            color = colors.inkMuted
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { showSettingsSheet = true },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_tune),
+                            contentDescription = "偏好设置与系统运维",
+                            tint = colors.inkPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
                 }
                 item {
-                // 主理人名片拓片卡片 (藏书票 Ex-libris 紧凑型架构)
+                // 主理人名片拓片与全量生命总览 (藏书票 Ex-libris 紧凑一体化架构)
                 PaperCard(
                     modifier = Modifier.fillMaxWidth(),
                     backgroundColor = colors.archivePaper,
-                    borderColor = colors.accentWarm.copy(alpha = 0.25f),
-                    contentPadding = PaddingValues(14.dp)
+                    borderColor = colors.accentWarm.copy(alpha = 0.3f),
+                    contentPadding = PaddingValues(16.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Row(
@@ -446,9 +462,9 @@ fun ProfileScreen(
 
                         // 生活格言
                         val displayMotto = if (profile.motto.isNotBlank()) profile.motto else "在散落的日常里，拾取有光芒的瞬间"
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.35f))
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         Text(
                             text = stringResource(R.string.profile_screen_text_tpl_01, displayMotto),
@@ -461,45 +477,11 @@ fun ProfileScreen(
                             color = colors.accentWarm,
                             modifier = Modifier.fillMaxWidth()
                         )
-                    }
-                }
-                }
-                item {
-                // 全局档案指标概览卡片 (GlobalStats)
-                Spacer(modifier = Modifier.height(16.dp))
-                }
-                item {
-                PaperCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    backgroundColor = colors.archivePaper,
-                    borderColor = colors.borderDivider.copy(alpha = 0.5f),
-                    contentPadding = PaddingValues(16.dp)
-                ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = stringResource(R.string.profile_screen_text_03),
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = colors.inkPrimary
-                            )
-                            val ym = listOfNotNull(globalStats?.currentYear?.takeIf { it > 0 }?.let { "${it}年" }, globalStats?.currentMonth?.takeIf { it > 0 }?.let { "${it}月" }).joinToString("")
-                            if (ym.isNotBlank()) {
-                                Text(
-                                    text = ym,
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 11.sp,
-                                    color = colors.inkMuted
-                                )
-                            }
-                        }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        // 档案核心指标 (四栏一体化嵌入)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.25f))
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -509,7 +491,6 @@ fun ProfileScreen(
                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(0.95f)) {
                                 Text(stringResource(R.string.profile_screen_drafts), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
                                 Spacer(modifier = Modifier.height(2.dp))
-                                // MOB-P2-69：加载完成前显示占位符，避免「0」被误读为「真的没有」
                                 Text(
                                     if (globalStats == null) "—" else "${globalStats?.totalEntries}",
                                     fontFamily = ArchiveFontFamilies.MonoScale,
@@ -612,426 +593,7 @@ fun ProfileScreen(
                 }
                 }
                 item {
-                Spacer(modifier = Modifier.height(20.dp))
-                }
-                item {
-                // 受信任设备组卡片 (Trusted Devices Group Management)
-                PaperCard(modifier = Modifier.fillMaxWidth()) {
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = stringResource(R.string.profile_screen_text_tpl_03, trustedDevices.size),
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 15.sp,
-                                color = colors.inkPrimary
-                            )
-                            TextButton(
-                                onClick = {
-                                    scope.launch {
-                                        isIssuingPairTicket = true
-                                        runCatching {
-                                            issuedPairTicket = apiClient.initPairing()
-                                            ArchiveToastManager.show("已生成 5 分钟有效配对工单")
-                                        }.onFailure { err ->
-                                            ArchiveToastManager.show("生成配对失败: ${err.message}", isError = true)
-                                        }
-                                        isIssuingPairTicket = false
-                                    }
-                                },
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                                enabled = !isIssuingPairTicket
-                            ) {
-                                Text(if (isIssuingPairTicket) stringResource(R.string.profile_screen_issuing_ticket) else stringResource(R.string.profile_screen_pair_new_device), fontSize = 11.5.sp, fontFamily = ArchiveFontFamilies.BodySans, color = colors.accentWarm)
-                            }
-                        }
-
-                        // 1. 若当前签发了配对工单，展示工单与一键复制卡片
-                        issuedPairTicket?.let { ticket ->
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(colors.archiveSubtle, RoundedCornerShape(4.dp))
-                                    .border(0.5.dp, colors.accentWarm.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
-                                    .padding(10.dp)
-                            ) {
-                                Column {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = stringResource(R.string.profile_screen_text_04),
-                                            fontFamily = ArchiveFontFamilies.BodySans,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = colors.inkPrimary
-                                        )
-                                        TextButton(
-                                            onClick = { issuedPairTicket = null },
-                                            contentPadding = PaddingValues(0.dp)
-                                        ) {
-                                            Text(stringResource(R.string.profile_screen_collapse), fontSize = 11.sp, color = colors.inkMuted)
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = ticket.qrPayload,
-                                        fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 10.sp,
-                                        color = colors.inkSecondary,
-                                        maxLines = 2
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Button(
-                                        onClick = {
-                                            clipboardManager.setText(AnnotatedString(ticket.qrPayload))
-                                            ArchiveToastManager.show("已复制配对链接至剪贴板")
-                                        },
-                                        modifier = Modifier.fillMaxWidth().height(32.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = colors.inkPrimary,
-                                            contentColor = colors.archivePaper
-                                        ),
-                                        shape = RoundedCornerShape(3.dp),
-                                        contentPadding = PaddingValues(0.dp)
-                                    ) {
-                                        Text(stringResource(R.string.profile_screen_copy_link), fontSize = 11.sp)
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // 2. 本机设备卡片
-                        TrustedDeviceRow(
-                            deviceName = credentialStore.deviceName.ifBlank { "Android 随行设备" },
-                            deviceId = credentialStore.deviceId ?: "未初始化",
-                            platform = "android",
-                            isLocal = true,
-                            lastActiveAt = null,
-                            onRename = { showRenameDeviceDialog = true },
-                            onRevokeOrUnpair = { showUnpairDialog = true }
-                        )
-
-                        // 3. 其他受信任设备列表
-                        val otherDevices = trustedDevices.filter { it.deviceId != credentialStore.deviceId }
-                        if (isLoadingDevices) {
-                            // MOB-P2-70：此前 isLoadingDevices 只写不读 ——
-                            // 加载期间设备组静默只显示「本机」，用户以为其它设备被踢了。
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(12.dp),
-                                    strokeWidth = 1.5.dp,
-                                    color = colors.inkMuted
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = stringResource(R.string.profile_screen_text_05),
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 11.sp,
-                                    color = colors.inkMuted
-                                )
-                            }
-                        }
-                        if (otherDevices.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            HorizontalDivider(
-                                modifier = Modifier.padding(vertical = 4.dp),
-                                color = colors.borderDivider.copy(alpha = 0.5f),
-                                thickness = 0.5.dp
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(colors.archiveSubtle.copy(alpha = 0.5f))
-                                    .border(0.5.dp, colors.borderDivider.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                                    .clickable { showOtherDevicesSheet = true }
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_devices),
-                                        contentDescription = null,
-                                        tint = colors.accentWarm,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
-                                        Text(
-                                            text = "其他受信任设备 (${otherDevices.size} 台)",
-                                            fontFamily = ArchiveFontFamilies.BodySans,
-                                            fontWeight = FontWeight.Medium,
-                                            fontSize = 13.sp,
-                                            color = colors.inkPrimary
-                                        )
-                                        Text(
-                                            text = "Web 伴侣、Mac 桌面端等 · 点击查看与管理",
-                                            fontFamily = ArchiveFontFamilies.BodySans,
-                                            fontSize = 11.sp,
-                                            color = colors.inkMuted
-                                        )
-                                    }
-                                }
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_chevron_right),
-                                    contentDescription = null,
-                                    tint = colors.inkMuted,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-                }
-                item {
-                Spacer(modifier = Modifier.height(20.dp))
-                }
-                item {
-                // 移动端个性化开关
-                PaperCard(modifier = Modifier.fillMaxWidth()) {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.profile_screen_text_06),
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                            color = colors.inkPrimary
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Text(stringResource(R.string.profile_screen_appearance), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
-                            Text(stringResource(R.string.profile_screen_appearance_desc), fontSize = 11.sp, color = colors.inkMuted)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                val options = listOf(
-                                    AppearanceMode.SYSTEM to "跟随系统",
-                                    AppearanceMode.PAPER to "暖色棉纸",
-                                    AppearanceMode.DARKROOM to "暗房"
-                                )
-                                options.forEach { (mode, label) ->
-                                    val selected = appearanceMode == mode
-                                    Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (selected) colors.accentWarm else colors.archiveSubtle)
-                                            .border(
-                                                0.5.dp,
-                                                if (selected) colors.accentWarm else colors.borderDivider,
-                                                RoundedCornerShape(8.dp)
-                                            )
-                                            .clickable {
-                                                appearanceMode = mode
-                                                credentialStore.appearanceMode = mode
-                                                onAppearanceModeChanged(mode)
-                                            }
-                                            .padding(vertical = 7.dp)
-                                    ) {
-                                        Text(
-                                            text = label,
-                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                            fontSize = 12.sp,
-                                            color = if (selected) colors.archivePaper else colors.inkSecondary
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-                        PaperDivider()
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                                Text(stringResource(R.string.profile_screen_biometrics), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 13.5.sp, color = colors.inkPrimary)
-                                Text(stringResource(R.string.profile_screen_biometrics_desc), fontSize = 11.sp, color = colors.inkMuted)
-                            }
-                            Switch(
-                                checked = isBiometricsEnabled,
-                                onCheckedChange = {
-                                    isBiometricsEnabled = it
-                                    credentialStore.isBiometricsEnabled = it
-                                },
-                                colors = SwitchDefaults.colors(checkedThumbColor = colors.accentWarm, checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f))
-                            )
-                        }
-                    }
-                }
-                }
-                item {
-                Spacer(modifier = Modifier.height(20.dp))
-                }
-                item {
-                // 存储配置与快照灾备卡片 (二级独立抽屉入口，避免在主页平铺)
-                PaperCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showStorageBackupDialog = true }
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_tune),
-                                contentDescription = null,
-                                tint = colors.accentWarm,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.profile_screen_text_09),
-                                    fontFamily = ArchiveFontFamilies.BodySans,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp,
-                                    color = colors.inkPrimary
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "SQLite WAL 快照备份、灾备回滚与对象存储配置",
-                                    fontFamily = ArchiveFontFamilies.BodySans,
-                                    fontSize = 11.sp,
-                                    color = colors.inkMuted
-                                )
-                            }
-                        }
-                        Icon(
-                            painter = painterResource(R.drawable.ic_chevron_right),
-                            contentDescription = null,
-                            tint = colors.inkMuted,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-                }
-                item {
-                Spacer(modifier = Modifier.height(20.dp))
-                }
-                item {
-                // 版本信息与检测更新卡片
-                PaperCard(modifier = Modifier.fillMaxWidth()) {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.profile_screen_text_11),
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                            color = colors.inkPrimary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        ProfileInfoRow(label = stringResource(R.string.profile_screen_label_01), value = "v${UpdateChecker.currentVersionName}")
-                        ProfileInfoRow(label = stringResource(R.string.profile_screen_label_02), value = "GitHub Releases")
-
-                        Spacer(modifier = Modifier.height(10.dp))
-                        PaperDivider()
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = if (isCheckingUpdate) "正在连接 GitHub 检索更新..." else "检测云端最新发布",
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontSize = 12.sp,
-                                color = colors.inkSecondary
-                            )
-
-                            Button(
-                                onClick = {
-                                    scope.launch {
-                                        isCheckingUpdate = true
-                                        when (val result = UpdateChecker.checkForUpdates()) {
-                                            is UpdateCheckResult.HasUpdate -> {
-                                                availableUpdate = result.release
-                                            }
-                                            is UpdateCheckResult.AlreadyLatest -> {
-                                                ArchiveToastManager.show("当前已是最新版本 (v${UpdateChecker.currentVersionName})")
-                                            }
-                                            is UpdateCheckResult.Error -> {
-                                                ArchiveToastManager.show("检测更新失败: ${result.message}", isError = true)
-                                            }
-                                        }
-                                        isCheckingUpdate = false
-                                    }
-                                },
-                                enabled = !isCheckingUpdate,
-                                shape = RoundedCornerShape(2.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = colors.accentWarm,
-                                    contentColor = colors.archivePaper
-                                ),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    text = if (isCheckingUpdate) "检测中…" else "检测新版本",
-                                    fontFamily = ArchiveFontFamilies.BodySans,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-                    }
-                }
-                }
-                item {
-                Spacer(modifier = Modifier.height(24.dp))
-                }
-                item {
-                // 吊销此设备按钮
-                OutlinedButton(
-                    onClick = { showUnpairDialog = true },
-                    shape = RoundedCornerShape(2.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.accentWarm),
-                    border = ButtonDefaults.outlinedButtonBorder.copy(
-                        brush = androidx.compose.ui.graphics.SolidColor(colors.accentWarm)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(painter = painterResource(R.drawable.ic_link_off), contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.profile_screen_unbind_device), fontFamily = ArchiveFontFamilies.BodySans)
-                }
-                }
-                item {
-                Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(28.dp))
                 }
             }
 
@@ -1039,6 +601,68 @@ fun ProfileScreen(
             // 顶层提升（Hoisted）弹窗与抽屉容器
             // 解决 LazyColumn 惰性视口导致弹窗无法弹出的严重缺陷
             // ==========================================
+
+            // 偏好设置与系统运维独立抽屉 (Atelier vs Settings 分流)
+            if (showSettingsSheet) {
+                SettingsSheet(
+                    appearanceMode = appearanceMode,
+                    onAppearanceModeChanged = { mode ->
+                        appearanceMode = mode
+                        credentialStore.appearanceMode = mode
+                        onAppearanceModeChanged(mode)
+                    },
+                    isBiometricsEnabled = isBiometricsEnabled,
+                    onBiometricsChanged = { enabled ->
+                        isBiometricsEnabled = enabled
+                        credentialStore.isBiometricsEnabled = enabled
+                    },
+                    localDeviceName = credentialStore.deviceName,
+                    localDeviceId = credentialStore.deviceId ?: "",
+                    onRenameLocalDevice = { showRenameDeviceDialog = true },
+                    otherDevices = trustedDevices.filter { it.deviceId != credentialStore.deviceId },
+                    onOpenOtherDevices = { showOtherDevicesSheet = true },
+                    isIssuingPairTicket = isIssuingPairTicket,
+                    onIssuePairTicket = {
+                        scope.launch {
+                            isIssuingPairTicket = true
+                            runCatching {
+                                issuedPairTicket = apiClient.initPairing()
+                                ArchiveToastManager.show("已生成 5 分钟有效配对工单")
+                            }.onFailure { err ->
+                                ArchiveToastManager.show("生成配对失败: ${err.message}", isError = true)
+                            }
+                            isIssuingPairTicket = false
+                        }
+                    },
+                    issuedPairTicket = issuedPairTicket,
+                    onClosePairTicket = { issuedPairTicket = null },
+                    onCopyPairTicket = { link ->
+                        clipboardManager.setText(AnnotatedString(link))
+                        ArchiveToastManager.show("已复制配对链接至剪贴板")
+                    },
+                    onOpenStorageBackup = { showStorageBackupDialog = true },
+                    isCheckingUpdate = isCheckingUpdate,
+                    onCheckUpdate = {
+                        scope.launch {
+                            isCheckingUpdate = true
+                            when (val result = UpdateChecker.checkForUpdates()) {
+                                is UpdateCheckResult.HasUpdate -> {
+                                    availableUpdate = result.release
+                                }
+                                is UpdateCheckResult.AlreadyLatest -> {
+                                    ArchiveToastManager.show("当前已是最新版本 (v${UpdateChecker.currentVersionName})")
+                                }
+                                is UpdateCheckResult.Error -> {
+                                    ArchiveToastManager.show("检测更新失败: ${result.message}", isError = true)
+                                }
+                            }
+                            isCheckingUpdate = false
+                        }
+                    },
+                    onUnpair = { showUnpairDialog = true },
+                    onDismiss = { showSettingsSheet = false }
+                )
+            }
 
             // 其他受信任设备组二级管理底抽
             if (showOtherDevicesSheet) {

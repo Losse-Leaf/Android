@@ -7,31 +7,37 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.looseleaf.app.R
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
-import com.looseleaf.app.ui.components.*
-import androidx.compose.ui.res.stringResource
-import com.looseleaf.app.R
+
+/**
+ * 散页时间流统一筛选栏：年份下拉选择 + 类型分类胶囊单行聚合
+ * 避免原先双层滑动栏对手机垂直空间的严重压占
+ */
 @Composable
 internal fun StreamFilterBar(
     selectedFilter: String,
-    onFilterSelected: (String) -> Unit
+    onFilterSelected: (String) -> Unit,
+    availableYears: List<Int> = emptyList(),
+    selectedYear: Int? = null,
+    onYearSelected: ((Int?) -> Unit)? = null
 ) {
     val filters = listOf(
-        "all" to "全部印记",
-        "daily" to "日常随笔",
-        "travel" to "山川游历",
-        "project" to "造物日志",
-        "wish" to "心愿印记"
+        "all" to "全部",
+        "daily" to "日常",
+        "travel" to "游历",
+        "project" to "造物",
+        "wish" to "心愿"
     )
     val colors = LooseLeafTheme.colors
 
@@ -40,8 +46,94 @@ internal fun StreamFilterBar(
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        // 年份快捷下拉胶囊 (若提供年份集)
+        if (availableYears.isNotEmpty() && onYearSelected != null) {
+            var showYearMenu by remember { mutableStateOf(false) }
+            val hasYearSelected = selectedYear != null
+
+            Box {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            if (hasYearSelected) colors.accentWarm.copy(alpha = 0.15f) else colors.archiveSubtle
+                        )
+                        .border(
+                            0.5.dp,
+                            if (hasYearSelected) colors.accentWarm else colors.borderDivider,
+                            RoundedCornerShape(14.dp)
+                        )
+                        .clickable { showYearMenu = true }
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                ) {
+                    Text(
+                        text = if (selectedYear != null) "${selectedYear}年" else "全部年份",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 12.sp,
+                        fontWeight = if (hasYearSelected) FontWeight.Medium else FontWeight.Normal,
+                        color = if (hasYearSelected) colors.accentWarm else colors.inkSecondary
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Icon(
+                        painter = painterResource(R.drawable.ic_expand_more),
+                        contentDescription = null,
+                        tint = if (hasYearSelected) colors.accentWarm else colors.inkMuted,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showYearMenu,
+                    onDismissRequest = { showYearMenu = false },
+                    modifier = Modifier.background(colors.archivePaper)
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "全部年份",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 13.sp,
+                                color = if (selectedYear == null) colors.accentWarm else colors.inkPrimary
+                            )
+                        },
+                        onClick = {
+                            onYearSelected(null)
+                            showYearMenu = false
+                        }
+                    )
+                    for (year in availableYears) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "${year}年",
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    fontSize = 13.sp,
+                                    color = if (selectedYear == year) colors.accentWarm else colors.inkPrimary
+                                )
+                            },
+                            onClick = {
+                                onYearSelected(year)
+                                showYearMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            // 分隔竖线
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(14.dp)
+                    .background(colors.borderDivider.copy(alpha = 0.6f))
+            )
+        }
+
+        // 分类标签胶囊
         for ((key, label) in filters) {
             val isSelected = key == selectedFilter
             val shape = RoundedCornerShape(14.dp)
@@ -52,7 +144,7 @@ internal fun StreamFilterBar(
                     .background(if (isSelected) colors.inkPrimary else colors.archiveSubtle, shape)
                     .border(0.5.dp, if (isSelected) colors.inkPrimary else colors.borderDivider, shape)
                     .clickable { onFilterSelected(key) }
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 11.dp, vertical = 5.dp)
             ) {
                 Text(
                     text = label,
@@ -65,66 +157,12 @@ internal fun StreamFilterBar(
     }
 }
 
+/** 兼容旧调用的空实现（已并入 StreamFilterBar） */
 @Composable
 internal fun YearFilterBar(
     availableYears: List<Int>,
     selectedYear: Int?,
     onYearSelected: (Int?) -> Unit
 ) {
-    if (availableYears.isEmpty()) return
-    val colors = LooseLeafTheme.colors
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = stringResource(R.string.stream_filter_bar_text_01),
-            fontFamily = ArchiveFontFamilies.MonoScale,
-            fontSize = 11.sp,
-            color = colors.inkMuted,
-            modifier = Modifier.padding(end = 4.dp)
-        )
-
-        // 全部年份
-        val isAll = selectedYear == null
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
-                .background(if (isAll) colors.accentWarm.copy(alpha = 0.15f) else colors.archiveSubtle)
-                .border(0.5.dp, if (isAll) colors.accentWarm else colors.borderDivider, RoundedCornerShape(10.dp))
-                .clickable { onYearSelected(null) }
-                .padding(horizontal = 10.dp, vertical = 3.dp)
-        ) {
-            Text(
-                text = stringResource(R.string.stream_filter_bar_text_02),
-                fontFamily = ArchiveFontFamilies.MonoScale,
-                fontSize = 11.sp,
-                color = if (isAll) colors.accentWarm else colors.inkSecondary
-            )
-        }
-
-        for (year in availableYears) {
-            val isSelected = selectedYear == year
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (isSelected) colors.accentWarm.copy(alpha = 0.15f) else colors.archiveSubtle)
-                    .border(0.5.dp, if (isSelected) colors.accentWarm else colors.borderDivider, RoundedCornerShape(10.dp))
-                    .clickable { onYearSelected(year) }
-                    .padding(horizontal = 10.dp, vertical = 3.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.stream_filter_bar_text_tpl_01, year),
-                    fontFamily = ArchiveFontFamilies.MonoScale,
-                    fontSize = 11.sp,
-                    color = if (isSelected) colors.accentWarm else colors.inkSecondary
-                )
-            }
-        }
-    }
+    // 已整合至 StreamFilterBar，无需独立占行渲染
 }

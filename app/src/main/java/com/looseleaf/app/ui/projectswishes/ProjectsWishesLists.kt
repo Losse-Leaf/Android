@@ -69,33 +69,74 @@ internal fun ProjectsList(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            text = proj.title,
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 17.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = colors.inkPrimary,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.weight(1f, fill = false)
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        ) {
+                            Text(
+                                text = proj.title,
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 17.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = colors.inkPrimary
+                            )
+                            proj.status?.takeIf { it.isNotBlank() }?.let { status ->
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(
+                                            if (status == "已完结") colors.accentMoss.copy(alpha = 0.12f)
+                                            else colors.accentWarm.copy(alpha = 0.12f)
+                                        )
+                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = status,
+                                        fontFamily = ArchiveFontFamilies.BodySans,
+                                        fontSize = 10.5.sp,
+                                        color = if (status == "已完结") colors.accentMoss else colors.accentWarm
+                                    )
+                                }
+                            }
+                        }
+                        IconButton(
+                            onClick = { onProjectClick(proj) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
                             Icon(
                                 imageVector = Icons.Outlined.Edit,
                                 contentDescription = stringResource(R.string.projects_wishes_lists_contentDescription_01),
                                 tint = colors.inkMuted,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
                         }
                     }
 
+                    if (!proj.subtitle.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = proj.subtitle,
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 12.sp,
+                            color = colors.accentWarm,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
                     if (!proj.description.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(5.dp))
                         Text(
                             text = proj.description,
                             fontFamily = ArchiveFontFamilies.BodySans,
                             fontSize = 13.sp,
-                            color = colors.inkSecondary
+                            lineHeight = 18.sp,
+                            color = colors.inkSecondary,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
@@ -183,7 +224,7 @@ internal fun WishesList(
                 .weight(1f)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 84.dp)
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
         ) {
             items(filteredWishes, key = { it.id }) { wish ->
                 val isFulfilled = wish.status == "fulfilled" || wish.status == "relinquished"
@@ -380,6 +421,20 @@ internal fun FootprintsList(
                             color = colors.inkSecondary,
                             maxLines = 2
                         )
+
+                        val stats = listOfNotNull(
+                            foot.entriesCount?.takeIf { it > 0 }?.let { "$it 篇手记" },
+                            foot.totalSpent?.takeIf { it > 0 }?.let { "花销 ${FormatUtils.centsToYuanString(it)}" }
+                        )
+                        if (stats.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = stats.joinToString(" · "),
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 11.sp,
+                                color = colors.inkMuted
+                            )
+                        }
                     }
                 }
             }

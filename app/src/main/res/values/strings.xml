@@ -202,8 +202,8 @@
     <string name="projects_wishes_lists_contentDescription_03">删除心愿</string>
 
     <!-- projects_wishes_screen -->
-    <string name="projects_wishes_screen_text_01">造物 · 心愿 · 山川</string>
-    <string name="projects_wishes_screen_text_02">生命之流的二级投影 · 真实心迹与行迹</string>
+    <string name="projects_wishes_screen_text_01">工坊</string>
+    <string name="projects_wishes_screen_text_02">造物 · 心愿 · 山川 · 真实心迹与行迹</string>
     <string name="projects_wishes_screen_text_03">确认保存</string>
     <string name="projects_wishes_screen_placeholder_01">选择行政区划城市…</string>
     <string name="projects_wishes_screen_label_01">启程/到访时刻</string>

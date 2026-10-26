@@ -192,19 +192,18 @@ internal fun LifeActivityHeatmap(
         list
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(colors.archiveSubtle.copy(alpha = 0.5f))
-            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(6.dp))
-            .padding(12.dp)
+    PaperCard(
+        modifier = modifier.fillMaxWidth(),
+        backgroundColor = colors.archivePaper,
+        borderColor = colors.borderDivider.copy(alpha = 0.45f),
+        contentPadding = PaddingValues(14.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Outlined.DateRange,
@@ -337,6 +336,7 @@ internal fun LifeActivityHeatmap(
             }
         }
     }
+}
 }
 
 @Composable

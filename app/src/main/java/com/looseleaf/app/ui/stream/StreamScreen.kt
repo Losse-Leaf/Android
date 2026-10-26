@@ -695,21 +695,13 @@ fun StreamScreen(
                 listState.scrollToItem(0)
             }
 
-            // 分类筛选横滑栏
+            // 分类与年份统一横滑栏（单行紧凑聚合，释放有效屏高）
             StreamFilterBar(
                 selectedFilter = selectedFilter,
-                onFilterSelected = {
-                    selectedFilter = it
-                }
-            )
-
-            // 年份归档切换栏
-            YearFilterBar(
+                onFilterSelected = { selectedFilter = it },
                 availableYears = availableYears,
                 selectedYear = selectedYear,
-                onYearSelected = {
-                    selectedYear = it
-                }
+                onYearSelected = { selectedYear = it }
             )
 
             Spacer(modifier = Modifier.height(4.dp))

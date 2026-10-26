@@ -29,6 +29,8 @@ import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.theme.SpectrumColors
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
+import java.time.LocalDate
+import java.time.DayOfWeek
 import java.time.YearMonth
 import kotlin.math.roundToLong
 import androidx.compose.ui.text.buildAnnotatedString
@@ -209,7 +211,7 @@ internal fun TransactionsLedgerTab(
             }
         }
 
-        // 记账明细列表
+        // 记账明细列表（按自然日编排聚合，消解平铺卡片膨胀）
         if (monthTransactions.isEmpty()) {
             item {
                 if (isRefreshing) {
@@ -235,143 +237,244 @@ internal fun TransactionsLedgerTab(
                 }
             }
         } else {
-            items(monthTransactions, key = { it.id }) { tx ->
-                val isIncome = tx.type == "income"
-                val sign = if (isIncome) "+" else "-"
-                val displayAmount = if (isPrivacyMasked) "****" else "$sign${FormatUtils.centsToYuanString(tx.amount)}"
-                val spectrum = SpectrumColors.colorForCategory(tx.category, LooseLeafTheme.colors.isDark)
+            val groupedTransactions = monthTransactions
+                .groupBy { it.occurredAt.take(10) }
+                .toList()
+                .sortedByDescending { it.first }
 
-                PaperCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onEdit(tx) }
-                ) {
+            groupedTransactions.forEach { (dateString, dayTxs) ->
+                item(key = "hdr_$dateString") {
+                    val parsedDate = runCatching { LocalDate.parse(dateString) }.getOrNull()
+                    val today = LocalDate.now(FormatUtils.BeijingZone)
+                    val dateLabel = parsedDate?.let { d ->
+                        val diff = java.time.temporal.ChronoUnit.DAYS.between(d, today)
+                        val rel = when (diff) {
+                            0L -> "今天"
+                            1L -> "昨天"
+                            2L -> "前天"
+                            else -> when (d.dayOfWeek) {
+                                DayOfWeek.MONDAY -> "周一"
+                                DayOfWeek.TUESDAY -> "周二"
+                                DayOfWeek.WEDNESDAY -> "周三"
+                                DayOfWeek.THURSDAY -> "周四"
+                                DayOfWeek.FRIDAY -> "周五"
+                                DayOfWeek.SATURDAY -> "周六"
+                                DayOfWeek.SUNDAY -> "周日"
+                                else -> ""
+                            }
+                        }
+                        "${d.monthValue}月${d.dayOfMonth}日 $rel".trim()
+                    } ?: dateString
+
+                    val dayExpense = dayTxs.filter { it.type != "income" }.sumOf { it.amount }
+                    val dayIncome = dayTxs.filter { it.type == "income" }.sumOf { it.amount }
+
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(spectrum)
-                                    )
-                                Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = dateLabel,
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 13.sp,
+                            color = colors.inkPrimary
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (dayExpense > 0) {
                                 Text(
-                                    text = tx.title,
-                                    fontFamily = ArchiveFontFamilies.BodySans,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 15.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = colors.inkPrimary,
-                                    modifier = Modifier.weight(1f, fill = false)
-                                )
-                                if (tx.isInstallment == true) {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .background(colors.accentWarm.copy(alpha = 0.12f), RoundedCornerShape(2.dp))
-                                            .padding(horizontal = 4.dp, vertical = 1.dp)
-                                    ) {
-                                        val channel = when (tx.installmentChannelCode) {
-                                            "huabei" -> "花呗"
-                                            "baitiao" -> "白条"
-                                            else -> tx.installmentChannelCode?.takeIf { it.isNotBlank() } ?: "分期"
-                                        }
-                                        val term = if ((tx.installmentMonths ?: 0) > 0) "${tx.installmentMonths}期" else ""
-                                        Text(
-                                            text = listOfNotNull(channel, term).filter { it.isNotBlank() }.joinToString(" "),
-                                            fontSize = 11.sp,
-                                            fontFamily = ArchiveFontFamilies.MonoScale,
-                                            color = colors.accentWarm,
-                                            maxLines = 1,
-                                            softWrap = false
-                                        )
-                                    }
-                                }
-                                if (tx.syncStatus != SyncManager.STATUS_SYNCED) {
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(colors.accentWarm)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = listOfNotNull(
-                                    FormatUtils.formatDisplayDateTime(tx.occurredAt),
-                                    tx.category,
-                                    tx.paymentMethod
-                                ).joinToString(" · "),
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 11.sp,
-                                color = colors.inkMuted
-                            )
-
-                            if (tx.isInstallment == true) {
-                                Spacer(modifier = Modifier.height(3.dp))
-                                val totalAmt = tx.installmentTotalAmount?.takeIf { it > 0 } ?: tx.amount
-                                val remain = tx.installmentRemainMonths ?: tx.installmentMonths
-                                val totalMonths = tx.installmentMonths ?: 12
-                                val day = tx.repaymentDay ?: 10
-                                // MOB-P1-75：中英混排不再整串塞进等宽字体 ——
-                                // MonoScale（FontFamily.Monospace）遇到中文会回退到比例中文字体，
-                                // 整行因此失去等宽网格、金额列无法对齐。
-                                // 这里把「中文」与「数字」分段：中文用无衬线，数字用等宽并开 tnum。
-                                Text(
-                                    text = buildAnnotatedString {
-                                        append("总额 ")
-                                        withStyle(SpanStyle(fontFamily = ArchiveFontFamilies.MonoScale)) {
-                                            append(FormatUtils.centsToYuanString(totalAmt))
-                                        }
-                                        append(" · 剩 ")
-                                        withStyle(SpanStyle(fontFamily = ArchiveFontFamilies.MonoScale)) {
-                                            append("$remain/$totalMonths")
-                                        }
-                                        append(" 期 · 每月 ")
-                                        withStyle(SpanStyle(fontFamily = ArchiveFontFamilies.MonoScale)) {
-                                            append("$day")
-                                        }
-                                        append(" 日还款")
-                                    },
-                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    text = "支: ${FormatUtils.centsToYuanString(dayExpense)}",
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
                                     fontSize = 11.sp,
                                     color = colors.accentWarm
                                 )
                             }
-                        }
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = displayAmount,
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 16.sp,
-                                color = if (isIncome) colors.accentMoss else colors.accentWarm
-                            )
-
-                            IconButton(
-                                onClick = { onDelete(tx) },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Delete,
-                                    contentDescription = stringResource(R.string.ledger_transactions_tab_contentDescription_03),
-                                    tint = colors.inkMuted,
-                                    modifier = Modifier.size(16.dp)
+                            if (dayIncome > 0) {
+                                Text(
+                                    text = "收: ${FormatUtils.centsToYuanString(dayIncome)}",
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    fontSize = 11.sp,
+                                    color = colors.accentMoss
                                 )
                             }
                         }
                     }
                 }
+
+                item(key = "card_$dateString") {
+                    PaperCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        backgroundColor = colors.archivePaper,
+                        borderColor = colors.borderDivider.copy(alpha = 0.5f),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            dayTxs.forEachIndexed { index, tx ->
+                                if (index > 0) {
+                                    HorizontalDivider(
+                                        thickness = 0.5.dp,
+                                        color = colors.borderDivider.copy(alpha = 0.35f),
+                                        modifier = Modifier.padding(vertical = 2.dp)
+                                    )
+                                }
+                                TransactionRowItem(
+                                    tx = tx,
+                                    isPrivacyMasked = isPrivacyMasked,
+                                    onEdit = onEdit,
+                                    onDelete = onDelete
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TransactionRowItem(
+    tx: Transaction,
+    isPrivacyMasked: Boolean,
+    onEdit: (Transaction) -> Unit,
+    onDelete: (Transaction) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LooseLeafTheme.colors
+    val isIncome = tx.type == "income"
+    val sign = if (isIncome) "+" else "-"
+    val displayAmount = if (isPrivacyMasked) "****" else "$sign${FormatUtils.centsToYuanString(tx.amount)}"
+    val spectrum = SpectrumColors.colorForCategory(tx.category, LooseLeafTheme.colors.isDark)
+    val displayTime = remember(tx.occurredAt) { FormatUtils.formatDisplayTime(tx.occurredAt) }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .clickable { onEdit(tx) }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(spectrum)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = tx.title,
+                    fontFamily = ArchiveFontFamilies.BodySans,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = colors.inkPrimary,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (tx.isInstallment == true) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(colors.accentWarm.copy(alpha = 0.12f), RoundedCornerShape(2.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        val channel = when (tx.installmentChannelCode) {
+                            "huabei" -> "花呗"
+                            "baitiao" -> "白条"
+                            else -> tx.installmentChannelCode?.takeIf { it.isNotBlank() } ?: "分期"
+                        }
+                        val term = if ((tx.installmentMonths ?: 0) > 0) "${tx.installmentMonths}期" else ""
+                        Text(
+                            text = listOfNotNull(channel, term).filter { it.isNotBlank() }.joinToString(" "),
+                            fontSize = 11.sp,
+                            fontFamily = ArchiveFontFamilies.MonoScale,
+                            color = colors.accentWarm,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+                if (tx.syncStatus != SyncManager.STATUS_SYNCED) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(colors.accentWarm)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = listOfNotNull(
+                    displayTime.takeIf { it.isNotBlank() },
+                    tx.category,
+                    tx.paymentMethod
+                ).joinToString(" · "),
+                fontFamily = ArchiveFontFamilies.MonoScale,
+                fontSize = 11.sp,
+                color = colors.inkMuted
+            )
+
+            if (tx.isInstallment == true) {
+                Spacer(modifier = Modifier.height(3.dp))
+                val totalAmt = tx.installmentTotalAmount?.takeIf { it > 0 } ?: tx.amount
+                val remain = tx.installmentRemainMonths ?: tx.installmentMonths
+                val totalMonths = tx.installmentMonths ?: 12
+                val day = tx.repaymentDay ?: 10
+                Text(
+                    text = buildAnnotatedString {
+                        append("总额 ")
+                        withStyle(SpanStyle(fontFamily = ArchiveFontFamilies.MonoScale)) {
+                            append(FormatUtils.centsToYuanString(totalAmt))
+                        }
+                        append(" · 剩 ")
+                        withStyle(SpanStyle(fontFamily = ArchiveFontFamilies.MonoScale)) {
+                            append("$remain/$totalMonths")
+                        }
+                        append(" 期 · 每月 ")
+                        withStyle(SpanStyle(fontFamily = ArchiveFontFamilies.MonoScale)) {
+                            append("$day")
+                        }
+                        append(" 日还款")
+                    },
+                    fontFamily = ArchiveFontFamilies.BodySans,
+                    fontSize = 11.sp,
+                    color = colors.accentWarm
+                )
+            }
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = displayAmount,
+                fontFamily = ArchiveFontFamilies.MonoScale,
+                fontWeight = FontWeight.Medium,
+                fontSize = 16.sp,
+                color = if (isIncome) colors.accentMoss else colors.accentWarm
+            )
+
+            IconButton(
+                onClick = { onDelete(tx) },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = stringResource(R.string.ledger_transactions_tab_contentDescription_03),
+                    tint = colors.inkMuted,
+                    modifier = Modifier.size(16.dp)
+                )
             }
         }
     }

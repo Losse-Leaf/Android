@@ -74,7 +74,7 @@ class MainActivity : FragmentActivity() {
         private var sessionUnlocked = false
 
         /** MOB-P0-11：已知的一级路由白名单（桌面快捷方式 / 深链据此校验） */
-        private val KNOWN_ROUTES = setOf("stream", "ledger", "footprints", "projects", "profile")
+        private val KNOWN_ROUTES = setOf("stream", "ledger", "workshop", "projects", "footprints", "wishes", "profile")
 
         /** MOB-P1-60：系统大字体缩放上限（超过会撑破固定高度的键盘与顶栏布局） */
         private const val MAX_FONT_SCALE = 1.5f
@@ -251,8 +251,8 @@ class MainActivity : FragmentActivity() {
         )) { mutableStateListOf<String>() }
 
         fun sectionOf(route: String): String = when (route) {
-            // 造物 / 心愿 / 足迹同属一个分段，内部切换不单独入栈
-            "footprints", "projects", "wishes" -> "projects"
+            // 工坊（造物 / 心愿 / 足迹）同属一个分段，内部切换不单独入栈
+            "workshop", "footprints", "projects", "wishes" -> "workshop"
             else -> route
         }
 
@@ -275,15 +275,13 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
-        // MOB-P1-72：二级 Tab「心愿」此前被映射成 "projects"，
-        // 于是用户在看心愿单时底栏却高亮「造物」—— 导航在说谎。
-        // 现在心愿拥有独立路由（底栏不高亮任何一项，由二级分段控件表达选中）。
+        // 二级 Tab（造物 / 心愿 / 山川）切换时同步路由状态，底栏「工坊」保持常亮高亮
         val onSubTabChanged: (Int) -> Unit = remember(currentRouteState) {
             { tab: Int ->
                 val target = when (tab) {
                     2 -> "footprints"
                     1 -> "wishes"
-                    else -> "projects"
+                    else -> "workshop"
                 }
                 if (target != currentRouteState.value) {
                     if (sectionOf(target) != sectionOf(currentRouteState.value)) {
@@ -546,32 +544,27 @@ class MainActivity : FragmentActivity() {
                             .fillMaxSize()
                             .padding(innerPadding)
                     ) {
-                        // 「足迹」「造物」共用 ProjectsWishesScreen：两者共享同一个
-                        // SaveableState 桶，否则内部 tab 回传导致 route 变化时
-                        // 页面会被重建、内部 tab 被打回 initialTab
-                        // 造物 / 心愿 / 足迹共用同一个 SaveableState 桶，
-                        // 否则内部 Tab 回传导致 route 变化时页面会被重建、Tab 被打回初始值
-                        val stateKey = if (currentRoute in setOf("footprints", "projects", "wishes")) {
-                            "projects"
+                        // 工坊（造物 / 心愿 / 足迹）共用同一个 SaveableState 桶，
+                        // 内部 Tab 回传导致 route 变化时页面不会被重建、Tab 状态得以平滑保持
+                        val stateKey = if (currentRoute in setOf("workshop", "footprints", "projects", "wishes")) {
+                            "workshop"
                         } else {
                             currentRoute
                         }
-                        // 内部 tab（0 造物 / 1 心愿 / 2 山川）回传，同步底栏高亮
-                        // 内部 tab（0 造物 / 1 心愿 / 2 山川）回传，同步底栏高亮（回调已提升为稳定引用）
                         saveableStateHolder.SaveableStateProvider(stateKey) {
                             when (currentRoute) {
                                 "stream" -> StreamScreen()
                                 "ledger" -> LedgerScreen()
-                                "footprints" -> ProjectsWishesScreen(
-                                    initialTab = 2,
-                                    onTabChanged = onSubTabChanged
-                                )
-                                "projects" -> ProjectsWishesScreen(
+                                "workshop", "projects" -> ProjectsWishesScreen(
                                     initialTab = 0,
                                     onTabChanged = onSubTabChanged
                                 )
                                 "wishes" -> ProjectsWishesScreen(
                                     initialTab = 1,
+                                    onTabChanged = onSubTabChanged
+                                )
+                                "footprints" -> ProjectsWishesScreen(
+                                    initialTab = 2,
                                     onTabChanged = onSubTabChanged
                                 )
                                 "profile" -> ProfileScreen(
@@ -637,15 +630,13 @@ data class NavigationTabItem(
 private fun rememberBottomTabs(): List<NavigationTabItem> {
     val streamIcon = painterResource(R.drawable.ic_auto_stories)
     val ledgerIcon = painterResource(R.drawable.ic_calculate)
-    val footprintsIcon = painterResource(R.drawable.ic_explore)
-    val projectsIcon = painterResource(R.drawable.ic_all_inclusive)
+    val workshopIcon = painterResource(R.drawable.ic_all_inclusive)
     val profileIcon = painterResource(R.drawable.ic_account_circle)
-    return remember(streamIcon, ledgerIcon, footprintsIcon, projectsIcon, profileIcon) {
+    return remember(streamIcon, ledgerIcon, workshopIcon, profileIcon) {
         listOf(
             NavigationTabItem("stream", "时间流", streamIcon),
             NavigationTabItem("ledger", "账本", ledgerIcon),
-            NavigationTabItem("footprints", "足迹", footprintsIcon),
-            NavigationTabItem("projects", "造物", projectsIcon),
+            NavigationTabItem("workshop", "工坊", workshopIcon),
             NavigationTabItem("profile", "展台", profileIcon)
         )
     }
@@ -744,7 +735,10 @@ fun LooseLeafBottomBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             for (tab in tabs) {
-                val isSelected = tab.route == currentRoute
+                val isSelected = when (tab.route) {
+                    "workshop" -> currentRoute in setOf("workshop", "projects", "footprints", "wishes")
+                    else -> tab.route == currentRoute
+                }
                 val contentColor = if (isSelected) colors.accentWarm else colors.inkMuted
 
                 Column(
