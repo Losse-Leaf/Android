@@ -60,6 +60,8 @@ import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
+import com.looseleaf.app.ui.stream.LifeActivityHeatmap
+import com.looseleaf.app.ui.stream.AlmanacDialog
 import com.looseleaf.app.updater.ReleaseInfo
 import com.looseleaf.app.updater.UpdateCheckResult
 import com.looseleaf.app.updater.UpdateChecker
@@ -79,10 +81,7 @@ import androidx.compose.ui.res.painterResource
 fun ProfileScreen(
     onUnpair: () -> Unit,
     modifier: Modifier = Modifier,
-    onAppearanceModeChanged: (AppearanceMode) -> Unit = {},
-    /** MOB-P2-45：高对比度模式 */
-    highContrast: Boolean = false,
-    onHighContrastChanged: (Boolean) -> Unit = {}
+    onAppearanceModeChanged: (AppearanceMode) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -90,6 +89,7 @@ fun ProfileScreen(
     val apiClient = remember { APIClient.getInstance(context) }
     val credentialStore = remember { CredentialStore.getInstance(context) }
     val syncManager = remember { SyncManager.getInstance(context) }
+    val dayCounts by syncManager.dayCountsFlow.collectAsStateWithLifecycle()
 
     val cachedProfile = remember { ProfileRepository.getProfile(context) }
     val cachedSiteConfig = remember { ProfileRepository.getSiteConfig(context) }
@@ -103,6 +103,8 @@ fun ProfileScreen(
     var isBiometricsEnabled by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
     var showUnpairDialog by remember { mutableStateOf(false) }
     var showStorageBackupDialog by remember { mutableStateOf(false) }
+    var showOtherDevicesSheet by remember { mutableStateOf(false) }
+    var showAlmanacDialog by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var availableUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
@@ -553,6 +555,18 @@ fun ProfileScreen(
                 }
                 }
                 item {
+                // 生活刻度 · 编年时间热力图（直接在主页展示，带年度生活年鉴入口）
+                Spacer(modifier = Modifier.height(16.dp))
+                LifeActivityHeatmap(
+                    dayCounts = dayCounts,
+                    totalEntryCount = globalStats?.totalEntries ?: 0,
+                    collapsible = false,
+                    initiallyExpanded = true,
+                    onOpenAlmanac = { showAlmanacDialog = true },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                }
+                item {
                 // EDC 常用随行装备展台
                 if (profile.edcGear.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(20.dp))
@@ -738,27 +752,52 @@ fun ProfileScreen(
                                 color = colors.borderDivider.copy(alpha = 0.5f),
                                 thickness = 0.5.dp
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = stringResource(R.string.profile_screen_text_tpl_04, otherDevices.size),
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 10.sp,
-                                color = colors.inkMuted
-                            )
                             Spacer(modifier = Modifier.height(6.dp))
 
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                otherDevices.forEach { dev ->
-                                    TrustedDeviceRow(
-                                        deviceName = dev.name.ifBlank { dev.deviceId },
-                                        deviceId = dev.deviceId,
-                                        platform = dev.platform,
-                                        isLocal = false,
-                                        lastActiveAt = dev.lastActiveAt,
-                                        onRename = { deviceToRename = dev },
-                                        onRevokeOrUnpair = { deviceToRevoke = dev }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(colors.archiveSubtle.copy(alpha = 0.5f))
+                                    .border(0.5.dp, colors.borderDivider.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                    .clickable { showOtherDevicesSheet = true }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_devices),
+                                        contentDescription = null,
+                                        tint = colors.accentWarm,
+                                        modifier = Modifier.size(16.dp)
                                     )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = "其他受信任设备 (${otherDevices.size} 台)",
+                                            fontFamily = ArchiveFontFamilies.BodySans,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 13.sp,
+                                            color = colors.inkPrimary
+                                        )
+                                        Text(
+                                            text = "Web 伴侣、Mac 桌面端等 · 点击查看与管理",
+                                            fontFamily = ArchiveFontFamilies.BodySans,
+                                            fontSize = 11.sp,
+                                            color = colors.inkMuted
+                                        )
+                                    }
                                 }
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_chevron_right),
+                                    contentDescription = null,
+                                    tint = colors.inkMuted,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
                     }
@@ -822,40 +861,11 @@ fun ProfileScreen(
                                     }
                                 }
                             }
-
-                            // MOB-P2-45：高对比度模式开关（次级文字与分隔线显著加强）
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = stringResource(R.string.profile_screen_text_07),
-                                        fontFamily = ArchiveFontFamilies.BodySans,
-                                        fontSize = 13.5.sp,
-                                        color = colors.inkPrimary
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.profile_screen_text_08),
-                                        fontSize = 11.sp,
-                                        color = colors.inkMuted
-                                    )
-                                }
-                                Switch(
-                                    checked = highContrast,
-                                    onCheckedChange = onHighContrastChanged,
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = colors.accentWarm,
-                                        checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f)
-                                    )
-                                )
-                            }
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         PaperDivider()
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -882,38 +892,50 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.height(20.dp))
                 }
                 item {
-                // 存储配置与快照灾备中枢卡片 (对齐 Web StorageBackupModal)
-                PaperCard(modifier = Modifier.fillMaxWidth()) {
-                    Column {
+                // 存储配置与快照灾备卡片 (二级独立抽屉入口，避免在主页平铺)
+                PaperCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showStorageBackupDialog = true }
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Text(
-                                text = stringResource(R.string.profile_screen_text_09),
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 15.sp,
-                                color = colors.inkPrimary
+                            Icon(
+                                painter = painterResource(R.drawable.ic_tune),
+                                contentDescription = null,
+                                tint = colors.accentWarm,
+                                modifier = Modifier.size(16.dp)
                             )
-
-                            TextButton(
-                                onClick = { showStorageBackupDialog = true },
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                            ) {
-                                Icon(painter = painterResource(R.drawable.ic_tune), contentDescription = null, tint = colors.accentWarm, modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(stringResource(R.string.profile_screen_config_manage), fontSize = 11.5.sp, fontFamily = ArchiveFontFamilies.BodySans, color = colors.accentWarm)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.profile_screen_text_09),
+                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = colors.inkPrimary
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "SQLite WAL 快照备份、灾备回滚与对象存储配置",
+                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    fontSize = 11.sp,
+                                    color = colors.inkMuted
+                                )
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = stringResource(R.string.profile_screen_text_10),
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 11.5.sp,
-                            color = colors.inkSecondary
+                        Icon(
+                            painter = painterResource(R.drawable.ic_chevron_right),
+                            contentDescription = null,
+                            tint = colors.inkMuted,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
@@ -1009,234 +1031,251 @@ fun ProfileScreen(
                 }
                 }
                 item {
-                // MOB-P2-62：原先底部连续放了两个 96dp Spacer（恒定浪费 192dp 空白）
-                Spacer(modifier = Modifier.height(24.dp))
-                }
-                item {
-                if (availableUpdate != null) {
-                    val update = availableUpdate!!
-                    var downloadProgress by remember { mutableStateOf(0f) }
-                    var isDownloading by remember { mutableStateOf(false) }
-
-                    ArchiveReleaseDialog(
-                        release = update,
-                        isDownloading = isDownloading,
-                        downloadProgress = if (isDownloading) downloadProgress else null,
-                        onDismiss = {
-                            if (!isDownloading) availableUpdate = null
-                        },
-                        onDownloadAndInstall = {
-                            scope.launch {
-                                isDownloading = true
-                                val res = UpdateChecker.downloadApkStream(
-                                    context = context,
-                                    apkUrl = update.apkUrl,
-                                    versionName = update.versionName,
-                                    expectedSha256 = update.apkSha256
-                                ) { p, _, _ ->
-                                    downloadProgress = p
-                                }
-                                isDownloading = false
-                                res.onSuccess { f ->
-                                    if (!UpdateChecker.installApk(context, f)) {
-                                        ArchiveToastManager.show(
-                                            "安装包签名与已装版本不一致，需先做服务端备份再卸载重装",
-                                            isError = true
-                                        )
-                                    }
-                                }.onFailure { err ->
-                                    ArchiveToastManager.show("下载失败: ${err.message}", isError = true)
-                                }
-                            }
-                        }
-                    )
-                }
-                }
-                item {
-                if (showUnpairDialog) {
-                    ArchiveConfirmDialog(
-                        title = stringResource(R.string.profile_screen_title_01),
-                        content = if (pendingOutboxCount > 0) {
-                            "解除后将清除本机 KeyStore 中的 Device Token，本机将无法再向中枢提交任何记录，需重新扫码配对。" +
-                                "注意：本机还有 $pendingOutboxCount 条未同步记录（含离线日记/账目/相纸），" +
-                                "解绑将连同删除且**无法找回**。建议先联网同步完成后再解绑。"
-                        } else {
-                            "解除后将清除本机 KeyStore 中的 Device Token，本机将无法再向中枢提交任何记录，需重新扫码配对。"
-                        },
-                        confirmText = stringResource(R.string.profile_screen_confirmText_01),
-                        isDestructive = true,
-                        onConfirm = {
-                            val currentDeviceId = credentialStore.deviceId
-                            showUnpairDialog = false
-                            scope.launch {
-                                if (!currentDeviceId.isNullOrBlank()) {
-                                    val revoke = runCatching { apiClient.revokeDevice(currentDeviceId) }
-                                    if (revoke.isFailure) {
-                                        val code = (revoke.exceptionOrNull() as? APIException)?.code
-                                        // 401/404 = 服务端已经不认识这台设备，等价于已吊销。
-                                        if (code !in listOf(401, 404)) {
-                                            ArchiveToastManager.show(
-                                                "解除失败：无法联系中枢，本机数据与待同步记录均未清除，请联网后重试",
-                                                isError = true
-                                            )
-                                            return@launch
-                                        }
-                                    }
-                                }
-                                syncManager.cancelScheduledSync()
-                                runCatching { syncManager.clearAllLocalData() }
-                                credentialStore.clearCredentials()
-                                ProfileRepository.clearCache(context)
-                                LedgerRepository.clear()
-                                // 解绑必须清掉可还原内容的本地痕迹：图片缓存与已下载安装包
-                                runCatching {
-                                    File(context.cacheDir, "image_cache").deleteRecursively()
-                                    context.getExternalFilesDir(null)?.let { dir ->
-                                        File(dir, "Download").deleteRecursively()
-                                    }
-                                }
-                                // 以及两处表单草稿（修订草稿 + 速记草稿）——
-                                // 与确认框「连同删除且无法找回」的承诺一致，原样留在本机就是可还原内容
-                                runCatching {
-                                    context.getSharedPreferences(
-                                        "looseleaf_form_drafts", android.content.Context.MODE_PRIVATE
-                                    ).edit().clear().apply()
-                                    context.getSharedPreferences(
-                                        "quick_note_draft", android.content.Context.MODE_PRIVATE
-                                    ).edit().clear().apply()
-                                }
-                                onUnpair()
-                            }
-                        },
-                        onDismiss = { showUnpairDialog = false }
-                    )
-                }
-                }
-                item {
-                if (showEditProfileDialog) {
-                    EditProfileSheet(
-                        profile = profile,
-                        onDismiss = { showEditProfileDialog = false },
-                        onSave = { req ->
-                            scope.launch {
-                                runCatching {
-                                    val updated = apiClient.updateCuratorProfile(req)
-                                    ProfileRepository.updateProfile(context, updated)
-                                    profile = updated
-                                    ArchiveToastManager.show("主理人档案已保存")
-                                    // MOB 表单审计 #19：仅成功才关闭抽屉——
-                                    // 原先失败也无条件关闭，已填内容直接丢失
-                                    //（与其他编辑抽屉「失败保留待重试」的口径不一致）。
-                                    showEditProfileDialog = false
-                                }.onFailure { err ->
-                                    ArchiveToastManager.show("保存档案失败: ${err.message}", isError = true)
-                                }
-                            }
-                        }
-                    )
-                }
-                }
-                item {
-                if (showRenameDeviceDialog) {
-                    ArchivePromptDialog(
-                        title = stringResource(R.string.profile_screen_title_02),
-                        initialValue = credentialStore.deviceName,
-                        placeholder = stringResource(R.string.pairing_screen_placeholder_02),
-                        label = stringResource(R.string.profile_screen_label_03),
-                        confirmText = stringResource(R.string.profile_screen_confirmText_02),
-                        onDismiss = { showRenameDeviceDialog = false },
-                        onConfirm = { newName ->
-                            val devId = credentialStore.deviceId
-                            if (!devId.isNullOrBlank()) {
-                                scope.launch {
-                                    runCatching {
-                                        apiClient.updateDeviceName(devId, newName)
-                                        credentialStore.deviceName = newName
-                                        ArchiveToastManager.show("设备名称已更新")
-                                        reloadDevices()
-                                    }
-                                    showRenameDeviceDialog = false
-                                }
-                            } else {
-                                credentialStore.deviceName = newName
-                                showRenameDeviceDialog = false
-                            }
-                        }
-                    )
-                }
-                }
-                item {
-                deviceToRevoke?.let { dev ->
-                    ArchiveConfirmDialog(
-                        title = stringResource(R.string.profile_screen_title_03),
-                        content = "吊销后设备「${dev.name.ifBlank { dev.deviceId }}」将立即失去中枢访问凭据，无法再读取或提交任何档案。此操作不可逆。",
-                        confirmText = stringResource(R.string.profile_screen_confirmText_03),
-                        isDestructive = true,
-                        onConfirm = {
-                            val targetId = dev.deviceId
-                            deviceToRevoke = null
-                            scope.launch {
-                                runCatching {
-                                    apiClient.revokeDevice(targetId)
-                                    ArchiveToastManager.show("已成功吊销设备「${dev.name}」")
-                                    reloadDevices()
-                                }.onFailure { err ->
-                                    ArchiveToastManager.show("吊销失败: ${err.message}", isError = true)
-                                }
-                            }
-                        },
-                        onDismiss = { deviceToRevoke = null }
-                    )
-                }
-                }
-                item {
-                deviceToRename?.let { dev ->
-                    ArchivePromptDialog(
-                        title = stringResource(R.string.profile_screen_title_04),
-                        initialValue = dev.name,
-                        placeholder = stringResource(R.string.profile_screen_placeholder_01),
-                        label = stringResource(R.string.profile_screen_label_tpl_01, dev.deviceId),
-                        confirmText = stringResource(R.string.profile_screen_confirmText_02),
-                        onDismiss = { deviceToRename = null },
-                        onConfirm = { newName ->
-                            val targetId = dev.deviceId
-                            deviceToRename = null
-                            scope.launch {
-                                runCatching {
-                                    apiClient.updateDeviceName(targetId, newName)
-                                    ArchiveToastManager.show("设备名称已更新")
-                                    reloadDevices()
-                                }.onFailure { err ->
-                                    ArchiveToastManager.show("更名失败: ${err.message}", isError = true)
-                                }
-                            }
-                        }
-                    )
-                }
-                }
-                item {
-                if (showStorageBackupDialog) {
-                    StorageBackupSheetDialog(
-                        apiClient = apiClient,
-                        onDismiss = { showStorageBackupDialog = false },
-                        onRestored = {
-                            scope.launch {
-                                // 恢复成功后的全量拉取失败必须提示：此时各页门禁
-                                // 已标记，不再自动拉取，本地会停在恢复前状态且无提示
-                                syncManager.pullRemoteData(forceFull = true)
-                                    .onFailure { err ->
-                                        ArchiveToastManager.show(
-                                            "恢复完成，但拉取中枢数据失败: ${err.message}，请下拉刷新",
-                                            isError = true
-                                        )
-                                    }
-                                reloadDevices()
-                            }
-                        }
-                    )
-                }
+                Spacer(modifier = Modifier.height(32.dp))
                 }
             }
+
+            // ==========================================
+            // 顶层提升（Hoisted）弹窗与抽屉容器
+            // 解决 LazyColumn 惰性视口导致弹窗无法弹出的严重缺陷
+            // ==========================================
+
+            // 其他受信任设备组二级管理底抽
+            if (showOtherDevicesSheet) {
+                OtherDevicesSheet(
+                    otherDevices = trustedDevices.filter { it.deviceId != credentialStore.deviceId },
+                    onDismiss = { showOtherDevicesSheet = false },
+                    onRename = { dev ->
+                        showOtherDevicesSheet = false
+                        deviceToRename = dev
+                    },
+                    onRevoke = { dev ->
+                        showOtherDevicesSheet = false
+                        deviceToRevoke = dev
+                    }
+                )
+            }
+
+            // 年度生活年鉴五幕弹窗
+            if (showAlmanacDialog) {
+                AlmanacDialog(
+                    apiClient = apiClient,
+                    earliestEntryYear = globalStats?.currentYear,
+                    onDismiss = { showAlmanacDialog = false }
+                )
+            }
+
+            if (showUnpairDialog) {
+                ArchiveConfirmDialog(
+                    title = stringResource(R.string.profile_screen_title_01),
+                    content = if (pendingOutboxCount > 0) {
+                        "解除后将清除本机 KeyStore 中的 Device Token，本机将无法再向中枢提交任何记录，需重新扫码配对。" +
+                            "注意：本机还有 $pendingOutboxCount 条未同步记录（含离线日记/账目/相纸），" +
+                            "解绑将连同删除且**无法找回**。建议先联网同步完成后再解绑。"
+                    } else {
+                        "解除后将清除本机 KeyStore 中的 Device Token，本机将无法再向中枢提交任何记录，需重新扫码配对。"
+                    },
+                    confirmText = stringResource(R.string.profile_screen_confirmText_01),
+                    isDestructive = true,
+                    onConfirm = {
+                        val currentDeviceId = credentialStore.deviceId
+                        showUnpairDialog = false
+                        scope.launch {
+                            if (!currentDeviceId.isNullOrBlank()) {
+                                val revoke = runCatching { apiClient.revokeDevice(currentDeviceId) }
+                                if (revoke.isFailure) {
+                                    val code = (revoke.exceptionOrNull() as? APIException)?.code
+                                    // 401/404 = 服务端已经不认识这台设备，等价于已吊销。
+                                    if (code !in listOf(401, 404)) {
+                                        ArchiveToastManager.show(
+                                            "解除失败：无法联系中枢，本机数据与待同步记录均未清除，请联网后重试",
+                                            isError = true
+                                        )
+                                        return@launch
+                                    }
+                                }
+                            }
+                            syncManager.cancelScheduledSync()
+                            runCatching { syncManager.clearAllLocalData() }
+                            credentialStore.clearCredentials()
+                            ProfileRepository.clearCache(context)
+                            LedgerRepository.clear()
+                            // 解绑必须清掉可还原内容的本地痕迹：图片缓存与已下载安装包
+                            runCatching {
+                                File(context.cacheDir, "image_cache").deleteRecursively()
+                                context.getExternalFilesDir(null)?.let { dir ->
+                                    File(dir, "Download").deleteRecursively()
+                                }
+                            }
+                            // 以及两处表单草稿（修订草稿 + 速记草稿）——
+                            // 与确认框「连同删除且无法找回」的承诺一致，原样留在本机就是可还原内容
+                            runCatching {
+                                context.getSharedPreferences(
+                                    "looseleaf_form_drafts", android.content.Context.MODE_PRIVATE
+                                ).edit().clear().apply()
+                                context.getSharedPreferences(
+                                    "quick_note_draft", android.content.Context.MODE_PRIVATE
+                                ).edit().clear().apply()
+                            }
+                            onUnpair()
+                        }
+                    },
+                    onDismiss = { showUnpairDialog = false }
+                )
+            }
+
+            if (showEditProfileDialog) {
+                EditProfileSheet(
+                    profile = profile,
+                    onDismiss = { showEditProfileDialog = false },
+                    onSave = { req ->
+                        scope.launch {
+                            runCatching {
+                                val updated = apiClient.updateCuratorProfile(req)
+                                ProfileRepository.updateProfile(context, updated)
+                                profile = updated
+                                ArchiveToastManager.show("主理人档案已保存")
+                                showEditProfileDialog = false
+                            }.onFailure { err ->
+                                ArchiveToastManager.show("保存档案失败: ${err.message}", isError = true)
+                            }
+                        }
+                    }
+                )
+            }
+
+            if (showRenameDeviceDialog) {
+                ArchivePromptDialog(
+                    title = stringResource(R.string.profile_screen_title_02),
+                    initialValue = credentialStore.deviceName,
+                    placeholder = stringResource(R.string.pairing_screen_placeholder_02),
+                    label = stringResource(R.string.profile_screen_label_03),
+                    confirmText = stringResource(R.string.profile_screen_confirmText_02),
+                    onDismiss = { showRenameDeviceDialog = false },
+                    onConfirm = { newName ->
+                        val devId = credentialStore.deviceId
+                        if (!devId.isNullOrBlank()) {
+                            scope.launch {
+                                runCatching {
+                                    apiClient.updateDeviceName(devId, newName)
+                                    credentialStore.deviceName = newName
+                                    ArchiveToastManager.show("设备名称已更新")
+                                    reloadDevices()
+                                }
+                                showRenameDeviceDialog = false
+                            }
+                        } else {
+                            credentialStore.deviceName = newName
+                            showRenameDeviceDialog = false
+                        }
+                    }
+                )
+            }
+
+            deviceToRevoke?.let { dev ->
+                ArchiveConfirmDialog(
+                    title = stringResource(R.string.profile_screen_title_03),
+                    content = "吊销后设备「${dev.name.ifBlank { dev.deviceId }}」将立即失去中枢访问凭据，无法再读取或提交任何档案。此操作不可逆。",
+                    confirmText = stringResource(R.string.profile_screen_confirmText_03),
+                    isDestructive = true,
+                    onConfirm = {
+                        val targetId = dev.deviceId
+                        deviceToRevoke = null
+                        scope.launch {
+                            runCatching {
+                                apiClient.revokeDevice(targetId)
+                                ArchiveToastManager.show("已成功吊销设备「${dev.name}」")
+                                reloadDevices()
+                            }.onFailure { err ->
+                                ArchiveToastManager.show("吊销失败: ${err.message}", isError = true)
+                            }
+                        }
+                    },
+                    onDismiss = { deviceToRevoke = null }
+                )
+            }
+
+            deviceToRename?.let { dev ->
+                ArchivePromptDialog(
+                    title = stringResource(R.string.profile_screen_title_04),
+                    initialValue = dev.name,
+                    placeholder = stringResource(R.string.profile_screen_placeholder_01),
+                    label = stringResource(R.string.profile_screen_label_tpl_01, dev.deviceId),
+                    confirmText = stringResource(R.string.profile_screen_confirmText_02),
+                    onDismiss = { deviceToRename = null },
+                    onConfirm = { newName ->
+                        val targetId = dev.deviceId
+                        deviceToRename = null
+                        scope.launch {
+                            runCatching {
+                                apiClient.updateDeviceName(targetId, newName)
+                                ArchiveToastManager.show("设备名称已更新")
+                                reloadDevices()
+                            }.onFailure { err ->
+                                ArchiveToastManager.show("更名失败: ${err.message}", isError = true)
+                            }
+                        }
+                    }
+                )
+            }
+
+            if (showStorageBackupDialog) {
+                StorageBackupSheetDialog(
+                    apiClient = apiClient,
+                    onDismiss = { showStorageBackupDialog = false },
+                    onRestored = {
+                        scope.launch {
+                            syncManager.pullRemoteData(forceFull = true)
+                                .onFailure { err ->
+                                    ArchiveToastManager.show(
+                                        "恢复完成，但拉取中枢数据失败: ${err.message}，请下拉刷新",
+                                        isError = true
+                                    )
+                                }
+                            reloadDevices()
+                        }
+                    }
+                )
+            }
+
+            if (availableUpdate != null) {
+                val update = availableUpdate!!
+                var downloadProgress by remember { mutableStateOf(0f) }
+                var isDownloading by remember { mutableStateOf(false) }
+
+                ArchiveReleaseDialog(
+                    release = update,
+                    isDownloading = isDownloading,
+                    downloadProgress = if (isDownloading) downloadProgress else null,
+                    onDismiss = {
+                        if (!isDownloading) availableUpdate = null
+                    },
+                    onDownloadAndInstall = {
+                        scope.launch {
+                            isDownloading = true
+                            val res = UpdateChecker.downloadApkStream(
+                                context = context,
+                                apkUrl = update.apkUrl,
+                                versionName = update.versionName,
+                                expectedSha256 = update.apkSha256
+                            ) { p, _, _ ->
+                                downloadProgress = p
+                            }
+                            isDownloading = false
+                            res.onSuccess { f ->
+                                if (!UpdateChecker.installApk(context, f)) {
+                                    ArchiveToastManager.show(
+                                        "安装包签名与已装版本不一致，需先做服务端备份再卸载重装",
+                                        isError = true
+                                    )
+                                }
+                            }.onFailure { err ->
+                                ArchiveToastManager.show("下载失败: ${err.message}", isError = true)
+                            }
+                        }
+                    }
+                )
+            }
+        }
     }
-}
 }

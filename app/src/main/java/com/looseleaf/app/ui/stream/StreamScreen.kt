@@ -165,9 +165,6 @@ fun StreamScreen(
     var remoteOnThisDay by remember { mutableStateOf<List<LifeEntry>>(emptyList()) }
     var isOnThisDayExpanded by rememberSaveable { mutableStateOf(true) }
 
-    // 年度年鉴弹窗状态
-    var showAlmanacDialog by remember { mutableStateOf(false) }
-
     // 全局检索与速记随笔状态
     var showSearchDialog by remember { mutableStateOf(false) }
     var showQuickNoteDialog by remember { mutableStateOf(false) }
@@ -323,9 +320,6 @@ fun StreamScreen(
     // 刷新窗口期间禁止分页：否则「刷新先取 N 条、分页后补一页」时，
     // 先完成的分页会被后完成的整窗替换吞掉。
     var isRefreshingWindow by remember { mutableStateOf(false) }
-
-    // 热力图计数改为 SQL GROUP BY（不再全表物化）
-    val dayCounts by syncManager.dayCountsFlow.collectAsStateWithLifecycle()
 
     suspend fun loadWindow(offset: Int, limit: Int): StreamWindowPage =
         withContext(Dispatchers.IO) {
@@ -546,21 +540,6 @@ fun StreamScreen(
                         Icon(
                             imageVector = Icons.Outlined.Search,
                             contentDescription = stringResource(R.string.stream_screen_contentDescription_01),
-                            tint = colors.inkPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // 年度年鉴入口按钮
-                    IconButton(
-                        onClick = {
-                            showAlmanacDialog = true
-                        },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_auto_stories),
-                            contentDescription = stringResource(R.string.stream_screen_contentDescription_02),
                             tint = colors.inkPrimary,
                             modifier = Modifier.size(20.dp)
                         )
@@ -857,15 +836,6 @@ fun StreamScreen(
                     // 否则滚到底时最后一张卡片会被 FAB 压住
                     contentPadding = PaddingValues(top = 10.dp, bottom = 88.dp)
                 ) {
-                    // 52周时光生活刻度热力图
-                    item(key = "life_activity_heatmap") {
-                        LifeActivityHeatmap(
-                            dayCounts = dayCounts,
-                            totalEntryCount = totalCount,
-                            modifier = Modifier.padding(bottom = 10.dp)
-                        )
-                    }
-
                     // 那年今日 · 岁月回响 折叠卡片
                     if (onThisDayEntries.isNotEmpty()) {
                         item(key = "on_this_day_banner") {
@@ -1165,15 +1135,6 @@ fun StreamScreen(
                 syncManager = syncManager,
                 apiClient = apiClient,
                 onSuccess = { showQuickNoteDialog = false }
-            )
-        }
-
-        // 年度生活年鉴五幕弹窗
-        if (showAlmanacDialog) {
-            AlmanacDialog(
-                apiClient = apiClient,
-                earliestEntryYear = availableYears.lastOrNull(),
-                onDismiss = { showAlmanacDialog = false }
             )
         }
     }

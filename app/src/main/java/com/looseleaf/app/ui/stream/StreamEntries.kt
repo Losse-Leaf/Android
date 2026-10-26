@@ -157,10 +157,13 @@ internal fun LifeActivityHeatmap(
     // 原先要在组合期对全量条目 groupBy + 每条一次日期解析（2 万条 = 2 万次解析）。
     dayCounts: Map<String, Int>,
     totalEntryCount: Int = 0,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    collapsible: Boolean = false,
+    initiallyExpanded: Boolean = true,
+    onOpenAlmanac: (() -> Unit)? = null
 ) {
     val colors = LooseLeafTheme.colors
-    var isExpanded by rememberSaveable { mutableStateOf(false) }
+    var isExpanded by rememberSaveable { mutableStateOf(if (collapsible) initiallyExpanded else true) }
 
     // MOB-P1-32：按日计数由 SQL GROUP BY 提供，主线程零计算
     val dateCountMap = dayCounts
@@ -217,6 +220,7 @@ internal fun LifeActivityHeatmap(
                     fontWeight = FontWeight.Medium,
                     color = colors.inkPrimary
                 )
+                Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = stringResource(R.string.stream_entries_text_tpl_02, totalEntryCount),
                     fontFamily = ArchiveFontFamilies.MonoScale,
@@ -225,16 +229,37 @@ internal fun LifeActivityHeatmap(
                 )
             }
 
-            TextButton(
-                onClick = { isExpanded = !isExpanded },
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = if (isExpanded) "收起刻度" else "展开网格",
-                    fontFamily = ArchiveFontFamilies.BodySans,
-                    fontSize = 11.sp,
-                    color = colors.inkSecondary
-                )
+            if (onOpenAlmanac != null) {
+                TextButton(
+                    onClick = onOpenAlmanac,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_auto_stories),
+                        contentDescription = null,
+                        tint = colors.accentWarm,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "年度年鉴",
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 11.5.sp,
+                        color = colors.accentWarm
+                    )
+                }
+            } else if (collapsible) {
+                TextButton(
+                    onClick = { isExpanded = !isExpanded },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = if (isExpanded) "收起刻度" else "展开网格",
+                        fontFamily = ArchiveFontFamilies.BodySans,
+                        fontSize = 11.sp,
+                        color = colors.inkSecondary
+                    )
+                }
             }
         }
 
@@ -243,10 +268,14 @@ internal fun LifeActivityHeatmap(
             val cellDp = HEATMAP_CELL_DP.dp
             val gapDp = 3.dp
             val stepDp = cellDp + gapDp
+            val scrollState = rememberScrollState()
+            LaunchedEffect(calWeeks.size) {
+                scrollState.scrollTo(scrollState.maxValue)
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
+                    .horizontalScroll(scrollState)
             ) {
                 // 364 个可点击 Box 改为一次 Canvas 绘制：组合节点从 364 降到 1
                 Canvas(

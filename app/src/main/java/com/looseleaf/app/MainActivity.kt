@@ -92,9 +92,6 @@ class MainActivity : FragmentActivity() {
     // 这样回调可以做成「稳定引用」，MainContent 才有机会跳过重组。
     private val appearanceModeState = mutableStateOf(AppearanceMode.SYSTEM)
 
-    /** MOB-P2-45：高对比度模式（应用内开关） */
-    private val highContrastState = mutableStateOf(false)
-
     /**
      * 生物识别门禁状态必须放在 Activity 字段并用 SnapshotState 暴露给 Compose：
      * 之前只用 `remember { mutableStateOf(...) }` + 静态 `sessionUnlocked`，
@@ -156,7 +153,6 @@ class MainActivity : FragmentActivity() {
         // 外观偏好必须在首帧前读到：否则暗房用户冷启动会先闪一下纸色界面。
         // 这里只读普通 SharedPreferences（非加密存储），开销远小于一次主题闪变。
         appearanceModeState.value = credentialStore.appearanceMode
-        highContrastState.value = credentialStore.highContrast
 
         setContent {
             // MOB-P1-85：待同步计数（供全局离线横幅使用）
@@ -189,7 +185,7 @@ class MainActivity : FragmentActivity() {
                 }
             }
 
-            LooseLeafTheme(darkTheme = isDarkTheme, highContrast = highContrastState.value) {
+            LooseLeafTheme(darkTheme = isDarkTheme) {
                 // MOB-P1-60：钳制系统大字体缩放。
                 // 全部字号都用了 sp（会随 fontScale 放大），但布局没有为放大做准备：
                 // 4×3 大键盘（26sp）放大后高度超过固定区 ⇒「记入账本」按钮被挤出屏幕；
@@ -585,12 +581,7 @@ class MainActivity : FragmentActivity() {
                                         credentialStore.deviceToken = null
                                         syncManager.cancelScheduledSync()
                                     },
-                                    onAppearanceModeChanged = onAppearanceModeChanged,
-                                    highContrast = highContrastState.value,
-                                    onHighContrastChanged = { enabled ->
-                                        credentialStore.highContrast = enabled
-                                        highContrastState.value = enabled
-                                    }
+                                    onAppearanceModeChanged = onAppearanceModeChanged
                                 )
                                 // MOB-P0-11：未知路由兜底 —— 任何脏数据 / 过期快捷方式
                                 // 都不再渲染成空白页，而是回到时间流并给出提示。

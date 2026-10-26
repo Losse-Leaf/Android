@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -12,6 +13,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.model.CuratorProfile
+import com.looseleaf.app.model.TrustedDevice
 import com.looseleaf.app.model.UpdateProfileRequest
 import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.theme.ArchiveFontFamilies
@@ -206,5 +208,71 @@ internal fun EditProfileSheet(
                 innerTextField()
             }
         )
+    }
+}
+
+/**
+ * 其他受信任设备组二级管理底抽
+ * 解决多端配对设备在个人展台主页平铺导致的版面过长问题
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun OtherDevicesSheet(
+    otherDevices: List<TrustedDevice>,
+    onDismiss: () -> Unit,
+    onRename: (TrustedDevice) -> Unit,
+    onRevoke: (TrustedDevice) -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+
+    ArchiveBottomSheet(
+        onDismissRequest = onDismiss,
+        title = "受信任跨端设备 (${otherDevices.size})",
+        actionButtonText = null
+    ) {
+        Text(
+            text = "这些跨端设备已通过散页端到端中枢建立受信任配对，共享同步手稿、账本与山川印记。",
+            fontFamily = ArchiveFontFamilies.BodySans,
+            fontSize = 12.sp,
+            color = colors.inkSecondary,
+            lineHeight = 18.sp
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        if (otherDevices.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "暂无其他已配对设备",
+                    fontFamily = ArchiveFontFamilies.BodySans,
+                    fontSize = 13.sp,
+                    color = colors.inkMuted
+                )
+            }
+        } else {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                otherDevices.forEach { dev ->
+                    TrustedDeviceRow(
+                        deviceName = dev.name.ifBlank { dev.deviceId },
+                        deviceId = dev.deviceId,
+                        platform = dev.platform,
+                        isLocal = false,
+                        lastActiveAt = dev.lastActiveAt,
+                        onRename = { onRename(dev) },
+                        onRevokeOrUnpair = { onRevoke(dev) }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
