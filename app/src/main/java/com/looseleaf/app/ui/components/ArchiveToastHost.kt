@@ -43,7 +43,18 @@ object ArchiveToastManager {
     private val _messages = MutableSharedFlow<ArchiveToastMessage>(extraBufferCapacity = 8)
     val messages = _messages.asSharedFlow()
 
+    private fun isCancellationNoise(text: String, isError: Boolean): Boolean {
+        if (!isError) return false
+        val lower = text.lowercase()
+        return lower.contains("coroutine scope left the composition") ||
+            lower.contains("cancellationexception") ||
+            lower.contains("standalonecoroutine was cancelled") ||
+            lower.contains("job was cancelled")
+    }
+
     fun show(text: String, isError: Boolean = false, durationMs: Long = 2200L) {
+        // 门禁：生命周期正常的协程取消（例如页面切换、离开组合树）绝不应作为错误提示展示给用户
+        if (isCancellationNoise(text, isError)) return
         // MOB-P1-79：错误类提示的默认时长由调用方决定；这里对未显式指定时长的错误提示
         // 兜底延长到 4.5s —— 2.2s 根本来不及读完「对齐失败: xxx」这类带异常串的文案。
         val effectiveDuration = if (isError && durationMs == 2200L) 4500L else durationMs
@@ -61,6 +72,7 @@ object ArchiveToastManager {
         isError: Boolean = false,
         action: () -> Unit
     ) {
+        if (isCancellationNoise(text, isError)) return
         _messages.tryEmit(
             ArchiveToastMessage(
                 text = text,

@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.looseleaf.app.darkroom.ImagePipeline
@@ -95,6 +96,8 @@ internal fun EntryDetailSheetDialog(
                         val att = ImagePipeline.uploadImage(apiClient, processed)
                         editAttachments = editAttachments + att
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     ArchiveToastManager.show(
                         "相纸追加需要联网（当前离线或服务不可达）：${e.message ?: "网络异常"}",
@@ -503,6 +506,8 @@ internal fun AlmanacDialog(
         errorMsg = null
         try {
             summary = apiClient.fetchAlmanacSummary(selectedYear)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             errorMsg = e.message
         } finally {

@@ -33,6 +33,7 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
 import com.looseleaf.app.R
@@ -71,7 +72,7 @@ fun StorageBackupSheetDialog(
 
     suspend fun reloadData() {
         isLoading = true
-        runCatching {
+        val result = try {
             storageStatus = apiClient.fetchStorageStatus()
             backups = apiClient.fetchBackupList()
             storageStatus?.let { st ->
@@ -80,8 +81,16 @@ fun StorageBackupSheetDialog(
                 accessKeyId = st.accessKeyId ?: ""
                 publicDomain = st.publicDomain ?: ""
             }
-        }.onFailure { err ->
-            ArchiveToastManager.show("加载灾备信息失败: ${err.message}", isError = true)
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+        result.onFailure { err ->
+            if (err !is CancellationException) {
+                ArchiveToastManager.show("加载灾备信息失败: ${err.message}", isError = true)
+            }
         }
         isLoading = false
     }

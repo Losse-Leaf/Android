@@ -28,6 +28,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -255,8 +256,11 @@ fun StreamScreen(
             isRetryingStream = true
             // pullStreamData 本身返回 Result；再套 runCatching 会把
             // Result.failure 包成「外层成功」，失败被吞掉、首屏永远转圈。
+            // 页面切走引发的协程取消绝不能当成失败吞掉，必须向上传播。
             val result = try {
                 syncManager.pullStreamData()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -266,6 +270,7 @@ fun StreamScreen(
                 SyncManager.markSessionPullDone("stream")
             }
             result.onFailure { error ->
+                if (error is CancellationException) return@onFailure
                 // 401 单独提示：多半是设备凭据失效（换了密钥 / 重装 / 服务端清了设备表）
                 val message = when {
                     error.message?.contains("401") == true ||
@@ -744,6 +749,8 @@ fun StreamScreen(
                                             isRetryingStream = true
                                             val result = try {
                                                 syncManager.pullStreamData()
+                                            } catch (e: CancellationException) {
+                                                throw e
                                             } catch (e: Exception) {
                                                 Result.failure(e)
                                             }
@@ -753,6 +760,7 @@ fun StreamScreen(
                                                 SyncManager.markSessionPullDone("stream")
                                             }
                                             result.onFailure { error ->
+                                                if (error is CancellationException) return@onFailure
                                                 streamLoadError = error.message ?: "无法连接中枢"
                                             }
                                         }

@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import kotlinx.coroutines.CancellationException
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.looseleaf.app.data.api.APIClient
@@ -231,6 +232,8 @@ fun LedgerScreen(
             // 「外层成功」，失败被吞掉、门禁照常标记，本会话不再自动重试。
             val result = try {
                 syncManager.pullLedgerData()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -239,6 +242,7 @@ fun LedgerScreen(
                 SyncManager.markSessionPullDone("ledger")
             }
             result.onFailure { error ->
+                if (error is CancellationException) return@onFailure
                 ledgerLoadError = error.message ?: "无法连接中枢"
             }
         }

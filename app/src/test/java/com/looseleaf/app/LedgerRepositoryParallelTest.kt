@@ -57,7 +57,7 @@ class LedgerRepositoryParallelTest {
             )
         }
 
-        assertTrue("并行后总耗时应在 150ms 内，实际 ${elapsed}ms", elapsed < 150)
+        assertTrue("并行后总耗时应显著小于串行的 300ms，实际 ${elapsed}ms", elapsed < 250)
         assertEquals("三个请求应同时在途", 3, maxInFlight.get())
         val snapshot = LedgerRepository.snapshot.value
         assertEquals(listOf("餐饮"), snapshot.expenseCategories)

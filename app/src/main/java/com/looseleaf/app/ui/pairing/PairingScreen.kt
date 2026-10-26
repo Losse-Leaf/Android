@@ -28,6 +28,7 @@ import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
 import com.looseleaf.app.R
@@ -141,6 +142,9 @@ fun PairingScreen(
                 }
 
                 currentStep = 1
+            } catch (e: CancellationException) {
+                runCatching { apiClient.baseUrl = previousBaseUrl }
+                throw e
             } catch (e: Exception) {
                 runCatching { apiClient.baseUrl = previousBaseUrl }
                 ArchiveToastManager.show("连接数据中枢失败: ${e.message}", isError = true)

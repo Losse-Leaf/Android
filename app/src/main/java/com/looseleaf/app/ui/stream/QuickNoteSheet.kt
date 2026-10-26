@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -308,6 +309,8 @@ internal fun QuickNoteSheet(
                         }
                         ArchiveToastManager.show("已装裱 ${newItems.size} 张相纸")
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     ArchiveToastManager.show("相纸装裱失败: ${e.message}", isError = true)
                 } finally {
@@ -615,6 +618,8 @@ internal fun QuickNoteSheet(
                                 noteSubmitted = true
                                 draftPrefs.edit().clear().apply()
                                 onSuccess()
+                            } catch (e: CancellationException) {
+                                throw e
                             } catch (e: Exception) {
                                 ArchiveToastManager.show("归册失败: ${e.message}", isError = true)
                             } finally {

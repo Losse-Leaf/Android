@@ -18,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -98,9 +99,18 @@ fun ProjectsWishesScreen(
             isLoading = true
         }
         loadError = null
-        // pullRemoteData 自身返回 Result，不会抛异常；必须读 Result 才能拿到失败原因
-        syncManager.pullProjectsWishesData()
-            .onFailure { loadError = it.message ?: "同步失败" }
+        val result = try {
+            syncManager.pullProjectsWishesData()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+        result.onFailure {
+            if (it !is CancellationException) {
+                loadError = it.message ?: "同步失败"
+            }
+        }
         isLoading = false
     }
 
@@ -371,6 +381,8 @@ fun ProjectsWishesScreen(
                                         }
                                         showCreateDialog = false
                                         reloadAll()
+                                    } catch (e: CancellationException) {
+                                        throw e
                                     } catch (e: Exception) {
                                         ArchiveToastManager.show("创建失败: ${e.message}", isError = true)
                                     }
@@ -628,6 +640,8 @@ fun ProjectsWishesScreen(
                             )
                             resolvingWish = null
                             reloadAll()
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             ArchiveToastManager.show("归册失败: ${e.message}", isError = true)
                         }

@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import kotlinx.coroutines.CancellationException
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -201,6 +202,8 @@ fun ProfileScreen(
                         localAvatarPreviewUri = null
                         ArchiveToastManager.show("头像解析失败", isError = true)
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     localAvatarPreviewUri = null
                     ArchiveToastManager.show("头像上传失败: ${e.message}", isError = true)
@@ -216,16 +219,24 @@ fun ProfileScreen(
         // 仍为 true，新会话里展台页不再首拉档案，用户对着陈旧数据无提示。
         // 与时间流/账本页同口径：仅成功才标记门禁，失败可重试且给轻提示。
         if (!SyncManager.isSessionPullDone("profile")) {
-            runCatching {
+            val result = try {
                 val remoteProfile = apiClient.fetchCuratorProfile()
                 ProfileRepository.updateProfile(context, remoteProfile)
                 profile = remoteProfile
                 val remoteConfig = apiClient.fetchSiteConfig()
                 ProfileRepository.updateSiteConfig(context, remoteConfig)
                 siteConfig = remoteConfig
-            }.onSuccess {
+                Result.success(Unit)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            result.onSuccess {
                 SyncManager.markSessionPullDone("profile")
-            }.onFailure { err ->
+            }
+            result.onFailure { err ->
+                if (err is CancellationException) return@onFailure
                 ArchiveToastManager.show("档案刷新失败: ${err.message}", isError = true)
             }
         }
