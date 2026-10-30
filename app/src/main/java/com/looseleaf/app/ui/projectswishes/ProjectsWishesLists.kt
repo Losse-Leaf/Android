@@ -88,7 +88,7 @@ internal fun ProjectsList(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 val dotColor = when (status) {
                                     "进行中" -> colors.tagTravel // 蓝灰色
-                                    "已完成" -> Color(0xFF6B7280) // 中性灰板岩色（禁止使用绿/红/赤陶）
+                                    "已完成" -> colors.inkSecondary // 中性灰板岩色（禁止使用绿/红/赤陶）
                                     "维护中" -> colors.tagProject // 大地赭黄
                                     else -> colors.inkMuted
                                 }

@@ -880,7 +880,7 @@ class APIClient private constructor(private val context: Context) {
  * 也绝不能用 encodedPath("") 清空已解析路径——OkHttp 要求它以 "/" 开头，
  * 传空串会抛 IllegalArgumentException（v1.5.0 的全量断连回归即源于此）。
  */
-internal fun buildHubUrl(
+fun buildHubUrl(
     baseUrl: String,
     path: String,
     queryParams: Map<String, String>? = null

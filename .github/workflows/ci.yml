@@ -46,7 +46,7 @@ jobs:
           set +e
           # MOB-P1-62：引入发行变体后，testDebugUnitTest 变成歧义任务名 ——
           # 必须显式点名两个变体，否则 Gradle 直接报 "Task 'testDebugUnitTest' is ambiguous"
-          ./gradlew :app:testPublicDebugUnitTest :app:testLanDebugUnitTest --no-daemon --stacktrace > gradle_test.log 2>&1
+          ./gradlew :core:testDebugUnitTest :feature-ledger:testDebugUnitTest :app:testPublicDebugUnitTest :app:testLanDebugUnitTest --no-daemon --stacktrace > gradle_test.log 2>&1
           EXIT_CODE=$?
           cat gradle_test.log
           if [ $EXIT_CODE -ne 0 ]; then

@@ -368,7 +368,7 @@ fun ProjectsWishesScreen(
                 FloatingActionButton(
                     onClick = { showCreateDialog = true },
                     containerColor = colors.accentWarm,
-                    contentColor = androidx.compose.ui.graphics.Color.White,
+                    contentColor = colors.archivePaper,
                     shape = CircleShape,
                     elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
                     modifier = Modifier.size(56.dp)
@@ -380,7 +380,7 @@ fun ProjectsWishesScreen(
                             1 -> "许下心愿"
                             else -> "点亮足迹"
                         },
-                        tint = androidx.compose.ui.graphics.Color.White,
+                        tint = colors.archivePaper,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -1049,7 +1049,7 @@ fun ProjectsWishesScreen(
                     ) {
                         listOf(
                             "进行中" to colors.tagTravel,
-                            "已完成" to androidx.compose.ui.graphics.Color(0xFF6B7280),
+                            "已完成" to colors.inkSecondary,
                             "维护中" to colors.tagProject,
                             "已搁置" to colors.inkMuted
                         ).forEach { (s, dotColor) ->

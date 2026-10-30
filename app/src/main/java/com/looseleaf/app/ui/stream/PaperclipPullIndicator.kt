@@ -67,8 +67,8 @@ internal fun BoxScope.PaperclipPullIndicator(
                 .shadow(
                     elevation = ArchiveShadows.floatingLayerElevation,
                     shape = CircleShape,
-                    spotColor = Color(0x382A180E),
-                    ambientColor = Color(0x282A180E)
+                    spotColor = colors.cardShadowSpot,
+                    ambientColor = colors.cardShadowAmbient
                 )
                 .clip(CircleShape)
                 .background(colors.archiveCard)

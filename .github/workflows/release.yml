@@ -47,7 +47,7 @@ jobs:
         run: |
           set +e
           # MOB-P1-62：变体化后必须显式点名（testDebugUnitTest 已成歧义任务名）
-          ./gradlew :app:testPublicDebugUnitTest :app:testLanDebugUnitTest --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_test.log 2>&1
+          ./gradlew :core:testDebugUnitTest :feature-ledger:testDebugUnitTest :app:testPublicDebugUnitTest :app:testLanDebugUnitTest --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_test.log 2>&1
           EXIT_CODE=$?
           cat gradle_test.log
           if [ $EXIT_CODE -ne 0 ]; then
