@@ -203,12 +203,13 @@ fun StorageBackupSheetDialog(
         )
     }
 
-    ArchiveBottomSheet(
+    ArchiveSheet(
         onDismissRequest = onDismiss,
         title = stringResource(R.string.storage_backup_sheet_dialog_title_03),
-        actionButtonText = if (selectedTab == 0) "立即备份" else null,
+        cancelText = "关闭",
+        actionText = if (selectedTab == 0) "立即备份" else null,
         isActionEnabled = !isOperating && !isLoading,
-        onActionClick = {
+        onAction = {
             if (selectedTab == 0) {
                 scope.launch {
                     isOperating = true
@@ -228,39 +229,15 @@ fun StorageBackupSheetDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Tab 切换器 (0: 全量快照备份, 1: 对象存储配置)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.archiveSubtle)
-                    .border(0.5.dp, colors.borderDivider, RoundedCornerShape(12.dp))
-                    .padding(3.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                listOf(0 to "快照备份 (${backups.size})", 1 to "对象存储配置").forEach { (idx, title) ->
-                    val isSelected = selectedTab == idx
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSelected) colors.archivePaper else androidx.compose.ui.graphics.Color.Transparent)
-                            .clickable { selectedTab = idx }
-                            .padding(vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = title,
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (isSelected) colors.inkPrimary else colors.inkSecondary
-                        )
-                    }
-                }
-            }
+            ArchiveSegmentedTabs(
+                tabs = listOf("快照备份", "对象存储配置"),
+                selectedIndex = selectedTab,
+                onTabSelected = { selectedTab = it },
+                counts = listOf(backups.size, 0)
+            )
 
             if (selectedTab == 0) {
                 // ==================== TAB 0: 全量快照备份 ====================
@@ -413,7 +390,7 @@ fun StorageBackupSheetDialog(
                         }
                     }
 
-                    PaperTextField(
+                    ArchiveField(
                         value = bucketName,
                         onValueChange = { bucketName = it },
                         label = stringResource(R.string.storage_backup_sheet_dialog_label_01),
@@ -422,7 +399,9 @@ fun StorageBackupSheetDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    PaperTextField(
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    ArchiveField(
                         value = endpoint,
                         onValueChange = { endpoint = it },
                         label = stringResource(R.string.storage_backup_sheet_dialog_label_02),
@@ -431,7 +410,9 @@ fun StorageBackupSheetDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    PaperTextField(
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    ArchiveField(
                         value = accessKeyId,
                         onValueChange = { accessKeyId = it },
                         label = stringResource(R.string.storage_backup_sheet_dialog_label_03),
@@ -439,7 +420,9 @@ fun StorageBackupSheetDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    PaperTextField(
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    ArchiveField(
                         value = secretAccessKey,
                         onValueChange = { secretAccessKey = it },
                         label = if (storageStatus?.hasSecretKey == true) "Secret Access Key (留空表示沿用已保存密钥)" else "Secret Access Key",
@@ -448,7 +431,9 @@ fun StorageBackupSheetDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    PaperTextField(
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    ArchiveField(
                         value = publicDomain,
                         onValueChange = { publicDomain = it },
                         label = stringResource(R.string.storage_backup_sheet_dialog_label_04),

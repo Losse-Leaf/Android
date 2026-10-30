@@ -20,8 +20,8 @@ android {
         resourceConfigurations += listOf("zh", "en")
         minSdk = 26
         targetSdk = 35
-        versionCode = 47
-        versionName = "1.8.4"
+        versionCode = 48
+        versionName = "1.8.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -150,6 +150,9 @@ ksp {
 }
 
 dependencies {
+    implementation(project(":feature-ledger"))
+    implementation(project(":core"))
+
     val composeBom = platform("androidx.compose:compose-bom:2024.09.02")
     implementation(composeBom)
     androidTestImplementation(composeBom)

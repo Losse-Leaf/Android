@@ -179,6 +179,132 @@ class StreamQueryTest {
         assertTrue("已标记删除" !in rows.map { it.title })
     }
 
+    @Test
+    fun `组合筛选：日常与游历多选且指定2026年`() {
+        seed()
+        val dao = db.entryDao()
+        val rows = runBlocking {
+            dao.getEntriesPageFiltered(
+                year = "2026",
+                month = null,
+                hasCategories = true,
+                includeDaily = true,
+                includeTravel = true,
+                includeProject = false,
+                includeWish = false,
+                hasImage = false,
+                isPending = false,
+                isFailed = false,
+                limit = 100,
+                offset = 0
+            )
+        }
+        val count = runBlocking {
+            dao.countEntriesFiltered(
+                year = "2026",
+                month = null,
+                hasCategories = true,
+                includeDaily = true,
+                includeTravel = true,
+                includeProject = false,
+                includeWish = false,
+                hasImage = false,
+                isPending = false,
+                isFailed = false
+            )
+        }
+        val titles = rows.map { it.title }.toSet()
+        assertEquals(count, rows.size)
+        // 应该包含日常、另一种日常、游历条目、日常但有属地
+        assertTrue("纯日常" in titles)
+        assertTrue("另一种日常" in titles)
+        assertTrue("游历条目" in titles)
+        assertTrue("日常但有属地" in titles)
+        // 不应包含造物、心愿或2025年条目
+        assertTrue("造物条目" !in titles)
+        assertTrue("心愿条目" !in titles)
+        assertTrue("旧年份" !in titles)
+    }
+
+    @Test
+    fun `月份查询：返回某年份下实际有记录的月份`() {
+        seed()
+        val dao = db.entryDao()
+        val months = runBlocking { dao.getAvailableMonthsForYear("2026") }
+        assertEquals(listOf(3), months) // seed 中的 2026 条目发生在 03 月
+        val months2025 = runBlocking { dao.getAvailableMonthsForYear("2025") }
+        assertEquals(listOf(5), months2025) // seed 中的 2025 条目发生在 05 月
+    }
+
+    @Test
+    fun `内容属性筛选：有图与待放行状态过滤`() {
+        seed()
+        val dao = db.entryDao()
+        runBlocking {
+            dao.insertAll(
+                listOf(
+                    CachedEntryEntity(
+                        localId = 101,
+                        serverId = 101,
+                        type = "life",
+                        title = "带图条目",
+                        content = "",
+                        occurredAt = "2026-03-20T10:00:00+08:00",
+                        attachmentsJson = "[{\"id\":\"att1\",\"url\":\"https://example.com/1.jpg\"}]",
+                        syncStatus = "SYNCED"
+                    ),
+                    CachedEntryEntity(
+                        localId = 102,
+                        serverId = 102,
+                        type = "life",
+                        title = "待放行条目",
+                        content = "",
+                        occurredAt = "2026-03-21T10:00:00+08:00",
+                        attachmentsJson = "[]",
+                        syncStatus = "PENDING_CREATE"
+                    )
+                )
+            )
+        }
+        val imageRows = runBlocking {
+            dao.getEntriesPageFiltered(
+                year = null,
+                month = null,
+                hasCategories = false,
+                includeDaily = false,
+                includeTravel = false,
+                includeProject = false,
+                includeWish = false,
+                hasImage = true,
+                isPending = false,
+                isFailed = false,
+                limit = 100,
+                offset = 0
+            )
+        }
+        assertEquals(1, imageRows.size)
+        assertEquals("带图条目", imageRows.first().title)
+
+        val pendingRows = runBlocking {
+            dao.getEntriesPageFiltered(
+                year = null,
+                month = null,
+                hasCategories = false,
+                includeDaily = false,
+                includeTravel = false,
+                includeProject = false,
+                includeWish = false,
+                hasImage = false,
+                isPending = true,
+                isFailed = false,
+                limit = 100,
+                offset = 0
+            )
+        }
+        assertEquals(1, pendingRows.size)
+        assertEquals("待放行条目", pendingRows.first().title)
+    }
+
     /** 简单的协程桥接（测试里都是 suspend DAO 调用） */
     private fun <T> runBlocking(block: suspend () -> T): T {
         var result: T? = null

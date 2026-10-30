@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ledger_notification_service_label">散页账本 · 账单自动记账</string>
+    <string name="ledger_keep_alive_title">账本后台保活与自动记账</string>
+    <string name="ledger_screen_text_01">散页 · 口袋账本</string>
+    <string name="ledger_screen_text_02">生活收支流水与资产中枢</string>
+    <string name="ledger_screen_title_01">验证以查看账目金额</string>
+    <string name="ledger_screen_contentDescription_01">隐蔽金额</string>
+    <string name="ledger_screen_contentDescription_02">刷新</string>
+    <string name="ledger_screen_text_03">账目同步失败，点此重试</string>
+    <string name="ledger_screen_label_01">ledgerTab</string>
+    <string name="ledger_screen_text_04">支出</string>
+    <string name="ledger_screen_text_05">收入</string>
+    <string name="ledger_screen_text_06">账目流水</string>
+    <string name="ledger_screen_text_07">资产中枢</string>
+    <string name="ledger_screen_title_02">删除这笔账目？</string>
+    <string name="ledger_screen_confirmText_01">确认删除</string>
+    <string name="ledger_screen_dismissText_01">取消</string>
+    <string name="ledger_screen_delete_title">删除此条账目验证</string>
+    <string name="ledger_transactions_expense">本月总支出</string>
+    <string name="ledger_transactions_income">本月总收入</string>
+    <string name="ledger_transactions_balance">月收支结余</string>
+    <string name="ledger_assets_tab_text_01">个人核心资产大盘</string>
+    <string name="ledger_assets_tab_text_02">信贷渠道与分期负债</string>
+    <string name="ledger_assets_tab_text_03">暂无未清还信贷分期，资金健康。</string>
+    <string name="ledger_assets_tab_text_04">暂无录入固资装备</string>
+    <string name="ledger_assets_tab_text_05">出清</string>
+    <string name="ledger_dialogs_title_01">删除信贷渠道？</string>
+    <string name="ledger_dialogs_confirmText_01">确认删除</string>
+    <string name="ledger_dialogs_label_01">渠道名称</string>
+    <string name="ledger_dialogs_label_02">每月还款日 (1~31)</string>
+    <string name="ledger_dialogs_text_01">信贷分期渠道管理</string>
+    <string name="ledger_dialogs_placeholder_01">还款日</string>
+    <string name="ledger_dialogs_contentDescription_01">编辑渠道</string>
+    <string name="ledger_dialogs_contentDescription_02">删除渠道</string>
+    <string name="ledger_dialogs_title_02">删除这个分类？</string>
+    <string name="ledger_dialogs_text_02">分类字典管理</string>
+    <string name="ledger_dialogs_placeholder_02">新分类名称…</string>
+    <string name="ledger_dialogs_contentDescription_03">删除分类</string>
+    <string name="ledger_transactions_tab_contentDescription_01">上一月</string>
+    <string name="ledger_transactions_tab_contentDescription_02">下一月</string>
+</resources>

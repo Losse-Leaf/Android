@@ -20,6 +20,8 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "LooseLeaf"
+include(":core")
+include(":feature-ledger")
 include(":app")
 include(":desktop")
 // MOB-P1-22：Macrobenchmark + Baseline Profile 模块（需连接真机/模拟器运行）

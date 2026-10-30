@@ -154,6 +154,92 @@ interface EntryDao {
     )
     suspend fun countEntries(filter: String, year: String?): Int
 
+    /**
+     * 时间流的**全能组合筛选分页查询**
+     */
+    @Query(
+        """
+        SELECT * FROM cached_entries 
+        WHERE sync_status != 'PENDING_DELETE'
+          AND (:year IS NULL OR substr(occurred_at, 1, 4) = :year)
+          AND (:month IS NULL OR substr(occurred_at, 6, 2) = :month)
+          AND (
+            :hasCategories = 0
+            OR (:includeDaily = 1 AND lower(type) IN ('life','daily') AND city_code IS NULL AND (project_id IS NULL OR project_id <= 0) AND (wish_id IS NULL OR wish_id <= 0))
+            OR (:includeTravel = 1 AND (lower(type) = 'travel' OR city_code IS NOT NULL))
+            OR (:includeProject = 1 AND (lower(type) = 'project' OR project_id > 0))
+            OR (:includeWish = 1 AND (lower(type) = 'wish' OR wish_id > 0))
+          )
+          AND (:hasImage = 0 OR (attachments_json != '[]' AND attachments_json != '' AND attachments_json IS NOT NULL))
+          AND (
+            (:isPending = 0 AND :isFailed = 0)
+            OR (:isPending = 1 AND sync_status IN ('PENDING_CREATE', 'PENDING_UPDATE', 'PENDING_DELETE'))
+            OR (:isFailed = 1 AND sync_status = 'FAILED')
+          )
+        ORDER BY occurred_at DESC
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    suspend fun getEntriesPageFiltered(
+        year: String?,
+        month: String?,
+        hasCategories: Boolean,
+        includeDaily: Boolean,
+        includeTravel: Boolean,
+        includeProject: Boolean,
+        includeWish: Boolean,
+        hasImage: Boolean,
+        isPending: Boolean,
+        isFailed: Boolean,
+        limit: Int,
+        offset: Int
+    ): List<CachedEntryEntity>
+
+    /** 组合筛选的总条数（实时驱动面板底部 "查看 N 条"） */
+    @Query(
+        """
+        SELECT COUNT(*) FROM cached_entries 
+        WHERE sync_status != 'PENDING_DELETE'
+          AND (:year IS NULL OR substr(occurred_at, 1, 4) = :year)
+          AND (:month IS NULL OR substr(occurred_at, 6, 2) = :month)
+          AND (
+            :hasCategories = 0
+            OR (:includeDaily = 1 AND lower(type) IN ('life','daily') AND city_code IS NULL AND (project_id IS NULL OR project_id <= 0) AND (wish_id IS NULL OR wish_id <= 0))
+            OR (:includeTravel = 1 AND (lower(type) = 'travel' OR city_code IS NOT NULL))
+            OR (:includeProject = 1 AND (lower(type) = 'project' OR project_id > 0))
+            OR (:includeWish = 1 AND (lower(type) = 'wish' OR wish_id > 0))
+          )
+          AND (:hasImage = 0 OR (attachments_json != '[]' AND attachments_json != '' AND attachments_json IS NOT NULL))
+          AND (
+            (:isPending = 0 AND :isFailed = 0)
+            OR (:isPending = 1 AND sync_status IN ('PENDING_CREATE', 'PENDING_UPDATE', 'PENDING_DELETE'))
+            OR (:isFailed = 1 AND sync_status = 'FAILED')
+          )
+        """
+    )
+    suspend fun countEntriesFiltered(
+        year: String?,
+        month: String?,
+        hasCategories: Boolean,
+        includeDaily: Boolean,
+        includeTravel: Boolean,
+        includeProject: Boolean,
+        includeWish: Boolean,
+        hasImage: Boolean,
+        isPending: Boolean,
+        isFailed: Boolean
+    ): Int
+
+    /** 查询某年份下实际有记录的月份列表 (1~12)，无记录的置灰 */
+    @Query(
+        """
+        SELECT DISTINCT CAST(substr(occurred_at, 6, 2) AS INTEGER) FROM cached_entries
+        WHERE substr(occurred_at, 1, 4) = :year AND sync_status != 'PENDING_DELETE'
+        ORDER BY 1 ASC
+        """
+    )
+    suspend fun getAvailableMonthsForYear(year: String): List<Int>
+
     @Query("SELECT * FROM cached_entries WHERE local_id = :localId LIMIT 1")
     suspend fun getEntryByLocalId(localId: Long): CachedEntryEntity?
 

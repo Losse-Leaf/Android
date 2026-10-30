@@ -33,8 +33,8 @@ internal fun ProfileInfoRow(label: String, value: String) {
             .padding(vertical = 3.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(text = label, fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
-        Text(text = value, fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 12.sp, color = colors.inkSecondary)
+        Text(text = label, fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 12.sp, color = colors.inkSecondary)
+        Text(text = value, fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 12.sp, color = colors.inkPrimary)
     }
 }
 
@@ -60,9 +60,9 @@ internal fun TrustedDeviceRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(colors.archiveSubtle.copy(alpha = 0.5f))
-            .border(0.5.dp, colors.borderDivider.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(4.dp))
+            .background(colors.archiveCard)
+            .border(1.dp, colors.borderSubtle, RoundedCornerShape(4.dp))
             .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -80,9 +80,9 @@ internal fun TrustedDeviceRow(
             Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = deviceName,
-                fontFamily = ArchiveFontFamilies.BodySans,
-                fontWeight = FontWeight.Medium,
-                fontSize = 13.5.sp,
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
                 color = colors.inkPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -91,14 +91,14 @@ internal fun TrustedDeviceRow(
             Spacer(modifier = Modifier.width(6.dp))
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(3.dp))
+                    .clip(RoundedCornerShape(4.dp))
                     .background(if (isLocal) colors.accentMoss.copy(alpha = 0.12f) else colors.archivePaper)
-                    .border(0.5.dp, if (isLocal) colors.accentMoss.copy(alpha = 0.3f) else colors.borderDivider, RoundedCornerShape(3.dp))
-                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                    .border(1.dp, if (isLocal) colors.accentMoss.copy(alpha = 0.3f) else colors.borderSubtle, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 1.dp)
             ) {
                 Text(
                     text = if (isLocal) "本机" else platformUpper,
-                    fontSize = 11.sp,
+                    fontSize = 10.5.sp,
                     fontFamily = ArchiveFontFamilies.MonoScale,
                     fontWeight = FontWeight.Medium,
                     color = if (isLocal) colors.accentMoss else colors.inkSecondary,
@@ -134,24 +134,24 @@ internal fun TrustedDeviceRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = stringResource(R.string.profile_components_text_01),
-                    fontSize = 11.5.sp,
-                    fontFamily = ArchiveFontFamilies.BodySans,
+                    fontSize = 12.sp,
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
                     color = colors.inkSecondary,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(2.dp))
+                        .clip(RoundedCornerShape(4.dp))
                         .clickable { onRename() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
                 )
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = if (isLocal) "解除" else "踢除",
-                    fontSize = 11.5.sp,
-                    fontFamily = ArchiveFontFamilies.BodySans,
-                    color = colors.accentWarm,
+                    fontSize = 12.sp,
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    color = colors.alertRed,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(2.dp))
+                        .clip(RoundedCornerShape(4.dp))
                         .clickable { onRevokeOrUnpair() }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
                 )
             }
         }

@@ -44,7 +44,8 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.api.APIException
-import com.looseleaf.app.data.local.LedgerRepository
+import com.looseleaf.feature.ledger.data.LedgerRepository
+import com.looseleaf.feature.ledger.theme.LedgerFormat
 import com.looseleaf.app.data.local.ProfileRepository
 import com.looseleaf.app.data.security.AppearanceMode
 import com.looseleaf.app.data.security.CredentialStore
@@ -71,7 +72,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import androidx.compose.ui.res.stringResource
+import com.looseleaf.app.BuildConfig
 import com.looseleaf.app.R
+import com.looseleaf.app.data.local.AppDatabase
+import com.looseleaf.app.debug.DemoDataSeeder
 import androidx.compose.ui.res.painterResource
 /**
  * 主理人展台与设备中枢设置 (ProfileScreen)
@@ -82,7 +86,9 @@ import androidx.compose.ui.res.painterResource
 fun ProfileScreen(
     onUnpair: () -> Unit,
     modifier: Modifier = Modifier,
-    onAppearanceModeChanged: (AppearanceMode) -> Unit = {}
+    onAppearanceModeChanged: (AppearanceMode) -> Unit = {},
+    onEnableDecorationsChanged: ((Boolean) -> Unit)? = null,
+    onNavigateToRoute: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -102,6 +108,8 @@ fun ProfileScreen(
     var localAvatarPreviewUri by remember { mutableStateOf<Uri?>(null) }
     var appearanceMode by remember { mutableStateOf(credentialStore.appearanceMode) }
     var isBiometricsEnabled by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
+    var enableDecorations by remember { mutableStateOf(credentialStore.enableDecorations) }
+    var isInstallmentReminderEnabled by remember { mutableStateOf(credentialStore.isInstallmentReminderEnabled) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showUnpairDialog by remember { mutableStateOf(false) }
     var showStorageBackupDialog by remember { mutableStateOf(false) }
@@ -121,6 +129,7 @@ fun ProfileScreen(
     var issuedPairTicket by remember { mutableStateOf<PairTicketResponse?>(null) }
     var isIssuingPairTicket by remember { mutableStateOf(false) }
     var globalStats by remember { mutableStateOf<GlobalStats?>(null) }
+    var isLoadingInitialStats by remember { mutableStateOf(true) }
 
     val reloadDevices: () -> Unit = {
         scope.launch {
@@ -134,9 +143,11 @@ fun ProfileScreen(
 
     LaunchedEffect(Unit) {
         reloadDevices()
+        isLoadingInitialStats = true
         runCatching {
             globalStats = apiClient.fetchGlobalStats()
         }
+        isLoadingInitialStats = false
     }
 
     val avatarPickerLauncher = rememberLauncherForActivityResult(
@@ -252,348 +263,515 @@ fun ProfileScreen(
         }
     }
 
+    var showMoreMenu by remember { mutableStateOf(false) }
+
+    val checkUpdate: () -> Unit = {
+        scope.launch {
+            isCheckingUpdate = true
+            try {
+                when (val result = UpdateChecker.checkForUpdates()) {
+                    is UpdateCheckResult.HasUpdate -> {
+                        availableUpdate = result.release
+                        ArchiveToastManager.show("发现新版本: v${result.release.versionName}")
+                    }
+                    is UpdateCheckResult.AlreadyLatest -> {
+                        ArchiveToastManager.show("当前已是最新版本 (v${UpdateChecker.currentVersionName})")
+                    }
+                    is UpdateCheckResult.Error -> {
+                        ArchiveToastManager.show("检测更新失败: ${result.message}", isError = true)
+                    }
+                }
+            } finally {
+                isCheckingUpdate = false
+            }
+        }
+    }
+
+    val seedDemoData: () -> Unit = {
+        scope.launch {
+            try {
+                val count = DemoDataSeeder.seedDemoData(context, AppDatabase.getInstance(context))
+                ArchiveToastManager.show("成功灌入 $count 条演示手账记录")
+            } catch (e: Exception) {
+                ArchiveToastManager.show("灌入失败: ${e.message}", isError = true)
+            }
+        }
+    }
+
+    val clearDemoData: () -> Unit = {
+        scope.launch {
+            try {
+                val count = DemoDataSeeder.clearDemoData(context, AppDatabase.getInstance(context))
+                ArchiveToastManager.show("成功清除 $count 条演示记录")
+            } catch (e: Exception) {
+                ArchiveToastManager.show("清除失败: ${e.message}", isError = true)
+            }
+        }
+    }
+
     NoiseBackground(modifier = modifier) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.TopCenter
         ) {
-            LazyColumn(
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 680.dp)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .fillMaxSize()
+                    .widthIn(max = 680.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                item {
-                // 展台顶栏：标题、文学副标题与独立偏好设置入口
-                Row(
+                // 展台顶栏：标题与独立 ⋮ 菜单入口 (与账本、工坊同一规格)
+                ArchiveTopAppBar(
+                    title = "展台",
+                    subtitle = null,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    actions = {
+                        Box {
+                            IconButton(
+                                onClick = { showMoreMenu = true }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.MoreVert,
+                                    contentDescription = "更多选项",
+                                    tint = colors.inkPrimary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false },
+                                modifier = Modifier
+                                    .background(colors.archiveCard)
+                                    .border(1.dp, colors.borderSubtle, RoundedCornerShape(4.dp)),
+                                shape = RoundedCornerShape(4.dp),
+                                tonalElevation = 0.dp,
+                                shadowElevation = 0.dp
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "偏好与安全",
+                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                            color = colors.inkPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        showSettingsSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "受信任设备",
+                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                            color = colors.inkPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        showOtherDevicesSheet = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "存储配置与灾备",
+                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                            color = colors.inkPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        showStorageBackupDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "检测新版本",
+                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                            color = colors.inkPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        checkUpdate()
+                                    }
+                                )
+                                if (BuildConfig.DEBUG) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "灌入演示数据",
+                                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                                color = colors.inkPrimary
+                                            )
+                                        },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            seedDemoData()
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "清除演示数据",
+                                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                                color = colors.inkPrimary
+                                            )
+                                        },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            clearDemoData()
+                                        }
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "解除本机配对",
+                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                            color = colors.alertRed
+                                        )
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        showUnpairDialog = true
+                                    }
+                                )
+                            }
+                        }
+                    }
+                )
+
+                LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .weight(1f),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Column(horizontalAlignment = Alignment.Start) {
-                        Text(
-                            text = stringResource(R.string.profile_screen_text_01),
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 22.sp,
-                            letterSpacing = 1.sp,
-                            color = colors.inkPrimary
-                        )
-                        Text(
-                            text = stringResource(R.string.profile_screen_text_02),
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 11.sp,
-                            color = colors.inkMuted
-                        )
-                    }
+                    item {
+                        // 主理人个人信息区（无卡片、无背景描边、无圆角容器）
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            // 主理人资料行：左 64dp 圆形头像 + 中间昵称与副标题 + 右侧"编辑"文字按钮
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // 64dp 圆形头像（去掉相机徽标，点击打开编辑资料弹层）
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .clip(CircleShape)
+                                        .clickable(
+                                            onClickLabel = "修改头像与资料",
+                                            role = androidx.compose.ui.semantics.Role.Button
+                                        ) {
+                                            showEditProfileDialog = true
+                                        }
+                                ) {
+                                    val avatarUrl = apiClient.resolveMediaUrl(profile.avatarUrl)
+                                    val avatarModel: Any? = localAvatarPreviewUri ?: avatarUrl.takeIf { it.isNotBlank() }
 
-                    IconButton(
-                        onClick = { showSettingsSheet = true },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_tune),
-                            contentDescription = "偏好设置与系统运维",
-                            tint = colors.inkPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-                }
-                item {
-                // 主理人名片拓片与全量生命总览 (藏书票 Ex-libris 紧凑一体化架构)
-                PaperCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    backgroundColor = colors.archivePaper,
-                    borderColor = colors.accentWarm.copy(alpha = 0.3f),
-                    contentPadding = PaddingValues(16.dp)
-                ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // 头像区域（带可点击上传提示与相机微图标）
-                            Box(
-                                contentAlignment = Alignment.BottomEnd,
-                                modifier = Modifier
-                                    .clickable {
-                                        if (!isUploadingAvatar) {
-                                            avatarPickerLauncher.launch(
-                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    if (avatarModel != null) {
+                                        AsyncImage(
+                                            model = ImageRequest.Builder(context)
+                                                .data(avatarModel)
+                                                .crossfade(true)
+                                                .memoryCacheKey(avatarUrl.takeIf { localAvatarPreviewUri == null })
+                                                .diskCacheKey(avatarUrl.takeIf { localAvatarPreviewUri == null })
+                                                .build(),
+                                            contentDescription = "主理人头像",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(CircleShape)
+                                                .border(1.dp, colors.borderSubtle, CircleShape)
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(CircleShape)
+                                                .background(colors.accentWarm.copy(alpha = 0.08f))
+                                                .border(1.dp, colors.borderSubtle, CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = profile.name.take(1).ifBlank { "散" },
+                                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 26.sp,
+                                                color = colors.accentWarm
                                             )
                                         }
                                     }
-                            ) {
-                                val avatarUrl = apiClient.resolveMediaUrl(profile.avatarUrl)
-                                val avatarModel: Any? = localAvatarPreviewUri ?: avatarUrl.takeIf { it.isNotBlank() }
 
-                                if (avatarModel != null) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(avatarModel)
-                                            .crossfade(true)
-                                            .memoryCacheKey(avatarUrl.takeIf { localAvatarPreviewUri == null })
-                                            .diskCacheKey(avatarUrl.takeIf { localAvatarPreviewUri == null })
-                                            .build(),
-                                        contentDescription = stringResource(R.string.profile_screen_contentDescription_01),
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .size(64.dp)
-                                            .clip(CircleShape)
-                                            .border(1.dp, colors.accentWarm.copy(alpha = 0.45f), CircleShape)
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(64.dp)
-                                            .clip(CircleShape)
-                                            .background(colors.accentWarm.copy(alpha = 0.1f))
-                                            .border(1.dp, colors.accentWarm.copy(alpha = 0.35f), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = profile.name.take(1).ifBlank { "散" },
-                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 24.sp,
-                                            color = colors.accentWarm
-                                        )
+                                    if (isUploadingAvatar) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(CircleShape)
+                                                .background(colors.inkPrimary.copy(alpha = 0.5f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            CircularProgressIndicator(
+                                                color = colors.archivePaper,
+                                                modifier = Modifier.size(20.dp),
+                                                strokeWidth = 2.dp
+                                            )
+                                        }
                                     }
                                 }
 
-                                if (isUploadingAvatar) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(64.dp)
-                                            .clip(CircleShape)
-                                            .background(colors.inkPrimary.copy(alpha = 0.6f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        CircularProgressIndicator(
-                                            color = colors.archivePaper,
-                                            modifier = Modifier.size(20.dp),
-                                            strokeWidth = 2.dp
-                                        )
-                                    }
-                                }
+                                Spacer(modifier = Modifier.width(16.dp))
 
-                                Box(
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .clip(CircleShape)
-                                        .background(colors.accentWarm)
-                                        .border(1.dp, colors.archivePaper, CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_camera_alt),
-                                        contentDescription = stringResource(R.string.profile_screen_contentDescription_02),
-                                        tint = colors.archivePaper,
-                                        modifier = Modifier.size(11.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(14.dp))
-
-                            // 右侧信息流：称谓 + 身份 + 城市 + 编辑铅笔图标
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                // 昵称（衬线 SemiBold，大号）与副标题（次要色，单行省略）
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.Center
                                 ) {
                                     Text(
                                         text = profile.name.ifBlank { "散页主理人" },
-                                        fontFamily = ArchiveFontFamilies.BodySans,
+                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
                                         fontWeight = FontWeight.SemiBold,
-                                        fontSize = 17.sp,
+                                        fontSize = 20.sp,
                                         color = colors.inkPrimary,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f, fill = false)
+                                        overflow = TextOverflow.Ellipsis
                                     )
-
-                                    IconButton(
-                                        onClick = { showEditProfileDialog = true },
-                                        modifier = Modifier.size(26.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Edit,
-                                            contentDescription = stringResource(R.string.profile_screen_contentDescription_03),
-                                            tint = colors.inkMuted,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                    }
-                                }
-
-                                val displayTitle = profile.title.ifBlank { "生活记录者 · 独立思想家" }
-                                Text(
-                                    text = displayTitle,
-                                    fontFamily = ArchiveFontFamilies.BodySans,
-                                    fontSize = 12.sp,
-                                    color = colors.inkSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-
-                                val rawCity = profile.currentCity.takeIf { it.isNotBlank() } ?: profile.location.takeIf { it.isNotBlank() } ?: ""
-                                val displayCity = if (rawCity.isNotBlank()) {
-                                    val cCode = CityDictionary.codeForLocation(rawCity)
-                                    val std = cCode?.let { c -> CityDictionary.standardCities.firstOrNull { it.code == c } }
-                                    if (std != null) "${std.province} · ${std.name}" else rawCity
-                                } else ""
-
-                                if (displayCity.isNotBlank()) {
                                     Spacer(modifier = Modifier.height(3.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.LocationOn,
-                                            contentDescription = null,
-                                            tint = colors.accentWarm,
-                                            modifier = Modifier.size(11.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(3.dp))
-                                        Text(
-                                            text = displayCity,
-                                            fontFamily = ArchiveFontFamilies.BodySans,
-                                            fontSize = 11.sp,
-                                            color = colors.inkMuted,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
+                                    val displaySubtitle = profile.title.ifBlank { "生活记录者 · 独立思想家" }
+                                    Text(
+                                        text = displaySubtitle,
+                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                        fontSize = 13.sp,
+                                        color = colors.inkSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                // 整行右侧文字按钮"编辑"（赤陶，热区 >= 48dp）
+                                Box(
+                                    modifier = Modifier
+                                        .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                                        .clickable(
+                                            onClickLabel = "编辑资料",
+                                            role = androidx.compose.ui.semantics.Role.Button
+                                        ) {
+                                            showEditProfileDialog = true
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "编辑",
+                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = colors.accentWarm
+                                    )
                                 }
                             }
-                        }
 
-                        // 生活格言
-                        val displayMotto = if (profile.motto.isNotBlank()) profile.motto else "在散落的日常里，拾取有光芒的瞬间"
-                        Spacer(modifier = Modifier.height(10.dp))
-                        HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.35f))
-                        Spacer(modifier = Modifier.height(8.dp))
+                            // 其下一行名言（衬线，正文大小，次要色，不用赤陶，不用斜体）
+                            val displayMotto = if (profile.motto.isNotBlank()) profile.motto else "在散落的日常里，拾取有光芒的瞬间"
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = displayMotto,
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                color = colors.inkSecondary,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth()
+                            )
 
-                        Text(
-                            text = stringResource(R.string.profile_screen_text_tpl_01, displayMotto),
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 12.sp,
-                            letterSpacing = 0.3.sp,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = colors.accentWarm,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                            // 统计一行四项：
+                            // 标签在上（小字、次要色、衬线），数字在下（等宽、大号、正文色）；
+                            // 数值为 0 显示"0"，加载中显示占位，只有"数据不可用"才显示"—"并带说明；
+                            // 金额使用与账本相同的格式化函数（"¥0.00"，不留空格）
+                            Spacer(modifier = Modifier.height(20.dp))
+                            ArchiveDivider()
+                            Spacer(modifier = Modifier.height(16.dp))
 
-                        // 档案核心指标 (四栏一体化嵌入)
-                        Spacer(modifier = Modifier.height(10.dp))
-                        HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.25f))
-                        Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val localTotalEntries = remember(dayCounts) { dayCounts.values.sum() }
+                                val draftsCountText = when {
+                                    globalStats != null -> "${globalStats?.totalEntries ?: 0}"
+                                    localTotalEntries > 0 -> "$localTotalEntries"
+                                    isLoadingInitialStats -> "..."
+                                    else -> "0"
+                                }
+                                val filmsCountText = when {
+                                    globalStats != null -> "${globalStats?.totalPhotos ?: 0}"
+                                    isLoadingInitialStats -> "..."
+                                    else -> "0"
+                                }
+                                val projectsCountText = when {
+                                    globalStats != null -> "${globalStats?.totalProjects ?: 0}"
+                                    isLoadingInitialStats -> "..."
+                                    else -> "0"
+                                }
+                                val expenseText = when {
+                                    globalStats != null -> LedgerFormat.formatMoney(globalStats?.monthExpense ?: 0L)
+                                    isLoadingInitialStats -> "..."
+                                    else -> "¥0.00"
+                                }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(0.95f)) {
-                                Text(stringResource(R.string.profile_screen_drafts), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    if (globalStats == null) "—" else "${globalStats?.totalEntries}",
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (globalStats == null) colors.inkMuted else colors.inkPrimary,
-                                    maxLines = 1
+                                StatColumnItem(
+                                    label = "散页手稿",
+                                    value = draftsCountText,
+                                    contentDesc = "散页手稿共 $draftsCountText 篇，点击跳转时间流",
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .defaultMinSize(minHeight = 48.dp),
+                                    onClick = {
+                                        onNavigateToRoute?.invoke("stream")
+                                    }
                                 )
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(0.95f)) {
-                                Text(stringResource(R.string.profile_screen_films), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    if (globalStats == null) "—" else "${globalStats?.totalPhotos}",
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (globalStats == null) colors.inkMuted else colors.accentWarm,
-                                    maxLines = 1
+                                StatColumnItem(
+                                    label = "暗房底片",
+                                    value = filmsCountText,
+                                    contentDesc = "暗房底片共 $filmsCountText 张",
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .defaultMinSize(minHeight = 48.dp),
+                                    onClick = {
+                                        ArchiveToastManager.show("暗房底片已整合至时间流手记")
+                                        onNavigateToRoute?.invoke("stream")
+                                    }
                                 )
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(0.95f)) {
-                                Text(stringResource(R.string.profile_screen_projects), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text("${globalStats?.totalProjects ?: 0}", fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = colors.accentMoss, maxLines = 1)
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1.15f)) {
-                                Text(stringResource(R.string.profile_screen_expense), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 11.sp, color = colors.inkMuted, maxLines = 1, softWrap = false)
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = FormatUtils.centsToYuanString(globalStats?.monthExpense ?: 0),
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = colors.inkPrimary
+                                StatColumnItem(
+                                    label = "造物项目",
+                                    value = projectsCountText,
+                                    contentDesc = "造物项目共 $projectsCountText 个，点击跳转工坊",
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .defaultMinSize(minHeight = 48.dp),
+                                    onClick = {
+                                        onNavigateToRoute?.invoke("workshop")
+                                    }
+                                )
+                                StatColumnItem(
+                                    label = "当月支出",
+                                    value = expenseText,
+                                    contentDesc = "当月支出 $expenseText，点击跳转账本",
+                                    modifier = Modifier
+                                        .weight(1.2f)
+                                        .defaultMinSize(minHeight = 48.dp),
+                                    onClick = {
+                                        onNavigateToRoute?.invoke("ledger")
+                                    }
                                 )
                             }
                         }
                     }
-                }
-                }
+
+                // 区块间 32dp 间距与 1dp 淡线分隔
                 item {
-                // 生活刻度 · 编年时间热力图（直接在主页展示，带年度生活年鉴入口）
-                Spacer(modifier = Modifier.height(16.dp))
-                LifeActivityHeatmap(
-                    dayCounts = dayCounts,
-                    totalEntryCount = globalStats?.totalEntries ?: 0,
-                    collapsible = false,
-                    initiallyExpanded = true,
-                    onOpenAlmanac = { showAlmanacDialog = true },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                    Spacer(modifier = Modifier.height(32.dp))
+                    ArchiveDivider()
+                    Spacer(modifier = Modifier.height(32.dp))
                 }
+
                 item {
-                // EDC 常用随行装备展台
+                    // 阶段 3：时光刻度（热力图）
+                    ShowcaseHeatmap(
+                        dayCounts = dayCounts,
+                        totalEntryCount = globalStats?.totalEntries ?: 0,
+                        onOpenAlmanac = { showAlmanacDialog = true },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // 阶段 4：随行装备展台
                 if (profile.edcGear.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(20.dp))
-                    PaperCard(modifier = Modifier.fillMaxWidth()) {
-                        Column {
-                            Text(
-                                text = stringResource(R.string.profile_screen_text_tpl_02, profile.edcGear.size),
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 15.sp,
-                                color = colors.inkPrimary
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            for (gear in profile.edcGear) {
+                    item {
+                        Spacer(modifier = Modifier.height(32.dp))
+                        ArchiveDivider()
+                        Spacer(modifier = Modifier.height(32.dp))
+                    }
+                    item {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            // SectionHeader：左"随行装备"，后接次要色等宽小字数量（不用括号），右侧文字按钮"管理"
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 40.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 ) {
-                                    Column {
+                                    Text(
+                                        text = "随行装备",
+                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 16.sp,
+                                        color = colors.inkPrimary
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "${profile.edcGear.size}",
+                                        fontFamily = ArchiveFontFamilies.MonoScale,
+                                        fontSize = 13.sp,
+                                        color = colors.inkSecondary
+                                    )
+                                }
+
+                                ArchiveTextButton(
+                                    text = "管理",
+                                    onClick = {
+                                        onNavigateToRoute?.invoke("ledger")
+                                    }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // 条目：第一行名称（衬线 SemiBold，单行省略），第二行规格（次要色、等宽、单行省略），无规格不留空行；条目之间 1dp 淡线，上下内边距 12dp；无卡片
+                            profile.edcGear.forEachIndexed { index, gear ->
+                                key(gear.id) {
+                                    if (index > 0) {
+                                        ArchiveDivider()
+                                    }
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 12.dp)
+                                    ) {
                                         Text(
                                             text = gear.name,
-                                            fontFamily = ArchiveFontFamilies.BodySans,
-                                            fontWeight = FontWeight.Medium,
-                                            fontSize = 13.sp,
-                                            color = colors.inkPrimary
+                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 15.sp,
+                                            color = colors.inkPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                         if (gear.spec.isNotBlank()) {
+                                            Spacer(modifier = Modifier.height(3.dp))
                                             Text(
                                                 text = gear.spec,
                                                 fontFamily = ArchiveFontFamilies.MonoScale,
-                                                fontSize = 11.sp,
-                                                color = colors.inkMuted
+                                                fontSize = 12.sp,
+                                                color = colors.inkSecondary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                         }
                                     }
@@ -601,11 +779,11 @@ fun ProfileScreen(
                             }
                         }
                     }
-                }
                 }
                 item {
                     Spacer(modifier = Modifier.height(28.dp))
                 }
+            }
             }
 
             // ==========================================
@@ -626,6 +804,21 @@ fun ProfileScreen(
                     onBiometricsChanged = { enabled ->
                         isBiometricsEnabled = enabled
                         credentialStore.isBiometricsEnabled = enabled
+                    },
+                    showBinderHoles = credentialStore.showBinderHoles,
+                    onShowBinderHolesChanged = { enabled ->
+                        credentialStore.showBinderHoles = enabled
+                    },
+                    enableDecorations = enableDecorations,
+                    onEnableDecorationsChanged = { enabled ->
+                        enableDecorations = enabled
+                        credentialStore.enableDecorations = enabled
+                        onEnableDecorationsChanged?.invoke(enabled)
+                    },
+                    isInstallmentReminderEnabled = isInstallmentReminderEnabled,
+                    onInstallmentReminderChanged = { enabled ->
+                        isInstallmentReminderEnabled = enabled
+                        credentialStore.isInstallmentReminderEnabled = enabled
                     },
                     localDeviceName = credentialStore.deviceName,
                     localDeviceId = credentialStore.deviceId ?: "",
@@ -671,6 +864,30 @@ fun ProfileScreen(
                         }
                     },
                     onUnpair = { showUnpairDialog = true },
+                    onSeedDemoData = if (BuildConfig.DEBUG) {
+                        {
+                            scope.launch {
+                                try {
+                                    val count = DemoDataSeeder.seedDemoData(context, AppDatabase.getInstance(context))
+                                    ArchiveToastManager.show("成功灌入 $count 条演示手账记录")
+                                } catch (e: Exception) {
+                                    ArchiveToastManager.show("灌入失败: ${e.message}", isError = true)
+                                }
+                            }
+                        }
+                    } else null,
+                    onClearDemoData = if (BuildConfig.DEBUG) {
+                        {
+                            scope.launch {
+                                try {
+                                    val count = DemoDataSeeder.clearDemoData(context, AppDatabase.getInstance(context))
+                                    ArchiveToastManager.show("已彻底清除 $count 条演示记录与资源")
+                                } catch (e: Exception) {
+                                    ArchiveToastManager.show("清除失败: ${e.message}", isError = true)
+                                }
+                            }
+                        }
+                    } else null,
                     onDismiss = { showSettingsSheet = false }
                 )
             }
@@ -912,5 +1129,52 @@ fun ProfileScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun StatColumnItem(
+    label: String,
+    value: String,
+    contentDesc: String,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
+) {
+    val colors = LooseLeafTheme.colors
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = modifier
+            .clip(RoundedCornerShape(4.dp))
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(
+                        onClickLabel = contentDesc,
+                        role = androidx.compose.ui.semantics.Role.Button,
+                        onClick = onClick
+                    )
+                } else Modifier
+            )
+            .padding(horizontal = 2.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = label,
+            fontFamily = ArchiveFontFamilies.EditorialSerif,
+            fontSize = 11.5.sp,
+            color = colors.inkSecondary,
+            maxLines = 1,
+            softWrap = false
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = value,
+            fontFamily = ArchiveFontFamilies.MonoScale,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = colors.inkPrimary,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }

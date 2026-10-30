@@ -34,7 +34,8 @@ fun ArchiveReleaseDialog(
     onDownloadAndInstall: () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
-    val cardShape = RoundedCornerShape(4.dp)
+    val cardShape = RoundedCornerShape(18.dp)
+    val buttonShape = RoundedCornerShape(10.dp)
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -169,7 +170,8 @@ fun ArchiveReleaseDialog(
                     TextButton(
                         onClick = onDismiss,
                         enabled = !isDownloading,
-                        shape = RoundedCornerShape(2.dp)
+                        shape = buttonShape,
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                     ) {
                         Text(stringResource(R.string.archive_release_dialog_remind_later), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp, color = colors.inkMuted)
                     }
@@ -179,11 +181,12 @@ fun ArchiveReleaseDialog(
                     Button(
                         onClick = onDownloadAndInstall,
                         enabled = !isDownloading,
-                        shape = RoundedCornerShape(2.dp),
+                        shape = buttonShape,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = colors.accentWarm,
                             contentColor = colors.archivePaper
-                        )
+                        ),
+                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
                     ) {
                         Text(stringResource(R.string.archive_release_dialog_update_now), fontFamily = ArchiveFontFamilies.EditorialSerif, fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
                     }

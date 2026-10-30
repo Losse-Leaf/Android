@@ -1,5 +1,6 @@
 package com.looseleaf.app.ui.stream
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
@@ -26,10 +28,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -43,6 +50,7 @@ import com.looseleaf.app.model.Attachment
 import com.looseleaf.app.model.CreateEntryRequest
 import com.looseleaf.app.model.LifeEntry
 import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveShadows
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
@@ -519,14 +527,20 @@ internal fun AlmanacDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        PaperCard(
+        Surface(
             modifier = Modifier
                 .fillMaxWidth(0.94f)
-                .heightIn(max = 700.dp)
+                .heightIn(max = 700.dp),
+            shape = RoundedCornerShape(4.dp),
+            color = colors.archivePaper,
+            border = androidx.compose.foundation.BorderStroke(1.dp, colors.borderSubtle),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(16.dp)
                     .verticalScroll(rememberScrollState())
             ) {
                 Row(
@@ -538,15 +552,15 @@ internal fun AlmanacDialog(
                         Text(
                             text = stringResource(R.string.stream_dialogs_text_tpl_02, selectedYear),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium,
+                            fontWeight = FontWeight.SemiBold,
                             fontSize = 20.sp,
                             color = colors.inkPrimary
                         )
                         Text(
                             text = stringResource(R.string.stream_dialogs_text_05),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 11.sp,
-                            color = colors.inkMuted
+                            fontSize = 11.5.sp,
+                            color = colors.inkSecondary
                         )
                     }
                     IconButton(onClick = onDismiss) {
@@ -554,7 +568,7 @@ internal fun AlmanacDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // 年份切换胶囊 (从刚进入的年份至当前年份，支持横滑)
                 Row(
@@ -567,9 +581,9 @@ internal fun AlmanacDialog(
                         val isSelected = yr == selectedYear
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) colors.accentWarm else colors.archivePaper)
-                                .border(0.5.dp, if (isSelected) colors.accentWarm else colors.borderDivider, RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (isSelected) colors.accentWarm.copy(alpha = 0.12f) else colors.archiveCard)
+                                .border(1.dp, if (isSelected) colors.accentWarm else colors.borderSubtle, RoundedCornerShape(4.dp))
                                 .clickable { selectedYear = yr }
                                 .padding(horizontal = 14.dp, vertical = 6.dp)
                         ) {
@@ -577,15 +591,16 @@ internal fun AlmanacDialog(
                                 text = stringResource(R.string.stream_dialogs_text_tpl_03, yr),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 12.sp,
-                                color = if (isSelected) colors.archivePaper else colors.inkSecondary
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                color = if (isSelected) colors.accentWarm else colors.inkPrimary
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-                PaperDivider()
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+                ArchiveDivider()
+                Spacer(modifier = Modifier.height(14.dp))
 
                 if (isLoading) {
                     Box(
@@ -757,8 +772,8 @@ internal fun AlmanacChapterSection(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(4.dp))
-            .background(colors.archivePaper)
-            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
+            .background(colors.archiveCard)
+            .border(1.dp, colors.borderSubtle, RoundedCornerShape(4.dp))
             .padding(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -841,34 +856,102 @@ internal fun GlobalSearchDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                PaperTextField(
-                    value = searchQuery,
-                    onValueChange = { q ->
-                        searchQuery = q
-                        searchJob?.cancel()
-                        if (q.trim().length >= 2) {
-                            searchJob = scope.launch {
-                                kotlinx.coroutines.delay(280)
-                                isSearching = true
-                                runCatching {
-                                    searchResult = apiClient.searchGlobalArchive(q)
+                // 便签纸条搜索栏 (Sticky Memo Note Search Bar)
+                Surface(
+                    shape = RoundedCornerShape(3.dp),
+                    color = colors.archivePaper,
+                    border = BorderStroke(1.dp, colors.borderSubtle),
+                    shadowElevation = ArchiveShadows.stickerElevation,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        // 便签上沿和纸胶带装饰痕迹
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .width(46.dp)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(bottomStart = 1.dp, bottomEnd = 1.dp))
+                                .background(colors.accentWarm.copy(alpha = 0.35f))
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Search,
+                                contentDescription = null,
+                                tint = colors.inkMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { q ->
+                                    searchQuery = q
+                                    searchJob?.cancel()
+                                    if (q.trim().length >= 2) {
+                                        searchJob = scope.launch {
+                                            kotlinx.coroutines.delay(280)
+                                            isSearching = true
+                                            runCatching {
+                                                searchResult = apiClient.searchGlobalArchive(q)
+                                            }
+                                            isSearching = false
+                                        }
+                                    } else {
+                                        searchResult = null
+                                        isSearching = false
+                                    }
+                                },
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    fontSize = 14.sp,
+                                    color = colors.inkPrimary
+                                ),
+                                cursorBrush = SolidColor(colors.accentWarm),
+                                decorationBox = { innerTextField ->
+                                    if (searchQuery.isEmpty()) {
+                                        Text(
+                                            text = stringResource(R.string.stream_dialogs_placeholder_03),
+                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                            fontSize = 13.sp,
+                                            color = colors.inkMuted
+                                        )
+                                    }
+                                    innerTextField()
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (isSearching) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = colors.accentWarm
+                                )
+                            } else if (searchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = {
+                                        searchQuery = ""
+                                        searchResult = null
+                                    },
+                                    modifier = Modifier.size(20.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Close,
+                                        contentDescription = "清除",
+                                        tint = colors.inkMuted,
+                                        modifier = Modifier.size(14.dp)
+                                    )
                                 }
-                                isSearching = false
                             }
-                        } else {
-                            searchResult = null
-                            isSearching = false
-                        }
-                    },
-                    placeholder = stringResource(R.string.stream_dialogs_placeholder_03),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    trailingIcon = {
-                        if (isSearching) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = colors.accentWarm)
                         }
                     }
-                )
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -909,9 +992,21 @@ internal fun GlobalSearchDialog(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(entry.title.ifBlank { stringResource(R.string.stream_dialogs_untitled) }, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = colors.inkPrimary)
+                                        SearchHighlightText(
+                                            text = entry.title.ifBlank { stringResource(R.string.stream_dialogs_untitled) },
+                                            query = searchQuery,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = colors.inkPrimary
+                                        )
                                         if (entry.content.isNotBlank()) {
-                                            Text(entry.content, fontSize = 11.sp, color = colors.inkSecondary, maxLines = 1)
+                                            SearchHighlightText(
+                                                text = entry.content,
+                                                query = searchQuery,
+                                                fontSize = 11.sp,
+                                                color = colors.inkSecondary,
+                                                maxLines = 1
+                                            )
                                         }
                                     }
                                     Text(FormatUtils.formatDisplayDate(entry.occurredAt), fontSize = 11.sp, color = colors.inkMuted)
@@ -941,7 +1036,12 @@ internal fun GlobalSearchDialog(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("${foot.cityName} · ${foot.title ?: stringResource(R.string.stream_dialogs_footprint_default)}", fontSize = 12.sp, color = colors.inkPrimary)
+                                    SearchHighlightText(
+                                        text = "${foot.cityName} · ${foot.title ?: stringResource(R.string.stream_dialogs_footprint_default)}",
+                                        query = searchQuery,
+                                        fontSize = 12.sp,
+                                        color = colors.inkPrimary
+                                    )
                                     Text(foot.visitedAt?.take(10) ?: "", fontSize = 11.sp, color = colors.inkMuted)
                                 }
                             }
@@ -970,7 +1070,12 @@ internal fun GlobalSearchDialog(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(wish.title, fontSize = 12.sp, color = colors.inkPrimary)
+                                    SearchHighlightText(
+                                        text = wish.title,
+                                        query = searchQuery,
+                                        fontSize = 12.sp,
+                                        color = colors.inkPrimary
+                                    )
                                     if (wish.budget > 0) {
                                         Text(FormatUtils.centsToYuanString(wish.budget), fontSize = 11.sp, color = colors.accentWarm)
                                     }
@@ -1002,7 +1107,12 @@ internal fun GlobalSearchDialog(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(proj.title, fontSize = 12.sp, color = colors.inkPrimary)
+                                    SearchHighlightText(
+                                        text = proj.title,
+                                        query = searchQuery,
+                                        fontSize = 12.sp,
+                                        color = colors.inkPrimary
+                                    )
                                     Text(proj.status ?: "", fontSize = 11.sp, color = colors.inkMuted)
                                 }
                             }
@@ -1012,4 +1122,63 @@ internal fun GlobalSearchDialog(
             }
         }
     }
+}
+
+/**
+ * 搜索关键词高亮文本：赤陶色下划线笔痕，绝无刺眼色块底色
+ */
+@Composable
+private fun SearchHighlightText(
+    text: String,
+    query: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    color: Color,
+    fontFamily: androidx.compose.ui.text.font.FontFamily? = null,
+    fontWeight: FontWeight? = null,
+    maxLines: Int = Int.MAX_VALUE,
+    modifier: Modifier = Modifier
+) {
+    val colors = LooseLeafTheme.colors
+    val trimmed = query.trim()
+    val annotated = remember(text, trimmed, colors.accentWarm) {
+        buildAnnotatedString {
+            if (trimmed.isEmpty()) {
+                append(text)
+            } else {
+                var start = 0
+                while (start < text.length) {
+                    val index = text.indexOf(trimmed, start, ignoreCase = true)
+                    if (index == -1) {
+                        append(text.substring(start))
+                        break
+                    }
+                    if (index > start) {
+                        append(text.substring(start, index))
+                    }
+                    val matchEnd = index + trimmed.length
+                    pushStyle(
+                        SpanStyle(
+                            color = colors.accentWarm,
+                            textDecoration = TextDecoration.Underline,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    )
+                    append(text.substring(index, matchEnd))
+                    pop()
+                    start = matchEnd
+                }
+            }
+        }
+    }
+
+    Text(
+        text = annotated,
+        fontSize = fontSize,
+        color = color,
+        fontFamily = fontFamily,
+        fontWeight = fontWeight,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+    )
 }

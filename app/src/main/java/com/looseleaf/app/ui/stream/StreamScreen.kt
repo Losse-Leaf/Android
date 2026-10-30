@@ -1,9 +1,16 @@
 package com.looseleaf.app.ui.stream
 
+import com.looseleaf.app.BuildConfig
+import com.looseleaf.app.data.local.AppDatabase
+import com.looseleaf.app.debug.DemoDataSeeder
+
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -25,8 +32,12 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import androidx.compose.runtime.*
@@ -76,6 +87,8 @@ import com.looseleaf.app.model.LifeEntry
 import com.looseleaf.app.model.Project
 import com.looseleaf.app.model.Wish
 import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveMotion
+import com.looseleaf.app.theme.LocalArchiveDecorConfig
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.updater.ReleaseInfo
@@ -129,7 +142,7 @@ private const val STREAM_PAGE_SIZE = 60
 /** MOB-P2-40：宽屏双栏断点（与 Material3 的 Expanded 断点一致：840dp） */
 private const val WIDE_LAYOUT_MIN_WIDTH_DP = 840
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun StreamScreen(
     modifier: Modifier = Modifier
@@ -140,6 +153,7 @@ fun StreamScreen(
     val apiClient = remember { APIClient.getInstance(context) }
     val syncManager = remember { SyncManager.getInstance(context) }
     val credentialStore = remember { CredentialStore.getInstance(context) }
+    val decorConfig = LocalArchiveDecorConfig.current
 
     // MOB-P1-86：区分「首轮加载中」/「真的没有记录」/「筛选后无匹配」
     val firstSyncCompleted by syncManager.firstSyncCompletedFlow.collectAsStateWithLifecycle()
@@ -152,7 +166,10 @@ fun StreamScreen(
     val hasFailed by remember { derivedStateOf { failedCount > 0 } }
 
     val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
-    var selectedFilter by rememberSaveable { mutableStateOf("all") }
+    var filterCriteria by rememberSaveable(stateSaver = StreamFilterCriteriaSaver) {
+        mutableStateOf(StreamFilterCriteria())
+    }
+    var showFilterSheet by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
     // 更新横幅走 JSON 持久化（ReleaseInfo 含非 Saveable 字段）：旋转后不再永久消失
     var cloudUpdateJson by rememberSaveable { mutableStateOf<String?>(null) }
@@ -169,13 +186,49 @@ fun StreamScreen(
     // 全局检索与速记随笔状态
     var showSearchDialog by remember { mutableStateOf(false) }
     var showQuickNoteDialog by remember { mutableStateOf(false) }
+    var showDebugDevSheet by remember { mutableStateOf(false) }
     var entryToDelete by remember { mutableStateOf<LifeEntry?>(null) }
+
+    // 钢笔尖 FAB 随列表滚动方向动态展开与收缩（向下滚动收缩淡出，向上滚动或停止恢复）
+    var isFabExpanded by rememberSaveable { mutableStateOf(true) }
+    var lastFirstVisibleItemIndex by remember { mutableIntStateOf(0) }
+    var lastFirstVisibleItemScrollOffset by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            Triple(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, listState.isScrollInProgress)
+        }.collect { (index, offset, isScrolling) ->
+            if (!isScrolling) {
+                // 停止滚动后恢复显示
+                isFabExpanded = true
+            } else {
+                if (index > lastFirstVisibleItemIndex || (index == lastFirstVisibleItemIndex && offset > lastFirstVisibleItemScrollOffset + 8)) {
+                    // 向下滚动时收缩并淡出隐藏
+                    isFabExpanded = false
+                } else if (index < lastFirstVisibleItemIndex || (index == lastFirstVisibleItemIndex && offset < lastFirstVisibleItemScrollOffset - 8)) {
+                    // 向上滚动恢复显示
+                    isFabExpanded = true
+                }
+            }
+            lastFirstVisibleItemIndex = index
+            lastFirstVisibleItemScrollOffset = offset
+        }
+    }
 
     // 生物识别弹窗标题：必须在 composable 作用域取值（onClick lambda 不是 composable）
     val deleteEntryBiometricTitle = stringResource(R.string.stream_screen_title_02)
 
-    // 失败事件处置弹窗（重试 / 放弃）
-    var showFailedEventsDialog by remember { mutableStateOf(false) }
+    // 失败事件处置抽屉（单条重试 / 全部重试）
+    var showFailedEventsSheet by remember { mutableStateOf(false) }
+
+
+    // 封面区折叠比例 (0f = 完全展开, 1f = 折叠为细栏)
+    val coverCollapseFraction by remember {
+        derivedStateOf {
+            if (listState.firstVisibleItemIndex > 0) 1f
+            else (listState.firstVisibleItemScrollOffset / 120f).coerceIn(0f, 1f)
+        }
+    }
 
     // 单条档案详情与编辑弹窗状态
     // MOB-P2-40：宽屏（平板 / 折叠屏展开态）走「列表 + 详情」双栏，
@@ -299,8 +352,6 @@ fun StreamScreen(
         remoteOnThisDay.ifEmpty { localOnThisDay }
     }
 
-    var selectedYear by rememberSaveable { mutableStateOf<Int?>(null) }
-
     // 年份列表同样来自后台派生流，不在 composition 里遍历全表
     val availableYears by syncManager.availableYearsFlow.collectAsStateWithLifecycle()
 
@@ -310,12 +361,13 @@ fun StreamScreen(
     // 改造前：把全量档案一次性物化进内存（2 万条 ≈ 20MB 常驻），
     // 再在 Kotlin 侧做分类/年份过滤与行模型装配 —— 每次同步后都要重算一遍。
     // 改造后：
-    //   1) 过滤（分类 / 年份）下沉到 SQL，只取当前窗口；
+    //   1) 过滤（分类 / 年份 / 月份 / 内容）下沉到 SQL，只取当前窗口；
     //   2) 列表只持有「已加载窗口」的数据，内存与数据量解耦；
     //   3) 行模型由 StreamRowsBuilder 增量维护：翻页只算新行，
     //      key 用稳定业务 id（重复 id 才加出现次序号），顶部插入不会洗掉旧 key。
     val loadedEntries = remember { mutableStateListOf<LifeEntry>() }
     val streamRows = remember { mutableStateListOf<StreamRowItem>() }
+    var streamRowsVersion by remember { mutableIntStateOf(0) }
     val rowsBuilder = remember { StreamRowsBuilder() }
     var totalCount by remember { mutableIntStateOf(0) }
     var hasMore by remember { mutableStateOf(true) }
@@ -328,12 +380,19 @@ fun StreamScreen(
 
     suspend fun loadWindow(offset: Int, limit: Int): StreamWindowPage =
         withContext(Dispatchers.IO) {
-            // AND-3：窗口数据与总数在**同一次 IO** 里取回，避免两次调度 / 两次往返
-            syncManager.loadStreamWindow(selectedFilter, selectedYear, offset, limit)
+            // 组合筛选条件直接下沉到 Room SQL 查询层
+            syncManager.loadStreamWindowFiltered(
+                categories = filterCriteria.categories,
+                year = filterCriteria.year,
+                month = filterCriteria.month,
+                contents = filterCriteria.contents,
+                offset = offset,
+                limit = limit
+            )
         }
 
-    // 1) 筛选 / 年份变化 → 重置窗口并加载第一页
-    LaunchedEffect(selectedFilter, selectedYear) {
+    // 1) 筛选条件变化 → 重置窗口并加载第一页
+    LaunchedEffect(filterCriteria) {
         val generation = ++windowGeneration
         isLoadingMore = false
         isRefreshingWindow = true
@@ -346,6 +405,7 @@ fun StreamScreen(
             if (generation != windowGeneration) return@LaunchedEffect
             loadedEntries.addAll(firstPage.entries)
             streamRows.addAll(rowsBuilder.replace(firstPage.entries))
+            streamRowsVersion++
             totalCount = firstPage.totalCount
             hasMore = firstPage.entries.size < firstPage.totalCount
         } finally {
@@ -372,8 +432,11 @@ fun StreamScreen(
                 loadedEntries.addAll(refreshed.entries)
                 streamRows.clear()
                 streamRows.addAll(rows)
+                streamRowsVersion++
                 totalCount = refreshed.totalCount
                 hasMore = refreshed.entries.size < refreshed.totalCount
+            } catch (e: Throwable) {
+                Log.e("LooseLeaf/Stream", "Error refreshing window in collect", e)
             } finally {
                 if (generation == windowGeneration) isRefreshingWindow = false
             }
@@ -401,6 +464,7 @@ fun StreamScreen(
                         // 增量追加：只算新页的行，旧行对象原样复用
                         loadedEntries.addAll(more)
                         streamRows.addAll(rowsBuilder.append(more))
+                        streamRowsVersion++
                     }
                     hasMore = more.isNotEmpty()
                     isLoadingMore = false
@@ -442,128 +506,39 @@ fun StreamScreen(
                     .widthIn(max = if (isWideLayout) 620.dp else 680.dp)
                     .align(if (isWideLayout) Alignment.TopStart else Alignment.TopCenter)
             ) {
-            // 顶栏：标尺、年度年鉴与同步指示
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(
-                        text = stringResource(R.string.stream_screen_text_01),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 22.sp,
-                        letterSpacing = 1.sp,
-                        color = colors.inkPrimary
-                    )
-                    Text(
-                        text = stringResource(R.string.stream_screen_text_02),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 11.sp,
-                        color = colors.inkMuted
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    if (hasPending) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(colors.accentWarm.copy(alpha = 0.12f))
-                                .clickable(role = Role.Button) {
-                                    scope.launch {
-                                        // 徽标文案是「待同步」：点击应立即推进发件箱（排队 Worker），
-                                        // 而不是拉一整轮远端数据
-                                        ArchiveToastManager.show("发件箱已重新排队，联网后自动上传 ($pendingCount 项待重放)")
-                                        syncManager.scheduleSync()
-                                    }
-                                }
-                                .padding(horizontal = 6.dp, vertical = 3.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.accentWarm)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = stringResource(R.string.stream_screen_text_tpl_01, pendingCount),
-                                fontSize = 11.sp,
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                color = colors.accentWarm
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
+            // 顶栏：本子封面条 (Collapsible Book Cover Header)
+            StreamCoverHeader(
+                collapseFraction = coverCollapseFraction,
+                activeFilterCount = filterCriteria.activeCount,
+                onFilterClick = { showFilterSheet = true },
+                onSearchClick = { showSearchDialog = true },
+                isSyncing = isRefreshing,
+                pendingCount = pendingCount,
+                failedCount = failedCount,
+                onFailedStampClick = { showFailedEventsSheet = true },
+                onPendingStampClick = {
+                    scope.launch {
+                        ArchiveToastManager.show("发件箱已重新排队，联网后自动上传 ($pendingCount 项待重放)")
+                        syncManager.scheduleSync()
                     }
+                },
+                onTitleLongClick = if (BuildConfig.DEBUG) {
+                    { showDebugDevSheet = true }
+                } else null
+            )
 
-                    if (hasFailed) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(colors.accentWarm.copy(alpha = 0.18f))
-                                .clickable(role = Role.Button) {
-                                    // 弹二选一而不是直接重试：永久 4xx / 重试耗尽的事件
-                                    // 只会再失败一轮，用户必须有一条「放弃」的出路
-                                    showFailedEventsDialog = true
-                                }
-                                .padding(horizontal = 6.dp, vertical = 3.dp)
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_error_outline),
-                                contentDescription = null,
-                                tint = colors.accentWarm,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = stringResource(R.string.stream_screen_text_tpl_02, failedCount),
-                                fontSize = 11.sp,
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                color = colors.accentWarm
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
-                    }
-
-                    // 全局检索按钮
-                    IconButton(
-                        onClick = {
-                            showSearchDialog = true
-                        },
-                        // 40dp 而非 32dp：右上角本就是单手最难触达的盲区，热区不能再缩
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Search,
-                            contentDescription = stringResource(R.string.stream_screen_contentDescription_01),
-                            tint = colors.inkPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // 同步刷新按钮
-                    IconButton(
-                        onClick = refreshArchive,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Refresh,
-                            contentDescription = stringResource(R.string.stream_screen_contentDescription_03),
-                            tint = if (isRefreshing) colors.accentWarm else colors.inkSecondary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+            // 顶栏下沿 1dp 淡线：只在列表滚动、内容上移时出现，平时不显示
+            val showTopBarDivider by remember {
+                derivedStateOf {
+                    listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0
                 }
             }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(if (showTopBarDivider) colors.borderDivider else Color.Transparent)
+            )
 
             // 新版本可用提示卡片
             cloudUpdate?.let { update ->
@@ -694,220 +669,267 @@ fun StreamScreen(
     val onEntryDelete = remember { { entry: LifeEntry -> entryToDelete = entry } }
     val onPhotoClick = remember { { url: String, meta: String? -> lightboxPhoto = url to meta } }
 
-    // MOB-P1-84：切换分类 / 年份后必须把列表滚回顶部 ——
-            // 否则数据集变小而 LazyListState 仍停在旧偏移，屏幕看起来「一片空白」。
-            LaunchedEffect(selectedFilter, selectedYear) {
+    val showBinderHoles = false
+    var binderScrollY by remember { mutableFloatStateOf(0f) }
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                binderScrollY += available.y
+                return Offset.Zero
+            }
+        }
+    }
+
+            // 切换筛选后滚回顶部
+            LaunchedEffect(filterCriteria) {
                 listState.scrollToItem(0)
             }
 
-            // 分类与年份统一横滑栏（单行紧凑聚合，释放有效屏高）
-            StreamFilterBar(
-                selectedFilter = selectedFilter,
-                onFilterSelected = { selectedFilter = it },
-                availableYears = availableYears,
-                selectedYear = selectedYear,
-                onYearSelected = { selectedYear = it }
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // 时间流列表
-            // MOB-P1-86：此前只有「空态」一个分支，导致首轮同步未完成时
-            // 就显示「岁月静好，暂无此分类记录」，随后记录才陆续出现 ——
-            // 用户会以为数据丢了。现在拆成「加载中 / 真的没有 / 筛选无匹配」三态。
-            val isFiltering = selectedFilter != "all" || selectedYear != null
-            if (loadedEntries.isEmpty() && onThisDayEntries.isEmpty()) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f)
-                        .padding(24.dp)
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        val loadError = streamLoadError
-                        if (loadError != null) {
-                            // MOB-P1-xx：拉取失败时给出**原因 + 重试**，不再永远转圈
-                            Text(
-                                text = "时间流没能取回来",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 16.sp,
-                                color = colors.inkPrimary
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = loadError,
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontSize = 13.sp,
-                                color = colors.inkMuted
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            androidx.compose.material3.Button(
-                                onClick = {
-                                    if (!isRetryingStream) {
-                                        scope.launch {
-                                            isRetryingStream = true
-                                            val result = try {
-                                                syncManager.pullStreamData()
-                                            } catch (e: CancellationException) {
-                                                throw e
-                                            } catch (e: Exception) {
-                                                Result.failure(e)
-                                            }
-                                            isRetryingStream = false
-                                            result.onSuccess {
-                                                streamLoadError = null
-                                                SyncManager.markSessionPullDone("stream")
-                                            }
-                                            result.onFailure { error ->
-                                                if (error is CancellationException) return@onFailure
-                                                streamLoadError = error.message ?: "无法连接中枢"
-                                            }
-                                        }
+            // 时间流列表：封面区下方直接接列表，间距 16dp 由 LazyColumn contentPadding.top 提供
+            val isFiltering = filterCriteria.isActive
+            val isEmpty = (loadedEntries.isEmpty() && (!isFiltering && onThisDayEntries.isEmpty())) ||
+                    (loadedEntries.isEmpty() && isFiltering)
+            if (isEmpty) {
+                val loadError = streamLoadError
+                if (loadError != null) {
+                    StreamErrorCard(
+                        errorMessage = loadError,
+                        isRetrying = isRetryingStream,
+                        onRetry = {
+                            if (!isRetryingStream) {
+                                scope.launch {
+                                    isRetryingStream = true
+                                    val result = try {
+                                        syncManager.pullStreamData()
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (e: Exception) {
+                                        Result.failure(e)
                                     }
-                                },
-                                enabled = !isRetryingStream,
-                                shape = RoundedCornerShape(3.dp),
-                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                    containerColor = colors.accentWarm,
-                                    contentColor = colors.archivePaper
-                                )
-                            ) {
-                                Text(
-                                    text = if (isRetryingStream) "正在重试…" else "重新拉取",
-                                    fontFamily = ArchiveFontFamilies.BodySans,
-                                    fontSize = 13.sp
-                                )
+                                    isRetryingStream = false
+                                    result.onSuccess {
+                                        streamLoadError = null
+                                        SyncManager.markSessionPullDone("stream")
+                                    }
+                                    result.onFailure { error ->
+                                        if (error is CancellationException) return@onFailure
+                                        streamLoadError = error.message ?: "无法连接中枢"
+                                    }
+                                }
                             }
-                        } else if (!firstSyncCompleted) {
-                            // 加载中：给出明确反馈，而不是「空列表」
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(22.dp),
-                                strokeWidth = 2.dp,
-                                color = colors.inkMuted
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = stringResource(R.string.stream_screen_text_04),
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 15.sp,
-                                color = colors.inkMuted
-                            )
-                        } else {
-                            Text(
-                                text = if (isFiltering) {
-                                    "这段时间里没有符合条件的记录"
-                                } else {
-                                    "岁月静好，暂无此分类记录"
-                                },
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 15.sp,
-                                color = colors.inkMuted
-                            )
-                            if (isFiltering) {
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Text(
-                                    text = stringResource(R.string.stream_screen_text_05),
-                                    fontFamily = ArchiveFontFamilies.BodySans,
-                                    fontSize = 12.sp,
-                                    color = colors.inkMuted.copy(alpha = 0.8f)
-                                )
-                            }
-                        }
-                    }
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f)
+                    )
+                } else if (!firstSyncCompleted) {
+                    StreamLoadingSkeleton(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f)
+                    )
+                } else {
+                    StreamEmptyState(
+                        isFiltering = isFiltering,
+                        onWriteClick = { showQuickNoteDialog = true },
+                        onResetFilter = {
+                            filterCriteria = StreamFilterCriteria()
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f)
+                    )
                 }
             } else {
-                // 原生下拉刷新手势（AOPT-06）：列表滚到顶继续下拉即可同步，
-                // 不再依赖右上角那颗 40dp 图标
+                // 原生下拉刷新手势（AOPT-06）：使用黄铜回形针/书签旋转指示器替代圆形转圈
+                val pullToRefreshState = rememberPullToRefreshState()
                 PullToRefreshBox(
                     isRefreshing = isRefreshing,
                     onRefresh = refreshArchive,
+                    state = pullToRefreshState,
+                    indicator = {
+                        PaperclipPullIndicator(
+                            state = pullToRefreshState,
+                            isRefreshing = isRefreshing
+                        )
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp),
-                    // 外层 Scaffold 已按 LooseLeafBottomBar 扣除 innerPadding；
-                    // 这里的底部留白专门留给右下角「记随笔」浮动印章（56dp FAB + 16dp 边距 + 16dp 呼吸），
-                    // 否则滚到底时最后一张卡片会被 FAB 压住
-                    contentPadding = PaddingValues(top = 10.dp, bottom = 88.dp)
-                ) {
-                    // 那年今日 · 岁月回响 折叠卡片
-                    if (onThisDayEntries.isNotEmpty()) {
-                        item(key = "on_this_day_banner") {
-                            OnThisDayCard(
-                                entries = onThisDayEntries,
-                                isExpanded = isOnThisDayExpanded,
-                                onToggleExpand = {
-                                    isOnThisDayExpanded = !isOnThisDayExpanded
-                                },
-                                onSelectEntry = { entry ->
-                                    selectEntry(entry)
-                                },
-                                modifier = Modifier.padding(bottom = 10.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .nestedScroll(nestedScrollConnection)
+                    ) {
+                        // 预分组：按天聚合生成粘性页签 (Sticky Header)
+                        val groupedDays = remember(streamRowsVersion) {
+                            val list = mutableListOf<Pair<StreamRowItem, List<StreamRowItem>>>()
+                            if (streamRows.isEmpty()) return@remember list
+                            var currentHeader = streamRows.first()
+                            var currentRows = mutableListOf<StreamRowItem>()
+                            for (row in streamRows) {
+                                if (row.isFirstOfDay && currentRows.isNotEmpty()) {
+                                    list.add(currentHeader to currentRows)
+                                    currentHeader = row
+                                    currentRows = mutableListOf(row)
+                                } else {
+                                    currentRows.add(row)
+                                }
+                            }
+                            if (currentRows.isNotEmpty()) {
+                                list.add(currentHeader to currentRows)
+                            }
+                            list
+                        }
+
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .padding(horizontal = 16.dp),
+                            // 封面区下方直接接列表，间距 16dp；底部留白覆盖底栏与 FAB，彻底防遮挡
+                            contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp)
+                        ) {
+                            // 4. 生效状态提示：有任意筛选生效时，列表顶部显示一行摘要
+                            // "日常 · 游历 · 2026 年 10 月 · 有图"，右侧文字按钮"清除"；点击摘要重新打开面板
+                            // 无筛选时这一行完全不存在，不占高度；不使用 chip、边框、底色
+                            if (filterCriteria.isActive) {
+                                item(key = "stream_active_filter_summary") {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = filterCriteria.buildSummaryText(),
+                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                            fontSize = 12.sp,
+                                            color = colors.inkMuted,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null
+                                                ) {
+                                                    showFilterSheet = true
+                                                }
+                                                .padding(vertical = 4.dp)
+                                        )
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        Text(
+                                            text = "清除",
+                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                            fontSize = 12.sp,
+                                            color = colors.inkMuted,
+                                            modifier = Modifier
+                                                .clickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null
+                                                ) {
+                                                    filterCriteria = StreamFilterCriteria()
+                                                }
+                                                .padding(vertical = 4.dp, horizontal = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 那年今日 · 岁月回响 折叠卡片（仅在未启用筛选时呈现）
+                            if (!filterCriteria.isActive && onThisDayEntries.isNotEmpty()) {
+                                item(key = "on_this_day_banner") {
+                                    OnThisDayCard(
+                                        entries = onThisDayEntries,
+                                        isExpanded = isOnThisDayExpanded,
+                                        onToggleExpand = {
+                                            isOnThisDayExpanded = !isOnThisDayExpanded
+                                        },
+                                        onSelectEntry = { entry ->
+                                            selectEntry(entry)
+                                        },
+                                        modifier = Modifier.padding(bottom = 10.dp)
+                                    )
+                                }
+                            }
+
+                            for ((dayIndex, group) in groupedDays.withIndex()) {
+                                val (headerRow, rowsInDay) = group
+
+                                // 岁月留白间隔提示（"历经 N 天…"）：
+                                // 放在两组日期之间（上一组最后一条之后、下一组日期头之前），只在间隔 >= 7 天时出现
+                                // 联动细节：筛选生效时隐藏间隔提示
+                                if (!filterCriteria.isActive && dayIndex > 0 && headerRow.gapDays >= 7) {
+                                    item(key = "temporal_gap_${headerRow.year}_${headerRow.monthValue}_${headerRow.dayOfMonth}") {
+                                        TemporalGapSeparator(days = headerRow.gapDays)
+                                    }
+                                }
+
+                        // 月份细线分隔：仅在跨月或首月出现，同月内绝不重复
+                        val isMonthChanged = dayIndex == 0 ||
+                            groupedDays[dayIndex - 1].first.monthValue != headerRow.monthValue ||
+                            groupedDays[dayIndex - 1].first.year != headerRow.year
+                        if (isMonthChanged) {
+                            item(key = "month_divider_${headerRow.year}_${headerRow.monthValue}") {
+                                StreamMonthHeader(
+                                    monthDisplay = "${headerRow.year} 年 ${headerRow.monthValue} 月",
+                                    isFirst = dayIndex == 0
+                                )
+                            }
+                        }
+
+                        stickyHeader(key = "day_header_${headerRow.year}_${headerRow.monthValue}_${headerRow.dayOfMonth}") {
+                            StreamDayHeader(
+                                dayOfMonth = headerRow.dayOfMonth,
+                                monthValue = headerRow.monthValue,
+                                weekday = headerRow.weekdayName,
+                                relativeDay = headerRow.relativeDay
+                            )
+                        }
+
+                        items(
+                            items = rowsInDay,
+                            key = { row -> row.localKey },
+                            contentType = { row ->
+                                if (row.entry.attachments.isEmpty()) "text_entry" else "media_entry"
+                            }
+                        ) { row ->
+                            // 散页手账记录条目（直接平铺纸面，内部带 16dp 间距与 1dp 分割线）
+                            StreamEntryCard(
+                                row = row,
+                                apiClient = apiClient,
+                                onClick = onEntryClick,
+                                onDelete = onEntryDelete,
+                                onPhotoClick = onPhotoClick,
+                                washiTapeText = null,
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
-
-                    // 滚动期的日期解析全部预计算：原来在 itemsIndexed 渲染块里
-                    // 每条都要解析两次 ISO 字符串，快速滑动时主线程出现帧毛刺（AOPT-03b）
-                    items(
-                        items = streamRows,
-                        // MOB-P1-xx：用带序号的 localKey，避免同 server_id 的重复行撞 key 崩掉
-                        key = { row -> row.localKey },
-                        contentType = { row ->
-                            if (row.entry.attachments.isEmpty()) "text_entry" else "media_entry"
-                        }
-                    ) { row ->
-                        // 岁月留白刻度：若与上一条时间跨度 >= 14 天，自动插入切线
-                        if (row.gapDays >= 14) {
-                            TemporalGapSeparator(days = row.gapDays)
-                        }
-
-                        StreamEntryCard(
-                            row = row,
-                            apiClient = apiClient,
-                            // MOB-P1-24：稳定引用（见上方定义）
-                            onClick = onEntryClick,
-                            onDelete = onEntryDelete,
-                            onPhotoClick = onPhotoClick,
-                            modifier = Modifier.padding(vertical = 6.dp)
-                        )
-                    }
+                }
                 }
                 }
             }
         }
 
-        // 「记随笔」纸上浮动印章：右下角单手拇指热区，替代原顶栏右上角 32dp 图标
-        Box(
-            contentAlignment = Alignment.Center,
+        // 「写一页」钢笔尖悬浮操作印章 (Fountain Pen FAB)
+        FountainPenFab(
+            isExpanded = isFabExpanded,
+            onClick = { showQuickNoteDialog = true },
+            onQuickText = { showQuickNoteDialog = true },
+            onQuickPhoto = { showQuickNoteDialog = true },
+            onQuickVoice = { showQuickNoteDialog = true },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 // MOB-P2-40：宽屏时右侧有详情栏，浮动印章让到列表列里
                 .padding(end = if (isWideLayout) (paneWidthDp + 20).dp else 20.dp, bottom = 20.dp)
-                .size(56.dp)
-                .shadow(
-                    elevation = 6.dp,
-                    shape = CircleShape,
-                    spotColor = colors.frameShadowSpot,
-                    ambientColor = colors.frameShadowAmbient
-                )
-                .clip(CircleShape)
-                .background(colors.accentWarm)
-                .clickable(role = Role.Button) { showQuickNoteDialog = true }
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Edit,
-                contentDescription = stringResource(R.string.stream_screen_contentDescription_04),
-                tint = colors.archivePaper,
-                modifier = Modifier.size(24.dp)
-            )
-        }
+        )
 
         // MOB-P2-40：宽屏右侧详情栏
         // 只读呈现；修订与删除仍复用原有弹窗，避免两套编辑逻辑分叉。
@@ -967,90 +989,25 @@ fun StreamScreen(
             )
         }
 
-        // 失败事件处置：重试或放弃（放弃仅移除发件箱事件，本地记录保留）
-        // 统一为纸墨 Dialog（AOPT-08b）：原 Material3 AlertDialog 的圆角/排版与全站不一致
-        if (showFailedEventsDialog) {
-            Dialog(
-                onDismissRequest = { showFailedEventsDialog = false },
-                properties = DialogProperties(
-                    usePlatformDefaultWidth = false,
-                    dismissOnBackPress = true,
-                    dismissOnClickOutside = true
-                )
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(28.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .widthIn(max = 380.dp)
-                            .shadow(
-                                elevation = 8.dp,
-                                shape = RoundedCornerShape(4.dp),
-                                spotColor = colors.frameShadowSpot,
-                                ambientColor = colors.frameShadowAmbient
-                            )
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(colors.archivePaper)
-                            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
-                            .padding(horizontal = 22.dp, vertical = 20.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.stream_screen_text_tpl_06, failedCount),
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 18.sp,
-                            color = colors.inkPrimary
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = stringResource(R.string.stream_screen_text_06) +
-                                "（本地记录与「待同步」标记保留，便于排查）。点卡片外部可稍后处理。",
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 13.sp,
-                            lineHeight = 20.sp,
-                            color = colors.inkSecondary
-                        )
-                        Spacer(modifier = Modifier.height(18.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            TextButton(onClick = {
-                                showFailedEventsDialog = false
-                                scope.launch {
-                                    syncManager.discardFailedEvents()
-                                    ArchiveToastManager.show("已放弃失败事件；本地记录保留")
-                                }
-                            }) {
-                                Text(stringResource(R.string.stream_screen_discard), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp, color = colors.inkMuted)
-                            }
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Button(
-                                onClick = {
-                                    showFailedEventsDialog = false
-                                    scope.launch {
-                                        ArchiveToastManager.show("正在重试 $failedCount 条失败记录…")
-                                        syncManager.retryFailedEvents()
-                                    }
-                                },
-                                shape = RoundedCornerShape(2.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = colors.accentWarm,
-                                    contentColor = colors.archivePaper
-                                )
-                            ) {
-                                Text(stringResource(R.string.stream_screen_retry_all), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp)
-                            }
-                        }
-                    }
-                }
-            }
+        // 失败事件处置：展开手账抽屉，支持单条重试、单条放弃与全部重新投递
+        if (showFailedEventsSheet) {
+            FailedEventsSheet(
+                syncManager = syncManager,
+                onDismiss = { showFailedEventsSheet = false }
+            )
+        }
+
+        // 筛选面板（底部弹层，纸色，无投影）
+        if (showFilterSheet) {
+            StreamFilterSheet(
+                criteria = filterCriteria,
+                availableYears = availableYears,
+                syncManager = syncManager,
+                onApply = { newCriteria ->
+                    filterCriteria = newCriteria
+                },
+                onDismiss = { showFilterSheet = false }
+            )
         }
 
         // 撕除确认弹窗
@@ -1136,6 +1093,100 @@ fun StreamScreen(
                 apiClient = apiClient,
                 onSuccess = { showQuickNoteDialog = false }
             )
+        }
+
+        // 开发者调试底抽 (Debug 专用，长按顶栏标题触发)
+        if (BuildConfig.DEBUG && showDebugDevSheet) {
+            ArchiveBottomSheet(
+                onDismissRequest = { showDebugDevSheet = false },
+                title = "开发者调试菜单 (Debug 专用)",
+                actionButtonText = null
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    PaperCard(modifier = Modifier.fillMaxWidth()) {
+                        Column {
+                            Text(
+                                text = "演示数据灌入与清理",
+                                fontFamily = ArchiveFontFamilies.BodySans,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                color = colors.inkPrimary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "灌入覆盖多天、跨月、跨年、多比例图片及发件箱异常状态的手账演示数据，或一键彻底清除",
+                                fontFamily = ArchiveFontFamilies.BodySans,
+                                fontSize = 11.sp,
+                                color = colors.inkMuted
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        scope.launch {
+                                            try {
+                                                val count = DemoDataSeeder.seedDemoData(context, AppDatabase.getInstance(context))
+                                                ArchiveToastManager.show("成功灌入 $count 条演示手账记录")
+                                            } catch (e: Exception) {
+                                                ArchiveToastManager.show("灌入失败: ${e.message}", isError = true)
+                                            }
+                                            showDebugDevSheet = false
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(2.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = colors.accentWarm,
+                                        contentColor = colors.archivePaper
+                                    ),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "灌入演示数据",
+                                        fontFamily = ArchiveFontFamilies.BodySans,
+                                        fontSize = 12.sp
+                                    )
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        scope.launch {
+                                            try {
+                                                val count = DemoDataSeeder.clearDemoData(context, AppDatabase.getInstance(context))
+                                                ArchiveToastManager.show("已彻底清除 $count 条演示记录与资源")
+                                            } catch (e: Exception) {
+                                                ArchiveToastManager.show("清除失败: ${e.message}", isError = true)
+                                            }
+                                            showDebugDevSheet = false
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(2.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.accentWarm),
+                                    border = ButtonDefaults.outlinedButtonBorder(enabled = true).copy(
+                                        brush = SolidColor(colors.accentWarm)
+                                    ),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "清除演示数据",
+                                        fontFamily = ArchiveFontFamilies.BodySans,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

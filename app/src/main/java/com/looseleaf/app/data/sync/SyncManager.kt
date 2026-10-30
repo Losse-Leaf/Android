@@ -17,6 +17,7 @@ import com.looseleaf.app.data.api.ResponseMeta
 import com.looseleaf.app.data.api.APIException
 import com.looseleaf.app.data.local.*
 import com.looseleaf.app.model.*
+import com.looseleaf.feature.ledger.data.MonthRange
 import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -439,7 +440,7 @@ class SyncManager private constructor(private val context: Context) {
      */
     private val _localWriteSignal = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val localWriteSignal: SharedFlow<Unit> = _localWriteSignal.asSharedFlow()
-    private fun notifyLocalWrite() {
+    fun notifyLocalWrite() {
         _localWriteSignal.tryEmit(Unit)
     }
 
@@ -490,6 +491,89 @@ class SyncManager private constructor(private val context: Context) {
     /** MOB-P1-32：分页列表的总数 */
     suspend fun countStreamEntries(filter: String, year: Int?): Int = withContext(Dispatchers.IO) {
         database.entryDao().countEntries(filter = filter, year = year?.toString())
+    }
+
+    /**
+     * 组合筛选时间流窗口数据 + 实时总数一次取回
+     */
+    suspend fun loadStreamWindowFiltered(
+        categories: Set<String>,
+        year: Int?,
+        month: Int?,
+        contents: Set<String>,
+        offset: Int,
+        limit: Int
+    ): StreamWindowPage = withContext(Dispatchers.IO) {
+        val dao = database.entryDao()
+        val yearStr = year?.toString()
+        val monthStr = month?.let { String.format(java.util.Locale.US, "%02d", it) }
+        val hasCategories = categories.isNotEmpty()
+        val includeDaily = categories.contains("daily")
+        val includeTravel = categories.contains("travel")
+        val includeProject = categories.contains("project")
+        val includeWish = categories.contains("wish")
+        val hasImage = contents.contains("has_image")
+        val isPending = contents.contains("pending")
+        val isFailed = contents.contains("failed")
+
+        val entries = dao.getEntriesPageFiltered(
+            year = yearStr,
+            month = monthStr,
+            hasCategories = hasCategories,
+            includeDaily = includeDaily,
+            includeTravel = includeTravel,
+            includeProject = includeProject,
+            includeWish = includeWish,
+            hasImage = hasImage,
+            isPending = isPending,
+            isFailed = isFailed,
+            limit = limit,
+            offset = offset
+        ).map { it.toDomainModel(json) { raw -> decodeAttachments(raw) } }
+
+        val totalCount = dao.countEntriesFiltered(
+            year = yearStr,
+            month = monthStr,
+            hasCategories = hasCategories,
+            includeDaily = includeDaily,
+            includeTravel = includeTravel,
+            includeProject = includeProject,
+            includeWish = includeWish,
+            hasImage = hasImage,
+            isPending = isPending,
+            isFailed = isFailed
+        )
+
+        StreamWindowPage(
+            entries = entries,
+            totalCount = totalCount
+        )
+    }
+
+    /** 实时统计匹配筛选的记录数（毫秒级本地计算） */
+    suspend fun countStreamEntriesFiltered(
+        categories: Set<String>,
+        year: Int?,
+        month: Int?,
+        contents: Set<String>
+    ): Int = withContext(Dispatchers.IO) {
+        database.entryDao().countEntriesFiltered(
+            year = year?.toString(),
+            month = month?.let { String.format(java.util.Locale.US, "%02d", it) },
+            hasCategories = categories.isNotEmpty(),
+            includeDaily = categories.contains("daily"),
+            includeTravel = categories.contains("travel"),
+            includeProject = categories.contains("project"),
+            includeWish = categories.contains("wish"),
+            hasImage = contents.contains("has_image"),
+            isPending = contents.contains("pending"),
+            isFailed = contents.contains("failed")
+        )
+    }
+
+    /** 查询某年份下实际有记录的月份列表 (1~12) */
+    suspend fun getAvailableMonthsForYear(year: Int): List<Int> = withContext(Dispatchers.IO) {
+        database.entryDao().getAvailableMonthsForYear(year.toString())
     }
 
     // 观察全量记账明细 (合并本地乐观与云端权威，0ms 内存态直出)
@@ -823,9 +907,12 @@ class SyncManager private constructor(private val context: Context) {
                 req.clearAttachments -> "[]"
                 // 已同步条目按服务端附件 id 过滤；未同步条目的本地预览是负数/本地 id，
                 // 不能按服务端 id 域过滤，否则会把预览整片清空。
-                req.attachmentIds != null && entity.serverId != null -> json.encodeToString(
-                    decodeAttachments(entity.attachmentsJson).filter { it.id in req.attachmentIds }
-                )
+                req.attachmentIds != null && entity.serverId != null -> {
+                    val targetIds = req.attachmentIds ?: emptyList()
+                    json.encodeToString(
+                        decodeAttachments(entity.attachmentsJson).filter { it.id in targetIds }
+                    )
+                }
                 else -> entity.attachmentsJson
             },
             syncStatus = newSyncStatus

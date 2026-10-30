@@ -309,6 +309,7 @@
 
     <!-- stream_screen -->
     <string name="stream_screen_text_01">散页 · 随行手账</string>
+    <string name="stream_screen_subtitle">随行手账</string>
     <string name="stream_screen_text_02">生活自留地 · 真实时间轴</string>
     <string name="stream_screen_contentDescription_01">检索</string>
     <string name="stream_screen_contentDescription_02">年度年鉴</string>

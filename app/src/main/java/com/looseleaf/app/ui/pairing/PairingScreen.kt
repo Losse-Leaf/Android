@@ -300,7 +300,7 @@ fun PairingScreen(
                                         ArchiveToastManager.show("剪贴板为空")
                                     }
                                 },
-                                shape = RoundedCornerShape(2.dp),
+                                shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Icon(painter = painterResource(R.drawable.ic_content_paste), contentDescription = null, modifier = Modifier.size(16.dp))

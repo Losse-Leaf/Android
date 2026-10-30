@@ -87,18 +87,160 @@ import com.looseleaf.app.R
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.text.style.TextAlign
 
 /**
  * MOB-P1-25：形状常量提升为顶层单例 ——
  * RoundedCornerShape 每次新建都会让该节点的绘制参数判定为「已变化」，
  * 触发绘制流水线重跑；PaperCard 被每张卡片使用，滚动期分配量可观。
  */
-private val PaperCardShape = RoundedCornerShape(4.dp)
-private val PaperStampShape = RoundedCornerShape(2.dp)
-private val PaperBadgeShape = RoundedCornerShape(2.dp)
-private val PaperFieldShape = RoundedCornerShape(3.dp)
-private val PaperPillShape = RoundedCornerShape(12.dp)
+private val PaperCardShape = RoundedCornerShape(16.dp)
+private val PaperStampShape = RoundedCornerShape(14.dp)
+private val PaperBadgeShape = RoundedCornerShape(6.dp)
+private val PaperFieldShape = RoundedCornerShape(12.dp)
+private val PaperPillShape = RoundedCornerShape(50)
 
+/**
+ * 散页统一纸本文稿底部抽屉拖拽手柄 (ArchiveDragHandle)
+ */
+@Composable
+fun ArchiveDragHandle(modifier: Modifier = Modifier) {
+    val colors = LooseLeafTheme.colors
+    Box(
+        modifier = modifier
+            .padding(top = 12.dp, bottom = 8.dp)
+            .width(40.dp)
+            .height(4.dp)
+            .clip(RoundedCornerShape(50))
+            .background(colors.borderDivider.copy(alpha = 0.8f))
+    )
+}
+
+/**
+ * 散页统一 Material 3 沉浸式顶栏
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ArchiveTopAppBar(
+    title: String,
+    subtitle: String? = null,
+    navigationIcon: @Composable (() -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val colors = LooseLeafTheme.colors
+    TopAppBar(
+        title = {
+            Column {
+                Text(
+                    text = title,
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 24.sp,
+                    letterSpacing = 1.sp,
+                    color = colors.inkPrimary
+                )
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        text = subtitle,
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 11.5.sp,
+                        color = colors.inkMuted
+                    )
+                }
+            }
+        },
+        navigationIcon = { navigationIcon?.invoke() },
+        actions = actions,
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = Color.Transparent,
+            titleContentColor = colors.inkPrimary,
+            actionIconContentColor = colors.inkPrimary
+        ),
+        modifier = modifier
+    )
+}
+
+/**
+ * 散页统一 Material 3 空状态引导视界
+ */
+@Composable
+fun ArchiveEmptyState(
+    icon: Painter,
+    title: String,
+    subtitle: String,
+    actionText: String? = null,
+    onActionClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val colors = LooseLeafTheme.colors
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(68.dp)
+                .clip(CircleShape)
+                .background(colors.accentWarm.copy(alpha = 0.08f))
+                .border(0.8.dp, colors.accentWarm.copy(alpha = 0.25f), CircleShape)
+        ) {
+            Icon(
+                painter = icon,
+                contentDescription = null,
+                tint = colors.accentWarm,
+                modifier = Modifier.size(30.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = title,
+            fontFamily = ArchiveFontFamilies.EditorialSerif,
+            fontWeight = FontWeight.Medium,
+            fontSize = 17.sp,
+            color = colors.inkPrimary,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = subtitle,
+            fontFamily = ArchiveFontFamilies.BodySans,
+            fontSize = 13.sp,
+            lineHeight = 20.sp,
+            color = colors.inkMuted,
+            textAlign = TextAlign.Center
+        )
+        if (actionText != null && onActionClick != null) {
+            Spacer(modifier = Modifier.height(20.dp))
+            Button(
+                onClick = onActionClick,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.accentWarm,
+                    contentColor = colors.archivePaper
+                ),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = actionText,
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
 
 /**
  * 手账质感纸张卡片容器
@@ -108,7 +250,7 @@ fun PaperCard(
     modifier: Modifier = Modifier,
     backgroundColor: Color? = null,
     borderColor: Color? = null,
-    cornerRadius: Dp = 4.dp,
+    cornerRadius: Dp = 16.dp,
     contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable () -> Unit
 ) {
@@ -478,6 +620,70 @@ fun PaperFilterPill(
             fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
             color = textColor
         )
+    }
+}
+
+/**
+ * 散页分段标签栏 (ArchiveSegmentedTabs)
+ * 专为二级分段导航打造（如账本的「极速记账/账单明细/资产信贷」与工坊的「造物/心愿/山川」），
+ * 融合 M3 Secondary Navigation 与新中式纸墨质感，支持微凸起物理纸卡效果与触控反馈。
+ */
+@Composable
+fun ArchiveSegmentedTabs(
+    selectedTabIndex: Int,
+    tabs: List<String>,
+    onTabSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LooseLeafTheme.colors
+    val haptics = LocalHapticFeedback.current
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(colors.archiveSubtle)
+            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(16.dp))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+        tabs.forEachIndexed { index, title ->
+            val isSelected = selectedTabIndex == index
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(if (isSelected) colors.archivePaper else Color.Transparent)
+                    .border(
+                        width = if (isSelected) 0.5.dp else 0.dp,
+                        color = if (isSelected) colors.borderDivider.copy(alpha = 0.6f) else Color.Transparent,
+                        shape = RoundedCornerShape(13.dp)
+                    )
+                    .selectable(
+                        selected = isSelected,
+                        role = Role.Tab,
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onTabSelected(index)
+                        }
+                    )
+                    .semantics {
+                        stateDescription = if (isSelected) "已选中" else ""
+                    }
+                    .defaultMinSize(minHeight = 36.dp)
+                    .padding(vertical = 6.dp, horizontal = 4.dp)
+            ) {
+                Text(
+                    text = title,
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontSize = 12.5.sp,
+                    fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                    color = if (isSelected) colors.inkPrimary else colors.inkSecondary,
+                    maxLines = 1
+                )
+            }
+        }
     }
 }
 

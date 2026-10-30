@@ -1,5 +1,11 @@
 package com.looseleaf.app.ui.projectswishes
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,10 +14,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.*
@@ -72,9 +82,54 @@ fun ProjectsWishesScreen(
     val apiClient = remember { APIClient.getInstance(context) }
     val syncManager = remember { com.looseleaf.app.data.sync.SyncManager.getInstance(context) }
 
-    // 不带 initialTab 作 key：从「足迹」切到「造物」时 route 会变化并触发重组，
-    // 若 key 参与 rememberSaveable 会把内部 tab 重置回 initialTab，用户刚点的 tab 被冲掉
-    var selectedTab by rememberSaveable { mutableIntStateOf(initialTab) } // 0: 造物, 1: 心愿, 2: 足迹
+    val pagerState = rememberPagerState(initialPage = initialTab.coerceIn(0, 2)) { 3 }
+    val selectedTab = pagerState.currentPage
+
+    val projectsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    val wishesListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+    val footprintsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
+
+    var snackbarData by remember { mutableStateOf<ArchiveSnackbarData?>(null) }
+
+    val currentListState = when (pagerState.currentPage) {
+        0 -> projectsListState
+        1 -> wishesListState
+        else -> footprintsListState
+    }
+
+    var isScrollingUp by remember { mutableStateOf(true) }
+    var previousIndex by remember { mutableIntStateOf(0) }
+    var previousOffset by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(currentListState) {
+        snapshotFlow { currentListState.firstVisibleItemIndex to currentListState.firstVisibleItemScrollOffset }
+            .collect { (idx, off) ->
+                if (idx > previousIndex || (idx == previousIndex && off > previousOffset + 12)) {
+                    isScrollingUp = false
+                } else if (idx < previousIndex || (idx == previousIndex && off < previousOffset - 12)) {
+                    isScrollingUp = true
+                }
+                previousIndex = idx
+                previousOffset = off
+            }
+    }
+
+    val isFabVisible by remember {
+        derivedStateOf {
+            isScrollingUp || currentListState.firstVisibleItemIndex == 0
+        }
+    }
+
+    LaunchedEffect(pagerState.currentPage) {
+        onTabChanged?.invoke(pagerState.currentPage)
+    }
+
+    LaunchedEffect(initialTab) {
+        if (pagerState.currentPage != initialTab) {
+            pagerState.scrollToPage(initialTab.coerceIn(0, 2))
+        }
+    }
+
     val projects by syncManager.projectsFlow.collectAsStateWithLifecycle()
     val wishes by syncManager.wishesFlow.collectAsStateWithLifecycle()
     val footprints by syncManager.footprintsFlow.collectAsStateWithLifecycle()
@@ -92,7 +147,7 @@ fun ProjectsWishesScreen(
     var wishToDelete by remember { mutableStateOf<Wish?>(null) }
     // MOB-P0-14：破坏性删除必须二次确认（造物 / 足迹此前是「一点即删」）
     var projectToDelete by remember { mutableStateOf<Project?>(null) }
-    var footprintToDelete by remember { mutableStateOf<Footprint?>(null) }
+    var footprintToDelete by remember { mutableStateOf<Pair<Footprint, Int>?>(null) }
 
     suspend fun reloadAll(forceLoading: Boolean = false) {
         if (forceLoading || (projects.isEmpty() && wishes.isEmpty() && footprints.isEmpty())) {
@@ -133,152 +188,214 @@ fun ProjectsWishesScreen(
                     .fillMaxSize()
                     .widthIn(max = 680.dp)
             ) {
-            // 顶栏
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(
-                        text = stringResource(R.string.projects_wishes_screen_text_01),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 22.sp,
-                        letterSpacing = 1.sp,
-                        color = colors.inkPrimary
-                    )
-                    Text(
-                        text = stringResource(R.string.projects_wishes_screen_text_02),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 11.sp,
-                        color = colors.inkMuted
-                    )
-                }
-                TextButton(
-                    onClick = {
-                        showCreateDialog = true
-                    }
-                ) {
-                    Text(
-                        text = when (selectedTab) {
-                            0 -> "+ 新建造物"
-                            1 -> "+ 许下心愿"
-                            else -> "+ 点亮足迹"
-                        },
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 13.sp,
-                        color = colors.accentWarm
-                    )
-                }
-            }
+                // 顶栏：标题"工坊"与账本、时间流同一规格，右上角不再放"+ 新建…"文字
+                ArchiveTopAppBar(
+                    title = stringResource(R.string.projects_wishes_screen_text_01),
+                    subtitle = null,
+                    actions = {}
+                )
 
-            // Tab 切换器
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(colors.archiveSubtle)
-                    .border(0.5.dp, colors.borderDivider, RoundedCornerShape(16.dp))
-                    .padding(3.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                val tabs = listOf("造物 (${projects.size})", "心愿 (${wishes.size})", "山川 (${footprints.size})")
-                tabs.forEachIndexed { index, title ->
-                    val isSelected = selectedTab == index
-                    Box(
-                        contentAlignment = Alignment.Center,
+                // Tab 切换器：纯文字标签 造物 · 心愿 · 山川，选中加粗 + 2dp 赤陶下划线，无框无底色，后跟等宽数字
+                ArchiveSegmentedTabs(
+                    tabs = listOf("造物", "心愿", "山川"),
+                    selectedIndex = pagerState.currentPage,
+                    onTabSelected = { index ->
+                        scope.launch { pagerState.animateScrollToPage(index) }
+                    },
+                    counts = listOf(projects.size, wishes.size, footprints.size),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 同步失败重试入口
+                loadError?.let { message ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (isSelected) colors.archivePaper else androidx.compose.ui.graphics.Color.Transparent)
-                            .clickable {
-                                selectedTab = index
-                                onTabChanged?.invoke(index)
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(colors.accentWarm.copy(alpha = 0.10f))
+                            .clickable(role = Role.Button) {
+                                scope.launch { reloadAll(forceLoading = true) }
                             }
-                            .padding(vertical = 6.dp)
+                            .padding(horizontal = 10.dp, vertical = 7.dp)
                     ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_error_outline),
+                            contentDescription = null,
+                            tint = colors.accentWarm,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = title,
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 13.sp,
-                            fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
-                            color = if (isSelected) colors.inkPrimary else colors.inkSecondary
+                            text = stringResource(R.string.projects_wishes_screen_text_tpl_01, message),
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 11.sp,
+                            color = colors.accentWarm,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
+
+                if (isLoading && projects.isEmpty() && wishes.isEmpty() && footprints.isEmpty()) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        CircularProgressIndicator(color = colors.accentWarm, modifier = Modifier.size(24.dp))
+                    }
+                } else {
+                    // 下拉刷新 + 支持左右滑动的 HorizontalPager
+                    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+                        isRefreshing = isLoading,
+                        onRefresh = { scope.launch { reloadAll(forceLoading = true) } },
+                        modifier = Modifier.weight(1f).fillMaxWidth()
+                    ) {
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize()
+                        ) { page ->
+                            when (page) {
+                                0 -> ProjectsList(
+                                    projects = projects,
+                                    onProjectClick = { editingProject = it },
+                                    onDeleteClick = { proj ->
+                                        scope.launch {
+                                            runCatching {
+                                                apiClient.deleteProject(proj.id)
+                                                reloadAll()
+                                                snackbarData = ArchiveSnackbarData(
+                                                    message = "已删除造物《${proj.title}》",
+                                                    actionLabel = "撤销",
+                                                    onActionClick = {
+                                                        scope.launch {
+                                                            runCatching {
+                                                                apiClient.createProject(
+                                                                    CreateProjectRequest(
+                                                                        title = proj.title,
+                                                                        subtitle = proj.subtitle,
+                                                                        description = proj.description,
+                                                                        story = proj.story,
+                                                                        category = proj.category,
+                                                                        status = proj.status ?: "进行中",
+                                                                        githubUrl = proj.githubUrl,
+                                                                        order = proj.order ?: 0
+                                                                    )
+                                                                )
+                                                                reloadAll()
+                                                            }
+                                                        }
+                                                    }
+                                                )
+                                            }.onFailure {
+                                                ArchiveToastManager.show("删除造物失败: ${it.message}", isError = true)
+                                            }
+                                        }
+                                    },
+                                    onNewProjectClick = { showCreateDialog = true },
+                                    listState = projectsListState,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                1 -> WishesList(
+                                    wishes = wishes,
+                                    onResolveClick = { resolvingWish = it },
+                                    onEditClick = { editingWish = it },
+                                    onDeleteClick = { wish ->
+                                        scope.launch {
+                                            runCatching {
+                                                apiClient.deleteWish(wish.id)
+                                                reloadAll()
+                                                snackbarData = ArchiveSnackbarData(
+                                                    message = "已移除心愿《${wish.title}》",
+                                                    actionLabel = "撤销",
+                                                    onActionClick = {
+                                                        scope.launch {
+                                                            runCatching {
+                                                                apiClient.createWish(
+                                                                    CreateWishRequest(
+                                                                        title = wish.title,
+                                                                        kind = wish.kind ?: "item",
+                                                                        budget = wish.budget,
+                                                                        spec = wish.spec,
+                                                                        cityCode = wish.cityCode,
+                                                                        cityName = wish.cityName,
+                                                                        note = wish.note,
+                                                                        targetDate = wish.targetDate
+                                                                    )
+                                                                )
+                                                                reloadAll()
+                                                            }
+                                                        }
+                                                    }
+                                                )
+                                            }.onFailure {
+                                                ArchiveToastManager.show("移除心愿失败: ${it.message}", isError = true)
+                                            }
+                                        }
+                                    },
+                                    onNewWishClick = { showCreateDialog = true },
+                                    listState = wishesListState,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                2 -> FootprintsList(
+                                    footprints = footprints,
+                                    onFootprintClick = { selectedDrawerFootprint = it },
+                                    onNewFootprintClick = { showCreateDialog = true },
+                                    listState = footprintsListState,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            // 新增入口：56dp 赤陶圆形 FAB"＋"，与账本一致，向下滚动收缩淡出
+            val fabOffset by animateDpAsState(
+                targetValue = if (snackbarData != null) (-56).dp else 0.dp,
+                label = "fab_offset"
+            )
 
-            // 同步失败不再只写进一个没人读的 state：给出可见的重试入口
-            loadError?.let { message ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(colors.accentWarm.copy(alpha = 0.10f))
-                        .clickable(role = Role.Button) {
-                            scope.launch { reloadAll(forceLoading = true) }
-                        }
-                        .padding(horizontal = 10.dp, vertical = 7.dp)
+            AnimatedVisibility(
+                visible = isFabVisible,
+                enter = fadeIn() + scaleIn(),
+                exit = fadeOut() + scaleOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 16.dp)
+                    .offset(y = fabOffset)
+            ) {
+                FloatingActionButton(
+                    onClick = { showCreateDialog = true },
+                    containerColor = colors.accentWarm,
+                    contentColor = androidx.compose.ui.graphics.Color.White,
+                    shape = CircleShape,
+                    elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+                    modifier = Modifier.size(56.dp)
                 ) {
                     Icon(
-                        painter = painterResource(R.drawable.ic_error_outline),
-                        contentDescription = null,
-                        tint = colors.accentWarm,
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.projects_wishes_screen_text_tpl_01, message),
-                        fontFamily = ArchiveFontFamilies.BodySans,
-                        fontSize = 11.sp,
-                        color = colors.accentWarm,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        imageVector = Icons.Outlined.Add,
+                        contentDescription = when (pagerState.currentPage) {
+                            0 -> "新建造物"
+                            1 -> "许下心愿"
+                            else -> "点亮足迹"
+                        },
+                        tint = androidx.compose.ui.graphics.Color.White,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
 
-            if (isLoading && projects.isEmpty() && wishes.isEmpty() && footprints.isEmpty()) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    CircularProgressIndicator(color = colors.accentWarm, modifier = Modifier.size(24.dp))
-                }
-            } else {
-                // 下拉刷新（AOPT-06）：三个列表共用同一次全量同步
-                androidx.compose.material3.pulltorefresh.PullToRefreshBox(
-                    isRefreshing = isLoading,
-                    onRefresh = { scope.launch { reloadAll(forceLoading = true) } },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    when (selectedTab) {
-                        0 -> ProjectsList(
-                            projects = projects,
-                            onProjectClick = { editingProject = it },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        1 -> WishesList(
-                            wishes = wishes,
-                            onResolveClick = { resolvingWish = it },
-                            onEditClick = { editingWish = it },
-                            onDeleteClick = { wishToDelete = it },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        2 -> FootprintsList(
-                            footprints = footprints,
-                            onFootprintClick = { selectedDrawerFootprint = it },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
+            // 撤销删除 Snackbar
+            snackbarData?.let { data ->
+                ArchiveSnackbar(
+                    data = data,
+                    onDismiss = { snackbarData = null },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                )
             }
-        }
 
         if (showCreateDialog) {
             var inputTitle by remember { mutableStateOf("") }
@@ -293,296 +410,190 @@ fun ProjectsWishesScreen(
             var fpVisitedAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
             var fpIsMultiDay by remember { mutableStateOf(false) }
             var fpDepartedAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone).plusDays(2)) }
-            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
             val isSaveEnabled = if (selectedTab == 2) fpCityName.isNotBlank() else inputTitle.isNotBlank()
 
-            ModalBottomSheet(
+            ArchiveSheet(
                 onDismissRequest = { showCreateDialog = false },
-                sheetState = sheetState,
-                containerColor = colors.archivePaper,
-                dragHandle = null,
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-                // navigationBarsPadding（AOPT-02b/08b）：软键盘收起时内容不再被
-                // 系统手势横条压住；ArchiveBottomSheet 一直是这样做的，这里补齐
-                modifier = Modifier
-                    .imePadding()
-                    .navigationBarsPadding()
+                title = when (selectedTab) {
+                    0 -> "新建造物"
+                    1 -> "许下心愿"
+                    else -> "点亮足迹"
+                },
+                cancelText = "取消",
+                actionText = "保存",
+                isActionEnabled = isSaveEnabled,
+                onAction = {
+                    scope.launch {
+                        try {
+                            when (selectedTab) {
+                                0 -> apiClient.createProject(
+                                    CreateProjectRequest(
+                                        title = inputTitle.trim(),
+                                        subtitle = inputSubtitle.trim().takeIf { it.isNotBlank() },
+                                        description = inputNote.trim()
+                                    )
+                                )
+                                1 -> apiClient.createWish(
+                                    CreateWishRequest(
+                                        title = inputTitle.trim(),
+                                        kind = wishKind,
+                                        note = inputNote.trim().takeIf { it.isNotBlank() },
+                                        budget = FormatUtils.yuanStringToCents(inputThird),
+                                        cityCode = wishCityCode.takeIf { it.isNotBlank() },
+                                        cityName = wishCityName.takeIf { it.isNotBlank() }
+                                    )
+                                )
+                                else -> apiClient.createFootprint(
+                                    CreateFootprintRequest(
+                                        cityCode = fpCityCode,
+                                        cityName = fpCityName,
+                                        title = inputThird.trim().takeIf { it.isNotBlank() },
+                                        visitedAt = FormatUtils.toBeijingIsoString(fpVisitedAt),
+                                        departedAt = if (fpIsMultiDay) FormatUtils.toBeijingIsoString(fpDepartedAt) else null,
+                                        note = inputNote.trim().takeIf { it.isNotBlank() }
+                                    )
+                                )
+                            }
+                            showCreateDialog = false
+                            reloadAll()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            ArchiveToastManager.show("创建失败: ${e.message}", isError = true)
+                        }
+                    }
+                }
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 640.dp)
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // 顶栏：取消 / 标题 / 保存
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        TextButton(
-                            onClick = { showCreateDialog = false },
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                        ) {
-                            Text(stringResource(R.string.projects_wishes_cancel), color = colors.inkSecondary, fontSize = 14.sp)
-                        }
-
-                        Text(
-                            text = when (selectedTab) {
-                                0 -> "《新建造物》"
-                                1 -> "《许下心愿》"
-                                else -> "《点亮足迹》"
-                            },
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 16.sp,
-                            color = colors.inkPrimary
+                    if (selectedTab == 0) {
+                        ArchiveField(
+                            value = inputTitle,
+                            onValueChange = { inputTitle = it },
+                            label = "造物名称",
+                            placeholder = "输入造物名称…",
+                            singleLine = true,
+                            errorMessage = if (inputTitle.isBlank()) "请输入造物名称" else null
                         )
-
-                        TextButton(
-                            enabled = isSaveEnabled,
-                            onClick = {
-                                scope.launch {
-                                    try {
-                                        when (selectedTab) {
-                                            0 -> apiClient.createProject(
-                                                CreateProjectRequest(
-                                                    title = inputTitle.trim(),
-                                                    subtitle = inputSubtitle.trim().takeIf { it.isNotBlank() },
-                                                    description = inputNote.trim()
-                                                )
-                                            )
-                                            1 -> apiClient.createWish(
-                                                CreateWishRequest(
-                                                    title = inputTitle.trim(),
-                                                    kind = wishKind,
-                                                    note = inputNote.trim().takeIf { it.isNotBlank() },
-                                                    budget = FormatUtils.yuanStringToCents(inputThird),
-                                                    cityCode = wishCityCode.takeIf { it.isNotBlank() },
-                                                    cityName = wishCityName.takeIf { it.isNotBlank() }
-                                                )
-                                            )
-                                            else -> {
-                                                // isSaveEnabled 已保证足迹页 cityName 非空（L270），
-                                                // 不需要「杭州」类魔法兜底；cityCode 与 cityName 同源由城市选择器写入
-                                                apiClient.createFootprint(
-                                                    CreateFootprintRequest(
-                                                        cityCode = fpCityCode,
-                                                        cityName = fpCityName,
-                                                        title = inputThird.trim().takeIf { it.isNotBlank() },
-                                                        visitedAt = FormatUtils.toBeijingIsoString(fpVisitedAt),
-                                                        departedAt = if (fpIsMultiDay) FormatUtils.toBeijingIsoString(fpDepartedAt) else null,
-                                                        note = inputNote.trim().takeIf { it.isNotBlank() }
-                                                    )
-                                                )
-                                            }
-                                        }
-                                        showCreateDialog = false
-                                        reloadAll()
-                                    } catch (e: CancellationException) {
-                                        throw e
-                                    } catch (e: Exception) {
-                                        ArchiveToastManager.show("创建失败: ${e.message}", isError = true)
-                                    }
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                        ArchiveField(
+                            value = inputSubtitle,
+                            onValueChange = { inputSubtitle = it },
+                            label = "副标题",
+                            placeholder = "一句话描述（选填）",
+                            singleLine = true
+                        )
+                        ArchiveField(
+                            value = inputNote,
+                            onValueChange = { inputNote = it },
+                            label = "手记与背景",
+                            placeholder = "书写关于造物的构想或记录…",
+                            singleLine = false,
+                            minLines = 4
+                        )
+                    } else if (selectedTab == 1) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(
-                                text = stringResource(R.string.projects_wishes_screen_text_03),
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 14.sp,
-                                color = if (isSaveEnabled) colors.accentWarm else colors.inkMuted
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    if (selectedTab == 1) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("item" to "好物", "travel" to "旅程", "milestone" to "里程碑").forEach { (k, label) ->
-                                PaperFilterPill(
-                                    selected = wishKind == k,
-                                    onClick = { wishKind = k },
-                                    label = label
+                                ArchiveChoiceItem(
+                                    text = label,
+                                    isSelected = wishKind == k,
+                                    onClick = { wishKind = k }
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.height(14.dp))
-                    }
-
-                    if (selectedTab == 2) {
-                        // 足迹：标准行政区划城市选择器 + 到访时刻补记
-                        PaperCityPickerField(
-                            selectedCityCode = fpCityCode,
-                            selectedCityName = fpCityName,
-                            onCitySelected = { c, n -> fpCityCode = c; fpCityName = n },
-                            placeholder = stringResource(R.string.projects_wishes_screen_placeholder_01)
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        PaperDateTimePickerField(
-                            selectedDateTime = fpVisitedAt,
-                            onDateTimeSelected = { fpVisitedAt = it },
-                            label = stringResource(R.string.projects_wishes_screen_label_01)
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = fpIsMultiDay,
-                                onCheckedChange = { fpIsMultiDay = it },
-                                colors = CheckboxDefaults.colors(checkedColor = colors.accentWarm)
-                            )
-                            Text(
-                                text = stringResource(R.string.projects_wishes_screen_text_04),
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 12.sp,
-                                color = colors.inkPrimary
-                            )
-                        }
-                        if (fpIsMultiDay) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            PaperDateTimePickerField(
-                                selectedDateTime = fpDepartedAt,
-                                onDateTimeSelected = { fpDepartedAt = it },
-                                label = stringResource(R.string.projects_wishes_screen_label_02)
-                            )
-                        }
-                    } else {
-                        // 大号标题输入
-                        androidx.compose.foundation.text.BasicTextField(
+                        ArchiveField(
                             value = inputTitle,
                             onValueChange = { inputTitle = it },
-                            modifier = Modifier.fillMaxWidth(),
+                            label = "心愿标题",
+                            placeholder = "输入心愿标题…",
                             singleLine = true,
-                            textStyle = TextStyle(
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = colors.inkPrimary
-                            ),
-                            cursorBrush = SolidColor(colors.accentWarm),
-                            decorationBox = { innerTextField ->
-                                if (inputTitle.isEmpty()) {
-                                    Text(
-                                        text = when (selectedTab) {
-                                            0 -> "造物名称…"
-                                            else -> "心愿标题…"
-                                        },
-                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                        fontSize = 20.sp,
-                                        color = colors.inkMuted.copy(alpha = 0.5f)
-                                    )
-                                }
-                                innerTextField()
-                            }
+                            errorMessage = if (inputTitle.isBlank()) "请输入心愿标题" else null
                         )
-
-                        if (selectedTab == 0) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            androidx.compose.foundation.text.BasicTextField(
-                                value = inputSubtitle,
-                                onValueChange = { inputSubtitle = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                textStyle = TextStyle(
-                                    fontFamily = ArchiveFontFamilies.BodySans,
-                                    fontSize = 14.sp,
-                                    color = colors.inkSecondary
-                                ),
-                                cursorBrush = SolidColor(colors.accentWarm),
-                                decorationBox = { innerTextField ->
-                                    if (inputSubtitle.isEmpty()) {
-                                        Text(
-                                            text = stringResource(R.string.projects_wishes_screen_text_05),
-                                            fontSize = 14.sp,
-                                            color = colors.inkMuted.copy(alpha = 0.5f)
-                                        )
-                                    }
-                                    innerTextField()
-                                }
-                            )
-                        }
-
-                        if (selectedTab == 1 && wishKind == "travel") {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            PaperCityPickerField(
+                        if (wishKind == "travel") {
+                            ArchiveCityPickerField(
                                 selectedCityCode = wishCityCode,
                                 selectedCityName = wishCityName,
                                 onCitySelected = { c, n -> wishCityCode = c; wishCityName = n },
-                                placeholder = stringResource(R.string.projects_wishes_screen_placeholder_02)
+                                label = "目的地城市",
+                                placeholder = "选择城市"
                             )
                         }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    if (selectedTab == 1 || selectedTab == 2) {
-                        androidx.compose.foundation.text.BasicTextField(
+                        ArchiveField(
                             value = inputThird,
                             onValueChange = { inputThird = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            textStyle = TextStyle(
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontSize = 15.sp,
-                                color = colors.inkPrimary
-                            ),
-                            cursorBrush = SolidColor(colors.accentWarm),
-                            decorationBox = { innerTextField ->
-                                if (inputThird.isEmpty()) {
-                                    Text(
-                                        text = if (selectedTab == 1) "预算金额 (元)" else "旅程标题",
-                                        fontSize = 15.sp,
-                                        color = colors.inkMuted.copy(alpha = 0.5f)
-                                    )
-                                }
-                                innerTextField()
-                            }
+                            label = "预算金额 (元)",
+                            placeholder = "0.00",
+                            isNumeric = true,
+                            singleLine = true
                         )
-                        Spacer(modifier = Modifier.height(14.dp))
-                        HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-                        Spacer(modifier = Modifier.height(14.dp))
-                    }
-
-                    // 开阔手记书写区域
-                    androidx.compose.foundation.text.BasicTextField(
-                        value = inputNote,
-                        onValueChange = { inputNote = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f, fill = false)
-                            .heightIn(min = 120.dp, max = 240.dp),
-                        textStyle = TextStyle(
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 14.5.sp,
-                            lineHeight = 24.sp,
-                            color = colors.inkPrimary
-                        ),
-                        cursorBrush = SolidColor(colors.accentWarm),
-                        decorationBox = { innerTextField ->
-                            if (inputNote.isEmpty()) {
-                                Text(
-                                    text = stringResource(R.string.projects_wishes_screen_text_06),
-                                    fontFamily = ArchiveFontFamilies.BodySans,
-                                    fontSize = 14.5.sp,
-                                    lineHeight = 24.sp,
-                                    color = colors.inkMuted.copy(alpha = 0.45f)
-                                )
-                            }
-                            innerTextField()
+                        ArchiveField(
+                            value = inputNote,
+                            onValueChange = { inputNote = it },
+                            label = "心愿手记",
+                            placeholder = "写下向往的缘由…",
+                            singleLine = false,
+                            minLines = 4
+                        )
+                    } else {
+                        ArchiveCityPickerField(
+                            selectedCityCode = fpCityCode,
+                            selectedCityName = fpCityName,
+                            onCitySelected = { c, n -> fpCityCode = c; fpCityName = n },
+                            label = "到访城市",
+                            placeholder = "选择城市",
+                            errorMessage = if (fpCityName.isBlank()) "请选择城市" else null
+                        )
+                        ArchiveDateTimeSplitRow(
+                            selectedDateTime = fpVisitedAt,
+                            onDateTimeSelected = { fpVisitedAt = it },
+                            label = "到访时刻"
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ArchiveChoiceItem(
+                                text = "单日",
+                                isSelected = !fpIsMultiDay,
+                                onClick = { fpIsMultiDay = false }
+                            )
+                            ArchiveChoiceItem(
+                                text = "多日",
+                                isSelected = fpIsMultiDay,
+                                onClick = { fpIsMultiDay = true }
+                            )
                         }
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
+                        if (fpIsMultiDay) {
+                            ArchiveDateTimeSplitRow(
+                                selectedDateTime = fpDepartedAt,
+                                onDateTimeSelected = { fpDepartedAt = it },
+                                label = "返程时刻"
+                            )
+                        }
+                        ArchiveField(
+                            value = inputThird,
+                            onValueChange = { inputThird = it },
+                            label = "标题（选填）",
+                            placeholder = "如 秋日漫步",
+                            singleLine = true
+                        )
+                        ArchiveField(
+                            value = inputNote,
+                            onValueChange = { inputNote = it },
+                            label = "行旅手记",
+                            placeholder = "记录旅途所见所感…",
+                            singleLine = false,
+                            minLines = 5
+                        )
+                    }
                 }
             }
         }
@@ -592,35 +603,56 @@ fun ProjectsWishesScreen(
                 mutableStateOf(FormatUtils.centsToYuanString(wish.budget, includeSymbol = false))
             }
             var resType by remember(wish.id) { mutableStateOf("exact") }
-            // MOB 表单审计 #18：实际物品名留空即不发送（后端空值回落心愿标题，
-            // wishes.go ResolveWish），删除原先「默认复制标题」的同文冗余；
-            // 占位符提示原心愿标题。
             var actualTitleInput by remember(wish.id) { mutableStateOf("") }
             var entryNote by remember(wish.id) { mutableStateOf("") }
             var fulfilledAtDt by remember(wish.id) {
                 mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone))
             }
             var createTx by remember(wish.id) { mutableStateOf(wish.budget > 0) }
+            var wishPayChoice by remember(wish.id) { mutableStateOf("full") }
+            var wishPeriodPreset by remember(wish.id) { mutableStateOf("12") }
+            var wishChannelCode by remember(wish.id) { mutableStateOf("huabei") }
+            var wishChannels by remember(wish.id) {
+                mutableStateOf(
+                    listOf(
+                        "huabei" to "花呗",
+                        "baitiao" to "京东白条",
+                        "credit_card" to "信用卡"
+                    )
+                )
+            }
+            LaunchedEffect(wish.id) {
+                runCatching {
+                    val channels = apiClient.fetchCreditChannels()
+                    if (channels.isNotEmpty()) {
+                        wishChannels = channels.map { it.code to it.name }
+                        if (wishChannelCode !in wishChannels.map { it.first }) {
+                            wishChannelCode = channels.first().code
+                        }
+                    }
+                }
+            }
             var createGear by remember(wish.id) { mutableStateOf(wish.kind == "item") }
             var createEntry by remember(wish.id) { mutableStateOf(true) }
             var createFp by remember(wish.id) { mutableStateOf(wish.kind == "travel") }
-            // MOB 表单审计 #20：金额非法（非数字）时阻断提交并提示，不再静默清零
             val costInvalid = !resType.equals("relinquished") &&
                 costInput.isNotBlank() && costInput.trim().toDoubleOrNull() == null
 
-            ArchiveBottomSheet(
+            ArchiveSheet(
                 onDismissRequest = { resolvingWish = null },
-                title = stringResource(R.string.projects_wishes_screen_title_tpl_01, wish.title),
-                actionButtonText = "确认归册",
-                onActionClick = {
+                title = "达成归册 · ${wish.title}",
+                actionText = "确认归册",
+                isActionEnabled = !costInvalid,
+                onAction = {
                     if (costInvalid) {
                         ArchiveToastManager.show("金额格式不正确，请输入有效数字", isError = true)
-                        return@ArchiveBottomSheet
+                        return@ArchiveSheet
                     }
                     scope.launch {
                         try {
                             val isRel = resType == "relinquished"
                             val cents = if (isRel) 0L else FormatUtils.yuanStringToCents(costInput)
+                            val isInst = !isRel && createTx && wishPayChoice == "installment"
                             apiClient.resolveWish(
                                 id = wish.id,
                                 req = ResolveWishRequest(
@@ -631,11 +663,13 @@ fun ProjectsWishesScreen(
                                     createTransaction = !isRel && createTx && cents > 0,
                                     createGearAsset = !isRel && createGear && wish.kind == "item",
                                     createLifeEntry = createEntry,
-                                    // 跨端决策 + 审计 #15：travel 心愿未设置目的地时不请求建足迹
-                                    //（后端 CityCode 为空会静默跳过，勾了等于没勾）
                                     createFootprint = !isRel && createFp && wish.kind == "travel" &&
                                         !wish.cityCode.isNullOrBlank(),
-                                    entryContent = entryNote.takeIf { it.isNotBlank() }
+                                    entryContent = entryNote.takeIf { it.isNotBlank() },
+                                    isInstallment = if (isInst) true else null,
+                                    installmentChannelCode = if (isInst) wishChannelCode else null,
+                                    installmentMonths = if (isInst) (wishPeriodPreset.toIntOrNull() ?: 12) else null,
+                                    repaymentDay = if (isInst) 10 else null
                                 )
                             )
                             resolvingWish = null
@@ -648,90 +682,153 @@ fun ProjectsWishesScreen(
                     }
                 }
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         listOf("exact" to "如愿拿下", "altered" to "替代方案", "relinquished" to "理性拔草").forEach { (k, label) ->
-                            PaperFilterPill(
-                                selected = resType == k,
-                                onClick = { resType = k },
-                                label = label
+                            ArchiveChoiceItem(
+                                text = label,
+                                isSelected = resType == k,
+                                onClick = { resType = k }
                             )
                         }
                     }
-                    PaperDateTimePickerField(
+
+                    ArchiveDateTimeSplitRow(
                         selectedDateTime = fulfilledAtDt,
                         onDateTimeSelected = { fulfilledAtDt = it },
                         label = stringResource(R.string.projects_wishes_screen_label_03)
                     )
+
                     if (resType != "relinquished") {
-                        PaperTextField(
+                        ArchiveField(
                             value = actualTitleInput,
                             onValueChange = { actualTitleInput = it },
                             label = stringResource(R.string.projects_wishes_screen_label_04),
                             placeholder = wish.title,
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+                            singleLine = true
                         )
-                        PaperTextField(
+                        ArchiveField(
                             value = costInput,
                             onValueChange = { costInput = it },
                             label = stringResource(R.string.projects_wishes_screen_label_05),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+                            placeholder = "0.00",
+                            isNumeric = true,
+                            singleLine = true
                         )
                         if (costInvalid) {
                             Text(
                                 text = "金额格式不正确，请输入有效数字",
-                                fontSize = 11.sp,
-                                color = colors.accentWarm
+                                fontSize = 11.5.sp,
+                                color = colors.alertRed
                             )
                         }
+
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            PaperFilterPill(
-                                selected = createTx,
-                                onClick = { createTx = !createTx },
-                                label = if (createTx) "✓ 记账" else "不记账"
+                            ArchiveChoiceItem(
+                                text = if (createTx) "✓ 记账" else "不记账",
+                                isSelected = createTx,
+                                onClick = { createTx = !createTx }
                             )
                             if (wish.kind == "item") {
-                                PaperFilterPill(
-                                    selected = createGear,
-                                    onClick = { createGear = !createGear },
-                                    label = if (createGear) "✓ 建固资" else "不建固资"
+                                ArchiveChoiceItem(
+                                    text = if (createGear) "✓ 建固资" else "不建固资",
+                                    isSelected = createGear,
+                                    onClick = { createGear = !createGear }
                                 )
                             }
                             if (wish.kind == "travel") {
-                                // MOB 表单审计 #15：目的地未设置时「亮足迹」不可勾选并提示
                                 if (wish.cityCode.isNullOrBlank()) {
                                     Text(
-                                        text = "目的地未设置，无法点亮足迹",
-                                        fontSize = 11.sp,
+                                        text = "未设目的地，无法亮足迹",
+                                        fontSize = 12.sp,
                                         color = colors.inkMuted,
-                                        modifier = Modifier.align(Alignment.CenterVertically)
+                                        modifier = Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp)
                                     )
                                 } else {
-                                    PaperFilterPill(
-                                        selected = createFp,
-                                        onClick = { createFp = !createFp },
-                                        label = if (createFp) "✓ 亮足迹" else "不建足迹"
+                                    ArchiveChoiceItem(
+                                        text = if (createFp) "✓ 亮足迹" else "不建足迹",
+                                        isSelected = createFp,
+                                        onClick = { createFp = !createFp }
                                     )
                                 }
                             }
-                            PaperFilterPill(
-                                selected = createEntry,
-                                onClick = { createEntry = !createEntry },
-                                label = if (createEntry) "✓ 伴生手记" else "不写手记"
+                            ArchiveChoiceItem(
+                                text = if (createEntry) "✓ 伴生手记" else "不写手记",
+                                isSelected = createEntry,
+                                onClick = { createEntry = !createEntry }
                             )
                         }
+
+                        if (createTx) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                ArchiveChoiceItem(
+                                    text = "一次付清",
+                                    isSelected = wishPayChoice == "full",
+                                    onClick = { wishPayChoice = "full" }
+                                )
+                                ArchiveChoiceItem(
+                                    text = "分期付款",
+                                    isSelected = wishPayChoice == "installment",
+                                    onClick = { wishPayChoice = "installment" }
+                                )
+                            }
+
+                            if (wishPayChoice == "installment") {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    listOf("3", "6", "12", "24").forEach { p ->
+                                        ArchiveChoiceItem(
+                                            text = "${p}期",
+                                            isSelected = wishPeriodPreset == p,
+                                            onClick = { wishPeriodPreset = p }
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    wishChannels.forEach { (code, name) ->
+                                        ArchiveChoiceItem(
+                                            text = name,
+                                            isSelected = wishChannelCode == code,
+                                            onClick = { wishChannelCode = code }
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
-                    PaperTextEditor(
+
+                    ArchiveField(
                         value = entryNote,
                         onValueChange = { entryNote = it },
                         label = stringResource(R.string.projects_wishes_screen_label_06),
-                        minHeight = 80.dp,
-                        modifier = Modifier.fillMaxWidth()
+                        placeholder = "记录心愿达成时的感悟与细节…",
+                        singleLine = false,
+                        minLines = 3
                     )
                 }
             }
@@ -746,23 +843,25 @@ fun ProjectsWishesScreen(
                     drawerData = apiClient.fetchCityMemoryDrawer(foot.cityCode)
                 }.onFailure { drawerError = it.message ?: "网络异常" }
             }
-            ArchiveBottomSheet(
+            ArchiveSheet(
                 onDismissRequest = { selectedDrawerFootprint = null },
                 title = stringResource(R.string.projects_wishes_screen_title_tpl_02, foot.cityName),
-                actionButtonText = "合上",
-                onActionClick = { selectedDrawerFootprint = null }
+                cancelText = "关闭"
             ) {
                 val d = drawerData
                 if (d == null) {
-                    // 区分 loading / error：断网时不能永远停在「正在检索」
                     if (drawerError != null) {
-                        Text(
-                            text = stringResource(R.string.projects_wishes_screen_text_tpl_02, drawerError.orEmpty()),
-                            fontSize = 12.sp,
-                            color = colors.accentWarm,
+                        Box(
                             modifier = Modifier
-                                .padding(vertical = 16.dp)
-                                .clickable(role = Role.Button) {
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.projects_wishes_screen_text_tpl_02, drawerError.orEmpty()),
+                                fontSize = 12.sp,
+                                color = colors.alertRed,
+                                modifier = Modifier.clickable(role = Role.Button) {
                                     drawerError = null
                                     scope.launch {
                                         runCatching {
@@ -770,17 +869,31 @@ fun ProjectsWishesScreen(
                                         }.onFailure { drawerError = it.message ?: "网络异常" }
                                     }
                                 }
-                        )
+                            )
+                        }
                     } else {
-                        Text(
-                            text = stringResource(R.string.projects_wishes_screen_text_07),
-                            fontSize = 12.sp,
-                            color = colors.inkMuted,
-                            modifier = Modifier.padding(vertical = 16.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.projects_wishes_screen_text_07),
+                                fontSize = 13.sp,
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                color = colors.inkMuted
+                            )
+                        }
                     }
                 } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 20.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -790,7 +903,7 @@ fun ProjectsWishesScreen(
                                 text = stringResource(R.string.projects_wishes_screen_text_tpl_03, d.visitStats.totalVisits, d.entries.size),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 12.sp,
-                                color = colors.accentWarm
+                                color = colors.inkSecondary
                             )
                             if (d.ledgerSummary.totalSpent > 0) {
                                 Text(
@@ -803,71 +916,81 @@ fun ProjectsWishesScreen(
                         }
 
                         if (d.entries.isNotEmpty()) {
-                            Text(
-                                text = stringResource(R.string.projects_wishes_screen_text_08),
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 13.sp,
-                                color = colors.inkSecondary
-                            )
-                            d.entries.take(5).forEach { entry ->
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(colors.archiveSubtle)
-                                        .padding(8.dp)
-                                ) {
-                                    Text(
-                                        text = entry.title.ifBlank { "散页手记" },
-                                        fontSize = 12.5.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = colors.inkPrimary
-                                    )
-                                    Text(
-                                        text = FormatUtils.formatDisplayDate(entry.occurredAt),
-                                        fontSize = 11.sp,
-                                        fontFamily = ArchiveFontFamilies.MonoScale,
-                                        color = colors.inkMuted
-                                    )
+                            ArchiveSectionHeader(title = "属地散页手记")
+                            Column(
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                d.entries.forEachIndexed { index, entry ->
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                ArchiveToastManager.show("已定位手记《${entry.title.ifBlank { "散页手记" }}》")
+                                            }
+                                            .padding(vertical = 12.dp)
+                                    ) {
+                                        Text(
+                                            text = entry.title.ifBlank { "散页手记" },
+                                            fontSize = 14.sp,
+                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                            fontWeight = FontWeight.Medium,
+                                            color = colors.inkPrimary
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = FormatUtils.formatDisplayDate(entry.occurredAt),
+                                            fontSize = 11.sp,
+                                            fontFamily = ArchiveFontFamilies.MonoScale,
+                                            color = colors.inkSecondary
+                                        )
+                                    }
+                                    if (index < d.entries.size - 1) {
+                                        ArchiveDivider()
+                                    }
                                 }
                             }
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
+                        ArchiveDivider()
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            TextButton(
+                            ArchiveTextButton(
+                                text = stringResource(R.string.projects_wishes_province_drawer),
+                                textColor = colors.accentWarm,
                                 onClick = {
                                     val prefix = if (foot.cityCode.length >= 2) foot.cityCode.substring(0, 2) else ""
                                     val prov = CityDictionary.provincePrefixMap[prefix] ?: "属地省份"
-                                    selectedProvinceDrawerAdcode = foot.cityCode to prov
+                                    val code = foot.cityCode
+                                    selectedDrawerFootprint = null
+                                    selectedProvinceDrawerAdcode = code to prov
                                 }
-                            ) {
-                                Text(stringResource(R.string.projects_wishes_province_drawer), fontSize = 12.sp, color = colors.accentWarm)
-                            }
+                            )
 
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                TextButton(
-                                    onClick = {
-                                        editingFootprint = foot
-                                    }
-                                ) {
-                                    Text(stringResource(R.string.projects_wishes_edit_ticket), fontSize = 12.sp, color = colors.inkPrimary)
+                            ArchiveTextButton(
+                                text = stringResource(R.string.projects_wishes_edit_ticket),
+                                textColor = colors.accentWarm,
+                                onClick = {
+                                    val f = foot
+                                    selectedDrawerFootprint = null
+                                    editingFootprint = f
                                 }
+                            )
 
-                                TextButton(
-                                    onClick = {
-                                        // MOB-P0-14：抽屉内误触概率最高，必须先确认
-                                        footprintToDelete = foot
-                                    }
-                                ) {
-                                    Text(stringResource(R.string.projects_wishes_remove), fontSize = 12.sp, color = colors.accentWarm)
+                            ArchiveTextButton(
+                                text = stringResource(R.string.projects_wishes_remove),
+                                isDestructive = true,
+                                onClick = {
+                                    val f = foot
+                                    val count = d.entries.size
+                                    selectedDrawerFootprint = null
+                                    footprintToDelete = f to count
                                 }
-                            }
+                            )
                         }
                     }
                 }
@@ -882,22 +1005,18 @@ fun ProjectsWishesScreen(
             var editStatus by remember(proj.id) { mutableStateOf(proj.status ?: "进行中") }
             var editGithub by remember(proj.id) { mutableStateOf(proj.githubUrl ?: "") }
 
-            ArchiveBottomSheet(
+            ArchiveSheet(
                 onDismissRequest = { editingProject = null },
                 title = stringResource(R.string.projects_wishes_screen_title_tpl_03, proj.title),
-                actionButtonText = "保存更新",
+                actionText = "保存更新",
                 isActionEnabled = editTitle.isNotBlank(),
-                onActionClick = {
+                onAction = {
                     scope.launch {
                         runCatching {
                             apiClient.updateProject(
                                 id = proj.id,
                                 req = CreateProjectRequest(
                                     title = editTitle.trim(),
-                                    // MOB 表单审计 #7：删空就发空串（后端 *string 空串=清空）——
-                                    // 原先 takeIf{isNotBlank} 会把 null 整个省略，
-                                    // 服务端按「保持原值」处理，副标题/仓库地址永远删不掉；
-                                    // 与同表单本就可清空的 description 同口径。
                                     subtitle = editSubtitle.trim(),
                                     description = editDesc.trim(),
                                     story = proj.story,
@@ -909,7 +1028,6 @@ fun ProjectsWishesScreen(
                             )
                             ArchiveToastManager.show("造物项目已更新")
                         }.onFailure { err ->
-                            // 失败保留抽屉与已填内容，让用户重试而不是静默丢改动
                             ArchiveToastManager.show("更新造物失败: ${err.message}", isError = true)
                             return@launch
                         }
@@ -918,55 +1036,79 @@ fun ProjectsWishesScreen(
                     }
                 }
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("进行中", "已完成", "维护中", "已搁置").forEach { s ->
-                            PaperFilterPill(
-                                selected = editStatus == s,
-                                onClick = { editStatus = s },
-                                label = s
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            "进行中" to colors.tagTravel,
+                            "已完成" to androidx.compose.ui.graphics.Color(0xFF6B7280),
+                            "维护中" to colors.tagProject,
+                            "已搁置" to colors.inkMuted
+                        ).forEach { (s, dotColor) ->
+                            ArchiveChoiceItem(
+                                text = s,
+                                isSelected = editStatus == s,
+                                colorDot = dotColor,
+                                onClick = { editStatus = s }
                             )
                         }
                     }
-                    PaperTextField(
+
+                    ArchiveField(
                         value = editTitle,
                         onValueChange = { editTitle = it },
                         label = stringResource(R.string.projects_wishes_screen_label_07),
+                        placeholder = "输入造物名称…",
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        errorMessage = if (editTitle.isBlank()) "请输入造物名称" else null
                     )
-                    PaperTextField(
+                    ArchiveField(
                         value = editSubtitle,
                         onValueChange = { editSubtitle = it },
                         label = stringResource(R.string.projects_wishes_screen_label_08),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        placeholder = "一句话简介（选填）",
+                        singleLine = true
                     )
-                    PaperTextEditor(
+                    ArchiveField(
                         value = editDesc,
                         onValueChange = { editDesc = it },
                         label = stringResource(R.string.projects_wishes_screen_label_09),
-                        minHeight = 88.dp,
-                        modifier = Modifier.fillMaxWidth()
+                        placeholder = "详细说明与记录…",
+                        singleLine = false,
+                        minLines = 3
                     )
-                    PaperTextField(
+                    ArchiveField(
                         value = editGithub,
                         onValueChange = { editGithub = it },
                         label = stringResource(R.string.projects_wishes_screen_label_10),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        placeholder = "github.com/...",
+                        singleLine = true
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
+                    ArchiveDivider()
 
-                    TextButton(
-                        onClick = {
-                            // MOB-P0-14：破坏性删除先确认
-                            projectToDelete = proj
-                        },
-                        modifier = Modifier.align(Alignment.End)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
                     ) {
-                        Text(stringResource(R.string.projects_wishes_delete_project), fontSize = 12.sp, color = colors.accentWarm)
+                        ArchiveTextButton(
+                            text = stringResource(R.string.projects_wishes_delete_project),
+                            isDestructive = true,
+                            onClick = {
+                                val p = proj
+                                editingProject = null
+                                projectToDelete = p
+                            }
+                        )
                     }
                 }
             }
@@ -1021,20 +1163,25 @@ fun ProjectsWishesScreen(
             )
         }
 
-        // MOB-P0-14：移除足迹确认对话框
-        footprintToDelete?.let { foot ->
+        // 移除足迹确认对话框（文案写明手记去向：保留在时间流中，仅解绑）
+        footprintToDelete?.let { (foot, entriesCount) ->
+            val entriesText = if (entriesCount > 0) {
+                "该城市下的 $entriesCount 篇散页手记将完整保留在时间流中（仅解除旅程关联），不会被删除。"
+            } else {
+                "该城市下的散页手记将完整保留在时间流中（仅解除旅程关联），不会被删除。"
+            }
             ArchiveConfirmDialog(
-                title = stringResource(R.string.projects_wishes_screen_title_03),
-                content = "确认移除「${foot.cityName ?: "足迹票根"}」的到访记录？此操作不可逆。",
-                confirmText = stringResource(R.string.projects_wishes_screen_confirmText_01),
+                title = "移除行迹票根",
+                content = "确认移除在《${foot.cityName}》的这枚行迹票根吗？$entriesText",
+                confirmText = "确认移除",
                 isDestructive = true,
                 onConfirm = {
                     scope.launch {
                         runCatching {
                             apiClient.deleteFootprint(foot.id)
-                            ArchiveToastManager.show("足迹已移除")
+                            ArchiveToastManager.show("票根已移除")
                         }.onFailure { err ->
-                            ArchiveToastManager.show("移除足迹失败: ${err.message}", isError = true)
+                            ArchiveToastManager.show("移除票根失败: ${err.message}", isError = true)
                             return@launch
                         }
                         footprintToDelete = null

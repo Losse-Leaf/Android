@@ -1,11 +1,19 @@
 package com.looseleaf.app.ui.stream
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -27,15 +35,25 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.model.Attachment
 import com.looseleaf.app.model.LifeEntry
 import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveMotion
+import com.looseleaf.app.theme.ArchiveShadows
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.LocalArchiveDecorConfig
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
@@ -63,10 +81,12 @@ internal fun OnThisDayCard(
 ) {
     val colors = LooseLeafTheme.colors
 
-    PaperCard(
-        modifier = modifier.fillMaxWidth(),
-        backgroundColor = colors.accentWarm.copy(alpha = 0.06f),
-        borderColor = colors.accentWarm.copy(alpha = 0.4f)
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(ArchiveShapes.radiusSmall)
+            .border(1.dp, colors.borderDivider, ArchiveShapes.radiusSmall)
+            .padding(14.dp)
     ) {
         Column {
             Row(
@@ -80,7 +100,7 @@ internal fun OnThisDayCard(
                     Icon(
                         painter = painterResource(R.drawable.ic_history),
                         contentDescription = null,
-                        tint = colors.accentWarm,
+                        tint = colors.inkPrimary,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -88,22 +108,27 @@ internal fun OnThisDayCard(
                         text = stringResource(R.string.stream_entries_text_tpl_01, entries.size),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp,
-                        color = colors.accentWarm
+                        fontSize = 13.5.sp,
+                        color = colors.inkPrimary
                     )
                 }
                 Icon(
                     painter = if (isExpanded) painterResource(R.drawable.ic_expand_less) else painterResource(R.drawable.ic_expand_more),
                     contentDescription = stringResource(R.string.stream_entries_contentDescription_01),
-                    tint = colors.accentWarm,
+                    tint = colors.inkMuted,
                     modifier = Modifier.size(18.dp)
                 )
             }
 
             if (isExpanded) {
-                Spacer(modifier = Modifier.height(8.dp))
-                PaperDivider(color = colors.accentWarm.copy(alpha = 0.2f))
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(colors.borderDivider)
+                )
+                Spacer(modifier = Modifier.height(10.dp))
 
                 entries.forEachIndexed { idx, item ->
                     if (idx > 0) {
@@ -192,13 +217,7 @@ internal fun LifeActivityHeatmap(
         list
     }
 
-    PaperCard(
-        modifier = modifier.fillMaxWidth(),
-        backgroundColor = colors.archivePaper,
-        borderColor = colors.borderDivider.copy(alpha = 0.45f),
-        contentPadding = PaddingValues(14.dp)
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -337,72 +356,107 @@ internal fun LifeActivityHeatmap(
         }
     }
 }
-}
 
+/**
+ * 记录配图网格 (Stream Image Attachments)
+ * 统一规范：放在标题上方，4dp 圆角，宽度与内容齐，不加边框和旋转
+ */
 @Composable
-internal fun EntryAttachmentsGrid(
+internal fun StreamImageAttachments(
     attachments: List<Attachment>,
     apiClient: APIClient,
     onPhotoClick: (String, String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (attachments.isEmpty()) return
+    val context = LocalContext.current
 
-    Column(modifier = modifier) {
+    Column(modifier = modifier.fillMaxWidth()) {
         val count = attachments.size
         when (count) {
             1 -> {
                 val att = attachments.first()
                 val fullUrl = apiClient.resolveMediaUrl(att.url)
                 val meta = att.originalFilename
-                FilmFrame(
-                    imageUrl = fullUrl,
-                    metadataText = meta,
-                    aspectRatio = 4f / 3f,
-                    modifier = Modifier.padding(vertical = 4.dp),
-                    onClick = { onPhotoClick(fullUrl, meta) }
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(4f / 3f)
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { onPhotoClick(fullUrl, meta) }
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(fullUrl)
+                            .crossfade(true)
+                            .diskCacheKey(fullUrl)
+                            .build(),
+                        contentDescription = meta ?: "记录照片",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
             2, 4 -> {
-                attachments.chunked(2).forEach { row ->
+                attachments.chunked(2).forEachIndexed { rowIdx, row ->
+                    if (rowIdx > 0) Spacer(modifier = Modifier.height(6.dp))
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 3.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        for (att in row) {
+                        row.forEach { att ->
                             val fullUrl = apiClient.resolveMediaUrl(att.url)
                             val meta = att.originalFilename
-                            FilmFrame(
-                                imageUrl = fullUrl,
-                                metadataText = null,
-                                aspectRatio = 1f,
-                                modifier = Modifier.weight(1f),
-                                onClick = { onPhotoClick(fullUrl, meta) }
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { onPhotoClick(fullUrl, meta) }
+                            ) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(fullUrl)
+                                        .crossfade(true)
+                                        .diskCacheKey(fullUrl)
+                                        .build(),
+                                    contentDescription = meta ?: "记录照片",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                     }
                 }
             }
             else -> {
-                attachments.chunked(3).forEach { row ->
+                attachments.chunked(3).forEachIndexed { rowIdx, row ->
+                    if (rowIdx > 0) Spacer(modifier = Modifier.height(6.dp))
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 3.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        for (att in row) {
+                        row.forEach { att ->
                             val fullUrl = apiClient.resolveMediaUrl(att.url)
                             val meta = att.originalFilename
-                            FilmFrame(
-                                imageUrl = fullUrl,
-                                metadataText = null,
-                                aspectRatio = 1f,
-                                modifier = Modifier.weight(1f),
-                                onClick = { onPhotoClick(fullUrl, meta) }
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { onPhotoClick(fullUrl, meta) }
+                            ) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context)
+                                        .data(fullUrl)
+                                        .crossfade(true)
+                                        .diskCacheKey(fullUrl)
+                                        .build(),
+                                    contentDescription = meta ?: "记录照片",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                         if (row.size < 3) {
                             repeat(3 - row.size) {
@@ -416,153 +470,325 @@ internal fun EntryAttachmentsGrid(
     }
 }
 
+/** 兼容别名 */
+@Composable
+internal fun EntryAttachmentsGrid(
+    attachments: List<Attachment>,
+    apiClient: APIClient,
+    onPhotoClick: (String, String?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    StreamImageAttachments(
+        attachments = attachments,
+        apiClient = apiClient,
+        onPhotoClick = onPhotoClick,
+        modifier = modifier
+    )
+}
+
+/**
+ * 月份小标题 (纯文字小标题：小字号、字间距 0.1em、次要色，不加两侧线条)
+ */
+@Composable
+internal fun StreamMonthHeader(
+    monthDisplay: String,
+    modifier: Modifier = Modifier,
+    isFirst: Boolean = false
+) {
+    val colors = LooseLeafTheme.colors
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = if (isFirst) 0.dp else 16.dp, bottom = 0.dp)
+    ) {
+        Text(
+            text = monthDisplay,
+            fontFamily = ArchiveFontFamilies.EditorialSerif,
+            fontSize = 11.5.sp,
+            letterSpacing = 1.2.sp,
+            color = colors.inkMuted
+        )
+    }
+}
+
+/**
+ * 日期分组行 (27 大号衬线数字 + 10月 · 周二 正体衬线次要色 + 今天/昨天次要色小字，无虚线与剪刀)
+ * 吸顶时文字上沿与标签行底部分割线保持 8dp，背景为不透明纸色防止内容穿透
+ */
+@Composable
+internal fun StreamDayHeader(
+    dayOfMonth: Int,
+    monthValue: Int,
+    weekday: String,
+    relativeDay: String?,
+    modifier: Modifier = Modifier
+) {
+    val colors = LooseLeafTheme.colors
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(colors.archivePaper)
+            .padding(top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // "27" 大号衬线数字 (28sp Serif Bold)
+        Text(
+            text = dayOfMonth.toString().padStart(2, '0'),
+            fontFamily = ArchiveFontFamilies.EditorialSerif,
+            fontWeight = FontWeight.Bold,
+            fontSize = 28.sp,
+            lineHeight = 28.sp,
+            color = colors.inkPrimary,
+            modifier = Modifier.alignByBaseline()
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // "10月 · 周二" 正体衬线次要色
+        Text(
+            text = "${monthValue}月 · $weekday",
+            fontFamily = ArchiveFontFamilies.EditorialSerif,
+            fontWeight = FontWeight.Normal,
+            fontSize = 14.sp,
+            color = colors.inkSecondary,
+            modifier = Modifier.alignByBaseline()
+        )
+
+        // "今天/昨天" 仅为次要色文字，不用赤陶、不加描边
+        relativeDay?.let { rel ->
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = rel,
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontWeight = FontWeight.Normal,
+                fontSize = 12.sp,
+                color = colors.inkMuted,
+                modifier = Modifier.alignByBaseline()
+            )
+        }
+    }
+}
+
+/** 兼容旧调用的和纸便签桩（已移除） */
+@Composable
+internal fun WashiTapeBadge(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    // 兼容空桩
+}
+
+/**
+ * 散页手账记录条目 (Stream Entry Item)
+ *
+ * 统一化规范：
+ * - 去掉白色卡片底、描边和投影。每条记录直接写在纸面上，
+ *   条目之间用 24dp 间距加一条 1dp 淡线（内容左对齐，线从内容起点开始）
+ * - 内部结构：
+ *   第一行：时间（等宽、次要色）+ 右侧分类色点与文字；
+ *   有图时：图片放在条目内标题上方，4dp 圆角，宽度与内容齐，不加边框和旋转；
+ *   第二行：标题（衬线 SemiBold，最多 2 行）；
+ *   第三行：摘要（最多 3 行，次要色，行高 1.5，空则省略）；
+ *   最后一行：位置等元信息（次要色小字，无则省略）
+ * - 按压态：背景短暂变为"略亮一档的纸面"，无缩放动画
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun StreamEntryCard(
     row: StreamRowItem,
     apiClient: APIClient,
-    // MOB-P1-24：回调改为「传实体」的稳定签名 ——
-    // 原先在 items{} 里写 `onClick = { selectedEntryForDetail = row.entry }`，
-    // 每个 item 每次重组都会产生新 lambda ⇒ 卡片参数不稳定 ⇒ 整块 items 无法跳过重组，
-    // 任意一项状态变化都会让屏幕内所有卡片重新组合。
     onClick: (LifeEntry) -> Unit,
     onDelete: (LifeEntry) -> Unit,
     onPhotoClick: (String, String?) -> Unit,
+    washiTapeText: String? = null,
     modifier: Modifier = Modifier
 ) {
     val entry = row.entry
     val colors = LooseLeafTheme.colors
+    val view = androidx.compose.ui.platform.LocalView.current
 
-    val cardBg = when (entry.type) {
-        "travel" -> colors.accentWarm.copy(alpha = 0.04f)
-        "project" -> colors.accentMoss.copy(alpha = 0.04f)
-        "wish" -> colors.archivePaper
-        else -> colors.archiveSubtle
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    // 按压态：背景短暂变为"略亮一档的纸面"，无缩放动画
+    val pressedBg = if (isPressed) colors.archiveCard else Color.Transparent
+
+    // 同步状态左侧 3dp 细条
+    val syncStatusColor = when (entry.syncStatus) {
+        SyncManager.STATUS_SYNCED -> Color.Transparent
+        SyncManager.STATUS_PENDING_CREATE,
+        SyncManager.STATUS_PENDING_UPDATE,
+        SyncManager.STATUS_PENDING_DELETE -> colors.tagProject
+        else -> colors.accentWarm
     }
-    val cardBorder = when (entry.type) {
-        "travel" -> colors.accentWarm.copy(alpha = 0.35f)
-        "project" -> colors.accentMoss.copy(alpha = 0.35f)
-        "wish" -> colors.accentWarm.copy(alpha = 0.25f)
-        else -> colors.borderDivider
+    val syncAccessibilityDesc = when (entry.syncStatus) {
+        SyncManager.STATUS_SYNCED -> "已安全归档"
+        SyncManager.STATUS_PENDING_CREATE,
+        SyncManager.STATUS_PENDING_UPDATE,
+        SyncManager.STATUS_PENDING_DELETE -> "本地修改待同步放行"
+        else -> "同步遇到问题待重验"
     }
 
-    PaperCard(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { onClick(entry) },
-        backgroundColor = cardBg,
-        borderColor = cardBorder
+    Column(
+        modifier = modifier.fillMaxWidth()
     ) {
-        Column {
-            // 头部：时间戳、地点与操作
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(4.dp))
+                .background(pressedBg)
+                .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = { onClick(entry) },
+                    onLongClick = {
+                        view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                        onDelete(entry)
+                    }
+                )
+        ) {
+            // 同步状态左侧 3dp 细条
+            if (syncStatusColor != Color.Transparent) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .width(3.dp)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp))
+                        .background(syncStatusColor)
+                        .semantics { contentDescription = syncAccessibilityDesc }
+                )
+            }
+
+            Column(
+                modifier = Modifier.fillMaxWidth()
             ) {
+                // 第一行：时间（等宽）· 分类色点 + 分类名，全部靠左；右侧不再放任何元信息
+                val (label, tint) = when (entry.type) {
+                    "travel" -> "游历" to colors.tagTravel
+                    "project" -> "造物" to colors.tagProject
+                    "wish" -> "心愿" to colors.tagWish
+                    else -> "日常" to colors.tagDaily
+                }
                 Row(
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        // MOB-P0-06：改读预格式化字段，不再每帧解析 ISO 时间串
-                        text = row.displayTime,
+                        text = row.timeDisplay.ifBlank { row.displayTime },
                         fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
+                        letterSpacing = 0.5.sp,
                         color = colors.inkMuted,
-                        maxLines = 1,
-                        softWrap = false
+                        fontWeight = FontWeight.Medium
                     )
 
-                    val placeString = row.displayPlace
-                    if (placeString.isNotBlank()) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f, fill = false)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.LocationOn,
-                                contentDescription = null,
-                                tint = if (entry.type == "travel") colors.accentWarm else colors.inkMuted,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text(
-                                text = placeString,
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                color = if (entry.type == "travel") colors.accentWarm else colors.inkSecondary
-                            )
-                        }
-                    }
+                    Text(
+                        text = " · ",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 11.5.sp,
+                        color = colors.inkMuted
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(tint)
+                    )
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    Text(
+                        text = label,
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 11.5.sp,
+                        color = colors.inkSecondary,
+                        fontWeight = FontWeight.Normal
+                    )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (entry.syncStatus != SyncManager.STATUS_SYNCED) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(colors.accentWarm)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                    }
+                // 有图时：图片放在条目内标题上方，4dp 圆角，宽度与内容齐，不加边框和旋转
+                // 图片上方与时间行 8dp，下方与标题 12dp；无图时时间行与标题 6dp
+                if (entry.attachments.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    StreamImageAttachments(
+                        attachments = entry.attachments,
+                        apiClient = apiClient,
+                        onPhotoClick = onPhotoClick
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                } else {
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
 
-                    IconButton(
-                        onClick = { onDelete(entry) },
-                        modifier = Modifier.size(24.dp)
+                // 第二行：标题（衬线 SemiBold，最多 2 行）
+                Text(
+                    text = entry.title,
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.5.sp,
+                    lineHeight = 22.sp,
+                    letterSpacing = 0.2.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = colors.inkPrimary
+                )
+
+                // 第三行：摘要（最多 3 行，次要色，行高 1.5，空则省略）
+                // 标题→摘要 4dp
+                if (entry.content.isNotBlank() && entry.content != "无文字记录") {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = entry.content,
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 13.5.sp,
+                        lineHeight = 20.sp,
+                        letterSpacing = 0.1.sp,
+                        color = colors.inkSecondary,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // 最后一行：位置等元信息（次要色小字，无则省略）
+                // 摘要→位置 8dp
+                if (row.displayPlace.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.Delete,
-                            contentDescription = stringResource(R.string.stream_entries_contentDescription_02),
-                            tint = colors.inkMuted.copy(alpha = 0.6f),
-                            modifier = Modifier.size(16.dp)
+                            imageVector = Icons.Outlined.LocationOn,
+                            contentDescription = "地点",
+                            tint = colors.inkMuted,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text = row.displayPlace,
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 11.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = colors.inkMuted
                         )
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // 标题
-            Text(
-                text = entry.title,
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontWeight = FontWeight.Medium,
-                fontSize = 17.sp,
-                letterSpacing = 0.5.sp,
-                color = colors.inkPrimary
-            )
-
-            // 正文内容
-            if (entry.content.isNotBlank() && entry.content != "无文字记录") {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = entry.content,
-                    fontFamily = ArchiveFontFamilies.BodySans,
-                    fontSize = 14.sp,
-                    lineHeight = 22.sp,
-                    color = colors.inkSecondary,
-                    // MOB-P2-41：LazyColumn 以无限高度测量 item ——
-                    // 一条 10000 字的长随笔会撑出 10000px 高的单个 item，
-                    // 造成巨型布局 pass 与滚动掉帧。列表内截断，详情抽屉里再全文展开。
-                    maxLines = 12,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            // 关联胶片相纸附件渲染 (多图网格与触击放大灯箱)
-            if (entry.attachments.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                EntryAttachmentsGrid(
-                    attachments = entry.attachments,
-                    apiClient = apiClient,
-                    onPhotoClick = onPhotoClick
-                )
-            }
         }
+
+        // 条目之间：内容底部 16dp → 1dp 分隔线 → 16dp
+        Spacer(modifier = Modifier.height(16.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(colors.borderDivider)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
     }
 }
 
@@ -573,25 +799,18 @@ internal fun StreamEntryCard(
 @Immutable
 internal data class StreamRowItem(
     val entry: LifeEntry,
-    /**
-     * LazyColumn 的 item key（AND-2）。
-     *
-     * 基础值就是 `entry.id`（`serverId ?: -localId`）；本地库里若残留同 id 的
-     * 重复行（历史脏数据），第二行起追加**出现次序号**，例如 `42#1`。
-     * 序号只与「同一 id 的第几次出现」有关，与全局下标无关 ——
-     * 顶部插入新记录时旧 key 保持不变，LazyColumn 可以继续复用已有行。
-     */
     val localKey: String,
     val gapDays: Long,
-    /** MOB-P0-06：预格式化的时间戳 —— 避免滚动期每帧每项重新解析 ISO 字符串 */
     val displayTime: String,
-    /** MOB-P0-06：预拼接的属地字符串 */
     val displayPlace: String,
-    /**
-     * 上一条记录的 key（首条为 null）。
-     *
-     * 间隔天数依赖「上一条是谁」，刷新窗口时用它判断某一行能否原样复用，
-     * 避免为新插入的记录把后面所有行都重新格式化一遍。
-     */
     val previousKey: String? = null,
+    val isFirstOfMonth: Boolean = false,
+    val isFirstOfDay: Boolean = false,
+    val year: Int = 0,
+    val monthValue: Int = 0,
+    val dayOfMonth: Int = 0,
+    val weekdayName: String = "",
+    val relativeDay: String? = null,
+    val timeDisplay: String = "",
+    val monthDisplay: String = ""
 )

@@ -44,6 +44,7 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
         // 统一移到 IO：ProfileRepository.init 会同步读档案 JSON，
         // getProfile/getSiteConfig 里的「未初始化则 init」兜底保持不变，正常路径已避开主线程。
         appScope.launch {
+            runCatching { com.looseleaf.feature.ledger.LedgerModule.init(this@LooseLeafApp) }
             runCatching { ProfileRepository.init(this@LooseLeafApp) }
             runCatching { credentialStore.warmUp() }
             // AND-7：SyncManager 的 Room / 计数 Flow 订阅改为显式后台启动，
@@ -56,6 +57,9 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
                 if (syncManager.pendingEventCountNow() > 0) {
                     syncManager.scheduleSync()
                 }
+            }
+            runCatching {
+                com.looseleaf.app.reminder.InstallmentReminderWorker.enqueuePeriodicWork(this@LooseLeafApp)
             }
         }
     }

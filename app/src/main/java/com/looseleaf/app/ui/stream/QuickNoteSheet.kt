@@ -48,6 +48,8 @@ import com.looseleaf.app.model.Project
 import com.looseleaf.app.model.Wish
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
+import com.looseleaf.app.ui.components.LocalArchiveSheetHost
+import com.looseleaf.app.ui.components.ArchiveSheetHostState
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
@@ -89,6 +91,17 @@ internal data class AttachedPhotoItem(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun QuickNoteSheet(
+    onDismiss: () -> Unit,
+    syncManager: SyncManager,
+    apiClient: APIClient,
+    onSuccess: () -> Unit
+) {
+    QuickNoteSheetBody(onDismiss, syncManager, apiClient, onSuccess)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QuickNoteSheetBody(
     onDismiss: () -> Unit,
     syncManager: SyncManager,
     apiClient: APIClient,
@@ -355,7 +368,8 @@ internal fun QuickNoteSheet(
         sheetState = sheetState,
         containerColor = colors.archivePaper,
         dragHandle = null,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
+        tonalElevation = 0.dp,
         modifier = Modifier.imePadding()
     ) {
         Column(

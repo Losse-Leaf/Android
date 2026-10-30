@@ -2,20 +2,23 @@ package com.looseleaf.app.ui.projectswishes
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.looseleaf.app.R
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.model.CreateFootprintRequest
 import com.looseleaf.app.model.CreateWishRequest
@@ -26,13 +29,8 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
-import java.time.LocalDateTime
 import kotlinx.coroutines.launch
-import com.looseleaf.app.ui.components.DraftStore
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
-import com.looseleaf.app.R
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 internal fun EditWishSheetDialog(
     wish: Wish,
@@ -71,34 +69,23 @@ internal fun EditWishSheetDialog(
         draftStore.putString("${draftPrefix}city_name", cityName)
     }
     var isSubmitting by remember { mutableStateOf(false) }
-    // MOB 表单审计 #20：金额输入非法（非数字）时禁用保存并提示，
-    // 不再静默按 0 清零预算（与账本修订抽屉的既有提示对齐）。
+    // MOB 表单审计 #20：金额输入非法（非数字）时禁用保存并提示
     val budgetInvalid = budgetYuan.isNotBlank() && budgetYuan.trim().toDoubleOrNull() == null
 
-    ArchiveBottomSheet(
+    ArchiveSheet(
         onDismissRequest = onDismiss,
         title = stringResource(R.string.projects_wishes_sheets_title_tpl_01, wish.title),
-        actionButtonText = "保存修订",
+        actionText = "保存修订",
         isActionEnabled = title.isNotBlank() && !budgetInvalid && !isSubmitting,
-        onActionClick = {
+        onAction = {
             if (budgetInvalid) {
                 ArchiveToastManager.show("金额格式不正确，请输入有效数字", isError = true)
-                return@ArchiveBottomSheet
+                return@ArchiveSheet
             }
             isSubmitting = true
             scope.launch {
                 runCatching {
                     val cents = FormatUtils.yuanStringToCents(budgetYuan)
-                    // 契约 D：可清空文本字段「出现且空串 = 清空；缺省/null = 保持」。
-                    // 原先 takeIf { isNotBlank } 会把用户删空的字段整个省略，
-                    // 服务端按「保持原值」处理——用户删不干净、界面还提示「已保存」。
-                    // 现在删空就发送空串，真的清空。
-                    //
-                    // MOB 表单审计 #6：派生字段按 kind 门控——
-                    // spec 仅 item 形态携带（其余形态发空串清除残留）；
-                    // 城市仅 travel 形态携带（切离 travel 即清除目的地），
-                    // 否则「旅程改好物」后旧目的地/规格残留在不相关形态上，
-                    // 达成时伴生散页还会继承旧城市。
                     apiClient.updateWish(
                         id = wish.id,
                         req = CreateWishRequest(
@@ -114,7 +101,6 @@ internal fun EditWishSheetDialog(
                         )
                     )
                     ArchiveToastManager.show("心愿已修订")
-                    // MOB-P1-59：提交成功后清空草稿
                     draftStore.clearPrefix(draftPrefix)
                     onSaved()
                     onDismiss()
@@ -125,38 +111,77 @@ internal fun EditWishSheetDialog(
             }
         }
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 listOf("item" to "好物", "travel" to "旅程", "milestone" to "里程碑").forEach { (k, label) ->
-                    PaperFilterPill(
-                        selected = kind == k,
-                        onClick = { kind = k },
-                        label = label
+                    ArchiveChoiceItem(
+                        text = label,
+                        isSelected = kind == k,
+                        onClick = { kind = k }
                     )
                 }
             }
-            PaperTextField(value = title, onValueChange = { title = it }, label = stringResource(R.string.projects_wishes_sheets_label_01), singleLine = true)
+
+            ArchiveField(
+                value = title,
+                onValueChange = { title = it },
+                label = stringResource(R.string.projects_wishes_sheets_label_01),
+                placeholder = "输入心愿标题…",
+                singleLine = true,
+                errorMessage = if (title.isBlank()) "请输入心愿标题" else null
+            )
+
             if (kind == "travel") {
-                PaperCityPickerField(selectedCityCode = cityCode, selectedCityName = cityName, onCitySelected = { c, n -> cityCode = c; cityName = n }, placeholder = stringResource(R.string.projects_wishes_sheets_placeholder_01))
-            }
-            // MOB 表单审计 #6：spec 仅好物心愿显示（对齐速记心愿口径）
-            if (kind == "item") {
-                PaperTextField(value = spec, onValueChange = { spec = it }, label = stringResource(R.string.projects_wishes_sheets_label_02), singleLine = true)
-            }
-            PaperTextField(value = budgetYuan, onValueChange = { budgetYuan = it }, label = stringResource(R.string.projects_wishes_sheets_label_03), singleLine = true)
-            if (budgetInvalid) {
-                Text(
-                    text = "金额格式不正确，请输入有效数字",
-                    fontSize = 11.sp,
-                    color = colors.accentWarm
+                ArchiveCityPickerField(
+                    selectedCityCode = cityCode,
+                    selectedCityName = cityName,
+                    onCitySelected = { c, n -> cityCode = c; cityName = n },
+                    label = "目的地城市",
+                    placeholder = "选择城市"
                 )
             }
-            PaperTextEditor(value = note, onValueChange = { note = it }, placeholder = stringResource(R.string.projects_wishes_sheets_placeholder_02), minHeight = 80.dp)
+
+            if (kind == "item") {
+                ArchiveField(
+                    value = spec,
+                    onValueChange = { spec = it },
+                    label = stringResource(R.string.projects_wishes_sheets_label_02),
+                    placeholder = "规格/型号（选填）",
+                    singleLine = true
+                )
+            }
+
+            ArchiveField(
+                value = budgetYuan,
+                onValueChange = { budgetYuan = it },
+                label = stringResource(R.string.projects_wishes_sheets_label_03),
+                placeholder = "0.00",
+                isNumeric = true,
+                singleLine = true,
+                errorMessage = if (budgetInvalid) "金额格式不正确，请输入有效数字" else null
+            )
+
+            ArchiveField(
+                value = note,
+                onValueChange = { note = it },
+                label = "手记与备忘",
+                placeholder = stringResource(R.string.projects_wishes_sheets_placeholder_02),
+                singleLine = false,
+                minLines = 3
+            )
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun EditFootprintSheetDialog(
     footprint: Footprint,
@@ -189,19 +214,17 @@ internal fun EditFootprintSheetDialog(
     }
     var isSubmitting by remember { mutableStateOf(false) }
 
-    ArchiveBottomSheet(
+    ArchiveSheet(
         onDismissRequest = onDismiss,
         title = stringResource(R.string.projects_wishes_sheets_title_tpl_02, footprint.cityName),
-        actionButtonText = "保存票根",
+        actionText = "保存票根",
         isActionEnabled = cityName.isNotBlank() && !isSubmitting,
-        onActionClick = {
-            // 返程（若有）不得早于到访：编辑可改到访时刻，改到返程之后会产生
-            // 自相矛盾的负跨度旅程（Web 端已有同款校验）
+        onAction = {
             footprint.departedAt?.let { departed ->
                 val departedDt = FormatUtils.parseToLocalDateTime(departed)
-                if (departedDt != null && departedDt.isBefore(visitedAtDt)) {
+                if (departedDt.isBefore(visitedAtDt)) {
                     ArchiveToastManager.show("返程时刻早于到访时刻，请修正到访时间", isError = true)
-                    return@ArchiveBottomSheet
+                    return@ArchiveSheet
                 }
             }
             isSubmitting = true
@@ -212,7 +235,6 @@ internal fun EditFootprintSheetDialog(
                         req = CreateFootprintRequest(
                             cityCode = cityCode.ifBlank { footprint.cityCode },
                             cityName = cityName.ifBlank { footprint.cityName },
-                            // 空串是显式清空；takeIf 省略会被服务端按保持原值处理。
                             title = title.trim(),
                             visitedAt = FormatUtils.toBeijingIsoString(visitedAtDt),
                             departedAt = footprint.departedAt,
@@ -220,7 +242,6 @@ internal fun EditFootprintSheetDialog(
                         )
                     )
                     ArchiveToastManager.show("票根已更新")
-                    // MOB-P1-59：提交成功后清空草稿
                     draftStore.clearPrefix(draftPrefix)
                     onSaved()
                     onDismiss()
@@ -231,25 +252,45 @@ internal fun EditFootprintSheetDialog(
             }
         }
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            PaperCityPickerField(
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            ArchiveCityPickerField(
                 selectedCityCode = cityCode,
                 selectedCityName = cityName,
                 onCitySelected = { c, n -> cityCode = c; cityName = n },
-                placeholder = stringResource(R.string.projects_wishes_sheets_placeholder_03)
+                label = "到访城市",
+                placeholder = "选择城市",
+                errorMessage = if (cityName.isBlank()) "请选择城市" else null
             )
-            PaperDateTimePickerField(
+            ArchiveDateTimeSplitRow(
                 selectedDateTime = visitedAtDt,
                 onDateTimeSelected = { visitedAtDt = it },
-                label = stringResource(R.string.projects_wishes_sheets_label_04)
+                label = "到访时刻"
             )
-            PaperTextField(value = title, onValueChange = { title = it }, label = stringResource(R.string.projects_wishes_sheets_label_05), singleLine = true)
-            PaperTextEditor(value = note, onValueChange = { note = it }, placeholder = stringResource(R.string.projects_wishes_sheets_placeholder_04), minHeight = 90.dp)
+            ArchiveField(
+                value = title,
+                onValueChange = { title = it },
+                label = "标题（选填）",
+                placeholder = "如 秋日漫步",
+                singleLine = true
+            )
+            ArchiveField(
+                value = note,
+                onValueChange = { note = it },
+                label = "行旅手记",
+                placeholder = "记录旅途所见所感…",
+                singleLine = false,
+                minLines = 5
+            )
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ProvinceMemoryDrawerBottomSheet(
     adcode: String,
@@ -276,27 +317,48 @@ internal fun ProvinceMemoryDrawerBottomSheet(
         loadDrawer()
     }
 
-    ArchiveBottomSheet(
+    ArchiveSheet(
         onDismissRequest = onDismiss,
         title = stringResource(R.string.projects_wishes_sheets_title_tpl_03, provinceName),
-        actionButtonText = "合上",
-        onActionClick = onDismiss
+        cancelText = "合上"
     ) {
         val d = drawerData
         if (drawerError != null && d == null) {
-            // 失败态可重试，不再永远停在「正在聚合」
-            Text(
-                text = stringResource(R.string.projects_wishes_sheets_text_tpl_01, drawerError.orEmpty()),
-                fontSize = 12.sp,
-                color = colors.accentWarm,
+            Box(
                 modifier = Modifier
-                    .padding(vertical = 16.dp)
-                    .clickable(role = Role.Button) { scope.launch { loadDrawer() } }
-            )
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = stringResource(R.string.projects_wishes_sheets_text_tpl_01, drawerError.orEmpty()),
+                    fontSize = 12.sp,
+                    color = colors.alertRed,
+                    modifier = Modifier.clickable(role = Role.Button) { scope.launch { loadDrawer() } }
+                )
+            }
         } else if (isLoading || d == null) {
-            Text(stringResource(R.string.projects_wishes_fetching_province), fontSize = 12.sp, color = colors.inkMuted, modifier = Modifier.padding(vertical = 16.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = stringResource(R.string.projects_wishes_fetching_province),
+                    fontSize = 13.sp,
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    color = colors.inkMuted
+                )
+            }
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -305,36 +367,44 @@ internal fun ProvinceMemoryDrawerBottomSheet(
                     Text(
                         text = stringResource(R.string.projects_wishes_sheets_text_tpl_02, d.visitedCities.size, d.footprints.size),
                         fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         color = colors.accentWarm
                     )
                     if (d.ledgerSummary.totalSpent > 0) {
                         Text(
                             text = stringResource(R.string.projects_wishes_sheets_text_tpl_03, FormatUtils.centsToYuanString(d.ledgerSummary.totalSpent)),
                             fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             color = colors.accentMoss
                         )
                     }
                 }
 
                 if (d.visitedCities.isNotEmpty()) {
-                    Text(stringResource(R.string.projects_wishes_city_dist), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 12.5.sp, color = colors.inkSecondary)
+                    Text(
+                        text = stringResource(R.string.projects_wishes_city_dist),
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 13.sp,
+                        color = colors.inkSecondary
+                    )
                     Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         d.visitedCities.forEach { city ->
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(colors.archiveSubtle)
-                                    .padding(horizontal = 7.dp, vertical = 4.dp)
+                                    .padding(horizontal = 8.dp, vertical = 5.dp)
                             ) {
                                 Text(
                                     text = stringResource(R.string.projects_wishes_sheets_text_tpl_04, city.cityName, city.visitCount),
                                     fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 11.sp,
+                                    fontSize = 12.sp,
                                     color = colors.inkPrimary
                                 )
                             }
@@ -343,17 +413,40 @@ internal fun ProvinceMemoryDrawerBottomSheet(
                 }
 
                 if (d.entries.isNotEmpty()) {
-                    Text(stringResource(R.string.projects_wishes_local_notes), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 12.5.sp, color = colors.inkSecondary)
-                    d.entries.take(5).forEach { entry ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(colors.archiveSubtle)
-                                .padding(8.dp)
-                        ) {
-                            Text(text = entry.title.ifBlank { stringResource(R.string.projects_wishes_note_title) }, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, color = colors.inkPrimary)
-                            Text(text = FormatUtils.formatDisplayDate(entry.occurredAt), fontSize = 11.sp, fontFamily = ArchiveFontFamilies.MonoScale, color = colors.inkMuted)
+                    Text(
+                        text = stringResource(R.string.projects_wishes_local_notes),
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 13.sp,
+                        color = colors.inkSecondary
+                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        d.entries.take(5).forEachIndexed { idx, entry ->
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(colors.archiveSubtle)
+                                    .padding(10.dp)
+                            ) {
+                                Text(
+                                    text = entry.title.ifBlank { stringResource(R.string.projects_wishes_note_title) },
+                                    fontSize = 13.sp,
+                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                    fontWeight = FontWeight.Medium,
+                                    color = colors.inkPrimary
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = FormatUtils.formatDisplayDate(entry.occurredAt),
+                                    fontSize = 11.sp,
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    color = colors.inkMuted
+                                )
+                            }
                         }
                     }
                 }

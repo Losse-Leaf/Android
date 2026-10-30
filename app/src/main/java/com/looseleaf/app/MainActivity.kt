@@ -5,6 +5,9 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import com.looseleaf.app.ui.components.ArchiveSheetHost
+import com.looseleaf.app.ui.components.ArchiveSheetHostState
+import com.looseleaf.app.ui.components.LocalArchiveSheetHost
 import com.looseleaf.app.ui.components.ArchiveToastHost
 import com.looseleaf.app.ui.components.ArchiveToastManager
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -42,9 +45,12 @@ import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.security.AppearanceMode
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveDecorConfig
+import com.looseleaf.app.theme.LocalArchiveDecorConfig
 import com.looseleaf.app.theme.LooseLeafTheme
-import com.looseleaf.app.ui.ledger.LedgerScreen
+import com.looseleaf.feature.ledger.LedgerEntry
 import com.looseleaf.app.ui.pairing.PairingScreen
+import com.looseleaf.app.ui.components.SpineBottomBar
 import com.looseleaf.app.ui.profile.ProfileScreen
 import com.looseleaf.app.ui.projectswishes.ProjectsWishesScreen
 import com.looseleaf.app.ui.stream.StreamScreen
@@ -91,6 +97,7 @@ class MainActivity : FragmentActivity() {
     // MOB-P0-09：外观模式提升为 Activity 字段级状态，
     // 这样回调可以做成「稳定引用」，MainContent 才有机会跳过重组。
     private val appearanceModeState = mutableStateOf(AppearanceMode.SYSTEM)
+    private val enableDecorationsState = mutableStateOf(true)
 
     /**
      * 生物识别门禁状态必须放在 Activity 字段并用 SnapshotState 暴露给 Compose：
@@ -114,6 +121,11 @@ class MainActivity : FragmentActivity() {
                 val enabled = credentialStore.isBiometricsEnabled
                 biometricsEnabledState.value = enabled
                 isUnlockedState.value = !enabled || sessionUnlocked
+                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        com.looseleaf.app.reminder.InstallmentReminderWorker.checkAndNotify(this@MainActivity)
+                    }
+                }
             }
             else -> Unit
         }
@@ -153,6 +165,7 @@ class MainActivity : FragmentActivity() {
         // 外观偏好必须在首帧前读到：否则暗房用户冷启动会先闪一下纸色界面。
         // 这里只读普通 SharedPreferences（非加密存储），开销远小于一次主题闪变。
         appearanceModeState.value = credentialStore.appearanceMode
+        enableDecorationsState.value = credentialStore.enableDecorations
 
         setContent {
             // MOB-P1-85：待同步计数（供全局离线横幅使用）
@@ -199,10 +212,14 @@ class MainActivity : FragmentActivity() {
                         fontScale = baseDensity.fontScale.coerceAtMost(MAX_FONT_SCALE)
                     )
                 }
-                CompositionLocalProvider(LocalDensity provides clampedDensity) {
-                    // Toast 宿主挂在最外层：配对页（!isPaired）与锁屏页（!isUnlocked）也有
-                    // 错误提示——挂在主界面分支里的话，配对阶段的「密钥库不可用」「连接失败」
-                    // 会因为没有 Collector 被直接丢弃，新用户入网第一路径零反馈。
+                val decorConfig = remember(enableDecorationsState.value) {
+                    ArchiveDecorConfig(enableDecorations = enableDecorationsState.value)
+                }
+                CompositionLocalProvider(
+                    LocalDensity provides clampedDensity,
+                    LocalArchiveDecorConfig provides decorConfig
+                ) {
+                    // Toast 宿主挂在最外层（各底层抽屉已自带独立 Window 级 ModalBottomSheet 遮罩）
                     Box(modifier = Modifier.fillMaxSize()) {
                         Column(modifier = Modifier.fillMaxSize()) {
                             // MOB-P1-85：全局离线横幅 ——
@@ -214,7 +231,10 @@ class MainActivity : FragmentActivity() {
                                 modifier = Modifier.weight(1f),
                                 isDarkTheme = isDarkTheme,
                                 appearanceMode = appearanceMode,
-                                onAppearanceModeChanged = onAppearanceModeChanged
+                                onAppearanceModeChanged = onAppearanceModeChanged,
+                                onEnableDecorationsChanged = { enabled ->
+                                    enableDecorationsState.value = enabled
+                                }
                             )
                         }
 
@@ -231,7 +251,8 @@ class MainActivity : FragmentActivity() {
         modifier: Modifier = Modifier,
         isDarkTheme: Boolean,
         appearanceMode: AppearanceMode,
-        onAppearanceModeChanged: (AppearanceMode) -> Unit
+        onAppearanceModeChanged: (AppearanceMode) -> Unit,
+        onEnableDecorationsChanged: (Boolean) -> Unit
     ) {
         var isPaired by remember { mutableStateOf(credentialStore.isPaired()) }
         val currentRouteState = rememberSaveable {
@@ -481,7 +502,8 @@ class MainActivity : FragmentActivity() {
                             containerColor = colors.accentWarm,
                             contentColor = colors.archivePaper
                         ),
-                        shape = RoundedCornerShape(2.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
                     ) {
                         Text(stringResource(R.string.main_activity_verify_biometrics), fontFamily = ArchiveFontFamilies.EditorialSerif)
                     }
@@ -554,7 +576,7 @@ class MainActivity : FragmentActivity() {
                         saveableStateHolder.SaveableStateProvider(stateKey) {
                             when (currentRoute) {
                                 "stream" -> StreamScreen()
-                                "ledger" -> LedgerScreen()
+                                "ledger" -> LedgerEntry()
                                 "workshop", "projects" -> ProjectsWishesScreen(
                                     initialTab = 0,
                                     onTabChanged = onSubTabChanged
@@ -574,7 +596,9 @@ class MainActivity : FragmentActivity() {
                                         credentialStore.deviceToken = null
                                         syncManager.cancelScheduledSync()
                                     },
-                                    onAppearanceModeChanged = onAppearanceModeChanged
+                                    onAppearanceModeChanged = onAppearanceModeChanged,
+                                    onEnableDecorationsChanged = onEnableDecorationsChanged,
+                                    onNavigateToRoute = onRouteSelected
                                 )
                                 // MOB-P0-11：未知路由兜底 —— 任何脏数据 / 过期快捷方式
                                 // 都不再渲染成空白页，而是回到时间流并给出提示。
@@ -710,68 +734,8 @@ fun LooseLeafBottomBar(
     currentRoute: String,
     onRouteSelected: (String) -> Unit
 ) {
-    val colors = LooseLeafTheme.colors
-    val tabs = rememberBottomTabs()
-
-    Surface(
-        color = colors.archivePaper,
-        tonalElevation = 3.dp,
-        border = androidx.compose.foundation.BorderStroke(0.5.dp, colors.borderDivider),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        // MOB-P2-40：宽屏（平板 / 折叠屏展开态）时底栏 5 项不再被拉得过散 ——
-        // 页签行限宽 680dp 并居中，与正文栏的排版宽度保持一致。
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .widthIn(max = 680.dp)
-                .navigationBarsPadding()
-                .padding(vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            for (tab in tabs) {
-                val isSelected = when (tab.route) {
-                    "workshop" -> currentRoute in setOf("workshop", "projects", "footprints", "wishes")
-                    else -> tab.route == currentRoute
-                }
-                val contentColor = if (isSelected) colors.accentWarm else colors.inkMuted
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .selectable(
-                            selected = isSelected,
-                            role = Role.Tab,
-                            onClick = { onRouteSelected(tab.route) }
-                        )
-                        // MOB-P1-55：底栏是全 App 使用频率最高的控件，
-                        // 原先整块可点区域只有 ~38dp 高，低于 48dp 系统基线。
-                        .minimumInteractiveComponentSize()
-                        .padding(horizontal = 14.dp, vertical = 4.dp)
-                ) {
-                    Icon(
-                        painter = tab.icon,
-                        contentDescription = tab.label,
-                        tint = contentColor,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = tab.label,
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 11.sp,
-                        fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Medium else androidx.compose.ui.text.font.FontWeight.Normal,
-                        color = contentColor
-                    )
-                }
-            }
-        }
-        }
-    }
+    SpineBottomBar(
+        currentRoute = currentRoute,
+        onRouteSelected = onRouteSelected
+    )
 }
