@@ -75,7 +75,6 @@ import androidx.compose.ui.res.stringResource
 import com.looseleaf.app.BuildConfig
 import com.looseleaf.app.R
 import com.looseleaf.app.data.local.AppDatabase
-import com.looseleaf.app.debug.DemoDataSeeder
 import androidx.compose.ui.res.painterResource
 /**
  * 主理人展台与设备中枢设置 (ProfileScreen)
@@ -287,28 +286,6 @@ fun ProfileScreen(
         }
     }
 
-    val seedDemoData: () -> Unit = {
-        scope.launch {
-            try {
-                val count = DemoDataSeeder.seedDemoData(context, AppDatabase.getInstance(context))
-                ArchiveToastManager.show("成功灌入 $count 条演示手账记录")
-            } catch (e: Exception) {
-                ArchiveToastManager.show("灌入失败: ${e.message}", isError = true)
-            }
-        }
-    }
-
-    val clearDemoData: () -> Unit = {
-        scope.launch {
-            try {
-                val count = DemoDataSeeder.clearDemoData(context, AppDatabase.getInstance(context))
-                ArchiveToastManager.show("成功清除 $count 条演示记录")
-            } catch (e: Exception) {
-                ArchiveToastManager.show("清除失败: ${e.message}", isError = true)
-            }
-        }
-    }
-
     NoiseBackground(modifier = modifier) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -324,7 +301,6 @@ fun ProfileScreen(
                 ArchiveTopAppBar(
                     title = "展台",
                     subtitle = null,
-                    modifier = Modifier.padding(horizontal = 16.dp),
                     actions = {
                         Box {
                             IconButton(
@@ -400,34 +376,6 @@ fun ProfileScreen(
                                         checkUpdate()
                                     }
                                 )
-                                if (BuildConfig.DEBUG) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                text = "灌入演示数据",
-                                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                                color = colors.inkPrimary
-                                            )
-                                        },
-                                        onClick = {
-                                            showMoreMenu = false
-                                            seedDemoData()
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                text = "清除演示数据",
-                                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                                color = colors.inkPrimary
-                                            )
-                                        },
-                                        onClick = {
-                                            showMoreMenu = false
-                                            clearDemoData()
-                                        }
-                                    )
-                                }
                                 DropdownMenuItem(
                                     text = {
                                         Text(
@@ -864,30 +812,6 @@ fun ProfileScreen(
                         }
                     },
                     onUnpair = { showUnpairDialog = true },
-                    onSeedDemoData = if (BuildConfig.DEBUG) {
-                        {
-                            scope.launch {
-                                try {
-                                    val count = DemoDataSeeder.seedDemoData(context, AppDatabase.getInstance(context))
-                                    ArchiveToastManager.show("成功灌入 $count 条演示手账记录")
-                                } catch (e: Exception) {
-                                    ArchiveToastManager.show("灌入失败: ${e.message}", isError = true)
-                                }
-                            }
-                        }
-                    } else null,
-                    onClearDemoData = if (BuildConfig.DEBUG) {
-                        {
-                            scope.launch {
-                                try {
-                                    val count = DemoDataSeeder.clearDemoData(context, AppDatabase.getInstance(context))
-                                    ArchiveToastManager.show("已彻底清除 $count 条演示记录与资源")
-                                } catch (e: Exception) {
-                                    ArchiveToastManager.show("清除失败: ${e.message}", isError = true)
-                                }
-                            }
-                        }
-                    } else null,
                     onDismiss = { showSettingsSheet = false }
                 )
             }

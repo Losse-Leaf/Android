@@ -642,7 +642,7 @@ internal fun AlmanacDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    ArchiveDivider()
 
                     // 第二幕：山川行迹
                     AlmanacChapterSection(
@@ -661,7 +661,7 @@ internal fun AlmanacDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    ArchiveDivider()
 
                     // 第三幕：心愿圆满
                     AlmanacChapterSection(
@@ -680,12 +680,12 @@ internal fun AlmanacDialog(
                                 text = stringResource(R.string.stream_dialogs_text_tpl_08, FormatUtils.centsToYuanString(data.wishes.totalActual)),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 12.sp,
-                                color = colors.accentWarm
+                                color = colors.inkSecondary
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    ArchiveDivider()
 
                     // 第四幕：浮光掠影
                     AlmanacChapterSection(
@@ -713,7 +713,7 @@ internal fun AlmanacDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    ArchiveDivider()
 
                     // 第五幕：柴米油盐
                     AlmanacChapterSection(
@@ -728,7 +728,7 @@ internal fun AlmanacDialog(
                                 text = stringResource(R.string.stream_dialogs_text_tpl_09, FormatUtils.centsToYuanString(data.finances.totalExpense)),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 12.sp,
-                                color = colors.accentWarm
+                                color = colors.inkPrimary
                             )
                             Text(
                                 text = stringResource(R.string.stream_dialogs_text_tpl_10, FormatUtils.centsToYuanString(data.finances.totalIncome)),
@@ -771,24 +771,21 @@ internal fun AlmanacChapterSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(4.dp))
-            .background(colors.archiveCard)
-            .border(1.dp, colors.borderSubtle, RoundedCornerShape(4.dp))
-            .padding(12.dp)
+            .padding(vertical = 10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = chapterNumber,
                 fontFamily = ArchiveFontFamilies.MonoScale,
-                fontSize = 12.sp,
-                color = colors.accentWarm
+                fontSize = 11.5.sp,
+                color = colors.inkSecondary
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = title,
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                 fontWeight = FontWeight.Medium,
-                fontSize = 14.sp,
+                fontSize = 14.5.sp,
                 color = colors.inkPrimary
             )
         }

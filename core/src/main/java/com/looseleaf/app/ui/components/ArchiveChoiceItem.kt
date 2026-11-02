@@ -13,6 +13,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveFontFamilies
@@ -60,7 +61,9 @@ fun ArchiveChoiceItem(
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                 fontSize = 14.sp,
-                color = if (isSelected) colors.inkPrimary else colors.inkSecondary
+                color = if (isSelected) colors.inkPrimary else colors.inkSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
         Spacer(modifier = Modifier.height(3.dp))

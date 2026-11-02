@@ -245,10 +245,18 @@ fun ProjectsWishesScreen(
                         CircularProgressIndicator(color = colors.accentWarm, modifier = Modifier.size(24.dp))
                     }
                 } else {
-                    // 下拉刷新 + 支持左右滑动的 HorizontalPager
+                    // 下拉刷新（黄铜回形针指示器，未下拉时不显示任何异常底圈） + 支持左右滑动的 HorizontalPager
+                    val pullToRefreshState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
                     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
                         isRefreshing = isLoading,
                         onRefresh = { scope.launch { reloadAll(forceLoading = true) } },
+                        state = pullToRefreshState,
+                        indicator = {
+                            PaperclipPullIndicator(
+                                state = pullToRefreshState,
+                                isRefreshing = isLoading
+                            )
+                        },
                         modifier = Modifier.weight(1f).fillMaxWidth()
                     ) {
                         HorizontalPager(

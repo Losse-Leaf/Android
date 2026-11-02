@@ -1,4 +1,4 @@
-package com.looseleaf.app.ui.stream
+package com.looseleaf.app.ui.components
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -17,24 +17,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import com.looseleaf.app.R
+import com.looseleaf.core.R
 import com.looseleaf.app.theme.ArchiveShadows
 import com.looseleaf.app.theme.LooseLeafTheme
 
 /**
  * 散页手账 · 黄铜回形针下拉刷新指示器 (Paperclip Pull Indicator)
  *
- * 替代默认 Material 3 蓝色转圈：
+ * 替代默认 Material 3 蓝色/灰色转圈：
  * 1. 下拉时：黄铜回形针随着下拉深度顺时针旋转
  * 2. 刷新中：以复古质感平缓转动
+ * 3. 未下拉且未刷新时：不渲染任何视图，杜绝常驻浮层/灰圈
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun BoxScope.PaperclipPullIndicator(
+fun BoxScope.PaperclipPullIndicator(
     state: PullToRefreshState,
     isRefreshing: Boolean,
     modifier: Modifier = Modifier

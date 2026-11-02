@@ -18,6 +18,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
@@ -132,11 +133,24 @@ fun ArchiveTopAppBar(
     subtitle: String? = null,
     navigationIcon: @Composable (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    windowInsets: WindowInsets = WindowInsets(0, 0, 0, 0),
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
-    TopAppBar(
-        title = {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f, fill = false)
+        ) {
+            navigationIcon?.invoke()
             Column {
                 Text(
                     text = title,
@@ -144,27 +158,27 @@ fun ArchiveTopAppBar(
                     fontWeight = FontWeight.Bold,
                     fontSize = 24.sp,
                     letterSpacing = 1.sp,
-                    color = colors.inkPrimary
+                    color = colors.inkPrimary,
+                    maxLines = 1
                 )
                 if (!subtitle.isNullOrBlank()) {
                     Text(
                         text = subtitle,
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontSize = 11.5.sp,
-                        color = colors.inkMuted
+                        color = colors.inkMuted,
+                        maxLines = 1
                     )
                 }
             }
-        },
-        navigationIcon = { navigationIcon?.invoke() },
-        actions = actions,
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = Color.Transparent,
-            titleContentColor = colors.inkPrimary,
-            actionIconContentColor = colors.inkPrimary
-        ),
-        modifier = modifier
-    )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            actions()
+        }
+    }
 }
 
 /**

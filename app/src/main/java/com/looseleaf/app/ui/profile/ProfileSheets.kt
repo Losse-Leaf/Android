@@ -6,6 +6,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.outlined.*
@@ -81,7 +83,8 @@ internal fun EditProfileSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 16.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
             // 1. 称谓输入
             ArchiveField(
@@ -166,7 +169,8 @@ internal fun OtherDevicesSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 24.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
             Text(
                 text = "这些跨端设备已通过散页端到端中枢建立受信任配对，共享同步手稿、账本与山川印记。",
@@ -246,8 +250,6 @@ internal fun SettingsSheet(
     isCheckingUpdate: Boolean,
     onCheckUpdate: () -> Unit,
     onUnpair: () -> Unit,
-    onSeedDemoData: (() -> Unit)? = null,
-    onClearDemoData: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
@@ -260,7 +262,8 @@ internal fun SettingsSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 32.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             // 一、偏好与安全
@@ -708,70 +711,6 @@ internal fun SettingsSheet(
                         onClick = onCheckUpdate,
                         enabled = !isCheckingUpdate
                     )
-                }
-            }
-
-            // 开发者选项 (Debug 专用)
-            if (BuildConfig.DEBUG && (onSeedDemoData != null || onClearDemoData != null)) {
-                ArchiveDivider()
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = "开发者选项 (Debug 专用)",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
-                        color = colors.inkPrimary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "灌入覆盖多天、跨月、跨年、多比例图片的手账演示数据，或一键清除",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 11.5.sp,
-                        color = colors.inkSecondary
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        if (onSeedDemoData != null) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(colors.accentWarm)
-                                    .clickable(onClick = onSeedDemoData)
-                                    .padding(vertical = 10.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "灌入演示数据",
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 13.sp,
-                                    color = colors.archivePaper
-                                )
-                            }
-                        }
-                        if (onClearDemoData != null) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(colors.archiveCard)
-                                    .border(1.dp, colors.borderSubtle, RoundedCornerShape(4.dp))
-                                    .clickable(onClick = onClearDemoData)
-                                    .padding(vertical = 10.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "清除演示数据",
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 13.sp,
-                                    color = colors.inkPrimary
-                                )
-                            }
-                        }
-                    }
                 }
             }
 

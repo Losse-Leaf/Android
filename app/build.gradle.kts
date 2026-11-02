@@ -20,8 +20,8 @@ android {
         resourceConfigurations += listOf("zh", "en")
         minSdk = 26
         targetSdk = 35
-        versionCode = 48
-        versionName = "1.8.5"
+        versionCode = 49
+        versionName = "1.8.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -96,6 +96,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("release")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

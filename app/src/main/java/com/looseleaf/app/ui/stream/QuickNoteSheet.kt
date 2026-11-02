@@ -362,6 +362,9 @@ private fun QuickNoteSheetBody(
     }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+    val maxSheetHeight = (screenHeight - statusBarTop - 16.dp).coerceAtLeast(200.dp)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -370,12 +373,15 @@ private fun QuickNoteSheetBody(
         dragHandle = null,
         shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
         tonalElevation = 0.dp,
-        modifier = Modifier.imePadding()
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.85f)
+                .heightIn(max = maxSheetHeight)
+                .navigationBarsPadding()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {

@@ -151,6 +151,7 @@ internal fun StreamFilterSheet(
         containerColor = colors.archivePaper,
         tonalElevation = 0.dp,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         dragHandle = {
             Box(
                 modifier = Modifier

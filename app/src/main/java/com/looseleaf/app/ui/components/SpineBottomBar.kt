@@ -93,8 +93,9 @@ fun SpineBottomBar(
                     modifier = Modifier
                         .fillMaxWidth()
                         .widthIn(max = 680.dp)
-                        .height(58.dp)
-                        .padding(horizontal = 8.dp),
+                        .height(60.dp)
+                        .padding(horizontal = 8.dp)
+                        .padding(bottom = 4.dp),
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {

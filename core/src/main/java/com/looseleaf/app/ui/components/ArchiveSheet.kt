@@ -66,17 +66,25 @@ internal fun ArchiveSheetContent(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val colors = LooseLeafTheme.colors
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val maxSheetHeight = (screenHeight - statusBarTop - 16.dp).coerceAtLeast(200.dp)
+
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
+        sheetState = sheetState,
         containerColor = colors.archivePaper,
         shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
         tonalElevation = 0.dp,
         dragHandle = null,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(max = maxSheetHeight)
                 .navigationBarsPadding()
                 .imePadding()
         ) {

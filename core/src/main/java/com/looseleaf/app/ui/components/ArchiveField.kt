@@ -60,7 +60,9 @@ fun ArchiveField(
                 text = label,
                 fontSize = 11.5.sp,
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
-                color = if (isFocused) colors.accentWarm else colors.inkSecondary
+                color = if (isFocused) colors.accentWarm else colors.inkSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(4.dp))
         }
@@ -117,7 +119,9 @@ fun ArchiveField(
                     text = trailingText,
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontSize = 13.sp,
-                    color = colors.inkSecondary
+                    color = colors.inkSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 

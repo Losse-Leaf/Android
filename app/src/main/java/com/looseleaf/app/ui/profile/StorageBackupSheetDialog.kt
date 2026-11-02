@@ -228,7 +228,8 @@ fun StorageBackupSheetDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Tab 切换器 (0: 全量快照备份, 1: 对象存储配置)

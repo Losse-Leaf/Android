@@ -52,17 +52,23 @@ fun ArchiveBottomSheet(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val colors = LooseLeafTheme.colors
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+    val maxSheetHeight = (screenHeight - statusBarTop - 16.dp).coerceAtLeast(200.dp)
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
         containerColor = colors.archivePaper,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        dragHandle = { ArchiveDragHandle() }
+        dragHandle = { ArchiveDragHandle() },
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(max = maxSheetHeight)
                 .navigationBarsPadding()
                 .imePadding()
                 .padding(horizontal = 20.dp, vertical = 6.dp)

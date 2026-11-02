@@ -14,6 +14,9 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -146,144 +149,143 @@ fun ShowcaseHeatmap(
                 matrix
             }
 
-            // 计算月份标注列
+            // 计算月份标注列：每个包含月初第一天的列打上对应月份
             val monthLabels = remember(gridMatrix) {
                 val labels = mutableListOf<Pair<Int, String>>()
-                var lastLabeledCol = -5
                 gridMatrix.forEachIndexed { col, colDays ->
                     val firstDay = colDays.firstOrNull { it.date.dayOfMonth == 1 && !it.isFuture }
-                    if (firstDay != null && col - lastLabeledCol >= 3) {
+                    if (firstDay != null) {
                         labels.add(col to "${firstDay.date.monthValue}月")
-                        lastLabeledCol = col
-                    } else if (col == 0 && colDays.isNotEmpty()) {
-                        labels.add(0 to "${colDays[0].date.monthValue}月")
-                        lastLabeledCol = 0
+                    }
+                }
+                // 如果首列距离第一个打标月份有至少 3 列（>= 45dp），把首列代表的月份也补在最左侧
+                if (labels.isNotEmpty()) {
+                    val firstLabeledCol = labels.first().first
+                    if (firstLabeledCol >= 3) {
+                        val firstDate = gridMatrix[0].firstOrNull { !it.isFuture }?.date
+                        if (firstDate != null) {
+                            labels.add(0, 0 to "${firstDate.monthValue}月")
+                        }
                     }
                 }
                 labels
             }
 
+            val monthHeaderHeightDp = 22.dp
+            val gridHeightDp = monthHeaderHeightDp + cellDp * 7 + gapDp * 6
+            val gridLeftDp = leftLabelWidth + labelSpacing
+
             Column(modifier = Modifier.fillMaxWidth()) {
-                // 上方月份标注
-                Box(
+                // 7xN 热力图、上方月份标注与左侧星期标签 Canvas（完全使用 Canvas 原生绘制，杜绝 Box 截断与数字遮挡）
+                Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(16.dp)
-                ) {
-                    monthLabels.forEach { (col, monthName) ->
-                        val xPos = leftLabelWidth + labelSpacing + stepDp * col
-                        Text(
-                            text = monthName,
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 10.sp,
-                            color = colors.inkSecondary,
-                            modifier = Modifier.offset(x = xPos)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // 网格与左侧星期标签
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    // 左侧只标 一 / 三 / 五
-                    Column(
-                        modifier = Modifier.width(leftLabelWidth)
-                    ) {
-                        for (r in 0 until 7) {
-                            Box(
-                                modifier = Modifier
-                                    .height(cellDp)
-                                    .fillMaxWidth(),
-                                contentAlignment = Alignment.CenterStart
-                            ) {
-                                when (r) {
-                                    0 -> Text("一", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 9.5.sp, color = colors.inkSecondary)
-                                    2 -> Text("三", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 9.5.sp, color = colors.inkSecondary)
-                                    4 -> Text("五", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 9.5.sp, color = colors.inkSecondary)
+                        .height(gridHeightDp)
+                        .semantics {
+                            contentDescription = "时光刻度热力图，共统计 $numCols 周，累计 $totalCount 篇手记"
+                        }
+                        .pointerInput(gridMatrix) {
+                            detectTapGestures { offset ->
+                                val stepPx = stepDp.toPx()
+                                val gridLeftPx = gridLeftDp.toPx()
+                                val monthHeaderHeightPx = monthHeaderHeightDp.toPx()
+                                val col = ((offset.x - gridLeftPx) / stepPx).toInt()
+                                val row = ((offset.y - monthHeaderHeightPx) / stepPx).toInt()
+                                if (col in 0 until numCols && row in 0 until 7) {
+                                    val day = gridMatrix[col][row]
+                                    if (!day.isFuture) {
+                                        selectedDate = day.date
+                                        selectedDateKey = day.dateKey
+                                    }
                                 }
                             }
-                            if (r < 6) {
-                                Spacer(modifier = Modifier.height(gapDp))
-                            }
+                        }
+                ) {
+                    val cellPx = cellDp.toPx()
+                    val stepPx = stepDp.toPx()
+                    val gridLeftPx = gridLeftDp.toPx()
+                    val monthHeaderHeightPx = monthHeaderHeightDp.toPx()
+                    val radius = CornerRadius(4.dp.toPx())
+
+                    // 1. 绘制上方月份标签（Canvas 原生绘制，绝对不被父容器裁剪，右侧自适应避让边界）
+                    val monthPaint = android.graphics.Paint().apply {
+                        isAntiAlias = true
+                        textSize = 10.sp.toPx()
+                        color = colors.inkSecondary.toArgb()
+                        typeface = android.graphics.Typeface.SERIF
+                        textAlign = android.graphics.Paint.Align.LEFT
+                    }
+                    val monthBaselineY = monthHeaderHeightPx - 6.dp.toPx()
+
+                    // 2. 绘制左侧星期一、三、五（字体与行严格垂直居中，不被任何容器约束截断）
+                    val weekPaint = android.graphics.Paint().apply {
+                        isAntiAlias = true
+                        textSize = 9.5.sp.toPx()
+                        color = colors.inkSecondary.toArgb()
+                        typeface = android.graphics.Typeface.SERIF
+                        textAlign = android.graphics.Paint.Align.LEFT
+                    }
+                    val weekFm = weekPaint.fontMetrics
+                    val textYCenterOffset = (cellPx - (weekFm.ascent + weekFm.descent)) / 2f
+
+                    drawIntoCanvas { canvas ->
+                        // 绘制月份
+                        monthLabels.forEach { (col, monthName) ->
+                            val rawX = gridLeftPx + col * stepPx
+                            val textW = monthPaint.measureText(monthName)
+                            val safeX = rawX.coerceAtMost(size.width - textW)
+                            canvas.nativeCanvas.drawText(monthName, safeX, monthBaselineY, monthPaint)
+                        }
+
+                        // 绘制星期一、三、五
+                        listOf(0 to "一", 2 to "三", 4 to "五").forEach { (r, label) ->
+                            val y = monthHeaderHeightPx + r * stepPx + textYCenterOffset
+                            canvas.nativeCanvas.drawText(label, 0f, y, weekPaint)
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(labelSpacing))
+                    // 3. 绘制 7xN 热力图单元格
+                    gridMatrix.forEachIndexed { col, colDays ->
+                        colDays.forEachIndexed { row, day ->
+                            if (!day.isFuture) {
+                                val topLeft = Offset(gridLeftPx + col * stepPx, monthHeaderHeightPx + row * stepPx)
+                                val cellSize = Size(cellPx, cellPx)
 
-                    // 7xN 热力图 Canvas
-                    val gridHeight = cellDp * 7 + gapDp * 6
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(gridHeight)
-                            .semantics {
-                                contentDescription = "时光刻度热力图，共统计 $numCols 周，累计 $totalCount 篇手记"
-                            }
-                            .pointerInput(gridMatrix) {
-                                detectTapGestures { offset ->
-                                    val stepPx = stepDp.toPx()
-                                    val col = (offset.x / stepPx).toInt()
-                                    val row = (offset.y / stepPx).toInt()
-                                    if (col in 0 until numCols && row in 0 until 7) {
-                                        val day = gridMatrix[col][row]
-                                        if (!day.isFuture) {
-                                            selectedDate = day.date
-                                            selectedDateKey = day.dateKey
-                                        }
-                                    }
+                                // 四档透明度：无记录 6% / 1 篇 20% / 2–3 篇 45% / 4 篇以上 75%
+                                val fillColor = when {
+                                    day.count >= 4 -> colors.inkPrimary.copy(alpha = 0.75f)
+                                    day.count in 2..3 -> colors.inkPrimary.copy(alpha = 0.45f)
+                                    day.count == 1 -> colors.inkPrimary.copy(alpha = 0.20f)
+                                    else -> colors.inkPrimary.copy(alpha = 0.06f)
                                 }
-                            }
-                    ) {
-                        val cellPx = cellDp.toPx()
-                        val stepPx = stepDp.toPx()
-                        val radius = CornerRadius(4.dp.toPx())
 
-                        gridMatrix.forEachIndexed { col, colDays ->
-                            colDays.forEachIndexed { row, day ->
-                                if (!day.isFuture) {
-                                    val topLeft = Offset(col * stepPx, row * stepPx)
-                                    val cellSize = Size(cellPx, cellPx)
+                                drawRoundRect(
+                                    color = fillColor,
+                                    topLeft = topLeft,
+                                    size = cellSize,
+                                    cornerRadius = radius
+                                )
 
-                                    // 四档透明度：无记录 6% / 1 篇 20% / 2–3 篇 45% / 4 篇以上 75%
-                                    val fillColor = when {
-                                        day.count >= 4 -> colors.inkPrimary.copy(alpha = 0.75f)
-                                        day.count in 2..3 -> colors.inkPrimary.copy(alpha = 0.45f)
-                                        day.count == 1 -> colors.inkPrimary.copy(alpha = 0.20f)
-                                        else -> colors.inkPrimary.copy(alpha = 0.06f)
-                                    }
-
+                                // 今天的格子加 1dp 正文色描边
+                                if (day.isToday) {
                                     drawRoundRect(
-                                        color = fillColor,
+                                        color = colors.inkPrimary,
                                         topLeft = topLeft,
                                         size = cellSize,
-                                        cornerRadius = radius
+                                        cornerRadius = radius,
+                                        style = Stroke(width = 1.dp.toPx())
                                     )
+                                }
 
-                                    // 今天的格子加 1dp 正文色描边
-                                    if (day.isToday) {
-                                        drawRoundRect(
-                                            color = colors.inkPrimary,
-                                            topLeft = topLeft,
-                                            size = cellSize,
-                                            cornerRadius = radius,
-                                            style = Stroke(width = 1.dp.toPx())
-                                        )
-                                    }
-
-                                    // 选中格加 2dp 赤陶描边
-                                    if (selectedDateKey == day.dateKey) {
-                                        drawRoundRect(
-                                            color = colors.accentWarm,
-                                            topLeft = topLeft,
-                                            size = cellSize,
-                                            cornerRadius = radius,
-                                            style = Stroke(width = 2.dp.toPx())
-                                        )
-                                    }
+                                // 选中格加 2dp 赤陶描边
+                                if (selectedDateKey == day.dateKey) {
+                                    drawRoundRect(
+                                        color = colors.accentWarm,
+                                        topLeft = topLeft,
+                                        size = cellSize,
+                                        cornerRadius = radius,
+                                        style = Stroke(width = 2.dp.toPx())
+                                    )
                                 }
                             }
                         }

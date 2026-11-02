@@ -60,45 +60,59 @@ import java.time.LocalTime
 import java.time.YearMonth
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LedgerTopAppBar(
     title: String,
     subtitle: String? = null,
     navigationIcon: @Composable (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    windowInsets: WindowInsets = WindowInsets(0, 0, 0, 0),
     modifier: Modifier = Modifier
 ) {
     val colors = LedgerTheme.colors
-    TopAppBar(
-        title = {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f, fill = false)
+        ) {
+            navigationIcon?.invoke()
             Column {
                 Text(
                     text = title,
                     style = LedgerTheme.typography.title,
                     fontFamily = LedgerTheme.typography.serif,
                     fontWeight = FontWeight.Bold,
-                    color = colors.textPrimary
+                    fontSize = 24.sp,
+                    letterSpacing = 1.sp,
+                    color = colors.textPrimary,
+                    maxLines = 1
                 )
                 if (!subtitle.isNullOrBlank()) {
                     Text(
                         text = subtitle,
                         style = LedgerTheme.typography.caption,
                         fontFamily = LedgerTheme.typography.serif,
-                        color = colors.textSecondary
+                        color = colors.textSecondary,
+                        maxLines = 1
                     )
                 }
             }
-        },
-        navigationIcon = { navigationIcon?.invoke() },
-        actions = actions,
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = colors.background,
-            titleContentColor = colors.textPrimary,
-            actionIconContentColor = colors.textPrimary
-        ),
-        modifier = modifier
-    )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            actions()
+        }
+    }
 }
 
 /**
@@ -174,16 +188,20 @@ fun LedgerMonthPickerSheet(
 ) {
     val colors = LedgerTheme.colors
     var currentYear by remember(selectedYearMonth) { mutableStateOf(selectedYearMonth.year) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
+        sheetState = sheetState,
         containerColor = colors.surface,
         shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
-        tonalElevation = 0.dp
+        tonalElevation = 0.dp,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp)
         ) {

@@ -8,10 +8,10 @@ class FormatUtilsTest {
 
     @Test
     fun testCentsToYuanString() {
-        assertEquals("¥ 42.50", FormatUtils.centsToYuanString(4250L))
-        assertEquals("¥ 0.00", FormatUtils.centsToYuanString(0L))
-        assertEquals("¥ 0.05", FormatUtils.centsToYuanString(5L))
-        assertEquals("-¥ 12.80", FormatUtils.centsToYuanString(-1280L))
+        assertEquals("¥42.50", FormatUtils.centsToYuanString(4250L))
+        assertEquals("¥0.00", FormatUtils.centsToYuanString(0L))
+        assertEquals("¥0.05", FormatUtils.centsToYuanString(5L))
+        assertEquals("-¥12.80", FormatUtils.centsToYuanString(-1280L))
     }
 
     @Test

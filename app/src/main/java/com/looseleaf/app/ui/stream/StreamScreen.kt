@@ -2,7 +2,6 @@ package com.looseleaf.app.ui.stream
 
 import com.looseleaf.app.BuildConfig
 import com.looseleaf.app.data.local.AppDatabase
-import com.looseleaf.app.debug.DemoDataSeeder
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
@@ -186,7 +185,6 @@ fun StreamScreen(
     // 全局检索与速记随笔状态
     var showSearchDialog by remember { mutableStateOf(false) }
     var showQuickNoteDialog by remember { mutableStateOf(false) }
-    var showDebugDevSheet by remember { mutableStateOf(false) }
     var entryToDelete by remember { mutableStateOf<LifeEntry?>(null) }
 
     // 钢笔尖 FAB 随列表滚动方向动态展开与收缩（向下滚动收缩淡出，向上滚动或停止恢复）
@@ -521,10 +519,7 @@ fun StreamScreen(
                         ArchiveToastManager.show("发件箱已重新排队，联网后自动上传 ($pendingCount 项待重放)")
                         syncManager.scheduleSync()
                     }
-                },
-                onTitleLongClick = if (BuildConfig.DEBUG) {
-                    { showDebugDevSheet = true }
-                } else null
+                }
             )
 
             // 顶栏下沿 1dp 淡线：只在列表滚动、内容上移时出现，平时不显示
@@ -1093,100 +1088,6 @@ fun StreamScreen(
                 apiClient = apiClient,
                 onSuccess = { showQuickNoteDialog = false }
             )
-        }
-
-        // 开发者调试底抽 (Debug 专用，长按顶栏标题触发)
-        if (BuildConfig.DEBUG && showDebugDevSheet) {
-            ArchiveBottomSheet(
-                onDismissRequest = { showDebugDevSheet = false },
-                title = "开发者调试菜单 (Debug 专用)",
-                actionButtonText = null
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    PaperCard(modifier = Modifier.fillMaxWidth()) {
-                        Column {
-                            Text(
-                                text = "演示数据灌入与清理",
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp,
-                                color = colors.inkPrimary
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "灌入覆盖多天、跨月、跨年、多比例图片及发件箱异常状态的手账演示数据，或一键彻底清除",
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontSize = 11.sp,
-                                color = colors.inkMuted
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Button(
-                                    onClick = {
-                                        scope.launch {
-                                            try {
-                                                val count = DemoDataSeeder.seedDemoData(context, AppDatabase.getInstance(context))
-                                                ArchiveToastManager.show("成功灌入 $count 条演示手账记录")
-                                            } catch (e: Exception) {
-                                                ArchiveToastManager.show("灌入失败: ${e.message}", isError = true)
-                                            }
-                                            showDebugDevSheet = false
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(2.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = colors.accentWarm,
-                                        contentColor = colors.archivePaper
-                                    ),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(vertical = 8.dp)
-                                ) {
-                                    Text(
-                                        text = "灌入演示数据",
-                                        fontFamily = ArchiveFontFamilies.BodySans,
-                                        fontSize = 12.sp
-                                    )
-                                }
-
-                                OutlinedButton(
-                                    onClick = {
-                                        scope.launch {
-                                            try {
-                                                val count = DemoDataSeeder.clearDemoData(context, AppDatabase.getInstance(context))
-                                                ArchiveToastManager.show("已彻底清除 $count 条演示记录与资源")
-                                            } catch (e: Exception) {
-                                                ArchiveToastManager.show("清除失败: ${e.message}", isError = true)
-                                            }
-                                            showDebugDevSheet = false
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(2.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.accentWarm),
-                                    border = ButtonDefaults.outlinedButtonBorder(enabled = true).copy(
-                                        brush = SolidColor(colors.accentWarm)
-                                    ),
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(vertical = 8.dp)
-                                ) {
-                                    Text(
-                                        text = "清除演示数据",
-                                        fontFamily = ArchiveFontFamilies.BodySans,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }

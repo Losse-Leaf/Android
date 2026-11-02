@@ -121,7 +121,7 @@ object FormatUtils {
         // MOB-P1-31：原先用 String.format —— 每次调用都要新建 Formatter + StringBuilder + String。
         // 该方法在列表每行、每帧都会被调用，改为手写拼接省掉全部中间分配。
         val formatted = "$yuan.${remainder.toString().padStart(2, '0')}"
-        return if (includeSymbol) "${sign}¥ $formatted" else "$sign$formatted"
+        return if (includeSymbol) "${sign}¥$formatted" else "$sign$formatted"
     }
 
     /**

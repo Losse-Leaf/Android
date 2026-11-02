@@ -16,6 +16,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,6 +36,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
@@ -43,6 +46,7 @@ import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.security.BiometricHelper
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.model.*
+import com.looseleaf.app.ui.components.PaperclipPullIndicator
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.ui.components.ArchiveToastManager
@@ -187,6 +191,7 @@ fun LedgerScreen(
 
     Box(modifier = modifier.fillMaxSize()) {
         Scaffold(
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
                 LedgerTopAppBar(
                     title = "账本",
@@ -377,12 +382,18 @@ fun LedgerScreen(
                     }
                 }
 
-                // 原生下拉刷新包装器
+                // 原生下拉刷新包装器（黄铜回形针指示器，未下拉时不显示任何异常底圈）
                 val pullToRefreshState = rememberPullToRefreshState()
                 PullToRefreshBox(
                     isRefreshing = isRefreshingLedger,
                     onRefresh = { refreshAllData() },
                     state = pullToRefreshState,
+                    indicator = {
+                        PaperclipPullIndicator(
+                            state = pullToRefreshState,
+                            isRefreshing = isRefreshingLedger
+                        )
+                    },
                     modifier = Modifier.fillMaxSize()
                 ) {
                     when (selectedTab) {
@@ -877,16 +888,28 @@ fun LedgerScreen(
                     text = "系统当前推算 ${LedgerFormat.formatMoney(currentLiquidCents)}",
                     fontFamily = ArchiveFontFamilies.MonoScale,
                     fontSize = 13.sp,
-                    color = colors.textSecondary
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
 
-                // 大号等宽金额输入显示
-                Text(
-                    text = if (inputLiquidYuan.isEmpty()) "¥ —" else "¥ $inputLiquidYuan",
-                    fontFamily = ArchiveFontFamilies.MonoScale,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 32.sp,
-                    color = if (inputLiquidYuan.isEmpty()) colors.textMuted else colors.textPrimary
+                LedgerField(
+                    value = inputLiquidYuan,
+                    onValueChange = { input ->
+                        val sanitized = input.filter { it.isDigit() || it == '.' }
+                        if (sanitized.count { it == '.' } <= 1) {
+                            val parts = sanitized.split('.')
+                            if (parts.size == 1 || parts[1].length <= 2) {
+                                inputLiquidYuan = sanitized
+                            }
+                        }
+                    },
+                    label = "流动资金真实总额",
+                    placeholder = "0.00",
+                    trailingText = "元",
+                    isNumeric = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
                 )
 
                 // 实时调整差额
@@ -898,11 +921,13 @@ fun LedgerScreen(
                         text = "校准后将调整 $diffSign${LedgerFormat.formatMoney(kotlin.math.abs(diffCents))}",
                         fontFamily = ArchiveFontFamilies.MonoScale,
                         fontSize = 13.sp,
-                        color = colors.textSecondary
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                // 缩短说明文案（去中枢）
+                // 说明文案
                 Text(
                     text = "输入流动资金真实总额，系统将以此为基数推算净资产大盘。",
                     style = LedgerTheme.typography.caption,
@@ -910,43 +935,7 @@ fun LedgerScreen(
                     color = colors.textMuted
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // 常驻自定义共享四列等宽数字键盘（去框）
-                TactileKeypad(
-                    onDigitClick = { digit ->
-                        val lastSegment = inputLiquidYuan.substringAfterLast("+")
-                        val parts = lastSegment.split(".")
-                        if (parts.size == 2 && parts[1].length >= 2) {
-                            // 最多两位小数
-                        } else if (lastSegment.length < 10) {
-                            inputLiquidYuan += digit
-                        }
-                    },
-                    onDotClick = {
-                        val lastSegment = inputLiquidYuan.substringAfterLast("+")
-                        if (!lastSegment.contains(".")) {
-                            inputLiquidYuan = if (lastSegment.isEmpty()) "${inputLiquidYuan}0." else "$inputLiquidYuan."
-                        }
-                    },
-                    onBackspaceClick = {
-                        if (inputLiquidYuan.isNotEmpty()) {
-                            inputLiquidYuan = inputLiquidYuan.dropLast(1)
-                        }
-                    },
-                    onPlusClick = {
-                        if (inputLiquidYuan.isNotEmpty() && !inputLiquidYuan.endsWith("+")) {
-                            inputLiquidYuan += "+"
-                        }
-                    },
-                    onClearAll = {
-                        inputLiquidYuan = ""
-                    },
-                    confirmText = "确认校准",
-                    isConfirmEnabled = isCalibrateEnabled,
-                    onConfirm = doCalibrate,
-                    showPlus = true
-                )
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }
@@ -960,36 +949,25 @@ fun LedgerScreen(
         var isAutoTx by remember { mutableStateOf(true) }
         var payMethodChoice by remember { mutableStateOf("full") } // "full" | "installment"
 
-        // 分期展开参数 (RC-140)
-        var selectedPeriodPreset by remember { mutableStateOf("12") }
-        var customPeriodText by remember { mutableStateOf("") }
-        val effectivePeriods = when (selectedPeriodPreset) {
-            "3" -> 3
-            "6" -> 6
-            "12" -> 12
-            "24" -> 24
-            else -> customPeriodText.toIntOrNull() ?: 12
-        }
-        var selectedFeeMode by remember { mutableStateOf("none") }
-        var feeValueInput by remember { mutableStateOf("") }
-        val defaultChannel = creditChannels.firstOrNull { it.code == "huabei" } ?: creditChannels.firstOrNull()
-        var selectedChannel by remember { mutableStateOf(defaultChannel) }
-        var repayDay by remember { mutableStateOf(defaultChannel?.repaymentDay ?: 10) }
+        // 分期展开参数（无手续费，仅自建渠道，首期仅选月份）
+        var periodsText by remember { mutableStateOf("12") }
+        val effectivePeriods = periodsText.toIntOrNull() ?: 12
 
-        var firstDueDate by remember {
-            val now = LocalDate.now()
-            val targetDay = defaultChannel?.repaymentDay ?: 10
-            val dueDate = if (now.dayOfMonth <= targetDay) {
-                val length = YearMonth.from(now).lengthOfMonth()
-                now.withDayOfMonth(targetDay.coerceAtMost(length))
-            } else {
-                val next = now.plusMonths(1)
-                val length = YearMonth.from(next).lengthOfMonth()
-                next.withDayOfMonth(targetDay.coerceAtMost(length))
-            }
-            mutableStateOf(dueDate.format(DateTimeFormatter.ofPattern("yyyy-MM-dd")))
+        val userChannels = remember(creditChannels) {
+            creditChannels.filterNot { it.isBuiltin || it.code in setOf("HUABEI", "BAITIAO", "CUSTOM_INSTALLMENT", "huabei", "baitiao", "custom_installment") }
         }
-        var showGearFirstDueDatePicker by remember { mutableStateOf(false) }
+        var selectedChannel by remember(userChannels) { mutableStateOf(userChannels.firstOrNull()) }
+        var repayDay by remember(selectedChannel) { mutableStateOf(selectedChannel?.repaymentDay ?: 10) }
+        var showGearCreateChannelDialog by remember { mutableStateOf(false) }
+        var showGearChannelSelectDialog by remember { mutableStateOf(false) }
+
+        var firstDueYearMonth by remember(selectedChannel) {
+            val now = LocalDate.now()
+            val targetDay = selectedChannel?.repaymentDay ?: 10
+            val ym = if (now.dayOfMonth <= targetDay) YearMonth.from(now) else YearMonth.from(now).plusMonths(1)
+            mutableStateOf(ym)
+        }
+        var showGearMonthPicker by remember { mutableStateOf(false) }
 
         val canSubmit = gearName.isNotBlank() && gearPrice.isNotBlank() && (FormatUtils.yuanStringToCents(gearPrice) > 0)
         val doSubmitGear: () -> Unit = {
@@ -998,12 +976,8 @@ fun LedgerScreen(
                 scope.launch {
                     runCatching {
                         if (payMethodChoice == "installment") {
-                            val feeValCents = if (selectedFeeMode == "rate_per_period") {
-                                val ratePercent = feeValueInput.toDoubleOrNull() ?: 0.0
-                                (ratePercent * 100).toLong()
-                            } else {
-                                FormatUtils.yuanStringToCents(feeValueInput)
-                            }
+                            val targetDay = (selectedChannel?.repaymentDay ?: 10).coerceAtMost(firstDueYearMonth.lengthOfMonth())
+                            val firstDueDateStr = String.format(Locale.US, "%04d-%02d-%02d", firstDueYearMonth.year, firstDueYearMonth.monthValue, targetDay)
                             apiClient.createInstallmentPlan(
                                 CreateInstallmentPlanRequest(
                                     channelId = selectedChannel?.id,
@@ -1012,10 +986,10 @@ fun LedgerScreen(
                                     kind = "asset",
                                     principal = cents,
                                     periods = effectivePeriods,
-                                    feeMode = selectedFeeMode,
-                                    feeValue = feeValCents,
-                                    firstDueDate = firstDueDate,
-                                    repayDay = repayDay,
+                                    feeMode = "none",
+                                    feeValue = 0L,
+                                    firstDueDate = firstDueDateStr,
+                                    repayDay = selectedChannel?.repaymentDay ?: 10,
                                     createNewGear = true,
                                     gearName = gearName.trim(),
                                     gearSpec = gearSpec.trim(),
@@ -1075,11 +1049,19 @@ fun LedgerScreen(
 
                 LedgerField(
                     value = gearPrice,
-                    onValueChange = {},
+                    onValueChange = { input ->
+                        val sanitized = input.filter { it.isDigit() || it == '.' }
+                        if (sanitized.count { it == '.' } <= 1) {
+                            val parts = sanitized.split('.')
+                            if (parts.size == 1 || parts[1].length <= 2) {
+                                gearPrice = sanitized
+                            }
+                        }
+                    },
                     label = "买入价格",
                     placeholder = "0.00",
                     isNumeric = true,
-                    readOnly = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     trailingText = "元",
                     singleLine = true
                 )
@@ -1089,7 +1071,9 @@ fun LedgerScreen(
                     Text(
                         text = "付款方式",
                         style = LedgerTheme.typography.caption,
-                        color = colors.textSecondary
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1130,7 +1114,9 @@ fun LedgerScreen(
                                 text = "同步生成一笔支出流水",
                                 style = LedgerTheme.typography.body,
                                 fontFamily = LedgerTheme.typography.serif,
-                                color = colors.textPrimary
+                                color = colors.textPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             val priceDisplay = if (gearPrice.isNotBlank()) gearPrice else "0.00"
@@ -1141,7 +1127,9 @@ fun LedgerScreen(
                                     "关闭则仅增加固定资产，不扣减流动资金与月支出"
                                 },
                                 style = LedgerTheme.typography.caption,
-                                color = colors.textSecondary
+                                color = colors.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                         Switch(
@@ -1156,145 +1144,191 @@ fun LedgerScreen(
                         )
                     }
                 } else {
-                    // 分期付款展开字段
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = "分期期数",
-                            style = LedgerTheme.typography.caption,
-                            color = colors.textSecondary
+                    // 分期付款展开字段（精简合并，调用原生键盘）
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        LedgerField(
+                            value = periodsText,
+                            onValueChange = { input ->
+                                periodsText = input.filter { it.isDigit() }.take(3)
+                            },
+                            label = "分期期数",
+                            placeholder = "12",
+                            trailingText = "期",
+                            isNumeric = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.width(110.dp)
                         )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            listOf("3", "6", "12", "24", "自定义").forEach { p ->
-                                LedgerChoiceItem(
-                                    text = if (p == "自定义") p else "${p}期",
-                                    isSelected = selectedPeriodPreset == p,
-                                    onClick = { selectedPeriodPreset = p },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                        if (selectedPeriodPreset == "自定义") {
-                            LedgerField(
-                                value = customPeriodText,
-                                onValueChange = { customPeriodText = it.filter { ch -> ch.isDigit() }.take(3) },
-                                label = "自定义期数",
-                                placeholder = "输入 1~120 期",
-                                isNumeric = true,
-                                trailingText = "期",
-                                singleLine = true
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "常用期数",
+                                style = LedgerTheme.typography.caption,
+                                fontFamily = LedgerTheme.typography.serif,
+                                color = colors.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                listOf("3", "6", "12", "24", "36").forEach { p ->
+                                    val isSelected = periodsText == p
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(if (isSelected) colors.surfaceElevated else Color.Transparent)
+                                            .border(
+                                                ArchiveLines.hairline,
+                                                if (isSelected) colors.accent else colors.borderSubtle,
+                                                RoundedCornerShape(4.dp)
+                                            )
+                                            .clickable { periodsText = p }
+                                            .padding(vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = "${p}期",
+                                            fontFamily = LedgerTheme.typography.serif,
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) colors.accent else colors.textSecondary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 
-                    // 手续费模式
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = "手续费模式",
-                            style = LedgerTheme.typography.caption,
-                            color = colors.textSecondary
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            listOf(
-                                "none" to "无费用",
-                                "fixed_per_period" to "每期固定",
-                                "rate_per_period" to "每期费率",
-                                "total_fee" to "总手续费"
-                            ).forEach { (mode, label) ->
-                                LedgerChoiceItem(
-                                    text = label,
-                                    isSelected = selectedFeeMode == mode,
-                                    onClick = {
-                                        selectedFeeMode = mode
-                                        if (mode == "none") feeValueInput = ""
-                                    },
-                                    modifier = Modifier.weight(1f)
+                    // 还款渠道 与 首期还款月份 并排单行双列
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        // 还款渠道列（仅自建，带 + 新建）
+                        Column(modifier = Modifier.weight(1.2f)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "还款渠道",
+                                    style = LedgerTheme.typography.caption,
+                                    fontFamily = LedgerTheme.typography.serif,
+                                    color = colors.textSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "+ 新建",
+                                    style = LedgerTheme.typography.caption,
+                                    fontFamily = LedgerTheme.typography.serif,
+                                    color = colors.accent,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    modifier = Modifier
+                                        .clickable { showGearCreateChannelDialog = true }
+                                        .padding(start = 4.dp)
                                 )
                             }
-                        }
-                        if (selectedFeeMode != "none") {
-                            val (fLabel, fUnit, fHolder) = when (selectedFeeMode) {
-                                "fixed_per_period" -> Triple("每期固定手续费", "元", "如 6.00")
-                                "rate_per_period" -> Triple("每期费率", "%", "如 0.5")
-                                "total_fee" -> Triple("总手续费", "元", "如 72.00")
-                                else -> Triple("手续费", "", "")
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
+                                    .clickable {
+                                        if (userChannels.isEmpty()) {
+                                            showGearCreateChannelDialog = true
+                                        } else {
+                                            showGearChannelSelectDialog = true
+                                        }
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = selectedChannel?.name ?: if (userChannels.isEmpty()) "点击新建渠道" else "选择渠道",
+                                        fontFamily = LedgerTheme.typography.serif,
+                                        fontSize = 13.5.sp,
+                                        color = if (selectedChannel != null) colors.textPrimary else colors.textMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    Text(
+                                        text = selectedChannel?.let { "每月${it.repaymentDay}日" } ?: "▾",
+                                        fontFamily = LedgerTheme.typography.serif,
+                                        fontSize = 11.5.sp,
+                                        color = colors.textSecondary,
+                                        maxLines = 1
+                                    )
+                                }
                             }
-                            LedgerField(
-                                value = feeValueInput,
-                                onValueChange = { feeValueInput = it },
-                                label = fLabel,
-                                placeholder = fHolder,
-                                isNumeric = true,
-                                trailingText = fUnit,
-                                singleLine = true
+                        }
+
+                        // 首期还款月份列（仅选年月）
+                        Column(modifier = Modifier.weight(0.9f)) {
+                            Text(
+                                text = "首期还款月份",
+                                style = LedgerTheme.typography.caption,
+                                fontFamily = LedgerTheme.typography.serif,
+                                color = colors.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                        }
-                    }
-
-                    // 还款渠道
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = "信贷渠道",
-                            style = LedgerTheme.typography.caption,
-                            color = colors.textSecondary
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            creditChannels.forEach { ch ->
-                                LedgerChoiceItem(
-                                    text = ch.name,
-                                    isSelected = selectedChannel?.id == ch.id,
-                                    onClick = {
-                                        selectedChannel = ch
-                                        repayDay = ch.repaymentDay
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
+                                    .clickable { showGearMonthPicker = true }
+                                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = String.format(Locale.US, "%04d-%02d", firstDueYearMonth.year, firstDueYearMonth.monthValue),
+                                        fontFamily = ArchiveFontFamilies.MonoScale,
+                                        fontSize = 13.5.sp,
+                                        color = colors.textPrimary,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = "▾",
+                                        color = colors.textSecondary,
+                                        fontSize = 12.sp,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
                     }
 
-                    // 首期到期日
-                    LedgerField(
-                        value = firstDueDate,
-                        onValueChange = {},
-                        label = "首期到期日",
-                        placeholder = "YYYY-MM-DD",
-                        readOnly = true,
-                        singleLine = true,
-                        trailingText = "每月${repayDay}日",
-                        onClick = {
-                            showGearFirstDueDatePicker = true
-                        }
-                    )
-
-                    // 实时试算预览
+                    // 实时试算单行预览
                     val pCents = FormatUtils.yuanStringToCents(gearPrice)
-                    val fValCents = if (selectedFeeMode == "rate_per_period") {
-                        val ratePercent = feeValueInput.toDoubleOrNull() ?: 0.0
-                        (ratePercent * 100).toLong()
-                    } else {
-                        FormatUtils.yuanStringToCents(feeValueInput)
-                    }
-                    val totalFCents = when (selectedFeeMode) {
-                        "none" -> 0L
-                        "fixed_per_period" -> fValCents * effectivePeriods
-                        "rate_per_period" -> ((pCents * fValCents + 5000) / 10000) * effectivePeriods
-                        "total_fee" -> fValCents
-                        else -> 0L
-                    }
-                    val avgFCents = if (effectivePeriods > 0) totalFCents / effectivePeriods else 0L
-                    val approxMo = if (effectivePeriods > 0) pCents / effectivePeriods + avgFCents else 0L
+                    val approxMo = if (effectivePeriods > 0) pCents / effectivePeriods else 0L
                     val endYm = runCatching {
-                        val dt = LocalDate.parse(firstDueDate, DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-                        dt.plusMonths((effectivePeriods - 1).toLong()).format(DateTimeFormatter.ofPattern("yyyy-MM"))
+                        firstDueYearMonth.plusMonths((effectivePeriods - 1).toLong().coerceAtLeast(0L)).toString()
                     }.getOrDefault("----")
 
                     Box(
@@ -1306,58 +1340,177 @@ fun LedgerScreen(
                             .padding(horizontal = 10.dp, vertical = 8.dp)
                     ) {
                         Text(
-                            text = "每期约 ${LedgerFormat.formatMoney(approxMo)}（含手续费 ${LedgerFormat.formatMoney(avgFCents)}），共 $effectivePeriods 期，总手续费 ${LedgerFormat.formatMoney(totalFCents)}，末期 $endYm",
+                            text = if (pCents <= 0) "输入买入价格后实时预览分期还款" else "每期约 ${LedgerFormat.formatMoney(approxMo)} · 共 $effectivePeriods 期 · 末期 $endYm",
                             style = LedgerTheme.typography.caption,
                             fontFamily = LedgerTheme.typography.serif,
                             color = colors.textSecondary,
-                            lineHeight = 16.sp
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(2.dp))
-
-                // 买入价格共享等宽去框四列数字键盘
-                TactileKeypad(
-                    onDigitClick = { digit ->
-                        val parts = gearPrice.split(".")
-                        if (parts.size == 2 && parts[1].length >= 2) {
-                            // 最多两位小数
-                        } else if (gearPrice.length < 10) {
-                            gearPrice += digit
-                        }
-                    },
-                    onDotClick = {
-                        if (!gearPrice.contains(".")) {
-                            gearPrice = if (gearPrice.isEmpty()) "0." else "$gearPrice."
-                        }
-                    },
-                    onBackspaceClick = {
-                        if (gearPrice.isNotEmpty()) {
-                            gearPrice = gearPrice.dropLast(1)
-                        }
-                    },
-                    onClearAll = {
-                        gearPrice = ""
-                    },
-                    confirmText = "确认录入",
-                    isConfirmEnabled = canSubmit,
-                    onConfirm = doSubmitGear,
-                    showPlus = false,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
 
-        if (showGearFirstDueDatePicker) {
-            val initialDate = runCatching { LocalDate.parse(firstDueDate, DateTimeFormatter.ofPattern("yyyy-MM-dd")) }.getOrDefault(LocalDate.now())
-            ArchiveDatePickerSheet(
-                selectedDate = initialDate,
-                onDateSelected = { newDate ->
-                    firstDueDate = String.format(Locale.US, "%04d-%02d-%02d", newDate.year, newDate.monthValue, newDate.dayOfMonth)
-                    repayDay = newDate.dayOfMonth
+        if (showGearMonthPicker) {
+            LedgerMonthPickerSheet(
+                selectedYearMonth = firstDueYearMonth,
+                onYearMonthSelected = { ym -> firstDueYearMonth = ym },
+                onDismissRequest = { showGearMonthPicker = false }
+            )
+        }
+
+        if (showGearCreateChannelDialog) {
+            var newName by remember { mutableStateOf("") }
+            var newDay by remember { mutableStateOf("10") }
+            var isSubmittingChannel by remember { mutableStateOf(false) }
+
+            AlertDialog(
+                onDismissRequest = { if (!isSubmittingChannel) showGearCreateChannelDialog = false },
+                containerColor = colors.surface,
+                title = {
+                    Text(
+                        text = "新建还款渠道",
+                        fontFamily = LedgerTheme.typography.serif,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 },
-                onDismissRequest = { showGearFirstDueDatePicker = false }
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        LedgerField(
+                            value = newName,
+                            onValueChange = { newName = it },
+                            label = "渠道名称",
+                            placeholder = "如 招商银行信用卡",
+                            singleLine = true
+                        )
+                        LedgerField(
+                            value = newDay,
+                            onValueChange = { newDay = it.filter { c -> c.isDigit() }.take(2) },
+                            label = "每月固定还款日",
+                            placeholder = "10",
+                            trailingText = "日",
+                            isNumeric = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true
+                        )
+                    }
+                },
+                confirmButton = {
+                    LedgerTextButton(
+                        text = "创建并选择",
+                        enabled = newName.isNotBlank() && !isSubmittingChannel,
+                        onClick = {
+                            val day = newDay.toIntOrNull()?.coerceIn(1, 31) ?: 10
+                            isSubmittingChannel = true
+                            scope.launch {
+                                runCatching {
+                                    val created = apiClient.createCreditChannel(
+                                        CreateCreditChannelRequest(name = newName.trim(), repaymentDay = day)
+                                    )
+                                    selectedChannel = created
+                                    repayDay = created.repaymentDay
+                                    LedgerRepository.refreshAssets(apiClient)
+                                }.onFailure { err ->
+                                    ArchiveToastManager.show("创建渠道失败: ${err.message}", isError = true)
+                                }
+                                isSubmittingChannel = false
+                                showGearCreateChannelDialog = false
+                            }
+                        }
+                    )
+                },
+                dismissButton = {
+                    LedgerTextButton(
+                        text = "取消",
+                        enabled = !isSubmittingChannel,
+                        onClick = { showGearCreateChannelDialog = false }
+                    )
+                }
+            )
+        }
+
+        if (showGearChannelSelectDialog) {
+            AlertDialog(
+                onDismissRequest = { showGearChannelSelectDialog = false },
+                containerColor = colors.surface,
+                title = {
+                    Text(
+                        text = "选择还款渠道",
+                        fontFamily = LedgerTheme.typography.serif,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        userChannels.forEach { ch ->
+                            val isSelected = selectedChannel?.id == ch.id
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (isSelected) colors.surfaceElevated else Color.Transparent)
+                                    .clickable {
+                                        selectedChannel = ch
+                                        repayDay = ch.repaymentDay
+                                        showGearChannelSelectDialog = false
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = ch.name,
+                                    fontFamily = LedgerTheme.typography.serif,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 14.sp,
+                                    color = if (isSelected) colors.accent else colors.textPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                Text(
+                                    text = "每月${ch.repaymentDay}日",
+                                    fontFamily = LedgerTheme.typography.serif,
+                                    fontSize = 12.sp,
+                                    color = colors.textSecondary,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    LedgerTextButton(
+                        text = "+ 新建渠道",
+                        onClick = {
+                            showGearChannelSelectDialog = false
+                            showGearCreateChannelDialog = true
+                        }
+                    )
+                },
+                dismissButton = {
+                    LedgerTextButton(
+                        text = "关闭",
+                        onClick = { showGearChannelSelectDialog = false }
+                    )
+                }
             )
         }
     }
@@ -1515,6 +1668,16 @@ fun LedgerScreen(
             existingGears = assetsOverview?.gearSummary?.items ?: emptyList(),
             expenseCategories = expenseCategories,
             onDismissRequest = { showNewInstallmentSheet = false },
+            onCreateChannel = { name, repayDay ->
+                runCatching {
+                    val created = apiClient.createCreditChannel(
+                        CreateCreditChannelRequest(name = name, repaymentDay = repayDay)
+                    )
+                    LedgerRepository.refreshAssets(apiClient)
+                    refreshAllData()
+                    created
+                }.getOrNull()
+            },
             onSubmit = { req ->
                 scope.launch {
                     runCatching {

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 黄铜回形针 / 书签 (Artisanal Brass Paperclip) -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M16.5,6 L16.5,16.5 C16.5,18.98 14.48,21 12,21 C9.52,21 7.5,18.98 7.5,16.5 L7.5,5 C7.5,3.34 8.84,2 10.5,2 C12.16,2 13.5,3.34 13.5,5 L13.5,16 C13.5,16.83 12.83,17.5 12,17.5 C11.17,17.5 10.5,16.83 10.5,16 L10.5,6 L9,6 L9,16 C9,17.66 10.34,19 12,19 C13.66,19 15,17.66 15,16 L15,5 C15,2.52 12.98,0.5 10.5,0.5 C8.02,0.5 6,2.52 6,5 L6,16.5 C6,19.81 8.69,22.5 12,22.5 C15.31,22.5 18,19.81 18,16.5 L18,6 L16.5,6 Z" />
+</vector>

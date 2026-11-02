@@ -5,9 +5,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +70,7 @@ internal fun AssetsAndGearTab(
     }
 
     val ov = overview ?: AssetsOverview()
+    var showInstallmentOverviewSheet by remember { mutableStateOf(false) }
 
     LazyColumn(
         state = listState,
@@ -105,9 +109,10 @@ internal fun AssetsAndGearTab(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "流动资金",
                             style = LedgerTheme.typography.caption,
@@ -124,7 +129,10 @@ internal fun AssetsAndGearTab(
                         )
                     }
 
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         Text(
                             text = "固定资产",
                             style = LedgerTheme.typography.caption,
@@ -141,9 +149,12 @@ internal fun AssetsAndGearTab(
                         )
                     }
 
-                    Column(horizontalAlignment = Alignment.End) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.End
+                    ) {
                         Text(
-                            text = "待还信贷负债",
+                            text = "待还负债",
                             style = LedgerTheme.typography.caption,
                             fontFamily = LedgerTheme.typography.serif,
                             color = colors.textSecondary
@@ -159,32 +170,12 @@ internal fun AssetsAndGearTab(
                     }
                 }
 
-                if (ov.liquidBalance < 0 && ov.initialLiquidBalance == 0L) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "尚未校准余额，数字可能不准",
-                            style = LedgerTheme.typography.caption,
-                            fontFamily = LedgerTheme.typography.serif,
-                            color = colors.textSecondary
-                        )
-                        LedgerTextButton(
-                            text = "去校准",
-                            onClick = onCalibrateBalanceClick
-                        )
-                    }
-                }
-
                 Spacer(modifier = Modifier.height(14.dp))
                 LedgerDivider()
             }
         }
 
-        // 2. 信贷渠道与分期还款负债
+        // 2. 信贷渠道与分期还款负债（对齐流动资金样式，点击呼出明细底抽）
         item(key = "credit_channels_section") {
             Column(
                 modifier = Modifier
@@ -197,100 +188,83 @@ internal fun AssetsAndGearTab(
                     onActionClick = onNewInstallmentClick
                 )
 
-                if (ov.monthlyLiabilities > 0) {
-                    Text(
-                        text = "本月待还 ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(ov.monthlyLiabilities)}",
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 12.sp,
-                        color = colors.textSecondary,
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    )
-                } else {
-                    Spacer(modifier = Modifier.height(6.dp))
-                }
+                Spacer(modifier = Modifier.height(8.dp))
 
-                if (installmentPlans.isEmpty()) {
-                    Text(
-                        text = "暂无未结清信贷负债",
-                        style = LedgerTheme.typography.body,
-                        fontFamily = LedgerTheme.typography.serif,
-                        color = colors.textSecondary,
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-                } else {
-                    val sortedPlans = installmentPlans.sortedBy { it.nextDueDate ?: "9999-99-99" }
-                    sortedPlans.forEach { plan ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp))
-                                .clickable { onPlanClick(plan) }
-                                .padding(vertical = 6.dp, horizontal = 2.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                Text(
-                                    text = plan.title,
-                                    style = LedgerTheme.typography.body,
-                                    fontFamily = LedgerTheme.typography.serif,
-                                    fontWeight = FontWeight.Medium,
-                                    color = colors.textPrimary
-                                )
-                                if (plan.isOverdue) {
-                                    Text(
-                                        text = "已逾期 ${plan.overdueDays} 天",
-                                        fontFamily = LedgerTheme.typography.serif,
-                                        fontSize = 11.5.sp,
-                                        color = Color(0xFFB33A2B),
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                } else {
-                                    val nextDue = plan.nextDueDate ?: ""
-                                    val nextDueDisplay = if (nextDue.length >= 10) {
-                                        "${nextDue.substring(5, 7).toIntOrNull() ?: 0}月${nextDue.substring(8, 10).toIntOrNull() ?: 0}日"
-                                    } else {
-                                        nextDue
-                                    }
-                                    Text(
-                                        text = "${plan.channelName ?: plan.channelCode} · 第 ${plan.paidPeriods + 1}/${plan.periods} 期 · 下次 $nextDueDisplay",
-                                        fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 11.5.sp,
-                                        color = colors.textSecondary
-                                    )
-                                }
-                            }
-
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(plan.remainingPrincipal),
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = colors.expense
-                                )
-                                Text(
-                                    text = "本期: ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(plan.nextTotal)}",
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 11.5.sp,
-                                    color = colors.textSecondary
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // 区块底部的文字按钮"管理渠道"
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.End
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { showInstallmentOverviewSheet = true }
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    LedgerTextButton(
-                        text = "管理渠道",
-                        onClick = onManageChannelsClick
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "待还总额",
+                            style = LedgerTheme.typography.caption,
+                            fontFamily = LedgerTheme.typography.serif,
+                            color = colors.textSecondary
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(ov.totalLiabilities),
+                            fontFamily = ArchiveFontFamilies.MonoScale,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            color = colors.expense
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "当月待还",
+                            style = LedgerTheme.typography.caption,
+                            fontFamily = LedgerTheme.typography.serif,
+                            color = colors.textSecondary
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(ov.monthlyLiabilities),
+                            fontFamily = ArchiveFontFamilies.MonoScale,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            color = colors.textPrimary
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.End
+                    ) {
+                        Text(
+                            text = "在还分期",
+                            style = LedgerTheme.typography.caption,
+                            fontFamily = LedgerTheme.typography.serif,
+                            color = colors.textSecondary
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = if (installmentPlans.isEmpty()) "暂无欠款" else "${installmentPlans.size} 笔在还",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontWeight = FontWeight.Normal,
+                                fontSize = 13.sp,
+                                color = colors.textSecondary
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text(
+                                text = "›",
+                                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = colors.textSecondary
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -363,6 +337,123 @@ internal fun AssetsAndGearTab(
                                 color = colors.textPrimary
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showInstallmentOverviewSheet) {
+        LedgerSheet(
+            onDismissRequest = { showInstallmentOverviewSheet = false },
+            title = "分期与信贷明细",
+            cancelText = "关闭"
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // 顶部操作栏：新建分期 & 管理渠道
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LedgerTextButton(
+                        text = "新建分期",
+                        onClick = {
+                            showInstallmentOverviewSheet = false
+                            onNewInstallmentClick()
+                        }
+                    )
+                    LedgerTextButton(
+                        text = "管理渠道",
+                        onClick = {
+                            showInstallmentOverviewSheet = false
+                            onManageChannelsClick()
+                        }
+                    )
+                }
+
+                LedgerDivider()
+
+                if (installmentPlans.isEmpty()) {
+                    Text(
+                        text = "暂无未结清信贷负债",
+                        style = LedgerTheme.typography.body,
+                        fontFamily = LedgerTheme.typography.serif,
+                        color = colors.textSecondary,
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    )
+                } else {
+                    val sortedPlans = installmentPlans.sortedBy { it.nextDueDate ?: "9999-99-99" }
+                    sortedPlans.forEach { plan ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable {
+                                    showInstallmentOverviewSheet = false
+                                    onPlanClick(plan)
+                                }
+                                .padding(vertical = 8.dp, horizontal = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                Text(
+                                    text = plan.title,
+                                    style = LedgerTheme.typography.body,
+                                    fontFamily = LedgerTheme.typography.serif,
+                                    fontWeight = FontWeight.Medium,
+                                    color = colors.textPrimary
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                if (plan.isOverdue) {
+                                    Text(
+                                        text = "已逾期 ${plan.overdueDays} 天",
+                                        fontFamily = LedgerTheme.typography.serif,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFFB33A2B),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                } else {
+                                    val nextDue = plan.nextDueDate ?: ""
+                                    val nextDueDisplay = if (nextDue.length >= 10) {
+                                        "${nextDue.substring(5, 7).toIntOrNull() ?: 0}月${nextDue.substring(8, 10).toIntOrNull() ?: 0}日"
+                                    } else {
+                                        nextDue
+                                    }
+                                    Text(
+                                        text = "${plan.channelName ?: plan.channelCode} · 第 ${plan.paidPeriods + 1}/${plan.periods} 期 · 下次 $nextDueDisplay",
+                                        fontFamily = ArchiveFontFamilies.MonoScale,
+                                        fontSize = 12.sp,
+                                        color = colors.textSecondary
+                                    )
+                                }
+                            }
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(plan.remainingPrincipal),
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.expense
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "本期: ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(plan.nextTotal)}",
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    fontSize = 12.sp,
+                                    color = colors.textSecondary
+                                )
+                            }
+                        }
+                        LedgerDivider()
                     }
                 }
             }
