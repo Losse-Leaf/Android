@@ -9,9 +9,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,24 +18,172 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.model.CategoryOption
 import com.looseleaf.app.model.CreateCreditChannelRequest
 import com.looseleaf.app.model.CreditChannel
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTypeScale
+import com.looseleaf.app.ui.components.ArchiveDialog
+import com.looseleaf.app.ui.components.ArchiveEmptyState
+import com.looseleaf.app.ui.components.ArchiveSelectableCapsule
 import com.looseleaf.app.ui.components.ArchiveToastManager
 import com.looseleaf.feature.ledger.theme.LedgerCategoryColors
 import com.looseleaf.feature.ledger.theme.LedgerTheme
 import kotlinx.coroutines.launch
 
+internal val BUILTIN_CHANNEL_CODES = setOf(
+    "HUABEI", "BAITIAO", "CUSTOM_INSTALLMENT",
+    "huabei", "baitiao", "custom_installment"
+)
+
+@Composable
+internal fun CreateCreditChannelDialog(
+    onDismiss: () -> Unit,
+    confirmText: String = "保存",
+    onSubmit: suspend (name: String, repaymentDay: Int) -> Boolean
+) {
+    val scope = rememberCoroutineScope()
+    var newName by remember { mutableStateOf("") }
+    var newDay by remember { mutableStateOf("10") }
+    var isSubmitting by remember { mutableStateOf(false) }
+
+    ArchiveDialog(
+        onDismissRequest = { if (!isSubmitting) onDismiss() },
+        title = "新增还款渠道",
+        confirmButton = {
+            LedgerTextButton(
+                text = if (isSubmitting) "保存中…" else confirmText,
+                enabled = newName.isNotBlank() && !isSubmitting,
+                onClick = {
+                    val day = newDay.toIntOrNull()?.coerceIn(1, 31) ?: 10
+                    isSubmitting = true
+                    scope.launch {
+                        val ok = onSubmit(newName.trim(), day)
+                        isSubmitting = false
+                        if (ok) {
+                            onDismiss()
+                        }
+                    }
+                }
+            )
+        },
+        dismissButton = {
+            LedgerTextButton(
+                text = "取消",
+                enabled = !isSubmitting,
+                onClick = onDismiss
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            LedgerField(
+                value = newName,
+                onValueChange = { newName = it },
+                label = "渠道名称",
+                placeholder = "如 招商银行信用卡",
+                singleLine = true
+            )
+            LedgerField(
+                value = newDay,
+                onValueChange = { newDay = it.filter { c -> c.isDigit() }.take(2) },
+                label = "每月固定还款日",
+                placeholder = "10",
+                trailingText = "日",
+                isNumeric = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true
+            )
+        }
+    }
+}
+
+@Composable
+internal fun SelectCreditChannelDialog(
+    channels: List<CreditChannel>,
+    selectedChannelId: Long?,
+    onSelect: (CreditChannel) -> Unit,
+    onCreateNewClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val colors = LedgerTheme.colors
+    ArchiveDialog(
+        onDismissRequest = onDismiss,
+        title = "选择还款渠道",
+        confirmButton = {
+            LedgerTextButton(
+                text = "+ 新建渠道",
+                onClick = {
+                    onDismiss()
+                    onCreateNewClick()
+                }
+            )
+        },
+        dismissButton = {
+            LedgerTextButton(
+                text = "取消",
+                onClick = onDismiss
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 280.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            channels.forEach { ch ->
+                val isSelected = selectedChannelId == ch.id
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(ArchiveShapes.small)
+                        .background(if (isSelected) colors.surfaceElevated else Color.Transparent)
+                        .clickable {
+                            onSelect(ch)
+                            onDismiss()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = ch.name,
+                        fontFamily = LedgerTheme.typography.serif,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        fontSize = ArchiveTypeScale.body,
+                        color = if (isSelected) colors.accent else colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    Text(
+                        text = "每月${ch.repaymentDay}日",
+                        fontFamily = ArchiveFontFamilies.MonoScale,
+                        fontSize = ArchiveTypeScale.caption,
+                        color = colors.textSecondary,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
 /**
  * 信贷渠道管理抽屉 (LedgerSheet)
- * - 新增行：渠道名称（占位符"渠道名称"）+ 带标签"还款日"的日期选择（1-31，右侧显示"日"）+ 文字按钮"新增"
- * - 列表分两组：分组标题"系统内置"与"我的渠道"；每项第二行写"每月 N 日还款"
- * - 系统内置项不可删除；自定义项左滑删除并支持撤销
+ * - 仅展示用户自建「我的渠道」（与新建分期渠道过滤保持一致）
+ * - 头部右侧主操作「新增」呼出与新建分期一致的 ArchiveDialog 小表单
+ * - 自定义项支持左滑删除并撤销
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,147 +196,37 @@ internal fun CreditChannelsManagerDialog(
 ) {
     val colors = LedgerTheme.colors
     val scope = rememberCoroutineScope()
-    var newChannelName by remember { mutableStateOf("") }
-    var newChannelDay by remember { mutableStateOf("10") }
-    var isSubmitting by remember { mutableStateOf(false) }
+    var showAddDialog by remember { mutableStateOf(false) }
 
-    val builtinChannels = remember(creditChannels) {
-        creditChannels.filter { it.isBuiltin || it.code in setOf("HUABEI", "BAITIAO", "CUSTOM_INSTALLMENT") }
-    }
     val customChannels = remember(creditChannels) {
-        creditChannels.filterNot { it.isBuiltin || it.code in setOf("HUABEI", "BAITIAO", "CUSTOM_INSTALLMENT") }
+        creditChannels.filterNot { it.isBuiltin || it.code in BUILTIN_CHANNEL_CODES }
     }
 
     LedgerSheet(
         onDismissRequest = onDismiss,
-        title = "信贷渠道",
-        cancelText = "关闭"
+        title = "还款渠道",
+        cancelText = "关闭",
+        actionText = "新增",
+        onAction = { showAddDialog = true }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            // 新增渠道行
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.Bottom
-            ) {
-                Box(modifier = Modifier.weight(1f)) {
-                    LedgerField(
-                        value = newChannelName,
-                        onValueChange = { newChannelName = it },
-                        placeholder = "渠道名称",
-                        singleLine = true
-                    )
-                }
-                Box(modifier = Modifier.width(88.dp)) {
-                    LedgerField(
-                        value = newChannelDay,
-                        onValueChange = { newChannelDay = it.filter { c -> c.isDigit() }.take(2) },
-                        label = "还款日",
-                        placeholder = "10",
-                        trailingText = "日",
-                        isNumeric = true,
-                        singleLine = true
-                    )
-                }
-                LedgerTextButton(
-                    text = "新增",
-                    enabled = newChannelName.isNotBlank() && !isSubmitting,
-                    onClick = {
-                        val day = newChannelDay.toIntOrNull()?.coerceIn(1, 31) ?: 10
-                        isSubmitting = true
-                        scope.launch {
-                            runCatching {
-                                apiClient.createCreditChannel(
-                                    CreateCreditChannelRequest(
-                                        name = newChannelName.trim(),
-                                        repaymentDay = day
-                                    )
-                                )
-                                newChannelName = ""
-                                onChannelsChanged()
-                            }.onFailure { err ->
-                                ArchiveToastManager.show("新增渠道失败: ${err.message}", isError = true)
-                            }
-                            isSubmitting = false
-                        }
-                    }
+            if (customChannels.isEmpty()) {
+                ArchiveEmptyState(
+                    title = "还没有还款渠道",
+                    subtitle = "添加常用的信用卡或分期账户，自动推算每月还款日",
+                    actionText = "新增渠道",
+                    onActionClick = { showAddDialog = true }
                 )
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-            LedgerDivider()
-            Spacer(modifier = Modifier.height(10.dp))
-
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 420.dp)
-            ) {
-                // 1. 系统内置分组
-                item(key = "hdr_builtin") {
-                    Text(
-                        text = "系统内置",
-                        style = LedgerTheme.typography.caption,
-                        fontFamily = LedgerTheme.typography.serif,
-                        color = colors.textSecondary,
-                        modifier = Modifier.padding(vertical = 6.dp)
-                    )
-                }
-
-                items(builtinChannels, key = { "builtin_${it.id}" }) { ch ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = ch.name,
-                                style = LedgerTheme.typography.body,
-                                fontFamily = LedgerTheme.typography.serif,
-                                fontWeight = FontWeight.Medium,
-                                color = colors.textPrimary
-                            )
-                            Text(
-                                text = "每月 ${ch.repaymentDay} 日还款",
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 12.sp,
-                                color = colors.textSecondary
-                            )
-                        }
-                    }
-                    LedgerDivider(modifier = Modifier.padding(start = 4.dp))
-                }
-
-                // 2. 我的渠道分组
-                item(key = "hdr_custom") {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "我的渠道",
-                        style = LedgerTheme.typography.caption,
-                        fontFamily = LedgerTheme.typography.serif,
-                        color = colors.textSecondary,
-                        modifier = Modifier.padding(vertical = 6.dp)
-                    )
-                }
-
-                if (customChannels.isEmpty()) {
-                    item(key = "custom_empty") {
-                        Text(
-                            text = "暂无自定义信贷渠道",
-                            style = LedgerTheme.typography.body,
-                            fontFamily = LedgerTheme.typography.serif,
-                            color = colors.textMuted,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-                    }
-                } else {
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                ) {
                     items(customChannels, key = { "custom_${it.id}" }) { ch ->
                         LedgerSwipeRevealRow(
                             onDelete = {
@@ -224,33 +261,55 @@ internal fun CreditChannelsManagerDialog(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 10.dp),
+                                        .padding(vertical = 12.dp, horizontal = 4.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column {
-                                        Text(
-                                            text = ch.name,
-                                            style = LedgerTheme.typography.body,
-                                            fontFamily = LedgerTheme.typography.serif,
-                                            fontWeight = FontWeight.Medium,
-                                            color = colors.textPrimary
-                                        )
-                                        Text(
-                                            text = "每月 ${ch.repaymentDay} 日还款",
-                                            fontFamily = ArchiveFontFamilies.MonoScale,
-                                            fontSize = 12.sp,
-                                            color = colors.textSecondary
-                                        )
-                                    }
+                                    Text(
+                                        text = ch.name,
+                                        style = LedgerTheme.typography.body,
+                                        fontFamily = LedgerTheme.typography.serif,
+                                        fontWeight = FontWeight.Medium,
+                                        color = colors.textPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f).padding(end = 12.dp)
+                                    )
+                                    Text(
+                                        text = "每月 ${ch.repaymentDay} 日还款",
+                                        fontFamily = ArchiveFontFamilies.MonoScale,
+                                        fontSize = ArchiveTypeScale.caption,
+                                        color = colors.textSecondary,
+                                        maxLines = 1
+                                    )
                                 }
-                                LedgerDivider(modifier = Modifier.padding(start = 4.dp))
+                                LedgerDivider()
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    if (showAddDialog) {
+        CreateCreditChannelDialog(
+            onDismiss = { showAddDialog = false },
+            confirmText = "新增",
+            onSubmit = { name, day ->
+                runCatching {
+                    apiClient.createCreditChannel(
+                        CreateCreditChannelRequest(
+                            name = name,
+                            repaymentDay = day
+                        )
+                    )
+                    onChannelsChanged()
+                }.onFailure { err ->
+                    ArchiveToastManager.show("新增渠道失败: ${err.message}", isError = true)
+                }.isSuccess
+            }
+        )
     }
 }
 
@@ -319,9 +378,9 @@ internal fun CategoriesManagerDialog(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 scopes.forEach { (sc, label) ->
-                    LedgerChoiceItem(
+                    ArchiveSelectableCapsule(
                         text = label,
-                        isSelected = selectedScope == sc,
+                        selected = selectedScope == sc,
                         onClick = {
                             if (selectedScope != sc) {
                                 selectedScope = sc

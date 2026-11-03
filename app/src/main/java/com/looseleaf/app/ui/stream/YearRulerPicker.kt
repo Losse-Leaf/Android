@@ -133,7 +133,7 @@ internal fun YearRulerPicker(
                     Text(
                         text = "重置为全部",
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 12.5.sp,
+                        fontSize = 12.sp,
                         color = colors.inkSecondary
                     )
                 }

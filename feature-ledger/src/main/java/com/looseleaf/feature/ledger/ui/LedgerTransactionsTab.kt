@@ -32,6 +32,9 @@ import androidx.compose.ui.unit.sp
 import com.looseleaf.app.model.Transaction
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTypeScale
+import androidx.compose.ui.text.TextStyle
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.core.R
 import com.looseleaf.feature.ledger.data.CategoryTotalRow
@@ -201,19 +204,19 @@ internal fun TransactionsLedgerTab(
                         Text(
                             text = "收入 ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(totalIncome)}",
                             fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontSize = 12.sp,
+                            fontSize = ArchiveTypeScale.caption,
                             color = colors.income
                         )
                         Text(
                             text = "·",
                             color = colors.textMuted,
-                            fontSize = 12.sp
+                            fontSize = ArchiveTypeScale.caption
                         )
-                        val balanceColor = colors.textPrimary // 结余为负时也用正文色加负号，不使用红色
+                        val balanceColor = if (!isPrivacyMasked && monthBalance < 0) colors.alertRed else colors.textPrimary
                         Text(
                             text = "结余 ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(monthBalance)}",
                             fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontSize = 12.sp,
+                            fontSize = ArchiveTypeScale.caption,
                             color = balanceColor
                         )
                     }
@@ -289,7 +292,7 @@ internal fun TransactionsLedgerTab(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp))
+                                .clip(ArchiveShapes.small)
                                 .clickable { onOpenUpcomingInstallments() }
                                 .padding(vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -301,7 +304,7 @@ internal fun TransactionsLedgerTab(
                                         modifier = Modifier
                                             .size(6.dp)
                                             .clip(CircleShape)
-                                            .background(Color(0xFFC46243)) // 赤陶小点
+                                            .background(colors.accent)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                 }
@@ -311,33 +314,33 @@ internal fun TransactionsLedgerTab(
                                     fontFamily = LedgerTheme.typography.serif,
                                     fontWeight = FontWeight.Medium,
                                     color = colors.textPrimary,
-                                    fontSize = 13.sp
+                                    fontSize = ArchiveTypeScale.body
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
                                     text = "本月已还 ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(installmentSummary.thisMonthPaid)}",
                                     fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 12.sp,
+                                    fontSize = ArchiveTypeScale.caption,
                                     color = colors.textSecondary
                                 )
                                 Text(
                                     text = " · ",
                                     color = colors.textMuted,
-                                    fontSize = 12.sp
+                                    fontSize = ArchiveTypeScale.caption
                                 )
                                 if (installmentSummary.overdueCount > 0) {
                                     Text(
                                         text = "待还 ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(installmentSummary.thisMonthScheduled + installmentSummary.overdueAmount)} (含逾期)",
                                         fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 12.sp,
-                                        color = Color(0xFFB33A2B), // 砖红文字
+                                        fontSize = ArchiveTypeScale.caption,
+                                        color = colors.alertRed,
                                         fontWeight = FontWeight.Medium
                                     )
                                 } else {
                                     Text(
                                         text = "待还 ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(installmentSummary.thisMonthScheduled)}",
                                         fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 12.sp,
+                                        fontSize = ArchiveTypeScale.caption,
                                         color = colors.textSecondary
                                     )
                                 }
@@ -345,7 +348,7 @@ internal fun TransactionsLedgerTab(
 
                             Text(
                                 text = "›",
-                                fontSize = 16.sp,
+                                fontSize = ArchiveTypeScale.bodyLarge,
                                 color = colors.textMuted
                             )
                         }
@@ -363,9 +366,7 @@ internal fun TransactionsLedgerTab(
                         title = "这个月还没有账目",
                         actionText = "记一笔",
                         onActionClick = onNavigateToKeypad,
-                        modifier = Modifier
-                            .padding(vertical = 40.dp)
-                            .then(monthSwipeModifier)
+                        modifier = monthSwipeModifier
                     )
                 }
             } else {
@@ -559,8 +560,10 @@ private fun TransactionRowItem(
                 Text(
                     text = subtitleText,
                     fontFamily = ArchiveFontFamilies.MonoScale,
-                    fontSize = 11.5.sp,
-                    color = colors.textSecondary
+                    fontSize = ArchiveTypeScale.caption,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -570,9 +573,12 @@ private fun TransactionRowItem(
         // 右侧金额：等宽、右对齐
         Text(
             text = displayAmount,
-            fontFamily = ArchiveFontFamilies.MonoScale,
-            fontWeight = FontWeight.Medium,
-            fontSize = 15.sp,
+            style = TextStyle(
+                fontFamily = ArchiveFontFamilies.MonoScale,
+                fontWeight = FontWeight.Medium,
+                fontSize = ArchiveTypeScale.bodyLarge,
+                fontFeatureSettings = "tnum"
+            ),
             textAlign = TextAlign.End,
             color = if (isIncome) colors.income else colors.expense
         )

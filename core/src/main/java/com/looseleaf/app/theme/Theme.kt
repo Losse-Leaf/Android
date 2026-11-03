@@ -4,6 +4,7 @@ import android.app.Activity
 import android.graphics.drawable.ColorDrawable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -28,6 +29,15 @@ object LooseLeafTheme {
         @Composable
         @ReadOnlyComposable
         get() = LocalArchiveColors.current
+
+    val typography: Typography
+        @Composable
+        @ReadOnlyComposable
+        get() = MaterialTheme.typography
+
+    val typeScale: ArchiveTypeScale = ArchiveTypeScale
+    val shapes: ArchiveShapes = ArchiveShapes
+    val spacing: ArchiveSpacing = ArchiveSpacing
 }
 
 @Suppress("DEPRECATION")

@@ -16,8 +16,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 
 /**
@@ -58,7 +58,7 @@ fun ArchiveField(
         if (!label.isNullOrBlank()) {
             Text(
                 text = label,
-                fontSize = 11.5.sp,
+                fontSize = ArchiveTypeScale.caption,
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                 color = if (isFocused) colors.accentWarm else colors.inkSecondary,
                 maxLines = 1,
@@ -78,7 +78,7 @@ fun ArchiveField(
                     Text(
                         text = placeholder,
                         fontFamily = if (isNumeric) ArchiveFontFamilies.MonoScale else ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 15.sp,
+                        fontSize = ArchiveTypeScale.bodyLarge,
                         color = colors.inkMuted,
                         maxLines = if (singleLine) 1 else maxLines,
                         overflow = TextOverflow.Ellipsis
@@ -92,7 +92,7 @@ fun ArchiveField(
                         .onFocusChanged { isFocused = it.isFocused },
                     textStyle = TextStyle(
                         fontFamily = if (isNumeric) ArchiveFontFamilies.MonoScale else ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 15.sp,
+                        fontSize = ArchiveTypeScale.bodyLarge,
                         color = colors.inkPrimary
                     ),
                     singleLine = singleLine,
@@ -118,7 +118,7 @@ fun ArchiveField(
                 Text(
                     text = trailingText,
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 13.sp,
+                    fontSize = ArchiveTypeScale.body,
                     color = colors.inkSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -144,8 +144,8 @@ fun ArchiveField(
             Text(
                 text = errorMessage,
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = 11.5.sp,
-                color = colors.inkSecondary
+                fontSize = ArchiveTypeScale.caption,
+                color = colors.alertRed
             )
         }
     }

@@ -457,6 +457,21 @@ data class SellGearRequest(
     val note: String? = null
 )
 
+@Serializable
+data class RestoreGearAssetRequest(
+    val id: String,
+    val name: String,
+    val spec: String = "",
+    val category: String = "数码器材",
+    val status: String = "active",
+    @SerialName("price_cents") val priceCents: Long = 0,
+    @SerialName("purchase_date") val purchaseDate: String? = null,
+    @SerialName("sold_price_cents") val soldPriceCents: Long = 0,
+    @SerialName("sold_date") val soldDate: String? = null,
+    val note: String? = null,
+    val index: Int = -1
+)
+
 // ───────────────────────────────────────────────
 // 真实分期还款计划体系契约模型 (RC-140)
 // ───────────────────────────────────────────────

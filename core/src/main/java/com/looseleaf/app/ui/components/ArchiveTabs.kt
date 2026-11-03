@@ -7,16 +7,22 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 
 /**
  * 纯文字子页/分段切换：纯文字标签，选中项加粗 + 2dp 赤陶下划线，无框无底色
- * 支持可传入数量 counts（展示为紧随标签后的小号等宽数字，数量为 0 时隐藏）
+ * 支持可传入数量 counts（展示为小圆角徽标，数量为 0 时隐藏，与标题文字明确区分）
  */
 @Composable
 fun ArchiveSegmentedTabs(
@@ -27,6 +33,7 @@ fun ArchiveSegmentedTabs(
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
+    val haptic = LocalHapticFeedback.current
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -38,7 +45,12 @@ fun ArchiveSegmentedTabs(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .clickable(role = Role.Tab) { onTabSelected(index) }
+                    .clickable(role = Role.Tab) {
+                        if (!isSelected) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                        onTabSelected(index)
+                    }
                     .padding(vertical = 4.dp)
                     .width(IntrinsicSize.Max)
             ) {
@@ -47,20 +59,38 @@ fun ArchiveSegmentedTabs(
                         text = title,
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        fontSize = 15.sp,
+                        fontSize = ArchiveTypeScale.bodyLarge,
                         color = if (isSelected) colors.inkPrimary else colors.inkSecondary,
                         maxLines = 1
                     )
                     if (count > 0) {
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = count.toString(),
-                            fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontWeight = FontWeight.Normal,
-                            fontSize = 12.sp,
-                            color = colors.inkMuted,
-                            maxLines = 1
-                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .height(18.dp)
+                                .defaultMinSize(minWidth = 18.dp)
+                                .clip(ArchiveShapes.full)
+                                .background(
+                                    if (isSelected) colors.accentWarm.copy(alpha = 0.14f)
+                                    else colors.archiveSubtle
+                                )
+                                .padding(horizontal = 5.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = count.toString(),
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                fontSize = ArchiveTypeScale.micro,
+                                lineHeight = ArchiveTypeScale.micro,
+                                color = if (isSelected) colors.accentWarm else colors.inkMuted,
+                                style = TextStyle(
+                                    platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                    fontFeatureSettings = "tnum"
+                                ),
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(4.dp))
@@ -90,18 +120,27 @@ fun ArchiveTypeToggleButton(
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
+    val haptic = LocalHapticFeedback.current
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
-            .clickable(role = Role.Tab, onClick = onClick)
+            .clickable(
+                role = Role.Tab,
+                onClick = {
+                    if (!isSelected) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+                    onClick()
+                }
+            )
             .padding(horizontal = 12.dp, vertical = 4.dp)
     ) {
         Text(
             text = text,
             fontFamily = ArchiveFontFamilies.EditorialSerif,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-            fontSize = 14.sp,
+            fontSize = ArchiveTypeScale.body,
             color = if (isSelected) colors.inkPrimary else colors.inkSecondary
         )
         Spacer(modifier = Modifier.height(4.dp))

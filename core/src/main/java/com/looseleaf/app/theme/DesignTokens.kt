@@ -32,32 +32,31 @@ object ArchiveLines {
 
 /**
  * 散页手账圆角体系 (Archive Shapes)
- * 严格收敛为两档：4dp (内容微圆角) 与 全圆 (Circle / Pill)
+ * 严格收敛为三档：small 4dp（输入框 / 标签 / 按钮）、medium 12dp（卡片 / 抽屉 / 弹窗）、full（可选胶囊 / 圆点）
  */
 object ArchiveShapes {
-    /** 微圆角 4dp (配图、按压微高亮矩形) */
-    val radiusSmall: RoundedCornerShape = RoundedCornerShape(4.dp)
+    /** 小圆角 4dp（输入框、标签、紧凑按钮、配图） */
+    val small: RoundedCornerShape = RoundedCornerShape(4.dp)
 
-    /** 全圆 (FAB、分类色点、状态邮戳) */
-    val radiusFull: RoundedCornerShape = RoundedCornerShape(50)
+    /** 中圆角 12dp（弹层卡片、汇总卡片） */
+    val medium: RoundedCornerShape = RoundedCornerShape(12.dp)
 
-    /** 散页纸张切角：严格统一至 4dp */
-    val paperCut: RoundedCornerShape = radiusSmall
+    /** 底部抽屉顶边圆角 12dp */
+    val sheetTop: RoundedCornerShape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
 
-    /** 索引标签页耳朵：统一至 4dp */
-    val tagEar: RoundedCornerShape = radiusSmall
+    /** 全圆角（可选胶囊、FAB、分类色点、状态徽标） */
+    val full: RoundedCornerShape = RoundedCornerShape(50)
 
-    /** 全圆角胶囊与印章 */
-    val pill: RoundedCornerShape = radiusFull
-
-    /** 弹层、底抽纸笺与对话框 16dp */
-    val dialogLayer: RoundedCornerShape = RoundedCornerShape(16.dp)
-
-    /** 和纸胶带：统一至 4dp */
-    val washiTape: RoundedCornerShape = radiusSmall
-
-    /** 底栏指示器 */
-    val bookmark: RoundedCornerShape = radiusSmall
+    /** 兼容语义别名 */
+    val radiusSmall: RoundedCornerShape = small
+    val radiusMedium: RoundedCornerShape = medium
+    val radiusFull: RoundedCornerShape = full
+    val paperCut: RoundedCornerShape = small
+    val tagEar: RoundedCornerShape = small
+    val pill: RoundedCornerShape = full
+    val dialogLayer: RoundedCornerShape = medium
+    val washiTape: RoundedCornerShape = small
+    val bookmark: RoundedCornerShape = small
 }
 
 /**

@@ -79,7 +79,7 @@ internal fun FailedEventsSheet(
             Text(
                 text = "下列手稿在与中枢同步时受阻，已妥善保存在本地离线库中，请确认后重发或放弃：",
                 fontFamily = ArchiveFontFamilies.BodySans,
-                fontSize = 12.5.sp,
+                fontSize = 12.sp,
                 lineHeight = 18.sp,
                 color = colors.inkMuted,
                 modifier = Modifier.padding(bottom = 14.dp)
@@ -190,7 +190,7 @@ internal fun FailedEventsSheet(
                         text = "全部重新投递",
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
-                        fontSize = 13.5.sp
+                        fontSize = 14.sp
                     )
                 }
             }
@@ -240,7 +240,7 @@ private fun FailedEventItemRow(
                     Text(
                         text = "重试 ${event.retryCount} 次",
                         fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 10.5.sp,
+                        fontSize = 11.sp,
                         color = colors.accentWarm
                     )
                 }
@@ -250,7 +250,7 @@ private fun FailedEventItemRow(
                 Text(
                     text = event.lastError ?: "连接中枢受阻",
                     fontFamily = ArchiveFontFamilies.BodySans,
-                    fontSize = 11.5.sp,
+                    fontSize = 12.sp,
                     color = colors.inkMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

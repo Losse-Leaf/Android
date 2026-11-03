@@ -62,9 +62,9 @@ fun ArchiveSnackbar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(ArchiveShapes.radiusSmall)
-            .background(if (colors.isDark) Color(0xFF22201D) else Color(0xFFECE5D8))
-            .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.radiusSmall)
+            .clip(ArchiveShapes.medium)
+            .background(colors.archiveCard)
+            .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.medium)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically

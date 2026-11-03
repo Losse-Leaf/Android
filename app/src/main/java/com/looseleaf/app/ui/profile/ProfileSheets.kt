@@ -31,6 +31,7 @@ import com.looseleaf.app.model.PairTicketResponse
 import com.looseleaf.app.model.TrustedDevice
 import com.looseleaf.app.model.UpdateProfileRequest
 import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.updater.UpdateChecker
@@ -294,29 +295,12 @@ internal fun SettingsSheet(
                         AppearanceMode.DARKROOM to "暗房"
                     )
                     options.forEach { (mode, label) ->
-                        val selected = appearanceMode == mode
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (selected) colors.accentWarm.copy(alpha = 0.12f) else colors.archiveCard)
-                                .border(
-                                    1.dp,
-                                    if (selected) colors.accentWarm else colors.borderSubtle,
-                                    RoundedCornerShape(4.dp)
-                                )
-                                .clickable { onAppearanceModeChanged(mode) }
-                                .padding(vertical = 8.dp)
-                        ) {
-                            Text(
-                                text = label,
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                fontSize = 13.sp,
-                                color = if (selected) colors.accentWarm else colors.inkPrimary
-                            )
-                        }
+                        ArchiveSelectableCapsule(
+                            text = label,
+                            selected = appearanceMode == mode,
+                            onClick = { onAppearanceModeChanged(mode) },
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
 
@@ -333,14 +317,14 @@ internal fun SettingsSheet(
                         Text(
                             text = "生物识别门禁",
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 13.5.sp,
+                            fontSize = 14.sp,
                             color = colors.inkPrimary
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "应用切入后台或冷启动时需验证面容/指纹",
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 11.5.sp,
+                            fontSize = 12.sp,
                             color = colors.inkSecondary
                         )
                     }
@@ -368,14 +352,14 @@ internal fun SettingsSheet(
                             Text(
                                 text = "活页打孔装订线",
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 13.5.sp,
+                                fontSize = 14.sp,
                                 color = colors.inkPrimary
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "在时间流左边缘呈现真实活页冲孔装订纹理",
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 11.5.sp,
+                                fontSize = 12.sp,
                                 color = colors.inkSecondary
                             )
                         }
@@ -404,14 +388,14 @@ internal fun SettingsSheet(
                             Text(
                                 text = "手账质感装饰",
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 13.5.sp,
+                                fontSize = 14.sp,
                                 color = colors.inkPrimary
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "开启微旋转、倾角、和纸胶带、按压下沉与纸张错位",
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 11.5.sp,
+                                fontSize = 12.sp,
                                 color = colors.inkSecondary
                             )
                         }
@@ -447,14 +431,14 @@ internal fun SettingsSheet(
                             Text(
                                 text = "分期还款到期提醒",
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 13.5.sp,
+                                fontSize = 14.sp,
                                 color = colors.inkPrimary
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "到期前一天与当天提醒还款计划，不漏交手续费",
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 11.5.sp,
+                                fontSize = 12.sp,
                                 color = colors.inkSecondary
                             )
                         }
@@ -535,7 +519,7 @@ internal fun SettingsSheet(
                                     onClick = onClosePairTicket,
                                     contentPadding = PaddingValues(0.dp)
                                 ) {
-                                    Text("收起", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 11.5.sp, color = colors.inkMuted)
+                                    Text("收起", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 12.sp, color = colors.inkMuted)
                                 }
                             }
                             Spacer(modifier = Modifier.height(4.dp))
@@ -604,7 +588,7 @@ internal fun SettingsSheet(
                                     text = "其他受信任设备 (${otherDevices.size} 台)",
                                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                                     fontWeight = FontWeight.Medium,
-                                    fontSize = 13.5.sp,
+                                    fontSize = 14.sp,
                                     color = colors.inkPrimary
                                 )
                                 Text(
@@ -702,7 +686,7 @@ internal fun SettingsSheet(
                     Text(
                         text = if (isCheckingUpdate) "正在检索更新..." else "检测云端最新发布",
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 12.5.sp,
+                        fontSize = 12.sp,
                         color = colors.inkSecondary
                     )
 
@@ -739,7 +723,7 @@ internal fun SettingsSheet(
                         text = "解除本机配对并清空本地缓存",
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
-                        fontSize = 13.5.sp,
+                        fontSize = 14.sp,
                         color = colors.alertRed
                     )
                 }

@@ -108,7 +108,7 @@ internal fun OnThisDayCard(
                         text = stringResource(R.string.stream_entries_text_tpl_01, entries.size),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontWeight = FontWeight.Medium,
-                        fontSize = 13.5.sp,
+                        fontSize = 14.sp,
                         color = colors.inkPrimary
                     )
                 }
@@ -234,7 +234,7 @@ internal fun LifeActivityHeatmap(
                 Text(
                     text = stringResource(R.string.stream_entries_text_01),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 12.5.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.inkPrimary
                 )
@@ -262,7 +262,7 @@ internal fun LifeActivityHeatmap(
                     Text(
                         text = "年度年鉴",
                         fontFamily = ArchiveFontFamilies.BodySans,
-                        fontSize = 11.5.sp,
+                        fontSize = 12.sp,
                         color = colors.accentWarm
                     )
                 }
@@ -341,13 +341,15 @@ internal fun LifeActivityHeatmap(
                                 size = cellSize,
                                 cornerRadius = radius
                             )
+                            val strokePx = if (isToday) 0.8.dp.toPx() else 0.3.dp.toPx()
+                            val half = strokePx / 2f
                             drawRoundRect(
                                 color = if (isToday) colors.accentWarm
                                 else colors.borderDivider.copy(alpha = 0.6f),
-                                topLeft = topLeft,
-                                size = cellSize,
+                                topLeft = Offset(topLeft.x + half, topLeft.y + half),
+                                size = Size((cell - strokePx).coerceAtLeast(1f), (cell - strokePx).coerceAtLeast(1f)),
                                 cornerRadius = radius,
-                                style = Stroke(width = if (isToday) 0.8.dp.toPx() else 0.3.dp.toPx())
+                                style = Stroke(width = strokePx)
                             )
                         }
                     }
@@ -505,7 +507,7 @@ internal fun StreamMonthHeader(
         Text(
             text = monthDisplay,
             fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontSize = 11.5.sp,
+            fontSize = 12.sp,
             letterSpacing = 1.2.sp,
             color = colors.inkMuted
         )
@@ -513,13 +515,13 @@ internal fun StreamMonthHeader(
 }
 
 /**
- * 日期分组行 (27 大号衬线数字 + 10月 · 周二 正体衬线次要色 + 今天/昨天次要色小字，无虚线与剪刀)
- * 吸顶时文字上沿与标签行底部分割线保持 8dp，背景为不透明纸色防止内容穿透
+ * 日期分组行（23 周五 + 今天/昨天次要色小字；月份已由上方月份分组标题承担，避免重复）
+ * 吸顶时背景为不透明纸色防止内容穿透
  */
 @Composable
 internal fun StreamDayHeader(
     dayOfMonth: Int,
-    monthValue: Int,
+    @Suppress("UNUSED_PARAMETER") monthValue: Int,
     weekday: String,
     relativeDay: String?,
     modifier: Modifier = Modifier
@@ -530,25 +532,23 @@ internal fun StreamDayHeader(
         modifier = modifier
             .fillMaxWidth()
             .background(colors.archivePaper)
-            .padding(top = 8.dp, bottom = 8.dp),
+            .padding(top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // "27" 大号衬线数字 (28sp Serif Bold)
         Text(
             text = dayOfMonth.toString().padStart(2, '0'),
             fontFamily = ArchiveFontFamilies.EditorialSerif,
             fontWeight = FontWeight.Bold,
-            fontSize = 28.sp,
-            lineHeight = 28.sp,
+            fontSize = 22.sp,
+            lineHeight = 24.sp,
             color = colors.inkPrimary,
             modifier = Modifier.alignByBaseline()
         )
 
         Spacer(modifier = Modifier.width(8.dp))
 
-        // "10月 · 周二" 正体衬线次要色
         Text(
-            text = "${monthValue}月 · $weekday",
+            text = weekday,
             fontFamily = ArchiveFontFamilies.EditorialSerif,
             fontWeight = FontWeight.Normal,
             fontSize = 14.sp,
@@ -556,7 +556,6 @@ internal fun StreamDayHeader(
             modifier = Modifier.alignByBaseline()
         )
 
-        // "今天/昨天" 仅为次要色文字，不用赤陶、不加描边
         relativeDay?.let { rel ->
             Spacer(modifier = Modifier.width(8.dp))
             Text(
@@ -665,7 +664,7 @@ internal fun StreamEntryCard(
             Column(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // 第一行：时间（等宽）· 分类色点 + 分类名，全部靠左；右侧不再放任何元信息
+                // 第一行：时间（等宽） + 低饱和四色分类微标签（色点 + 同色文字，双重编码易辨识）
                 val (label, tint) = when (entry.type) {
                     "travel" -> "游历" to colors.tagTravel
                     "project" -> "造物" to colors.tagProject
@@ -679,49 +678,49 @@ internal fun StreamEntryCard(
                     Text(
                         text = row.timeDisplay.ifBlank { row.displayTime },
                         fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 11.5.sp,
-                        letterSpacing = 0.5.sp,
+                        fontSize = 12.sp,
+                        letterSpacing = 0.4.sp,
                         color = colors.inkMuted,
                         fontWeight = FontWeight.Medium
                     )
 
-                    Text(
-                        text = " · ",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 11.5.sp,
-                        color = colors.inkMuted
-                    )
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                    Box(
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(tint)
-                    )
-
-                    Spacer(modifier = Modifier.width(4.dp))
-
-                    Text(
-                        text = label,
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 11.5.sp,
-                        color = colors.inkSecondary,
-                        fontWeight = FontWeight.Normal
-                    )
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(tint.copy(alpha = 0.10f))
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(tint)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = label,
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 11.sp,
+                            color = tint,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
 
-                // 有图时：图片放在条目内标题上方，4dp 圆角，宽度与内容齐，不加边框和旋转
-                // 图片上方与时间行 8dp，下方与标题 12dp；无图时时间行与标题 6dp
+                // 有图时展示紧凑配图条；无图时压紧元信息与标题间距至 4dp，提升一屏信息密度
                 if (entry.attachments.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     StreamImageAttachments(
                         attachments = entry.attachments,
                         apiClient = apiClient,
                         onPhotoClick = onPhotoClick
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                 } else {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                 }
 
                 // 第二行：标题（衬线 SemiBold，最多 2 行）
@@ -729,7 +728,7 @@ internal fun StreamEntryCard(
                     text = entry.title,
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.5.sp,
+                    fontSize = 16.sp,
                     lineHeight = 22.sp,
                     letterSpacing = 0.2.sp,
                     maxLines = 2,
@@ -737,26 +736,24 @@ internal fun StreamEntryCard(
                     color = colors.inkPrimary
                 )
 
-                // 第三行：摘要（最多 3 行，次要色，行高 1.5，空则省略）
-                // 标题→摘要 4dp
+                // 第三行：摘要（最多 2 行，次要色，空则省略）
                 if (entry.content.isNotBlank() && entry.content != "无文字记录") {
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = entry.content,
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 13.5.sp,
+                        fontSize = 14.sp,
                         lineHeight = 20.sp,
                         letterSpacing = 0.1.sp,
                         color = colors.inkSecondary,
-                        maxLines = 3,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
                 // 最后一行：位置等元信息（次要色小字，无则省略）
-                // 摘要→位置 8dp
                 if (row.displayPlace.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -770,7 +767,7 @@ internal fun StreamEntryCard(
                         Text(
                             text = row.displayPlace,
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 11.5.sp,
+                            fontSize = 12.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             color = colors.inkMuted
@@ -780,15 +777,15 @@ internal fun StreamEntryCard(
             }
         }
 
-        // 条目之间：内容底部 16dp → 1dp 分隔线 → 16dp
-        Spacer(modifier = Modifier.height(16.dp))
+        // 条目间距收敛至 20dp（10dp + 1dp 淡线 + 10dp），一屏可容纳 5~6 条纯文本手记
+        Spacer(modifier = Modifier.height(10.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
                 .background(colors.borderDivider)
         )
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(10.dp))
     }
 }
 

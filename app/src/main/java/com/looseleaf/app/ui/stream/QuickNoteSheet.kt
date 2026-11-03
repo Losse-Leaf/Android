@@ -346,333 +346,282 @@ private fun QuickNoteSheetBody(
     }
 
     val headerTitle = when (noteType) {
-        "life" -> "《新散页》"
-        "travel" -> "《游历手记》"
-        "project" -> if (projectMode == "entry") "《造物手记》" else "《立项新造物》"
-        "wish" -> "《封存心愿》"
-        else -> "《散页》"
+        "life" -> "新散页"
+        "travel" -> "游历手记"
+        "project" -> if (projectMode == "entry") "造物手记" else "新建造物"
+        "wish" -> "许下心愿"
+        else -> "新散页"
     }
 
-    val submitText = if (isSubmitting) "归册中…" else when (noteType) {
-        "life" -> "存入散页"
-        "travel" -> "归册游记"
-        "project" -> if (projectMode == "entry") "存入手记" else "确认立项"
-        "wish" -> "封存心愿"
+    val submitText = if (isSubmitting) "提交中…" else when (noteType) {
+        "life" -> "归册"
+        "travel" -> "归册"
+        "project" -> if (projectMode == "entry") "归册" else "立项"
+        "wish" -> "封存"
         else -> "归册"
     }
 
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
-    val maxSheetHeight = (screenHeight - statusBarTop - 16.dp).coerceAtLeast(200.dp)
+    val onSubmitAction: () -> Unit = {
+        scope.launch {
+            isSubmitting = true
 
-    ModalBottomSheet(
+            try {
+                val finalCode = noteCityCode ?: CityDictionary.codeForLocation(noteLocation)
+                val finalCityName = noteCityName ?: finalCode?.let { CityDictionary.cityNameForCode(it) }
+
+                when (noteType) {
+                    "life" -> {
+                        val effectiveTitle = noteTitle.ifBlank {
+                            if (attachedPhotos.isNotEmpty()) "现场快门 · " + (attachedPhotos.first().processed.exif.model ?: "胶片相纸")
+                            else "无题随笔"
+                        }
+                        if (attachedPhotos.isNotEmpty()) {
+                            val primary = attachedPhotos.first()
+                            val extraFiles = attachedPhotos.drop(1).map {
+                                OfflineMediaFileItem(
+                                    filePath = it.savedFile.absolutePath,
+                                    mimeType = it.processed.mimeType,
+                                    width = it.processed.width,
+                                    height = it.processed.height
+                                )
+                            }
+                            val req = CreateEntryRequest(
+                                type = "life",
+                                title = effectiveTitle,
+                                content = noteContent.trim(),
+                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
+                                location = noteLocation.trim().takeIf { it.isNotBlank() },
+                                cityCode = finalCode,
+                                cityName = finalCityName,
+                            )
+                            syncManager.createMediaEntryOffline(
+                                localImageFilePath = primary.savedFile.absolutePath,
+                                mimeType = primary.processed.mimeType,
+                                width = primary.processed.width,
+                                height = primary.processed.height,
+                                req = req,
+                                additionalMediaFiles = extraFiles
+                            )
+                            ArchiveToastManager.show("图文散页已装裱归册")
+                        } else {
+                            syncManager.createEntryOptimistic(
+                                type = "life",
+                                title = effectiveTitle,
+                                content = noteContent.trim(),
+                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
+                                location = noteLocation.trim().takeIf { it.isNotBlank() },
+                                cityCode = finalCode,
+                                cityName = finalCityName,
+                            )
+                            ArchiveToastManager.show("随笔已归册")
+                        }
+                    }
+
+                    "travel" -> {
+                        val effectiveTitle = noteTitle.ifBlank {
+                            val dest = finalCityName ?: "远方"
+                            "游历 · $dest"
+                        }
+                        if (attachedPhotos.isNotEmpty()) {
+                            val primary = attachedPhotos.first()
+                            val extraFiles = attachedPhotos.drop(1).map {
+                                OfflineMediaFileItem(
+                                    filePath = it.savedFile.absolutePath,
+                                    mimeType = it.processed.mimeType,
+                                    width = it.processed.width,
+                                    height = it.processed.height
+                                )
+                            }
+                            val req = CreateEntryRequest(
+                                type = "travel",
+                                title = effectiveTitle,
+                                content = noteContent.trim(),
+                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
+                                location = noteLocation.trim().takeIf { it.isNotBlank() },
+                                cityCode = finalCode,
+                                cityName = finalCityName,
+                                footprintId = selectedFootprintId
+                            )
+                            syncManager.createMediaEntryOffline(
+                                localImageFilePath = primary.savedFile.absolutePath,
+                                mimeType = primary.processed.mimeType,
+                                width = primary.processed.width,
+                                height = primary.processed.height,
+                                req = req,
+                                additionalMediaFiles = extraFiles
+                            )
+                            ArchiveToastManager.show("游历图文手记已归册")
+                        } else {
+                            syncManager.createEntryOptimistic(
+                                type = "travel",
+                                title = effectiveTitle,
+                                content = noteContent.trim(),
+                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
+                                location = noteLocation.trim().takeIf { it.isNotBlank() },
+                                cityCode = finalCode,
+                                cityName = finalCityName,
+                                footprintId = selectedFootprintId
+                            )
+                            ArchiveToastManager.show("游历手记已归册")
+                        }
+                    }
+
+                    "project" -> {
+                        if (projectMode == "entry") {
+                            val effectiveTitle = noteTitle.ifBlank {
+                                val proj = projects.firstOrNull { it.id == selectedProjectId }
+                                if (proj != null) "${proj.title} · 进展记录" else "造物手记"
+                            }
+                            if (attachedPhotos.isNotEmpty()) {
+                                val primary = attachedPhotos.first()
+                                val extraFiles = attachedPhotos.drop(1).map {
+                                    OfflineMediaFileItem(
+                                        filePath = it.savedFile.absolutePath,
+                                        mimeType = it.processed.mimeType,
+                                        width = it.processed.width,
+                                        height = it.processed.height
+                                    )
+                                }
+                                val req = CreateEntryRequest(
+                                    type = "project",
+                                    title = effectiveTitle,
+                                    content = noteContent.trim(),
+                                    occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
+                                    location = noteLocation.trim().takeIf { it.isNotBlank() },
+                                    cityCode = finalCode,
+                                    cityName = finalCityName,
+                                    projectId = selectedProjectId
+                                )
+                                syncManager.createMediaEntryOffline(
+                                    localImageFilePath = primary.savedFile.absolutePath,
+                                    mimeType = primary.processed.mimeType,
+                                    width = primary.processed.width,
+                                    height = primary.processed.height,
+                                    req = req,
+                                    additionalMediaFiles = extraFiles
+                                )
+                                ArchiveToastManager.show("造物进展手记已装裱归册")
+                            } else {
+                                syncManager.createEntryOptimistic(
+                                    type = "project",
+                                    title = effectiveTitle,
+                                    content = noteContent.trim(),
+                                    occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
+                                    location = noteLocation.trim().takeIf { it.isNotBlank() },
+                                    cityCode = finalCode,
+                                    cityName = finalCityName,
+                                    projectId = selectedProjectId
+                                )
+                                ArchiveToastManager.show("造物进展已归册")
+                            }
+                        } else {
+                            if (attachedPhotos.isNotEmpty()) {
+                                clearAttachedPhotos()
+                            }
+                            val req = CreateProjectRequest(
+                                title = projTitle.trim(),
+                                subtitle = projSubtitle.trim().takeIf { it.isNotBlank() },
+                                description = projDescription.trim(),
+                                story = projStory.trim().takeIf { it.isNotBlank() },
+                                category = projCategory.trim().takeIf { it.isNotBlank() },
+                                status = projStatus,
+                                githubUrl = projGithubUrl.trim().takeIf { it.isNotBlank() }
+                            )
+                            val queued = withContext(Dispatchers.IO) {
+                                val q = syncManager.createProjectOrQueue(req)
+                                if (!q) syncManager.pullProjectsWishesData()
+                                q
+                            }
+                            ArchiveToastManager.show(
+                                if (queued) "当前离线，已排队；联网后自动立项"
+                                else "新造物「${projTitle.trim()}」已成功立项"
+                            )
+                        }
+                    }
+
+                    "wish" -> {
+                        val budgetCents = FormatUtils.yuanStringToCents(wishBudgetYuan)
+                        val targetIso = wishTargetDate?.atStartOfDay()?.let { FormatUtils.toBeijingIsoString(it) }
+                        val attachmentIds = withContext(Dispatchers.IO) {
+                            attachedPhotos.map { photo ->
+                                ImagePipeline.uploadImage(
+                                    apiClient = apiClient,
+                                    file = photo.savedFile,
+                                    mimeType = photo.processed.mimeType,
+                                    filename = photo.savedFile.name,
+                                    width = photo.processed.width,
+                                    height = photo.processed.height
+                                ).id
+                            }
+                        }
+                        val req = CreateWishRequest(
+                            title = wishTitle.trim(),
+                            kind = wishKind,
+                            note = wishNote.trim().takeIf { it.isNotBlank() },
+                            spec = wishSpec.trim().takeIf { it.isNotBlank() && wishKind == "item" },
+                            cityCode = if (wishKind == "travel") wishCityCode.trim().takeIf { it.isNotBlank() } else null,
+                            cityName = if (wishKind == "travel") wishCityName.trim().takeIf { it.isNotBlank() } else null,
+                            budget = budgetCents,
+                            targetDate = targetIso,
+                            attachmentIds = attachmentIds.takeIf { it.isNotEmpty() }
+                        )
+                        val queued = withContext(Dispatchers.IO) {
+                            val q = syncManager.createWishOrQueue(req)
+                            if (!q) syncManager.pullProjectsWishesData()
+                            q
+                        }
+                        ArchiveToastManager.show(
+                            if (queued) "当前离线，已排队；联网后自动封存"
+                            else "心愿「${wishTitle.trim()}」已封存入册"
+                        )
+                    }
+                }
+                noteSubmitted = true
+                draftPrefs.edit().clear().apply()
+                onSuccess()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ArchiveToastManager.show("归册失败: ${e.message}", isError = true)
+            } finally {
+                isSubmitting = false
+            }
+        }
+    }
+
+    ArchiveSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = colors.archivePaper,
-        dragHandle = null,
-        shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
-        tonalElevation = 0.dp,
-        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
-        modifier = Modifier.fillMaxWidth()
+        title = headerTitle,
+        cancelText = stringResource(R.string.quick_note_cancel),
+        actionText = submitText,
+        onAction = onSubmitAction,
+        isActionEnabled = canSave
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = maxSheetHeight)
-                .navigationBarsPadding()
-                .imePadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .padding(horizontal = 20.dp, vertical = 14.dp)
         ) {
-            // 顶栏：取消 / 标题 / 提交
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                TextButton(
-                    onClick = onDismiss,
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                ) {
-                    Text(stringResource(R.string.quick_note_cancel), color = colors.inkSecondary, fontSize = 14.sp)
-                }
-
-                Text(
-                    text = headerTitle,
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 16.sp,
-                    color = colors.inkPrimary
-                )
-
-                TextButton(
-                    enabled = canSave,
-                    onClick = {
-                        scope.launch {
-                            isSubmitting = true
-
-                            try {
-                                val finalCode = noteCityCode ?: CityDictionary.codeForLocation(noteLocation)
-                                val finalCityName = noteCityName ?: finalCode?.let { CityDictionary.cityNameForCode(it) }
-
-                                when (noteType) {
-                                    "life" -> {
-                                        val effectiveTitle = noteTitle.ifBlank {
-                                            if (attachedPhotos.isNotEmpty()) "现场快门 · " + (attachedPhotos.first().processed.exif.model ?: "胶片相纸")
-                                            else "无题随笔"
-                                        }
-                                        if (attachedPhotos.isNotEmpty()) {
-                                            val primary = attachedPhotos.first()
-                                            val extraFiles = attachedPhotos.drop(1).map {
-                                                OfflineMediaFileItem(
-                                                    filePath = it.savedFile.absolutePath,
-                                                    mimeType = it.processed.mimeType,
-                                                    width = it.processed.width,
-                                                    height = it.processed.height
-                                                )
-                                            }
-                                            val req = CreateEntryRequest(
-                                                type = "life",
-                                                title = effectiveTitle,
-                                                content = noteContent.trim(),
-                                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                                location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                                cityCode = finalCode,
-                                                cityName = finalCityName,
-                                            )
-                                            syncManager.createMediaEntryOffline(
-                                                localImageFilePath = primary.savedFile.absolutePath,
-                                                mimeType = primary.processed.mimeType,
-                                                width = primary.processed.width,
-                                                height = primary.processed.height,
-                                                req = req,
-                                                additionalMediaFiles = extraFiles
-                                            )
-                                            ArchiveToastManager.show("图文散页已装裱归册")
-                                        } else {
-                                            syncManager.createEntryOptimistic(
-                                                type = "life",
-                                                title = effectiveTitle,
-                                                content = noteContent.trim(),
-                                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                                location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                                cityCode = finalCode,
-                                                cityName = finalCityName,
-                                            )
-                                            ArchiveToastManager.show("随笔已归册")
-                                        }
-                                    }
-
-                                    "travel" -> {
-                                        val effectiveTitle = noteTitle.ifBlank {
-                                            val dest = finalCityName ?: "远方"
-                                            "游历 · $dest"
-                                        }
-                                        if (attachedPhotos.isNotEmpty()) {
-                                            val primary = attachedPhotos.first()
-                                            val extraFiles = attachedPhotos.drop(1).map {
-                                                OfflineMediaFileItem(
-                                                    filePath = it.savedFile.absolutePath,
-                                                    mimeType = it.processed.mimeType,
-                                                    width = it.processed.width,
-                                                    height = it.processed.height
-                                                )
-                                            }
-                                            val req = CreateEntryRequest(
-                                                type = "travel",
-                                                title = effectiveTitle,
-                                                content = noteContent.trim(),
-                                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                                location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                                cityCode = finalCode,
-                                                cityName = finalCityName,
-                                                footprintId = selectedFootprintId
-                                            )
-                                            syncManager.createMediaEntryOffline(
-                                                localImageFilePath = primary.savedFile.absolutePath,
-                                                mimeType = primary.processed.mimeType,
-                                                width = primary.processed.width,
-                                                height = primary.processed.height,
-                                                req = req,
-                                                additionalMediaFiles = extraFiles
-                                            )
-                                            ArchiveToastManager.show("游历图文手记已归册")
-                                        } else {
-                                            syncManager.createEntryOptimistic(
-                                                type = "travel",
-                                                title = effectiveTitle,
-                                                content = noteContent.trim(),
-                                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                                location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                                cityCode = finalCode,
-                                                cityName = finalCityName,
-                                                footprintId = selectedFootprintId
-                                            )
-                                            ArchiveToastManager.show("游历手记已归册")
-                                        }
-                                    }
-
-                                    "project" -> {
-                                        if (projectMode == "entry") {
-                                            val effectiveTitle = noteTitle.ifBlank {
-                                                val proj = projects.firstOrNull { it.id == selectedProjectId }
-                                                if (proj != null) "${proj.title} · 进展记录" else "造物手记"
-                                            }
-                                            if (attachedPhotos.isNotEmpty()) {
-                                                val primary = attachedPhotos.first()
-                                                val extraFiles = attachedPhotos.drop(1).map {
-                                                    OfflineMediaFileItem(
-                                                        filePath = it.savedFile.absolutePath,
-                                                        mimeType = it.processed.mimeType,
-                                                        width = it.processed.width,
-                                                        height = it.processed.height
-                                                    )
-                                                }
-                                                val req = CreateEntryRequest(
-                                                    type = "project",
-                                                    title = effectiveTitle,
-                                                    content = noteContent.trim(),
-                                                    occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                                    location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                                    cityCode = finalCode,
-                                                    cityName = finalCityName,
-                                                    projectId = selectedProjectId
-                                                )
-                                                syncManager.createMediaEntryOffline(
-                                                    localImageFilePath = primary.savedFile.absolutePath,
-                                                    mimeType = primary.processed.mimeType,
-                                                    width = primary.processed.width,
-                                                    height = primary.processed.height,
-                                                    req = req,
-                                                    additionalMediaFiles = extraFiles
-                                                )
-                                                ArchiveToastManager.show("造物进展手记已装裱归册")
-                                            } else {
-                                                syncManager.createEntryOptimistic(
-                                                    type = "project",
-                                                    title = effectiveTitle,
-                                                    content = noteContent.trim(),
-                                                    occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                                    location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                                    cityCode = finalCode,
-                                                    cityName = finalCityName,
-                                                    projectId = selectedProjectId
-                                                )
-                                                ArchiveToastManager.show("造物进展已归册")
-                                            }
-                                        } else {
-                                            // 新建造物不展示装裱区：隐藏的相纸不能阻止提交，
-                                            // 也不能在提交成功后留下孤儿文件。
-                                            if (attachedPhotos.isNotEmpty()) {
-                                                clearAttachedPhotos()
-                                            }
-                                            val req = CreateProjectRequest(
-                                                title = projTitle.trim(),
-                                                subtitle = projSubtitle.trim().takeIf { it.isNotBlank() },
-                                                description = projDescription.trim(),
-                                                story = projStory.trim().takeIf { it.isNotBlank() },
-                                                category = projCategory.trim().takeIf { it.isNotBlank() },
-                                                status = projStatus,
-                                                githubUrl = projGithubUrl.trim().takeIf { it.isNotBlank() }
-                                            )
-                                            val queued = withContext(Dispatchers.IO) {
-                                                val q = syncManager.createProjectOrQueue(req)
-                                                // 拉对数据集：造物页读的是 cached_projects，
-                                                // 只拉时间流（ENTRIES）会让新造物在本会话里
-                                                // 一直不可见（造物页首拉门禁已过）。
-                                                if (!q) syncManager.pullProjectsWishesData()
-                                                q
-                                            }
-                                            ArchiveToastManager.show(
-                                                if (queued) "当前离线，已排队；联网后自动立项"
-                                                else "新造物「${projTitle.trim()}」已成功立项"
-                                            )
-                                        }
-                                    }
-
-                                    "wish" -> {
-                                        val budgetCents = FormatUtils.yuanStringToCents(wishBudgetYuan)
-                                        val targetIso = wishTargetDate?.atStartOfDay()?.let { FormatUtils.toBeijingIsoString(it) }
-                                        // 心愿支持附件：先上传相纸再带着 attachment_ids 建档。
-                                        // 原先生成的照片被直接丢弃（且提交成功后不再清理），既丢图又留孤儿文件。
-                                        val attachmentIds = withContext(Dispatchers.IO) {
-                                            attachedPhotos.map { photo ->
-                                                ImagePipeline.uploadImage(
-                                                    apiClient = apiClient,
-                                                    file = photo.savedFile,
-                                                    mimeType = photo.processed.mimeType,
-                                                    filename = photo.savedFile.name,
-                                                    width = photo.processed.width,
-                                                    height = photo.processed.height
-                                                ).id
-                                            }
-                                        }
-                                        val req = CreateWishRequest(
-                                            title = wishTitle.trim(),
-                                            kind = wishKind,
-                                            note = wishNote.trim().takeIf { it.isNotBlank() },
-                                            spec = wishSpec.trim().takeIf { it.isNotBlank() && wishKind == "item" },
-                                            // MOB 表单审计 #13：目的地取心愿专属状态，
-                                            // 不再复用速记共享属地/地名反推
-                                            cityCode = if (wishKind == "travel") wishCityCode.trim().takeIf { it.isNotBlank() } else null,
-                                            cityName = if (wishKind == "travel") wishCityName.trim().takeIf { it.isNotBlank() } else null,
-                                            budget = budgetCents,
-                                            targetDate = targetIso,
-                                            attachmentIds = attachmentIds.takeIf { it.isNotEmpty() }
-                                        )
-                                        val queued = withContext(Dispatchers.IO) {
-                                            val q = syncManager.createWishOrQueue(req)
-                                            // 同「立项新造物」：心愿页读的是 cached_wishes，
-                                            // 必须拉 WISHES 数据集，否则新心愿本会话不可见。
-                                            if (!q) syncManager.pullProjectsWishesData()
-                                            q
-                                        }
-                                        ArchiveToastManager.show(
-                                            if (queued) "当前离线，已排队；联网后自动封存"
-                                            else "心愿「${wishTitle.trim()}」已封存入册"
-                                        )
-                                    }
-                                }
-                                // 提交成功：接管相纸文件所有权，关闭抽屉时不再清理；草稿同时清空
-                                noteSubmitted = true
-                                draftPrefs.edit().clear().apply()
-                                onSuccess()
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                ArchiveToastManager.show("归册失败: ${e.message}", isError = true)
-                            } finally {
-                                isSubmitting = false
-                            }
-                        }
-                    },
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
-                ) {
-                    Text(
-                        text = submitText,
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp,
-                        color = if (canSave) colors.accentWarm else colors.inkMuted
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // 四种生活形态胶囊切换
+            // 四种生活形态可选胶囊切换（配低饱和分类色点）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf("life" to "日常", "travel" to "游历", "project" to "造物", "wish" to "心愿").forEach { (k, label) ->
-                    PaperFilterPill(
+                val categoryOptions = listOf(
+                    Triple("life", "日常", colors.tagDaily),
+                    Triple("travel", "游历", colors.tagTravel),
+                    Triple("project", "造物", colors.tagProject),
+                    Triple("wish", "心愿", colors.tagWish)
+                )
+                categoryOptions.forEach { (k, label, dotColor) ->
+                    ArchiveSelectableCapsule(
+                        text = label,
                         selected = noteType == k,
                         onClick = { noteType = k },
-                        label = label
+                        leadingDotColor = dotColor
                     )
                 }
             }
@@ -706,12 +655,12 @@ private fun QuickNoteSheetBody(
                                 ) {
                                     Icon(
                                         painter = painterResource(R.drawable.ic_photo_library),
-                                        contentDescription = null,
+                                        contentDescription = "装裱相纸",
                                         tint = colors.accentWarm,
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Spacer(modifier = Modifier.width(3.dp))
-                                    Text(stringResource(R.string.quick_note_mount_paper), fontSize = 11.5.sp, color = colors.accentWarm)
+                                    Text(stringResource(R.string.quick_note_mount_paper), fontSize = 12.sp, color = colors.accentWarm)
                                 }
                             }
                         }
@@ -799,7 +748,7 @@ private fun QuickNoteSheetBody(
                             Text(
                                 text = if (isProcessingPhoto) "相纸显影处理中…" else "装裱现场相纸 (可选 9 张)",
                                 fontFamily = ArchiveFontFamilies.BodySans,
-                                fontSize = 11.5.sp,
+                                fontSize = 12.sp,
                                 color = colors.inkMuted
                             )
                             if (isProcessingPhoto) {
@@ -828,7 +777,7 @@ private fun QuickNoteSheetBody(
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_photo_library),
-                                contentDescription = null,
+                                contentDescription = "相册装裱",
                                 tint = colors.accentWarm,
                                 modifier = Modifier.size(14.dp)
                             )
@@ -909,7 +858,7 @@ private fun QuickNoteSheetBody(
                 Text(
                     text = stringResource(R.string.quick_note_sheet_text_03),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 11.5.sp,
+                    fontSize = 12.sp,
                     color = colors.inkMuted
                 )
                 Spacer(modifier = Modifier.height(6.dp))
@@ -923,7 +872,7 @@ private fun QuickNoteSheetBody(
                 Text(
                     text = stringResource(R.string.quick_note_sheet_text_04),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 11.5.sp,
+                    fontSize = 12.sp,
                     color = colors.inkMuted
                 )
                 Spacer(modifier = Modifier.height(6.dp))
@@ -1069,7 +1018,7 @@ private fun QuickNoteSheetBody(
                 Text(
                     text = stringResource(R.string.projects_wishes_sheets_label_04),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 11.5.sp,
+                    fontSize = 12.sp,
                     color = colors.inkMuted
                 )
                 Spacer(modifier = Modifier.height(6.dp))
@@ -1213,7 +1162,7 @@ private fun QuickNoteSheetBody(
                         Text(
                             text = stringResource(R.string.quick_note_sheet_text_13),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 11.5.sp,
+                            fontSize = 12.sp,
                             color = colors.inkMuted
                         )
                         Spacer(modifier = Modifier.height(6.dp))
@@ -1361,13 +1310,13 @@ private fun QuickNoteSheetBody(
                         )
                     }
 
-                    // MOB 表单审计 #14：未选择目标期时显示「未设置」占位，
-                    // 不再显示一个不会被提交的「今天」
-                    PaperDateField(
-                        selectedDate = wishTargetDate ?: LocalDate.now(FormatUtils.BeijingZone),
+                    // MOB 表单审计 #14：未选择目标期时显示「未设置」占位，采用统一底线选择器，无异常字距
+                    ArchiveDatePickerField(
+                        selectedDate = wishTargetDate,
                         onDateSelected = { wishTargetDate = it },
-                        label = stringResource(R.string.quick_note_sheet_label_15),
-                        unselectedText = if (wishTargetDate == null) "未设置" else null
+                        label = "期许达成日期",
+                        placeholder = "未设置",
+                        onClear = { wishTargetDate = null }
                     )
 
                     PaperTextField(

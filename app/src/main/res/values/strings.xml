@@ -173,7 +173,7 @@
     <string name="profile_screen_placeholder_01">新设备名称</string>
 
     <!-- profile_sheets -->
-    <string name="profile_sheets_title_01">《主理人手卷》</string>
+    <string name="profile_sheets_title_01">主理人手卷</string>
     <string name="profile_sheets_text_01">输入主理人称谓…</string>
     <string name="profile_sheets_text_02">如：生活记录者、独立摄影师…</string>
     <string name="profile_sheets_placeholder_01">点选所在省市 (375 国标行政区划)…</string>
@@ -184,7 +184,7 @@
     <string name="storage_backup_sheet_dialog_title_01">确认回滚恢复快照？</string>
     <string name="storage_backup_sheet_dialog_confirmText_01">确认回滚恢复</string>
     <string name="storage_backup_sheet_dialog_title_02">删除此快照备份？</string>
-    <string name="storage_backup_sheet_dialog_title_03">《存储与灾备中枢》</string>
+    <string name="storage_backup_sheet_dialog_title_03">存储与灾备</string>
     <string name="storage_backup_sheet_dialog_text_01">服务端全量 ZIP 快照由 SQLite WAL 数据库及本地元数据打包生成，最多自动轮转保留 7 份：</string>
     <string name="storage_backup_sheet_dialog_text_02">下载</string>
     <string name="storage_backup_sheet_dialog_text_03">回滚</string>

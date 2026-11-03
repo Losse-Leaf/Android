@@ -1,7 +1,6 @@
 package com.looseleaf.app.ui.components
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -9,17 +8,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 
 /**
  * 散页统一纸色底部抽屉 (ArchiveSheet)
- * - 纯纸色、顶部圆角 4dp、无投影 (tonalElevation = 0.dp)
- * - 统一标题栏（左"取消"、中标题、右主操作文字）
- * - 避让状态栏与软键盘，最大高度 90%
- * - 支持全局 Root 宿主挂载，遮罩完整覆盖底栏 (LooseLeafBottomBar) 与状态栏，半高与全高均不露底栏
+ * - 纯纸色、顶部圆角 12dp (ArchiveShapes.sheetTop)、无投影 (tonalElevation = 0.dp)
+ * - 统一标题栏（左"取消"、中单行标题、右实心主操作按钮）
+ * - 避让状态栏与软键盘，独立 Window 级全屏遮罩原生覆盖底栏与状态栏
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,11 +32,10 @@ fun ArchiveSheet(
     onAction: (() -> Unit)? = null,
     isActionEnabled: Boolean = true,
     isActionDestructive: Boolean = false,
+    sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    // 散页底层直接使用 ModalBottomSheet 自带的独立 Window 级全屏遮罩与弹层，
-    // 原生覆盖 Scaffold、底栏与状态栏；避免外部宿主状态异步竞态与孤儿 Window 挂死。
     ArchiveSheetContent(
         onDismissRequest = onDismissRequest,
         title = title,
@@ -46,6 +45,7 @@ fun ArchiveSheet(
         onAction = onAction,
         isActionEnabled = isActionEnabled,
         isActionDestructive = isActionDestructive,
+        sheetState = sheetState,
         modifier = modifier,
         content = content
     )
@@ -62,11 +62,11 @@ internal fun ArchiveSheetContent(
     onAction: (() -> Unit)? = null,
     isActionEnabled: Boolean = true,
     isActionDestructive: Boolean = false,
+    sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val colors = LooseLeafTheme.colors
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val maxSheetHeight = (screenHeight - statusBarTop - 16.dp).coerceAtLeast(200.dp)
@@ -75,7 +75,7 @@ internal fun ArchiveSheetContent(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
         containerColor = colors.archivePaper,
-        shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
+        shape = ArchiveShapes.sheetTop,
         tonalElevation = 0.dp,
         dragHandle = null,
         contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
@@ -105,20 +105,24 @@ internal fun ArchiveSheetContent(
                     text = title,
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
+                    fontSize = ArchiveTypeScale.bodyLarge,
                     color = colors.inkPrimary,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f)
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp)
                 )
                 if (!actionText.isNullOrBlank() && onAction != null) {
-                    ArchiveTextButton(
+                    ArchiveSheetActionButton(
                         text = actionText,
                         onClick = onAction,
                         enabled = isActionEnabled,
                         isDestructive = isActionDestructive
                     )
                 } else {
-                    Spacer(modifier = Modifier.width(48.dp))
+                    Spacer(modifier = Modifier.width(56.dp))
                 }
             }
 

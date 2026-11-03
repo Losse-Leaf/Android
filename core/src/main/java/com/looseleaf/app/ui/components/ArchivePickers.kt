@@ -108,7 +108,7 @@ fun ArchiveCityPickerField(
             Text(
                 text = errorMessage,
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = 11.5.sp,
+                fontSize = 12.sp,
                 color = colors.inkSecondary
             )
         }
@@ -820,6 +820,7 @@ fun ArchiveDateTimeSplitRow(
 
 /**
  * 散页底线式单日期选择字段 (ArchiveDatePickerField)
+ * 支持可选清除回调 onClear（如「期许达成日期：未设置」）
  */
 @Composable
 fun ArchiveDatePickerField(
@@ -827,6 +828,7 @@ fun ArchiveDatePickerField(
     onDateSelected: (LocalDate) -> Unit,
     label: String? = null,
     placeholder: String = "选择日期",
+    onClear: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
@@ -857,12 +859,29 @@ fun ArchiveDatePickerField(
                 fontSize = 14.sp,
                 color = if (selectedDate != null) colors.inkPrimary else colors.inkMuted
             )
-            Text(
-                text = "▾",
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = 12.sp,
-                color = colors.inkSecondary
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (selectedDate != null && onClear != null) {
+                    Text(
+                        text = "清除",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 12.sp,
+                        color = colors.inkMuted,
+                        modifier = Modifier
+                            .clip(ArchiveShapes.small)
+                            .clickable(onClick = onClear)
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
+                }
+                Text(
+                    text = "▾",
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontSize = 12.sp,
+                    color = colors.inkSecondary
+                )
+            }
         }
         ArchiveDivider()
     }
@@ -873,6 +892,123 @@ fun ArchiveDatePickerField(
             onDateSelected = onDateSelected,
             onDismissRequest = { showSheet = false }
         )
+    }
+}
+
+/**
+ * 散页底线式通用单选字段 (ArchiveSelectField)
+ * 顶部衬线标签 + 值 + ▾ + 底部 1dp 淡线，点击唤起统一 ArchiveDialog 选项列表
+ */
+@Composable
+fun <T> ArchiveSelectField(
+    selectedValue: T,
+    options: List<Pair<T, String>>,
+    onValueSelected: (T) -> Unit,
+    label: String? = null,
+    placeholder: String = "请选择",
+    dialogTitle: String = label ?: "请选择",
+    modifier: Modifier = Modifier
+) {
+    val colors = LooseLeafTheme.colors
+    var showDialog by remember { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.first == selectedValue }?.second
+    val hasValue = selectedValue != null && !selectedLabel.isNullOrBlank()
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (!label.isNullOrBlank()) {
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                color = colors.inkSecondary
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showDialog = true }
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = selectedLabel ?: placeholder,
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontSize = 14.sp,
+                color = if (hasValue) colors.inkPrimary else colors.inkMuted
+            )
+            Text(
+                text = "▾",
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontSize = 12.sp,
+                color = colors.inkSecondary
+            )
+        }
+        ArchiveDivider()
+    }
+
+    if (showDialog) {
+        ArchiveDialog(onDismissRequest = { showDialog = false }) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = dialogTitle,
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.inkPrimary
+                )
+                ArchiveTextButton(
+                    text = "关闭",
+                    textColor = colors.inkSecondary,
+                    onClick = { showDialog = false }
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 320.dp)
+            ) {
+                items(options) { (optVal, optLabel) ->
+                    val isSelected = optVal == selectedValue
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onValueSelected(optVal)
+                                showDialog = false
+                            }
+                            .padding(vertical = 12.dp, horizontal = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = optLabel,
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 14.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) colors.accentWarm else colors.inkPrimary
+                        )
+                        if (isSelected) {
+                            Text(
+                                text = "✓",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.accentWarm
+                            )
+                        }
+                    }
+                    ArchiveDivider()
+                }
+            }
+        }
     }
 }
 

@@ -48,6 +48,9 @@ import com.looseleaf.app.theme.ArchiveColors
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTypeScale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.core.R
 import kotlinx.coroutines.launch
@@ -90,10 +93,11 @@ fun LedgerTopAppBar(
                     style = LedgerTheme.typography.title,
                     fontFamily = LedgerTheme.typography.serif,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp,
+                    fontSize = ArchiveTypeScale.h2,
                     letterSpacing = 1.sp,
                     color = colors.textPrimary,
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 if (!subtitle.isNullOrBlank()) {
                     Text(
@@ -187,6 +191,7 @@ fun LedgerMonthPickerSheet(
     onDismissRequest: () -> Unit
 ) {
     val colors = LedgerTheme.colors
+    val haptic = LocalHapticFeedback.current
     var currentYear by remember(selectedYearMonth) { mutableStateOf(selectedYearMonth.year) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -194,7 +199,7 @@ fun LedgerMonthPickerSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
         containerColor = colors.surface,
-        shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
+        shape = ArchiveShapes.sheetTop,
         tonalElevation = 0.dp,
         contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
     ) {
@@ -250,8 +255,9 @@ fun LedgerMonthPickerSheet(
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp)
-                                .clip(RoundedCornerShape(4.dp))
+                                .clip(ArchiveShapes.small)
                                 .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     onYearMonthSelected(YearMonth.of(currentYear, m))
                                     onDismissRequest()
                                 }
@@ -259,9 +265,9 @@ fun LedgerMonthPickerSheet(
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
                                     text = "${m}月",
-                                    fontFamily = if (isSelected) LedgerTheme.typography.serif else FontFamily.Monospace,
+                                    fontFamily = if (isSelected) LedgerTheme.typography.serif else ArchiveFontFamilies.MonoScale,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 15.sp,
+                                    fontSize = ArchiveTypeScale.body,
                                     color = if (isSelected) colors.accent else colors.textPrimary
                                 )
                                 if (isSelected) {
@@ -487,15 +493,15 @@ fun LedgerExtraPill(
     val colors = LedgerTheme.colors
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
+            .clip(ArchiveShapes.full)
             .background(if (highlighted) colors.accent.copy(alpha = 0.12f) else colors.surfaceElevated)
             .border(
                 width = ArchiveLines.hairline,
                 color = if (highlighted) colors.accent else colors.borderSubtle,
-                shape = RoundedCornerShape(50)
+                shape = ArchiveShapes.full
             )
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 11.dp, vertical = 6.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -518,9 +524,11 @@ fun LedgerExtraPill(
             }
             Text(
                 text = text,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.5.sp,
-                color = if (highlighted) colors.accent else colors.textSecondary
+                fontFamily = ArchiveFontFamilies.MonoScale,
+                fontSize = ArchiveTypeScale.caption,
+                color = if (highlighted) colors.accent else colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

@@ -1,17 +1,18 @@
 package com.looseleaf.feature.ledger.ui
 
 import com.looseleaf.app.ui.components.ArchiveDatePickerSheet
+import com.looseleaf.app.ui.components.ArchiveSelectableCapsule
 import java.util.Locale
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -19,16 +20,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.looseleaf.app.model.*
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.feature.ledger.theme.LedgerFormat
 import com.looseleaf.feature.ledger.theme.LedgerTheme
@@ -36,11 +36,6 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
-
-// 赤陶小点色（本月待还与临期提示）
-private val TerracottaDot = Color(0xFFC46243)
-// 砖红文字（逾期警示）
-private val BrickRedOverdue = Color(0xFFB33A2B)
 
 /**
  * 阶段 2：新建分期 LedgerSheet
@@ -56,7 +51,7 @@ fun CreateInstallmentSheet(
     existingGears: List<GearItem>,
     expenseCategories: List<String>,
     onDismissRequest: () -> Unit,
-    onSubmit: (CreateInstallmentPlanRequest) -> Unit,
+    onSubmit: suspend (CreateInstallmentPlanRequest) -> Boolean,
     initialTitle: String = "",
     initialPriceYuan: String = "",
     initialGearCategory: String = "数码器材",
@@ -64,11 +59,11 @@ fun CreateInstallmentSheet(
     onCreateChannel: (suspend (name: String, repaymentDay: Int) -> CreditChannel?)? = null
 ) {
     val colors = LedgerTheme.colors
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var title by remember { mutableStateOf(initialTitle) }
     var principalYuan by remember { mutableStateOf(initialPriceYuan) }
+    var isSubmitting by remember { mutableStateOf(false) }
 
     // 常用期数直接填入，留一个空让用户填
     var periodsText by remember { mutableStateOf("12") }
@@ -76,7 +71,7 @@ fun CreateInstallmentSheet(
 
     // 仅保留用户自建还款渠道
     val userChannels = remember(creditChannels) {
-        creditChannels.filterNot { it.isBuiltin || it.code in setOf("HUABEI", "BAITIAO", "CUSTOM_INSTALLMENT", "huabei", "baitiao", "custom_installment") }
+        creditChannels.filterNot { it.isBuiltin || it.code in BUILTIN_CHANNEL_CODES }
     }
     var selectedChannel by remember(userChannels) {
         mutableStateOf(userChannels.firstOrNull())
@@ -106,43 +101,46 @@ fun CreateInstallmentSheet(
         firstDueYearMonth.plusMonths((effectivePeriods - 1).toLong().coerceAtLeast(0L)).toString()
     }.getOrDefault("----")
 
-    val livePreviewText = if (principalCents <= 0 || effectivePeriods <= 0) {
-        "输入总额与期数后实时预览还款明细"
-    } else {
-        "每期约 ${LedgerFormat.formatMoney(approxMonthly)} · 共 $effectivePeriods 期 · 末期 $endYm"
-    }
+    val hasValidPreview = principalCents > 0 && effectivePeriods > 0
+    val livePreviewText = "每期约 ${LedgerFormat.formatMoney(approxMonthly)} · 共 $effectivePeriods 期 · 末期 $endYm"
 
     val canSubmit = title.isNotBlank() && principalCents > 0 && effectivePeriods in 1..120
 
     LedgerSheet(
-        onDismissRequest = onDismissRequest,
+        onDismissRequest = { if (!isSubmitting) onDismissRequest() },
         title = "新建分期",
-        actionText = "创建",
-        isActionEnabled = canSubmit,
+        actionText = if (isSubmitting) "创建中…" else "创建",
+        isActionEnabled = canSubmit && !isSubmitting,
         onAction = {
-            if (canSubmit) {
+            if (canSubmit && !isSubmitting) {
                 val targetDay = (selectedChannel?.repaymentDay ?: 10).coerceAtMost(firstDueYearMonth.lengthOfMonth())
                 val firstDueDateStr = String.format(Locale.US, "%04d-%02d-%02d", firstDueYearMonth.year, firstDueYearMonth.monthValue, targetDay)
-                onSubmit(
-                    CreateInstallmentPlanRequest(
-                        channelId = selectedChannel?.id,
-                        channelCode = selectedChannel?.code,
-                        title = title.trim(),
-                        kind = selectedKind,
-                        principal = principalCents,
-                        periods = effectivePeriods,
-                        feeMode = "none",
-                        feeValue = 0L,
-                        firstDueDate = firstDueDateStr,
-                        repayDay = selectedChannel?.repaymentDay ?: 10,
-                        assetId = if (selectedKind == "asset" && selectedGearId.isNotBlank()) selectedGearId else null,
-                        createNewGear = selectedKind == "asset" && selectedGearId.isBlank(),
-                        gearName = if (selectedKind == "asset" && selectedGearId.isBlank()) title.trim() else null,
-                        gearCategory = if (selectedKind == "asset" && selectedGearId.isBlank()) initialGearCategory else null,
-                        categoryName = if (selectedKind == "expense") selectedCategory else null,
-                        note = note.trim().ifEmpty { null }
-                    )
+                val req = CreateInstallmentPlanRequest(
+                    channelId = selectedChannel?.id,
+                    channelCode = selectedChannel?.code,
+                    title = title.trim(),
+                    kind = selectedKind,
+                    principal = principalCents,
+                    periods = effectivePeriods,
+                    feeMode = "none",
+                    feeValue = 0L,
+                    firstDueDate = firstDueDateStr,
+                    repayDay = selectedChannel?.repaymentDay ?: 10,
+                    assetId = if (selectedKind == "asset" && selectedGearId.isNotBlank()) selectedGearId else null,
+                    createNewGear = selectedKind == "asset" && selectedGearId.isBlank(),
+                    gearName = if (selectedKind == "asset" && selectedGearId.isBlank()) title.trim() else null,
+                    gearCategory = if (selectedKind == "asset" && selectedGearId.isBlank()) initialGearCategory else null,
+                    categoryName = if (selectedKind == "expense") selectedCategory else null,
+                    note = note.trim().ifEmpty { null }
                 )
+                isSubmitting = true
+                scope.launch {
+                    val ok = onSubmit(req)
+                    isSubmitting = false
+                    if (ok) {
+                        onDismissRequest()
+                    }
+                }
             }
         }
     ) {
@@ -150,8 +148,8 @@ fun CreateInstallmentSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // 1. 计划名称
             LedgerField(
@@ -203,45 +201,27 @@ fun CreateInstallmentSheet(
                 )
             }
 
-            // 3. 常见期数快捷胶囊（单行不换行）
+            // 3. 常见期数快捷胶囊（统一全圆胶囊）
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = "常用期数",
+                    text = "常用",
                     style = LedgerTheme.typography.caption,
                     fontFamily = LedgerTheme.typography.serif,
                     color = colors.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = 1
                 )
                 listOf("3", "6", "12", "24", "36").forEach { p ->
-                    val isSelected = periodsText == p
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(if (isSelected) colors.surfaceElevated else Color.Transparent)
-                            .border(
-                                ArchiveLines.hairline,
-                                if (isSelected) colors.accent else colors.borderSubtle,
-                                RoundedCornerShape(4.dp)
-                            )
-                            .clickable { periodsText = p }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = "${p}期",
-                            fontFamily = LedgerTheme.typography.serif,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) colors.accent else colors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    ArchiveSelectableCapsule(
+                        text = "${p}期",
+                        selected = periodsText == p,
+                        onClick = { periodsText = p }
+                    )
                 }
             }
 
@@ -278,12 +258,12 @@ fun CreateInstallmentSheet(
                                 .padding(start = 4.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(4.dp))
-                            .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
+                            .clip(ArchiveShapes.small)
+                            .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.small)
                             .clickable {
                                 if (userChannels.isEmpty()) {
                                     showCreateChannelDialog = true
@@ -291,7 +271,7 @@ fun CreateInstallmentSheet(
                                     showChannelSelectDialog = true
                                 }
                             }
-                            .padding(horizontal = 8.dp, vertical = 8.dp)
+                            .padding(horizontal = 10.dp, vertical = 9.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -301,7 +281,7 @@ fun CreateInstallmentSheet(
                             Text(
                                 text = selectedChannel?.name ?: if (userChannels.isEmpty()) "点击新建渠道" else "选择渠道",
                                 fontFamily = LedgerTheme.typography.serif,
-                                fontSize = 13.5.sp,
+                                fontSize = ArchiveTypeScale.body,
                                 color = if (selectedChannel != null) colors.textPrimary else colors.textMuted,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -310,7 +290,7 @@ fun CreateInstallmentSheet(
                             Text(
                                 text = selectedChannel?.let { "每月${it.repaymentDay}日" } ?: "▾",
                                 fontFamily = LedgerTheme.typography.serif,
-                                fontSize = 11.5.sp,
+                                fontSize = ArchiveTypeScale.caption,
                                 color = colors.textSecondary,
                                 maxLines = 1
                             )
@@ -328,14 +308,14 @@ fun CreateInstallmentSheet(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(4.dp))
-                            .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
+                            .clip(ArchiveShapes.small)
+                            .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.small)
                             .clickable { showMonthPicker = true }
-                            .padding(horizontal = 8.dp, vertical = 8.dp)
+                            .padding(horizontal = 10.dp, vertical = 9.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -345,14 +325,14 @@ fun CreateInstallmentSheet(
                             Text(
                                 text = String.format(Locale.US, "%04d-%02d", firstDueYearMonth.year, firstDueYearMonth.monthValue),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 13.5.sp,
+                                fontSize = ArchiveTypeScale.body,
                                 color = colors.textPrimary,
                                 maxLines = 1
                             )
                             Text(
                                 text = "▾",
                                 color = colors.textSecondary,
-                                fontSize = 12.sp,
+                                fontSize = ArchiveTypeScale.caption,
                                 maxLines = 1
                             )
                         }
@@ -360,114 +340,120 @@ fun CreateInstallmentSheet(
                 }
             }
 
-            // 5. 分期类型 (购入装备 / 一笔消费)
+            // 5. 分期类型与可选关联（全部统一使用全圆可选胶囊）
             if (!isFromGear) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = "分期类型",
-                        style = LedgerTheme.typography.caption,
-                        color = colors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        LedgerChoiceItem(
-                            text = "购入装备",
-                            isSelected = selectedKind == "asset",
-                            onClick = { selectedKind = "asset" },
-                            modifier = Modifier.weight(1f)
+                        Text(
+                            text = "分期类型",
+                            style = LedgerTheme.typography.caption,
+                            color = colors.textSecondary,
+                            maxLines = 1
                         )
-                        LedgerChoiceItem(
+                        ArchiveSelectableCapsule(
+                            text = "购入装备",
+                            selected = selectedKind == "asset",
+                            onClick = { selectedKind = "asset" }
+                        )
+                        ArchiveSelectableCapsule(
                             text = "一笔消费",
-                            isSelected = selectedKind == "expense",
-                            onClick = { selectedKind = "expense" },
-                            modifier = Modifier.weight(1f)
+                            selected = selectedKind == "expense",
+                            onClick = { selectedKind = "expense" }
                         )
                     }
 
                     if (selectedKind == "asset" && existingGears.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "可选关联已有设备：",
-                            style = LedgerTheme.typography.caption,
-                            color = colors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            existingGears.take(4).forEach { g ->
-                                val isSelected = selectedGearId == g.id
-                                LedgerChoiceItem(
-                                    text = g.name,
-                                    isSelected = isSelected,
-                                    onClick = { selectedGearId = if (isSelected) "" else g.id },
-                                    modifier = Modifier.weight(1f)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "关联装备",
+                                style = LedgerTheme.typography.caption,
+                                color = colors.textSecondary,
+                                maxLines = 1
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                ArchiveSelectableCapsule(
+                                    text = "新装备",
+                                    selected = selectedGearId.isBlank(),
+                                    onClick = { selectedGearId = "" }
                                 )
+                                existingGears.forEach { g ->
+                                    val isSelected = selectedGearId == g.id
+                                    ArchiveSelectableCapsule(
+                                        text = g.name,
+                                        selected = isSelected,
+                                        onClick = { selectedGearId = if (isSelected) "" else g.id }
+                                    )
+                                }
                             }
                         }
                     }
 
                     if (selectedKind == "expense") {
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "消费分类：",
-                            style = LedgerTheme.typography.caption,
-                            color = colors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            expenseCategories.take(4).forEach { cat ->
-                                val isSelected = selectedCategory == cat
-                                LedgerChoiceItem(
-                                    text = cat,
-                                    isSelected = isSelected,
-                                    onClick = { selectedCategory = cat },
-                                    modifier = Modifier.weight(1f)
-                                )
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "消费分类",
+                                style = LedgerTheme.typography.caption,
+                                color = colors.textSecondary,
+                                maxLines = 1
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                expenseCategories.forEach { cat ->
+                                    ArchiveSelectableCapsule(
+                                        text = cat,
+                                        selected = selectedCategory == cat,
+                                        onClick = { selectedCategory = cat }
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
 
-            // 6. 实时预览单行卡片
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(colors.surfaceElevated)
-                    .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 10.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = livePreviewText,
-                    style = LedgerTheme.typography.caption,
-                    fontFamily = LedgerTheme.typography.serif,
-                    color = colors.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            // 7. 备注（选填）
+            // 6. 备注（选填）
             LedgerField(
                 value = note,
                 onValueChange = { note = it },
-                placeholder = "备注（选填）",
+                label = "备注",
+                placeholder = "选填",
                 singleLine = true
             )
+
+            // 7. 实时预览卡片（未输入金额时隐藏，不占空行）
+            AnimatedVisibility(visible = hasValidPreview) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(ArchiveShapes.small)
+                        .background(colors.surfaceElevated)
+                        .border(ArchiveLines.hairline, colors.accent.copy(alpha = 0.45f), ArchiveShapes.small)
+                        .padding(horizontal = 12.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = livePreviewText,
+                        fontFamily = ArchiveFontFamilies.MonoScale,
+                        fontSize = ArchiveTypeScale.caption,
+                        color = colors.accent,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(4.dp))
         }
@@ -482,150 +468,31 @@ fun CreateInstallmentSheet(
         )
     }
 
-    // 快捷新建渠道对话框
+    // 快捷新建渠道对话框（复用统一 ArchiveDialog 表单）
     if (showCreateChannelDialog) {
-        var newName by remember { mutableStateOf("") }
-        var newDay by remember { mutableStateOf("10") }
-        var isSubmittingChannel by remember { mutableStateOf(false) }
-
-        AlertDialog(
-            onDismissRequest = { if (!isSubmittingChannel) showCreateChannelDialog = false },
-            containerColor = colors.surface,
-            title = {
-                Text(
-                    text = "新建还款渠道",
-                    fontFamily = LedgerTheme.typography.serif,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.textPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    LedgerField(
-                        value = newName,
-                        onValueChange = { newName = it },
-                        label = "渠道名称",
-                        placeholder = "如 招商银行信用卡",
-                        singleLine = true
-                    )
-                    LedgerField(
-                        value = newDay,
-                        onValueChange = { newDay = it.filter { c -> c.isDigit() }.take(2) },
-                        label = "每月固定还款日",
-                        placeholder = "10",
-                        trailingText = "日",
-                        isNumeric = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true
-                    )
+        CreateCreditChannelDialog(
+            onDismiss = { showCreateChannelDialog = false },
+            confirmText = "创建并选择",
+            onSubmit = { name, day ->
+                val created = onCreateChannel?.invoke(name, day)
+                if (created != null) {
+                    selectedChannel = created
+                    true
+                } else {
+                    false
                 }
-            },
-            confirmButton = {
-                LedgerTextButton(
-                    text = "创建并选择",
-                    enabled = newName.isNotBlank() && !isSubmittingChannel,
-                    onClick = {
-                        val day = newDay.toIntOrNull()?.coerceIn(1, 31) ?: 10
-                        isSubmittingChannel = true
-                        scope.launch {
-                            val created = onCreateChannel?.invoke(newName.trim(), day)
-                            if (created != null) {
-                                selectedChannel = created
-                            }
-                            isSubmittingChannel = false
-                            showCreateChannelDialog = false
-                        }
-                    }
-                )
-            },
-            dismissButton = {
-                LedgerTextButton(
-                    text = "取消",
-                    enabled = !isSubmittingChannel,
-                    onClick = { showCreateChannelDialog = false }
-                )
             }
         )
     }
 
     // 渠道选择对话框
     if (showChannelSelectDialog) {
-        AlertDialog(
-            onDismissRequest = { showChannelSelectDialog = false },
-            containerColor = colors.surface,
-            title = {
-                Text(
-                    text = "选择还款渠道",
-                    fontFamily = LedgerTheme.typography.serif,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.textPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    userChannels.forEach { ch ->
-                        val isSelected = selectedChannel?.id == ch.id
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isSelected) colors.surfaceElevated else Color.Transparent)
-                                .clickable {
-                                    selectedChannel = ch
-                                    showChannelSelectDialog = false
-                                }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = ch.name,
-                                fontFamily = LedgerTheme.typography.serif,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 14.sp,
-                                color = if (isSelected) colors.accent else colors.textPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            Text(
-                                text = "每月${ch.repaymentDay}日",
-                                fontFamily = LedgerTheme.typography.serif,
-                                fontSize = 12.sp,
-                                color = colors.textSecondary,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                LedgerTextButton(
-                    text = "+ 新建渠道",
-                    onClick = {
-                        showChannelSelectDialog = false
-                        showCreateChannelDialog = true
-                    }
-                )
-            },
-            dismissButton = {
-                LedgerTextButton(
-                    text = "关闭",
-                    onClick = { showChannelSelectDialog = false }
-                )
-            }
+        SelectCreditChannelDialog(
+            channels = userChannels,
+            selectedChannelId = selectedChannel?.id,
+            onSelect = { ch -> selectedChannel = ch },
+            onCreateNewClick = { showCreateChannelDialog = true },
+            onDismiss = { showChannelSelectDialog = false }
         )
     }
 }
@@ -651,9 +518,10 @@ fun InstallmentPlanDetailSheet(
     LedgerSheet(
         onDismissRequest = onDismissRequest,
         title = plan.title,
-        actionText = "关闭",
+        cancelText = "关闭",
+        actionText = "编辑",
         isActionEnabled = true,
-        onAction = onDismissRequest
+        onAction = onEditClick
     ) {
         Column(
             modifier = Modifier
@@ -689,7 +557,7 @@ fun InstallmentPlanDetailSheet(
                     Text(
                         text = LedgerFormat.formatMoney(detail.remainingPrincipal),
                         fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 26.sp,
+                        fontSize = ArchiveTypeScale.h1,
                         fontWeight = FontWeight.Bold,
                         color = if (detail.remainingPrincipal > 0) colors.expense else colors.income,
                         maxLines = 1
@@ -700,7 +568,7 @@ fun InstallmentPlanDetailSheet(
                     Text(
                         text = "已结清",
                         fontFamily = LedgerTheme.typography.serif,
-                        fontSize = 13.sp,
+                        fontSize = ArchiveTypeScale.body,
                         color = colors.income,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1
@@ -717,7 +585,7 @@ fun InstallmentPlanDetailSheet(
             Text(
                 text = subText,
                 fontFamily = ArchiveFontFamilies.MonoScale,
-                fontSize = 11.5.sp,
+                fontSize = ArchiveTypeScale.caption,
                 color = colors.textSecondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -742,7 +610,7 @@ fun InstallmentPlanDetailSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(ArchiveShapes.small)
                             .clickable {
                                 if (isPaid) {
                                     onUnpayItemClick(itm)
@@ -762,7 +630,7 @@ fun InstallmentPlanDetailSheet(
                                         modifier = Modifier
                                             .size(6.dp)
                                             .clip(CircleShape)
-                                            .background(TerracottaDot)
+                                            .background(colors.accent)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                 }
@@ -771,7 +639,7 @@ fun InstallmentPlanDetailSheet(
                                     style = LedgerTheme.typography.body,
                                     fontFamily = ArchiveFontFamilies.MonoScale,
                                     color = colors.textPrimary,
-                                    fontSize = 13.sp,
+                                    fontSize = ArchiveTypeScale.body,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -780,7 +648,7 @@ fun InstallmentPlanDetailSheet(
                                 Text(
                                     text = "本金 ${LedgerFormat.formatMoney(itm.principalPart)} + 手续费 ${LedgerFormat.formatMoney(itm.feePart)}",
                                     fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 11.sp,
+                                    fontSize = ArchiveTypeScale.micro,
                                     color = colors.textSecondary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -793,7 +661,7 @@ fun InstallmentPlanDetailSheet(
                             Text(
                                 text = LedgerFormat.formatMoney(itm.principalPart + itm.FeePartSafe()),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 13.5.sp,
+                                fontSize = ArchiveTypeScale.body,
                                 fontWeight = FontWeight.Medium,
                                 color = if (isPaid) colors.textSecondary else colors.textPrimary,
                                 maxLines = 1,
@@ -807,8 +675,8 @@ fun InstallmentPlanDetailSheet(
                             }
                             val statusColor = when {
                                 isPaid -> colors.textMuted
-                                isOverdue -> BrickRedOverdue
-                                isDueThisMonth -> TerracottaDot
+                                isOverdue -> colors.alertRed
+                                isDueThisMonth -> colors.accent
                                 else -> colors.textSecondary
                             }
                             Text(
@@ -838,21 +706,16 @@ fun InstallmentPlanDetailSheet(
                 // 取消计划 (砖红，仅无已还记录时可用)
                 LedgerTextButton(
                     text = "取消计划",
+                    isDestructive = true,
                     onClick = onCancelPlanClick,
                     enabled = !hasPaid && plan.status != "settled"
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LedgerTextButton(
-                        text = "编辑",
-                        onClick = onEditClick
-                    )
-                    LedgerTextButton(
-                        text = "提前结清",
-                        onClick = onSettleClick,
-                        enabled = plan.status != "settled" && detail.remainingPrincipal > 0
-                    )
-                }
+                LedgerTextButton(
+                    text = "提前结清",
+                    onClick = onSettleClick,
+                    enabled = plan.status != "settled" && detail.remainingPrincipal > 0
+                )
             }
         }
     }
@@ -873,7 +736,6 @@ fun PayInstallmentSheet(
     onConfirmPay: (paidAmount: Long, payAccount: String, paidAt: String) -> Unit
 ) {
     val colors = LedgerTheme.colors
-    val context = LocalContext.current
 
     val expectedCents = item.principalPart + item.feePart
     var paidAmountYuan by remember { mutableStateOf(FormatUtils.centsToYuanString(expectedCents, includeSymbol = false)) }
@@ -887,7 +749,7 @@ fun PayInstallmentSheet(
     LedgerSheet(
         onDismissRequest = onDismissRequest,
         title = "标记已还 · 第 ${item.seq} 期",
-        actionText = "确认已还",
+        actionText = "确认",
         isActionEnabled = isValid,
         onAction = {
             if (isValid) {
@@ -920,28 +782,28 @@ fun PayInstallmentSheet(
                 Text(
                     text = "实付金额不得低于本期本金 ${LedgerFormat.formatMoney(item.principalPart)}",
                     style = LedgerTheme.typography.caption,
-                    color = BrickRedOverdue
+                    color = colors.alertRed
                 )
             }
 
             // 付款账户
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     text = "付款账户",
                     style = LedgerTheme.typography.caption,
                     color = colors.textSecondary
                 )
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    paymentMethods.take(4).forEach { acc ->
-                        val isSelected = selectedAccount == acc
-                        LedgerChoiceItem(
+                    paymentMethods.forEach { acc ->
+                        ArchiveSelectableCapsule(
                             text = acc,
-                            isSelected = isSelected,
-                            onClick = { selectedAccount = acc },
-                            modifier = Modifier.weight(1f)
+                            selected = selectedAccount == acc,
+                            onClick = { selectedAccount = acc }
                         )
                     }
                 }
@@ -987,7 +849,6 @@ fun SettleInstallmentSheet(
     onConfirmSettle: (paidAmount: Long, payAccount: String, paidAt: String) -> Unit
 ) {
     val colors = LedgerTheme.colors
-    val context = LocalContext.current
 
     var paidAmountYuan by remember { mutableStateOf(FormatUtils.centsToYuanString(remainingPrincipal, includeSymbol = false)) }
     var selectedAccount by remember { mutableStateOf(paymentMethods.firstOrNull() ?: "银行卡") }
@@ -1001,7 +862,7 @@ fun SettleInstallmentSheet(
     LedgerSheet(
         onDismissRequest = onDismissRequest,
         title = "提前结清 · ${plan.title}",
-        actionText = "确认结清",
+        actionText = "结清",
         isActionEnabled = isValid,
         onAction = {
             if (isValid) {
@@ -1018,7 +879,7 @@ fun SettleInstallmentSheet(
             Text(
                 text = "剩余待还本金总额：${LedgerFormat.formatMoney(remainingPrincipal)}",
                 fontFamily = ArchiveFontFamilies.MonoScale,
-                fontSize = 14.sp,
+                fontSize = ArchiveTypeScale.body,
                 fontWeight = FontWeight.SemiBold,
                 color = colors.textPrimary
             )
@@ -1036,7 +897,7 @@ fun SettleInstallmentSheet(
                 Text(
                     text = "实付金额不得低于剩余本金 ${LedgerFormat.formatMoney(remainingPrincipal)}",
                     style = LedgerTheme.typography.caption,
-                    color = BrickRedOverdue
+                    color = colors.alertRed
                 )
             } else {
                 Text(
@@ -1046,23 +907,23 @@ fun SettleInstallmentSheet(
                 )
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     text = "付款账户",
                     style = LedgerTheme.typography.caption,
                     color = colors.textSecondary
                 )
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    paymentMethods.take(4).forEach { acc ->
-                        val isSelected = selectedAccount == acc
-                        LedgerChoiceItem(
+                    paymentMethods.forEach { acc ->
+                        ArchiveSelectableCapsule(
                             text = acc,
-                            isSelected = isSelected,
-                            onClick = { selectedAccount = acc },
-                            modifier = Modifier.weight(1f)
+                            selected = selectedAccount == acc,
+                            onClick = { selectedAccount = acc }
                         )
                     }
                 }
@@ -1109,9 +970,7 @@ fun UpcomingInstallmentsSheet(
     LedgerSheet(
         onDismissRequest = onDismissRequest,
         title = "本月待还与逾期分期",
-        actionText = "完成",
-        isActionEnabled = true,
-        onAction = onDismissRequest
+        cancelText = "关闭"
     ) {
         if (items.isEmpty()) {
             Box(
@@ -1138,9 +997,9 @@ fun UpcomingInstallmentsSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(ArchiveShapes.medium)
                             .background(colors.surfaceElevated)
-                            .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
+                            .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.medium)
                             .padding(horizontal = 12.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -1151,8 +1010,8 @@ fun UpcomingInstallmentsSheet(
                                     Text(
                                         text = "已逾期 ${itm.overdueDays} 天",
                                         fontFamily = LedgerTheme.typography.serif,
-                                        fontSize = 11.5.sp,
-                                        color = BrickRedOverdue,
+                                        fontSize = ArchiveTypeScale.caption,
+                                        color = colors.alertRed,
                                         fontWeight = FontWeight.Medium
                                     )
                                 } else {
@@ -1160,13 +1019,13 @@ fun UpcomingInstallmentsSheet(
                                         modifier = Modifier
                                             .size(6.dp)
                                             .clip(CircleShape)
-                                            .background(TerracottaDot)
+                                            .background(colors.accent)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = "到期日 ${itm.dueDate}",
                                         fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 11.5.sp,
+                                        fontSize = ArchiveTypeScale.caption,
                                         color = colors.textSecondary
                                     )
                                 }
@@ -1185,7 +1044,7 @@ fun UpcomingInstallmentsSheet(
                             Text(
                                 text = "${itm.channelName} · 应还 ${LedgerFormat.formatMoney(itm.totalPart)}",
                                 fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 12.sp,
+                                fontSize = ArchiveTypeScale.caption,
                                 color = colors.textSecondary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -1218,7 +1077,6 @@ fun EditInstallmentPlanSheet(
     onDismissRequest: () -> Unit,
     onSaveSuccess: (title: String, note: String, modifiedDates: Map<Long, String>) -> Unit
 ) {
-    val context = LocalContext.current
     val colors = LedgerTheme.colors
     val plan = detail.plan
     val items = detail.items
@@ -1234,7 +1092,7 @@ fun EditInstallmentPlanSheet(
     LedgerSheet(
         onDismissRequest = onDismissRequest,
         title = "编辑分期计划",
-        actionText = "保存修改",
+        actionText = "保存",
         isActionEnabled = canSave,
         onAction = {
             onSaveSuccess(editTitle.trim(), editNote.trim(), modifiedDates)
@@ -1291,12 +1149,12 @@ fun EditInstallmentPlanSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(ArchiveShapes.small)
                             .clickable(enabled = !isPaid) {
                                 adjustingItem = itm
                             }
                             .background(colors.surfaceElevated)
-                            .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
+                            .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.small)
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -1319,7 +1177,7 @@ fun EditInstallmentPlanSheet(
                             Text(
                                 text = currentDue,
                                 fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 13.sp,
+                                fontSize = ArchiveTypeScale.body,
                                 color = if (isPaid) colors.textMuted else colors.textPrimary,
                                 fontWeight = FontWeight.Medium
                             )
@@ -1328,7 +1186,7 @@ fun EditInstallmentPlanSheet(
                                 Text(
                                     text = "›",
                                     color = colors.textSecondary,
-                                    fontSize = 14.sp
+                                    fontSize = ArchiveTypeScale.body
                                 )
                             }
                         }

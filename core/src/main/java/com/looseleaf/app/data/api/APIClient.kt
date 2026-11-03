@@ -23,9 +23,21 @@ import okhttp3.logging.HttpLoggingInterceptor
 import okio.BufferedSink
 import java.io.File
 import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLException
 
 class APIException(val code: Int, override val message: String) : Exception("[$code] $message")
+
+internal fun humanizeNetworkError(e: IOException): String = when (e) {
+    is UnknownHostException -> "网络连接异常：无法解析中枢地址，请检查网络或代理设置"
+    is SocketTimeoutException -> "网络连接超时，请稍后重试"
+    is ConnectException -> "无法连接中枢服务，请检查网络设置"
+    is SSLException -> "安全连接握手失败，请检查网络或代理设置"
+    else -> "网络连接异常，请检查网络设置"
+}
 
 /**
  * MOB-P1-36：服务端权威增量游标的响应头名。
@@ -271,7 +283,7 @@ class APIClient private constructor(private val context: Context) {
         val response = try {
             okHttpClient.newCall(request).execute()
         } catch (e: IOException) {
-            throw APIException(-1, "网络连接异常: ${e.message}")
+            throw APIException(-1, humanizeNetworkError(e))
         }
 
         // 「读响应体」同样可能抛 IOException（连接在读头后中断、读超时、callTimeout 触发）。
@@ -313,7 +325,7 @@ class APIClient private constructor(private val context: Context) {
                 envelope.data ?: throw APIException(envelope.code, "业务返回数据为空")
             }
         } catch (e: IOException) {
-            throw APIException(-1, "网络连接异常: ${e.message}")
+            throw APIException(-1, humanizeNetworkError(e))
         }
     }
 
@@ -513,6 +525,51 @@ class APIClient private constructor(private val context: Context) {
         executeEnvelopeRequest<DeleteResponse>("/api/v1/assets/gear/$id", "DELETE")
     }
 
+    suspend fun restoreGearAsset(req: RestoreGearAssetRequest) {
+        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
+        executeEnvelopeRequest<Map<String, JsonElement>>("/api/v1/assets/gear/restore", "POST", body = body)
+    }
+
+    /**
+     * 更新在役装备信息：保持原 id、顺序与伴生散页关联（兼容 v1.8.6+ 服务端）。
+     * 若回写失败则自动按原快照回滚，避免装备意外丢失。
+     */
+    suspend fun updateGearAsset(original: GearItem, updated: GearItem, index: Int = -1) {
+        val originalSnap = RestoreGearAssetRequest(
+            id = original.id,
+            name = original.name,
+            spec = original.spec,
+            category = original.category,
+            status = original.status,
+            priceCents = original.priceCents ?: 0L,
+            purchaseDate = original.purchaseDate,
+            soldPriceCents = original.soldPriceCents ?: 0L,
+            soldDate = original.soldDate,
+            note = original.note,
+            index = index
+        )
+        val updatedSnap = RestoreGearAssetRequest(
+            id = original.id,
+            name = updated.name.trim(),
+            spec = updated.spec.trim(),
+            category = updated.category.trim().ifBlank { "数码器材" },
+            status = updated.status,
+            priceCents = updated.priceCents ?: 0L,
+            purchaseDate = updated.purchaseDate,
+            soldPriceCents = updated.soldPriceCents ?: 0L,
+            soldDate = updated.soldDate,
+            note = updated.note,
+            index = index
+        )
+        deleteGearAsset(original.id)
+        try {
+            restoreGearAsset(updatedSnap)
+        } catch (err: Exception) {
+            runCatching { restoreGearAsset(originalSnap) }
+            throw err
+        }
+    }
+
     suspend fun fetchCreditChannels(): List<CreditChannel> {
         return executeEnvelopeRequest("/api/v1/credit-channels", "GET")
     }
@@ -702,7 +759,7 @@ class APIClient private constructor(private val context: Context) {
         val response = try {
             uploadClient.newCall(putRequest).execute()
         } catch (e: IOException) {
-            throw APIException(-1, "网络连接异常: ${e.message}")
+            throw APIException(-1, humanizeNetworkError(e))
         }
         response.use {
             if (!it.isSuccessful) {
@@ -764,7 +821,7 @@ class APIClient private constructor(private val context: Context) {
         val response = try {
             okHttpClient.newCall(request).execute()
         } catch (e: IOException) {
-            throw APIException(-1, "网络连接异常: ${e.message}")
+            throw APIException(-1, humanizeNetworkError(e))
         }
         try {
             response.use { resp ->
@@ -790,7 +847,7 @@ class APIClient private constructor(private val context: Context) {
                 )
             }
         } catch (e: IOException) {
-            throw APIException(-1, "网络连接异常: ${e.message}")
+            throw APIException(-1, humanizeNetworkError(e))
         }
     }
 
@@ -852,7 +909,7 @@ class APIClient private constructor(private val context: Context) {
         val response = try {
             downloadClient.newCall(request).execute()
         } catch (e: IOException) {
-            throw APIException(-1, "网络连接异常: ${e.message}")
+            throw APIException(-1, humanizeNetworkError(e))
         }
         try {
             response.use { res ->
@@ -867,7 +924,7 @@ class APIClient private constructor(private val context: Context) {
                 body.contentLength().takeIf { it > 0 } ?: 0L
             }
         } catch (e: IOException) {
-            throw APIException(-1, "网络连接异常: ${e.message}")
+            throw APIException(-1, humanizeNetworkError(e))
         }
     }
 }

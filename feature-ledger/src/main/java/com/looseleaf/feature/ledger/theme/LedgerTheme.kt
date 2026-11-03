@@ -20,6 +20,7 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.ArchiveSpacing
+import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.DarkArchiveColors
 import com.looseleaf.app.theme.LightArchiveColors
 import java.util.Locale
@@ -66,7 +67,7 @@ val LightLedgerColors = LedgerColors(
     accent = LightArchiveColors.accentWarm,            // 赤陶色 #A24F2B
     expense = LightArchiveColors.inkPrimary,           // 支出 = 正文色
     income = LightArchiveColors.accentMoss,            // 收入 = 低饱和苔绿 #4A6753
-    alertRed = Color(0xFFB35C5C),                      // 低饱和砖红（异常/警告预留）
+    alertRed = LightArchiveColors.alertRed,            // 低饱和砖红（异常/透支/逾期）
     isDark = false
 )
 
@@ -82,7 +83,7 @@ val DarkLedgerColors = LedgerColors(
     accent = DarkArchiveColors.accentWarm,             // 提亮赤陶 #D0603D
     expense = DarkArchiveColors.inkPrimary,            // 支出 = 正文色
     income = DarkArchiveColors.accentMoss,             // 收入 = 提亮苔绿 #6E9479
-    alertRed = Color(0xFFD08888),                      // 提亮低饱和砖红
+    alertRed = DarkArchiveColors.alertRed,             // 提亮低饱和砖红
     isDark = true
 )
 
@@ -177,37 +178,40 @@ object LedgerTypography {
     val title = TextStyle(
         fontFamily = serif,
         fontWeight = FontWeight.Bold,
-        fontSize = 22.sp
+        fontSize = ArchiveTypeScale.h2
     )
     val subtitle = TextStyle(
         fontFamily = serif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 16.sp
+        fontSize = ArchiveTypeScale.bodyLarge
     )
     val body = TextStyle(
         fontFamily = serif,
         fontWeight = FontWeight.Normal,
-        fontSize = 14.sp
+        fontSize = ArchiveTypeScale.body
     )
     val caption = TextStyle(
         fontFamily = serif,
         fontWeight = FontWeight.Normal,
-        fontSize = 12.sp
+        fontSize = ArchiveTypeScale.caption
     )
     val amountLarge = TextStyle(
         fontFamily = monoNumbers,
         fontWeight = FontWeight.Bold,
-        fontSize = 28.sp
+        fontSize = ArchiveTypeScale.h1,
+        fontFeatureSettings = "tnum"
     )
     val amountMedium = TextStyle(
         fontFamily = monoNumbers,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 16.sp
+        fontSize = ArchiveTypeScale.bodyLarge,
+        fontFeatureSettings = "tnum"
     )
     val amountSmall = TextStyle(
         fontFamily = monoNumbers,
         fontWeight = FontWeight.Normal,
-        fontSize = 13.sp
+        fontSize = ArchiveTypeScale.body,
+        fontFeatureSettings = "tnum"
     )
 }
 
@@ -238,7 +242,7 @@ fun LedgerTheme(
         if (darkTheme) {
             darkColorScheme(
                 primary = ledgerColors.accent,
-                onPrimary = Color.White,
+                onPrimary = ledgerColors.background,
                 background = ledgerColors.background,
                 surface = ledgerColors.surface,
                 onBackground = ledgerColors.textPrimary,
@@ -247,7 +251,7 @@ fun LedgerTheme(
         } else {
             lightColorScheme(
                 primary = ledgerColors.accent,
-                onPrimary = Color.White,
+                onPrimary = ledgerColors.background,
                 background = ledgerColors.background,
                 surface = ledgerColors.surface,
                 onBackground = ledgerColors.textPrimary,

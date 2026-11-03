@@ -508,7 +508,7 @@ internal fun QuickRecordSheet(
                                         Text(
                                             text = selectedChannel?.name ?: if (userChannels.isEmpty()) "点击新建渠道" else "选择渠道",
                                             fontFamily = LedgerTheme.typography.serif,
-                                            fontSize = 13.5.sp,
+                                            fontSize = 14.sp,
                                             color = if (selectedChannel != null) colors.textPrimary else colors.textMuted,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
@@ -517,7 +517,7 @@ internal fun QuickRecordSheet(
                                         Text(
                                             text = selectedChannel?.let { "每月${it.repaymentDay}日" } ?: "▾",
                                             fontFamily = LedgerTheme.typography.serif,
-                                            fontSize = 11.5.sp,
+                                            fontSize = 12.sp,
                                             color = colors.textSecondary,
                                             maxLines = 1
                                         )
@@ -552,7 +552,7 @@ internal fun QuickRecordSheet(
                                         Text(
                                             text = String.format(Locale.US, "%04d-%02d", firstDueYearMonth.year, firstDueYearMonth.monthValue),
                                             fontFamily = ArchiveFontFamilies.MonoScale,
-                                            fontSize = 13.5.sp,
+                                            fontSize = 14.sp,
                                             color = colors.textPrimary,
                                             maxLines = 1
                                         )
@@ -633,7 +633,7 @@ internal fun QuickRecordSheet(
                                 checked = linkGearAsset,
                                 onCheckedChange = { linkGearAsset = it },
                                 colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
+                                    checkedThumbColor = colors.background,
                                     checkedTrackColor = colors.accent,
                                     uncheckedThumbColor = colors.textMuted,
                                     uncheckedTrackColor = colors.surfaceElevated
@@ -745,7 +745,7 @@ internal fun QuickRecordSheet(
                             selectedPaymentMethod.takeIf { it != lastPaymentMethod }
                         ).joinToString(" · "),
                         fontFamily = LedgerTheme.typography.serif,
-                        fontSize = 11.5.sp,
+                        fontSize = 12.sp,
                         color = colors.accent
                     )
                 }

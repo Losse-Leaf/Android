@@ -1,29 +1,30 @@
 package com.looseleaf.feature.ledger.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.looseleaf.app.model.*
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTypeScale
+import com.looseleaf.app.ui.components.ArchiveGearRow
 import com.looseleaf.feature.ledger.theme.LedgerFormat
 import com.looseleaf.feature.ledger.theme.LedgerTheme
 
@@ -97,10 +98,15 @@ internal fun AssetsAndGearTab(
 
                 Text(
                     text = if (isPrivacyMasked) "¥ ••••" else LedgerFormat.formatMoney(ov.netWorth),
-                    fontFamily = ArchiveFontFamilies.MonoScale,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 32.sp,
-                    color = colors.textPrimary
+                    style = TextStyle(
+                        fontFamily = ArchiveFontFamilies.MonoScale,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = ArchiveTypeScale.display,
+                        fontFeatureSettings = "tnum"
+                    ),
+                    color = if (!isPrivacyMasked && ov.netWorth < 0) colors.alertRed else colors.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -109,63 +115,84 @@ internal fun AssetsAndGearTab(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.Start
+                    ) {
                         Text(
                             text = "流动资金",
                             style = LedgerTheme.typography.caption,
                             fontFamily = LedgerTheme.typography.serif,
-                            color = colors.textSecondary
+                            color = colors.textSecondary,
+                            maxLines = 1
                         )
-                        Spacer(modifier = Modifier.height(3.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(ov.liquidBalance),
-                            fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            color = colors.textPrimary
+                            style = TextStyle(
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = ArchiveTypeScale.body,
+                                fontFeatureSettings = "tnum"
+                            ),
+                            color = if (!isPrivacyMasked && ov.liquidBalance < 0) colors.alertRed else colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
                     Column(
                         modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        horizontalAlignment = Alignment.Start
                     ) {
                         Text(
                             text = "固定资产",
                             style = LedgerTheme.typography.caption,
                             fontFamily = LedgerTheme.typography.serif,
-                            color = colors.textSecondary
+                            color = colors.textSecondary,
+                            maxLines = 1
                         )
-                        Spacer(modifier = Modifier.height(3.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(ov.fixedAssets),
-                            fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            color = colors.textPrimary
+                            style = TextStyle(
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = ArchiveTypeScale.body,
+                                fontFeatureSettings = "tnum"
+                            ),
+                            color = colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
                     Column(
                         modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.End
+                        horizontalAlignment = Alignment.Start
                     ) {
                         Text(
                             text = "待还负债",
                             style = LedgerTheme.typography.caption,
                             fontFamily = LedgerTheme.typography.serif,
-                            color = colors.textSecondary
+                            color = colors.textSecondary,
+                            maxLines = 1
                         )
-                        Spacer(modifier = Modifier.height(3.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(ov.totalLiabilities),
-                            fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            color = colors.expense
+                            style = TextStyle(
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = ArchiveTypeScale.body,
+                                fontFeatureSettings = "tnum"
+                            ),
+                            color = if (!isPrivacyMasked && ov.totalLiabilities > 0) colors.alertRed else colors.expense,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -175,7 +202,7 @@ internal fun AssetsAndGearTab(
             }
         }
 
-        // 2. 信贷渠道与分期还款负债（对齐流动资金样式，点击呼出明细底抽）
+        // 2. 分期负债汇总卡片（整块可点击呼出明细底抽）
         item(key = "credit_channels_section") {
             Column(
                 modifier = Modifier
@@ -183,8 +210,8 @@ internal fun AssetsAndGearTab(
                     .padding(vertical = 4.dp)
             ) {
                 SectionHeader(
-                    title = "信贷渠道与分期负债",
-                    actionText = "新建分期",
+                    title = "分期负债",
+                    actionText = "+ 新建",
                     onActionClick = onNewInstallmentClick
                 )
 
@@ -193,82 +220,97 @@ internal fun AssetsAndGearTab(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(4.dp))
-                        .clickable { showInstallmentOverviewSheet = true }
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                        .clip(ArchiveShapes.medium)
+                        .background(colors.surfaceElevated)
+                        .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.medium)
+                        .clickable(role = Role.Button) { showInstallmentOverviewSheet = true }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.Start
+                    ) {
                         Text(
                             text = "待还总额",
                             style = LedgerTheme.typography.caption,
                             fontFamily = LedgerTheme.typography.serif,
-                            color = colors.textSecondary
+                            color = colors.textSecondary,
+                            maxLines = 1
                         )
-                        Spacer(modifier = Modifier.height(3.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(ov.totalLiabilities),
-                            fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            color = colors.expense
+                            style = TextStyle(
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = ArchiveTypeScale.body,
+                                fontFeatureSettings = "tnum"
+                            ),
+                            color = if (!isPrivacyMasked && ov.totalLiabilities > 0) colors.alertRed else colors.expense,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
                     Column(
                         modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        horizontalAlignment = Alignment.Start
                     ) {
                         Text(
                             text = "当月待还",
                             style = LedgerTheme.typography.caption,
                             fontFamily = LedgerTheme.typography.serif,
-                            color = colors.textSecondary
+                            color = colors.textSecondary,
+                            maxLines = 1
                         )
-                        Spacer(modifier = Modifier.height(3.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(ov.monthlyLiabilities),
-                            fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            color = colors.textPrimary
+                            style = TextStyle(
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = ArchiveTypeScale.body,
+                                fontFeatureSettings = "tnum"
+                            ),
+                            color = colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
                     Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.End
+                        modifier = Modifier.weight(0.95f),
+                        horizontalAlignment = Alignment.Start
                     ) {
                         Text(
                             text = "在还分期",
                             style = LedgerTheme.typography.caption,
                             fontFamily = LedgerTheme.typography.serif,
-                            color = colors.textSecondary
+                            color = colors.textSecondary,
+                            maxLines = 1
                         )
-                        Spacer(modifier = Modifier.height(3.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = if (installmentPlans.isEmpty()) "暂无欠款" else "${installmentPlans.size} 笔在还",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontWeight = FontWeight.Normal,
-                                fontSize = 13.sp,
-                                color = colors.textSecondary
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text(
-                                text = "›",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = colors.textSecondary
-                            )
-                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (installmentPlans.isEmpty()) "暂无欠款" else "${installmentPlans.size} 笔在还",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = ArchiveTypeScale.body,
+                            color = if (installmentPlans.isEmpty()) colors.textSecondary else colors.accent,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
-                }
 
-                Spacer(modifier = Modifier.height(14.dp))
-                LedgerDivider()
+                    Text(
+                        text = "›",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = ArchiveTypeScale.title,
+                        color = colors.textSecondary
+                    )
+                }
             }
         }
 
@@ -280,12 +322,12 @@ internal fun AssetsAndGearTab(
                     .padding(vertical = 4.dp)
             ) {
                 SectionHeader(
-                    title = "在役固资与随身装备 (${ov.gearSummary.items.size})",
-                    actionText = "添加装备",
+                    title = "装备 ${ov.gearSummary.items.size}",
+                    actionText = "+ 添加",
                     onActionClick = onAddGearClick
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 if (ov.gearSummary.items.isEmpty()) {
                     Text(
@@ -293,50 +335,24 @@ internal fun AssetsAndGearTab(
                         style = LedgerTheme.typography.body,
                         fontFamily = LedgerTheme.typography.serif,
                         color = colors.textSecondary,
-                        modifier = Modifier.padding(vertical = 6.dp)
+                        modifier = Modifier.padding(vertical = 8.dp)
                     )
                 } else {
-                    ov.gearSummary.items.forEach { gear ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp))
-                                .clickable { onSellGearClick(gear) }
-                                .padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                                Text(
-                                    text = gear.name,
-                                    style = LedgerTheme.typography.body,
-                                    fontFamily = LedgerTheme.typography.serif,
-                                    fontWeight = FontWeight.Medium,
-                                    color = colors.textPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = listOfNotNull(
-                                        gear.category,
-                                        gear.spec.takeIf { it.isNotBlank() },
-                                        gear.purchaseDate
-                                    ).joinToString(" · "),
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 11.5.sp,
-                                    color = colors.textSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            Text(
-                                text = if (isPrivacyMasked) "••••" else gear.priceCents?.let { LedgerFormat.formatMoney(it) } ?: "—",
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 13.sp,
-                                color = colors.textPrimary
-                            )
+                    ov.gearSummary.items.forEachIndexed { idx, gear ->
+                        if (idx > 0) {
+                            LedgerDivider()
                         }
+                        ArchiveGearRow(
+                            gear = gear,
+                            trailingText = if (isPrivacyMasked) {
+                                "••••"
+                            } else {
+                                gear.priceCents?.let { LedgerFormat.formatMoney(it) } ?: "—"
+                            },
+                            trailingColor = colors.textPrimary,
+                            showShortDateInSubtitle = true,
+                            onClick = { onSellGearClick(gear) }
+                        )
                     }
                 }
             }
@@ -394,7 +410,7 @@ internal fun AssetsAndGearTab(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp))
+                                .clip(ArchiveShapes.small)
                                 .clickable {
                                     showInstallmentOverviewSheet = false
                                     onPlanClick(plan)
@@ -409,15 +425,17 @@ internal fun AssetsAndGearTab(
                                     style = LedgerTheme.typography.body,
                                     fontFamily = LedgerTheme.typography.serif,
                                     fontWeight = FontWeight.Medium,
-                                    color = colors.textPrimary
+                                    color = colors.textPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 if (plan.isOverdue) {
                                     Text(
                                         text = "已逾期 ${plan.overdueDays} 天",
                                         fontFamily = LedgerTheme.typography.serif,
-                                        fontSize = 12.sp,
-                                        color = Color(0xFFB33A2B),
+                                        fontSize = ArchiveTypeScale.caption,
+                                        color = colors.alertRed,
                                         fontWeight = FontWeight.Medium
                                     )
                                 } else {
@@ -430,8 +448,10 @@ internal fun AssetsAndGearTab(
                                     Text(
                                         text = "${plan.channelName ?: plan.channelCode} · 第 ${plan.paidPeriods + 1}/${plan.periods} 期 · 下次 $nextDueDisplay",
                                         fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 12.sp,
-                                        color = colors.textSecondary
+                                        fontSize = ArchiveTypeScale.caption,
+                                        color = colors.textSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -440,7 +460,7 @@ internal fun AssetsAndGearTab(
                                 Text(
                                     text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(plan.remainingPrincipal),
                                     fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 14.sp,
+                                    fontSize = ArchiveTypeScale.body,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.expense
                                 )
@@ -448,7 +468,7 @@ internal fun AssetsAndGearTab(
                                 Text(
                                     text = "本期: ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(plan.nextTotal)}",
                                     fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 12.sp,
+                                    fontSize = ArchiveTypeScale.caption,
                                     color = colors.textSecondary
                                 )
                             }

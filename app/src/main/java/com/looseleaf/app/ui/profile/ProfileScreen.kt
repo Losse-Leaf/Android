@@ -60,6 +60,7 @@ import com.looseleaf.app.model.PairTicketResponse
 import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.ui.stream.LifeActivityHeatmap
@@ -129,6 +130,7 @@ fun ProfileScreen(
     var isIssuingPairTicket by remember { mutableStateOf(false) }
     var globalStats by remember { mutableStateOf<GlobalStats?>(null) }
     var isLoadingInitialStats by remember { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) }
 
     val reloadDevices: () -> Unit = {
         scope.launch {
@@ -138,6 +140,34 @@ fun ProfileScreen(
             }
             isLoadingDevices = false
         }
+    }
+
+    suspend fun refreshShowcase() {
+        isRefreshing = true
+        val result = try {
+            val remoteProfile = apiClient.fetchCuratorProfile()
+            ProfileRepository.updateProfile(context, remoteProfile)
+            profile = remoteProfile
+            val remoteConfig = apiClient.fetchSiteConfig()
+            ProfileRepository.updateSiteConfig(context, remoteConfig)
+            siteConfig = remoteConfig
+            runCatching { globalStats = apiClient.fetchGlobalStats() }
+            runCatching { syncManager.pullStreamData() }
+            reloadDevices()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+        result.onSuccess {
+            SyncManager.markSessionPullDone("profile")
+        }.onFailure { err ->
+            if (err !is CancellationException) {
+                ArchiveToastManager.show("档案刷新失败: ${err.message}", isError = true)
+            }
+        }
+        isRefreshing = false
     }
 
     LaunchedEffect(Unit) {
@@ -394,10 +424,23 @@ fun ProfileScreen(
                     }
                 )
 
-                LazyColumn(
+                val pullToRefreshState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+                androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = { scope.launch { refreshShowcase() } },
+                    state = pullToRefreshState,
+                    indicator = {
+                        PaperclipPullIndicator(
+                            state = pullToRefreshState,
+                            isRefreshing = isRefreshing
+                        )
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .weight(1f)
+                ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -604,12 +647,12 @@ fun ProfileScreen(
                                 StatColumnItem(
                                     label = "造物项目",
                                     value = projectsCountText,
-                                    contentDesc = "造物项目共 $projectsCountText 个，点击跳转工坊",
+                                    contentDesc = "造物项目共 $projectsCountText 个，点击跳转工坊造物",
                                     modifier = Modifier
                                         .weight(1f)
                                         .defaultMinSize(minHeight = 48.dp),
                                     onClick = {
-                                        onNavigateToRoute?.invoke("workshop")
+                                        onNavigateToRoute?.invoke("projects")
                                     }
                                 )
                                 StatColumnItem(
@@ -691,38 +734,21 @@ fun ProfileScreen(
 
                             Spacer(modifier = Modifier.height(4.dp))
 
-                            // 条目：第一行名称（衬线 SemiBold，单行省略），第二行规格（次要色、等宽、单行省略），无规格不留空行；条目之间 1dp 淡线，上下内边距 12dp；无卡片
+                            // 统一复用 ArchiveGearRow 组件：右侧呈现温暖陪伴天数，点击进入账本装备资产管理
                             profile.edcGear.forEachIndexed { index, gear ->
                                 key(gear.id) {
                                     if (index > 0) {
                                         ArchiveDivider()
                                     }
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 12.dp)
-                                    ) {
-                                        Text(
-                                            text = gear.name,
-                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 15.sp,
-                                            color = colors.inkPrimary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        if (gear.spec.isNotBlank()) {
-                                            Spacer(modifier = Modifier.height(3.dp))
-                                            Text(
-                                                text = gear.spec,
-                                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                                fontSize = 12.sp,
-                                                color = colors.inkSecondary,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                    ArchiveGearRow(
+                                        gear = gear,
+                                        trailingText = formatGearCompanionDays(gear.purchaseDate),
+                                        trailingColor = colors.inkSecondary,
+                                        showShortDateInSubtitle = false,
+                                        onClick = {
+                                            onNavigateToRoute?.invoke("ledger")
                                         }
-                                    }
+                                    )
                                 }
                             }
                         }
@@ -731,7 +757,8 @@ fun ProfileScreen(
                 item {
                     Spacer(modifier = Modifier.height(28.dp))
                 }
-            }
+                }
+                }
             }
 
             // ==========================================
@@ -1084,7 +1111,7 @@ private fun StatColumnItem(
         Text(
             text = label,
             fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontSize = 11.5.sp,
+            fontSize = ArchiveTypeScale.caption,
             color = colors.inkSecondary,
             maxLines = 1,
             softWrap = false
@@ -1093,12 +1120,13 @@ private fun StatColumnItem(
         Text(
             text = value,
             fontFamily = ArchiveFontFamilies.MonoScale,
-            fontSize = 18.sp,
+            fontSize = ArchiveTypeScale.title,
             fontWeight = FontWeight.Bold,
             color = colors.inkPrimary,
             maxLines = 1,
             softWrap = false,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            style = TextStyle(fontFeatureSettings = "tnum")
         )
     }
 }

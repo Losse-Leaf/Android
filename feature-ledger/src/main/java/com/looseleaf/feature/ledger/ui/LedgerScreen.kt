@@ -46,9 +46,16 @@ import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.security.BiometricHelper
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.model.*
+import com.looseleaf.app.ui.components.ArchiveConfirmDialog
+import com.looseleaf.app.ui.components.ArchiveDatePickerField
+import com.looseleaf.app.ui.components.ArchiveDatePickerSheet
+import com.looseleaf.app.ui.components.ArchiveSelectableCapsule
 import com.looseleaf.app.ui.components.PaperclipPullIndicator
+import com.looseleaf.app.ui.components.formatGearCompanionDays
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.ui.components.ArchiveToastManager
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.feature.ledger.data.LedgerRepository
@@ -114,6 +121,7 @@ fun LedgerScreen(
     var showCalibrateBalanceDialog by remember { mutableStateOf(false) }
     var showAddGearDialog by remember { mutableStateOf(false) }
     var viewingGearItem by remember { mutableStateOf<GearItem?>(null) }
+    var editingGearItem by remember { mutableStateOf<GearItem?>(null) }
     var sellingGearItem by remember { mutableStateOf<GearItem?>(null) }
     var showCreditChannelsDialog by remember { mutableStateOf(false) }
     var showCategoriesManagerDialog by remember { mutableStateOf(false) }
@@ -162,10 +170,29 @@ fun LedgerScreen(
     val transactionsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
     val assetsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
-    // 资产大盘不显示 FAB，账单明细滚动时收起
+    var isScrollingUp by remember { mutableStateOf(true) }
+    var prevScrollIndex by remember { mutableIntStateOf(0) }
+    var prevScrollOffset by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(transactionsListState) {
+        snapshotFlow { transactionsListState.firstVisibleItemIndex to transactionsListState.firstVisibleItemScrollOffset }
+            .collect { (idx, off) ->
+                if (idx > prevScrollIndex || (idx == prevScrollIndex && off > prevScrollOffset + 12)) {
+                    isScrollingUp = false
+                } else if (idx < prevScrollIndex || (idx == prevScrollIndex && off < prevScrollOffset - 12)) {
+                    isScrollingUp = true
+                }
+                prevScrollIndex = idx
+                prevScrollOffset = off
+            }
+    }
+
+    // 资产大盘与空账单状态均隐藏 FAB（空状态已自带实心主按钮），向下滚动时平滑收起
     val isFabVisible by remember {
         derivedStateOf {
-            selectedTab == 0 && (transactionsListState.firstVisibleItemIndex == 0 || !transactionsListState.isScrollInProgress)
+            selectedTab == 0 &&
+                transactions.isNotEmpty() &&
+                (isScrollingUp || transactionsListState.firstVisibleItemIndex == 0)
         }
     }
 
@@ -210,9 +237,9 @@ fun LedgerScreen(
                                 expanded = showMoreMenu,
                                 onDismissRequest = { showMoreMenu = false },
                                 modifier = Modifier
-                                    .background(if (colors.isDark) Color(0xFF1F1D1B) else Color(0xFFFAF6EE))
-                                    .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp)),
-                                shape = RoundedCornerShape(4.dp),
+                                    .background(colors.surfaceElevated)
+                                    .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.small),
+                                shape = ArchiveShapes.small,
                                 tonalElevation = 0.dp,
                                 shadowElevation = 0.dp
                             ) {
@@ -290,7 +317,7 @@ fun LedgerScreen(
                     FloatingActionButton(
                         onClick = { showQuickRecordSheet = true },
                         containerColor = colors.accent,
-                        contentColor = Color.White,
+                        contentColor = colors.background,
                         shape = CircleShape,
                         elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
                         modifier = Modifier
@@ -308,40 +335,41 @@ fun LedgerScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                // 2. 月份 / 截至今天
+                // 2. 副标题区：固定高度 34dp，切换「账单明细 / 资产大盘」时绝不跳动
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 2.dp)
+                        .height(34.dp)
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.CenterStart
                 ) {
                     if (selectedTab == 0) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .clickable { showMonthPickerSheet = true }
+                                .clip(ArchiveShapes.small)
+                                .clickable(role = Role.Button) { showMonthPickerSheet = true }
                                 .padding(vertical = 4.dp, horizontal = 2.dp)
                         ) {
                             Text(
                                 text = "${selectedYearMonth.year} 年 ${selectedYearMonth.monthValue} 月 ▾",
-                                style = LedgerTheme.typography.subtitle,
                                 fontFamily = LedgerTheme.typography.serif,
                                 fontWeight = FontWeight.SemiBold,
-                                color = colors.textPrimary
+                                fontSize = ArchiveTypeScale.bodyLarge,
+                                color = colors.textPrimary,
+                                maxLines = 1
                             )
                         }
                     } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 4.dp, horizontal = 2.dp)
-                        ) {
-                            Text(
-                                text = "截至今天",
-                                style = LedgerTheme.typography.caption,
-                                fontFamily = LedgerTheme.typography.serif,
-                                color = colors.textSecondary
-                            )
-                        }
+                        Text(
+                            text = "截至今天",
+                            fontFamily = LedgerTheme.typography.serif,
+                            fontWeight = FontWeight.Normal,
+                            fontSize = ArchiveTypeScale.body,
+                            color = colors.textSecondary,
+                            maxLines = 1,
+                            modifier = Modifier.padding(horizontal = 2.dp)
+                        )
                     }
                 }
 
@@ -862,10 +890,11 @@ fun LedgerScreen(
                         apiClient.updateLiquidBalance(cents)
                         LedgerRepository.refreshAssets(apiClient)
                         refreshAllData()
+                    }.onSuccess {
+                        showCalibrateBalanceDialog = false
                     }.onFailure { err ->
                         ArchiveToastManager.show("校准失败: ${err.message}", isError = true)
                     }
-                    showCalibrateBalanceDialog = false
                 }
             }
         }
@@ -873,7 +902,7 @@ fun LedgerScreen(
         LedgerSheet(
             onDismissRequest = { showCalibrateBalanceDialog = false },
             title = "校准余额",
-            actionText = "确认校准",
+            actionText = "保存",
             isActionEnabled = isCalibrateEnabled,
             onAction = doCalibrate
         ) {
@@ -887,7 +916,7 @@ fun LedgerScreen(
                 Text(
                     text = "系统当前推算 ${LedgerFormat.formatMoney(currentLiquidCents)}",
                     fontFamily = ArchiveFontFamilies.MonoScale,
-                    fontSize = 13.sp,
+                    fontSize = ArchiveTypeScale.body,
                     color = colors.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -920,7 +949,7 @@ fun LedgerScreen(
                     Text(
                         text = "校准后将调整 $diffSign${LedgerFormat.formatMoney(kotlin.math.abs(diffCents))}",
                         fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 13.sp,
+                        fontSize = ArchiveTypeScale.body,
                         color = colors.textSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -969,10 +998,12 @@ fun LedgerScreen(
         }
         var showGearMonthPicker by remember { mutableStateOf(false) }
 
+        var isSubmittingGear by remember { mutableStateOf(false) }
         val canSubmit = gearName.isNotBlank() && gearPrice.isNotBlank() && (FormatUtils.yuanStringToCents(gearPrice) > 0)
         val doSubmitGear: () -> Unit = {
-            if (canSubmit) {
+            if (canSubmit && !isSubmittingGear) {
                 val cents = FormatUtils.yuanStringToCents(gearPrice)
+                isSubmittingGear = true
                 scope.launch {
                     runCatching {
                         if (payMethodChoice == "installment") {
@@ -1009,19 +1040,22 @@ fun LedgerScreen(
                         }
                         LedgerRepository.refreshAssets(apiClient)
                         refreshAllData()
+                    }.onSuccess {
+                        isSubmittingGear = false
+                        showAddGearDialog = false
                     }.onFailure { err ->
+                        isSubmittingGear = false
                         ArchiveToastManager.show("录入装备失败: ${err.message}", isError = true)
                     }
-                    showAddGearDialog = false
                 }
             }
         }
 
         LedgerSheet(
-            onDismissRequest = { showAddGearDialog = false },
+            onDismissRequest = { if (!isSubmittingGear) showAddGearDialog = false },
             title = "录入新装备",
-            actionText = "确认录入",
-            isActionEnabled = canSubmit,
+            actionText = if (isSubmittingGear) "录入中…" else "录入",
+            isActionEnabled = canSubmit && !isSubmittingGear,
             onAction = doSubmitGear
         ) {
             Column(
@@ -1136,7 +1170,7 @@ fun LedgerScreen(
                             checked = isAutoTx,
                             onCheckedChange = { isAutoTx = it },
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
+                                checkedThumbColor = colors.background,
                                 checkedTrackColor = colors.accent,
                                 uncheckedThumbColor = colors.textMuted,
                                 uncheckedTrackColor = colors.surfaceElevated
@@ -1161,50 +1195,22 @@ fun LedgerScreen(
                             isNumeric = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
-                            modifier = Modifier.width(110.dp)
+                            modifier = Modifier.width(104.dp)
                         )
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "常用期数",
-                                style = LedgerTheme.typography.caption,
-                                fontFamily = LedgerTheme.typography.serif,
-                                color = colors.textSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                listOf("3", "6", "12", "24", "36").forEach { p ->
-                                    val isSelected = periodsText == p
-                                    Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(if (isSelected) colors.surfaceElevated else Color.Transparent)
-                                            .border(
-                                                ArchiveLines.hairline,
-                                                if (isSelected) colors.accent else colors.borderSubtle,
-                                                RoundedCornerShape(4.dp)
-                                            )
-                                            .clickable { periodsText = p }
-                                            .padding(vertical = 6.dp)
-                                    ) {
-                                        Text(
-                                            text = "${p}期",
-                                            fontFamily = LedgerTheme.typography.serif,
-                                            fontSize = 12.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected) colors.accent else colors.textSecondary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            listOf("3", "6", "12", "24", "36").forEach { p ->
+                                ArchiveSelectableCapsule(
+                                    text = "${p}期",
+                                    selected = periodsText == p,
+                                    onClick = { periodsText = p }
+                                )
                             }
                         }
                     }
@@ -1265,7 +1271,7 @@ fun LedgerScreen(
                                     Text(
                                         text = selectedChannel?.name ?: if (userChannels.isEmpty()) "点击新建渠道" else "选择渠道",
                                         fontFamily = LedgerTheme.typography.serif,
-                                        fontSize = 13.5.sp,
+                                        fontSize = 14.sp,
                                         color = if (selectedChannel != null) colors.textPrimary else colors.textMuted,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
@@ -1274,7 +1280,7 @@ fun LedgerScreen(
                                     Text(
                                         text = selectedChannel?.let { "每月${it.repaymentDay}日" } ?: "▾",
                                         fontFamily = LedgerTheme.typography.serif,
-                                        fontSize = 11.5.sp,
+                                        fontSize = 12.sp,
                                         color = colors.textSecondary,
                                         maxLines = 1
                                     )
@@ -1309,7 +1315,7 @@ fun LedgerScreen(
                                     Text(
                                         text = String.format(Locale.US, "%04d-%02d", firstDueYearMonth.year, firstDueYearMonth.monthValue),
                                         fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 13.5.sp,
+                                        fontSize = 14.sp,
                                         color = colors.textPrimary,
                                         maxLines = 1
                                     )
@@ -1324,29 +1330,32 @@ fun LedgerScreen(
                         }
                     }
 
-                    // 实时试算单行预览
+                    // 实时试算单行预览（未输入金额时隐藏）
                     val pCents = FormatUtils.yuanStringToCents(gearPrice)
                     val approxMo = if (effectivePeriods > 0) pCents / effectivePeriods else 0L
                     val endYm = runCatching {
                         firstDueYearMonth.plusMonths((effectivePeriods - 1).toLong().coerceAtLeast(0L)).toString()
                     }.getOrDefault("----")
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(colors.surfaceElevated)
-                            .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = if (pCents <= 0) "输入买入价格后实时预览分期还款" else "每期约 ${LedgerFormat.formatMoney(approxMo)} · 共 $effectivePeriods 期 · 末期 $endYm",
-                            style = LedgerTheme.typography.caption,
-                            fontFamily = LedgerTheme.typography.serif,
-                            color = colors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                    AnimatedVisibility(visible = pCents > 0) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(ArchiveShapes.small)
+                                .background(colors.surfaceElevated)
+                                .border(ArchiveLines.hairline, colors.accent.copy(alpha = 0.45f), ArchiveShapes.small)
+                                .padding(horizontal = 12.dp, vertical = 9.dp)
+                        ) {
+                            Text(
+                                text = "每期约 ${LedgerFormat.formatMoney(approxMo)} · 共 $effectivePeriods 期 · 末期 $endYm",
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = ArchiveTypeScale.caption,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.accent,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
 
@@ -1363,215 +1372,374 @@ fun LedgerScreen(
         }
 
         if (showGearCreateChannelDialog) {
-            var newName by remember { mutableStateOf("") }
-            var newDay by remember { mutableStateOf("10") }
-            var isSubmittingChannel by remember { mutableStateOf(false) }
-
-            AlertDialog(
-                onDismissRequest = { if (!isSubmittingChannel) showGearCreateChannelDialog = false },
-                containerColor = colors.surface,
-                title = {
-                    Text(
-                        text = "新建还款渠道",
-                        fontFamily = LedgerTheme.typography.serif,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.textPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                text = {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        LedgerField(
-                            value = newName,
-                            onValueChange = { newName = it },
-                            label = "渠道名称",
-                            placeholder = "如 招商银行信用卡",
-                            singleLine = true
+            CreateCreditChannelDialog(
+                onDismiss = { showGearCreateChannelDialog = false },
+                confirmText = "创建并选择",
+                onSubmit = { name, day ->
+                    runCatching {
+                        val created = apiClient.createCreditChannel(
+                            CreateCreditChannelRequest(name = name, repaymentDay = day)
                         )
-                        LedgerField(
-                            value = newDay,
-                            onValueChange = { newDay = it.filter { c -> c.isDigit() }.take(2) },
-                            label = "每月固定还款日",
-                            placeholder = "10",
-                            trailingText = "日",
-                            isNumeric = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true
-                        )
-                    }
-                },
-                confirmButton = {
-                    LedgerTextButton(
-                        text = "创建并选择",
-                        enabled = newName.isNotBlank() && !isSubmittingChannel,
-                        onClick = {
-                            val day = newDay.toIntOrNull()?.coerceIn(1, 31) ?: 10
-                            isSubmittingChannel = true
-                            scope.launch {
-                                runCatching {
-                                    val created = apiClient.createCreditChannel(
-                                        CreateCreditChannelRequest(name = newName.trim(), repaymentDay = day)
-                                    )
-                                    selectedChannel = created
-                                    repayDay = created.repaymentDay
-                                    LedgerRepository.refreshAssets(apiClient)
-                                }.onFailure { err ->
-                                    ArchiveToastManager.show("创建渠道失败: ${err.message}", isError = true)
-                                }
-                                isSubmittingChannel = false
-                                showGearCreateChannelDialog = false
-                            }
-                        }
-                    )
-                },
-                dismissButton = {
-                    LedgerTextButton(
-                        text = "取消",
-                        enabled = !isSubmittingChannel,
-                        onClick = { showGearCreateChannelDialog = false }
-                    )
+                        selectedChannel = created
+                        repayDay = created.repaymentDay
+                        LedgerRepository.refreshAssets(apiClient)
+                    }.onFailure { err ->
+                        ArchiveToastManager.show("创建渠道失败: ${err.message}", isError = true)
+                    }.isSuccess
                 }
             )
         }
 
         if (showGearChannelSelectDialog) {
-            AlertDialog(
-                onDismissRequest = { showGearChannelSelectDialog = false },
-                containerColor = colors.surface,
-                title = {
-                    Text(
-                        text = "选择还款渠道",
-                        fontFamily = LedgerTheme.typography.serif,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.textPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+            SelectCreditChannelDialog(
+                channels = userChannels,
+                selectedChannelId = selectedChannel?.id,
+                onSelect = { ch ->
+                    selectedChannel = ch
+                    repayDay = ch.repaymentDay
                 },
-                text = {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        userChannels.forEach { ch ->
-                            val isSelected = selectedChannel?.id == ch.id
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (isSelected) colors.surfaceElevated else Color.Transparent)
-                                    .clickable {
-                                        selectedChannel = ch
-                                        repayDay = ch.repaymentDay
-                                        showGearChannelSelectDialog = false
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = ch.name,
-                                    fontFamily = LedgerTheme.typography.serif,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 14.sp,
-                                    color = if (isSelected) colors.accent else colors.textPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
-                                )
-                                Text(
-                                    text = "每月${ch.repaymentDay}日",
-                                    fontFamily = LedgerTheme.typography.serif,
-                                    fontSize = 12.sp,
-                                    color = colors.textSecondary,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    LedgerTextButton(
-                        text = "+ 新建渠道",
-                        onClick = {
-                            showGearChannelSelectDialog = false
-                            showGearCreateChannelDialog = true
-                        }
-                    )
-                },
-                dismissButton = {
-                    LedgerTextButton(
-                        text = "关闭",
-                        onClick = { showGearChannelSelectDialog = false }
-                    )
-                }
+                onCreateNewClick = { showGearCreateChannelDialog = true },
+                onDismiss = { showGearChannelSelectDialog = false }
             )
         }
     }
 
-    // 固资装备详情抽屉
+    // 固资装备详情抽屉（主操作「编辑」，底部次级危险操作「退役 / 出二手」「删除装备」）
     viewingGearItem?.let { gear ->
+        val companionLabel = remember(gear.purchaseDate) { formatGearCompanionDays(gear.purchaseDate) }
+        val allGearItems = assetsOverview?.gearSummary?.items ?: emptyList()
+
         LedgerSheet(
             onDismissRequest = { viewingGearItem = null },
             title = "装备详情",
-            cancelText = "关闭"
+            cancelText = "关闭",
+            actionText = "编辑",
+            onAction = {
+                val target = gear
+                viewingGearItem = null
+                editingGearItem = target
+            }
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
                         text = gear.name,
                         style = LedgerTheme.typography.title,
                         fontFamily = LedgerTheme.typography.serif,
                         fontWeight = FontWeight.Bold,
-                        color = colors.textPrimary
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(end = 12.dp)
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "分类: ${gear.category}" + (gear.spec?.takeIf { it.isNotBlank() }?.let { " · 规格: $it" } ?: ""),
-                        style = LedgerTheme.typography.body,
-                        fontFamily = LedgerTheme.typography.serif,
-                        color = colors.textSecondary
-                    )
-                    if (!gear.purchaseDate.isNullOrBlank()) {
-                        Text(
-                            text = "购入日期: ${gear.purchaseDate}",
-                            fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontSize = 12.sp,
-                            color = colors.textSecondary
-                        )
+                    if (!companionLabel.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(ArchiveShapes.full)
+                                .background(colors.surfaceElevated)
+                                .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.full)
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = companionLabel,
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = ArchiveTypeScale.caption,
+                                color = colors.textSecondary,
+                                maxLines = 1
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "买入价格: ${gear.priceCents?.let { LedgerFormat.formatMoney(it) } ?: "—"}",
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = colors.textPrimary
-                    )
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(ArchiveShapes.medium)
+                        .background(colors.surfaceElevated)
+                        .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.medium)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("分类", style = LedgerTheme.typography.caption, color = colors.textSecondary)
+                        Text(gear.category.ifBlank { "数码器材" }, style = LedgerTheme.typography.body, color = colors.textPrimary)
+                    }
+                    if (gear.spec.isNotBlank()) {
+                        LedgerDivider()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("规格参数", style = LedgerTheme.typography.caption, color = colors.textSecondary)
+                            Text(
+                                text = gear.spec,
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = ArchiveTypeScale.body,
+                                color = colors.textPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(start = 16.dp)
+                            )
+                        }
+                    }
+                    if (!gear.purchaseDate.isNullOrBlank()) {
+                        LedgerDivider()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("购入日期", style = LedgerTheme.typography.caption, color = colors.textSecondary)
+                            Text(
+                                text = gear.purchaseDate.orEmpty().take(10),
+                                fontFamily = ArchiveFontFamilies.MonoScale,
+                                fontSize = ArchiveTypeScale.body,
+                                color = colors.textPrimary
+                            )
+                        }
+                    }
+                    LedgerDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("买入价格", style = LedgerTheme.typography.caption, color = colors.textSecondary)
+                        Text(
+                            text = if (isPrivacyMasked) "••••" else gear.priceCents?.let { LedgerFormat.formatMoney(it) } ?: "—",
+                            fontFamily = ArchiveFontFamilies.MonoScale,
+                            fontSize = ArchiveTypeScale.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.textPrimary
+                        )
+                    }
+                    if (!gear.note.isNullOrBlank()) {
+                        LedgerDivider()
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("备注", style = LedgerTheme.typography.caption, color = colors.textSecondary)
+                            Text(
+                                text = gear.note.orEmpty(),
+                                style = LedgerTheme.typography.body,
+                                color = colors.textPrimary
+                            )
+                        }
+                    }
+                }
+
                 LedgerDivider()
 
-                LedgerTextButton(
-                    text = "退役 / 出二手",
-                    isDestructive = false,
-                    onClick = {
-                        val target = gear
-                        viewingGearItem = null
-                        sellingGearItem = target
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LedgerTextButton(
+                        text = "退役 / 出二手",
+                        isDestructive = true,
+                        onClick = {
+                            val target = gear
+                            viewingGearItem = null
+                            sellingGearItem = target
+                        }
+                    )
+
+                    LedgerTextButton(
+                        text = "删除装备",
+                        isDestructive = true,
+                        onClick = {
+                            val target = gear
+                            val targetIdx = allGearItems.indexOfFirst { it.id == target.id }
+                            viewingGearItem = null
+                            scope.launch {
+                                runCatching {
+                                    apiClient.deleteGearAsset(target.id)
+                                    LedgerRepository.refreshAssets(apiClient)
+                                    refreshAllData()
+                                    snackbarData = LedgerSnackbarData(
+                                        message = "已删除装备「${target.name}」",
+                                        actionLabel = "撤销",
+                                        onActionClick = {
+                                            scope.launch {
+                                                runCatching {
+                                                    apiClient.restoreGearAsset(
+                                                        RestoreGearAssetRequest(
+                                                            id = target.id,
+                                                            name = target.name,
+                                                            spec = target.spec,
+                                                            category = target.category,
+                                                            status = target.status,
+                                                            priceCents = target.priceCents ?: 0L,
+                                                            purchaseDate = target.purchaseDate,
+                                                            soldPriceCents = target.soldPriceCents ?: 0L,
+                                                            soldDate = target.soldDate,
+                                                            note = target.note,
+                                                            index = targetIdx
+                                                        )
+                                                    )
+                                                    LedgerRepository.refreshAssets(apiClient)
+                                                    refreshAllData()
+                                                }
+                                            }
+                                        }
+                                    )
+                                }.onFailure { err ->
+                                    ArchiveToastManager.show("删除失败: ${err.message}", isError = true)
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    // 编辑装备抽屉
+    editingGearItem?.let { gear ->
+        val allGearItems = assetsOverview?.gearSummary?.items ?: emptyList()
+        var editName by remember(gear.id) { mutableStateOf(gear.name) }
+        var editSpec by remember(gear.id) { mutableStateOf(gear.spec) }
+        var editCategory by remember(gear.id) { mutableStateOf(gear.category.ifBlank { "数码器材" }) }
+        var editPriceYuan by remember(gear.id) {
+            mutableStateOf(FormatUtils.centsToYuanString(gear.priceCents ?: 0L, includeSymbol = false))
+        }
+        var editPurchaseDate by remember(gear.id) {
+            mutableStateOf(
+                gear.purchaseDate?.take(10)?.let {
+                    runCatching { LocalDate.parse(it) }.getOrNull()
+                }
+            )
+        }
+        var editNote by remember(gear.id) { mutableStateOf(gear.note.orEmpty()) }
+        var isSavingGear by remember(gear.id) { mutableStateOf(false) }
+
+        val gearCatPresets = remember { listOf("数码器材", "摄影影音", "随身文具", "户外出行", "家居生活") }
+
+        LedgerSheet(
+            onDismissRequest = { if (!isSavingGear) editingGearItem = null },
+            title = "编辑装备",
+            actionText = if (isSavingGear) "保存中…" else "保存",
+            isActionEnabled = editName.isNotBlank() && !isSavingGear,
+            onAction = {
+                if (editName.isNotBlank() && !isSavingGear) {
+                    isSavingGear = true
+                    val targetIdx = allGearItems.indexOfFirst { it.id == gear.id }
+                    val updatedItem = gear.copy(
+                        name = editName.trim(),
+                        spec = editSpec.trim(),
+                        category = editCategory,
+                        priceCents = FormatUtils.yuanStringToCents(editPriceYuan),
+                        purchaseDate = editPurchaseDate?.toString(),
+                        note = editNote.trim().ifEmpty { null }
+                    )
+                    scope.launch {
+                        runCatching {
+                            apiClient.updateGearAsset(
+                                original = gear,
+                                updated = updatedItem,
+                                index = targetIdx
+                            )
+                            LedgerRepository.refreshAssets(apiClient)
+                            refreshAllData()
+                            ArchiveToastManager.show("装备信息已保存")
+                        }.onSuccess {
+                            isSavingGear = false
+                            editingGearItem = null
+                        }.onFailure { err ->
+                            isSavingGear = false
+                            ArchiveToastManager.show("保存失败: ${err.message}", isError = true)
+                        }
                     }
+                }
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                LedgerField(
+                    value = editName,
+                    onValueChange = { editName = it },
+                    label = "装备名称",
+                    singleLine = true
+                )
+
+                LedgerField(
+                    value = editSpec,
+                    onValueChange = { editSpec = it },
+                    label = "规格参数",
+                    placeholder = "选填",
+                    singleLine = true
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "装备分类",
+                        style = LedgerTheme.typography.caption,
+                        color = colors.textSecondary
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        (gearCatPresets + listOfNotNull(editCategory.takeIf { it !in gearCatPresets })).forEach { cat ->
+                            ArchiveSelectableCapsule(
+                                text = cat,
+                                selected = editCategory == cat,
+                                onClick = { editCategory = cat }
+                            )
+                        }
+                    }
+                }
+
+                LedgerField(
+                    value = editPriceYuan,
+                    onValueChange = { input ->
+                        val sanitized = input.filter { it.isDigit() || it == '.' }
+                        if (sanitized.count { it == '.' } <= 1) {
+                            val parts = sanitized.split('.')
+                            if (parts.size == 1 || parts[1].length <= 2) {
+                                editPriceYuan = sanitized
+                            }
+                        }
+                    },
+                    label = "买入价格",
+                    placeholder = "0.00",
+                    trailingText = "元",
+                    isNumeric = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
+
+                ArchiveDatePickerField(
+                    selectedDate = editPurchaseDate,
+                    onDateSelected = { editPurchaseDate = it },
+                    label = "购入日期",
+                    placeholder = "未设置",
+                    onClear = { editPurchaseDate = null }
+                )
+
+                LedgerField(
+                    value = editNote,
+                    onValueChange = { editNote = it },
+                    label = "备注",
+                    placeholder = "选填",
+                    singleLine = true
                 )
             }
         }
@@ -1583,29 +1751,38 @@ fun LedgerScreen(
             mutableStateOf(FormatUtils.centsToYuanString(gear.priceCents ?: 0L, includeSymbol = false))
         }
         var sellNote by remember(gear.id) { mutableStateOf("二手回血") }
+        var isSelling by remember(gear.id) { mutableStateOf(false) }
 
         LedgerSheet(
-            onDismissRequest = { sellingGearItem = null },
-            title = "退役变卖 - ${gear.name}",
-            actionText = "确认变卖回血",
+            onDismissRequest = { if (!isSelling) sellingGearItem = null },
+            title = "退役变卖 · ${gear.name}",
+            actionText = if (isSelling) "提交中…" else "变卖",
+            isActionEnabled = FormatUtils.yuanStringToCents(soldPriceYuan) > 0 && !isSelling,
             onAction = {
                 val cents = FormatUtils.yuanStringToCents(soldPriceYuan)
-                scope.launch {
-                    runCatching {
-                        apiClient.sellGearAsset(
-                            id = gear.id,
-                            req = SellGearRequest(
-                                soldPriceCents = cents,
-                                soldDate = FormatUtils.beijingNowIsoString().take(10),
-                                note = sellNote.trim()
+                if (cents > 0 && !isSelling) {
+                    isSelling = true
+                    scope.launch {
+                        runCatching {
+                            apiClient.sellGearAsset(
+                                id = gear.id,
+                                req = SellGearRequest(
+                                    soldPriceCents = cents,
+                                    soldDate = FormatUtils.beijingNowIsoString().take(10),
+                                    note = sellNote.trim()
+                                )
                             )
-                        )
-                        LedgerRepository.refreshAssets(apiClient)
-                        refreshAllData()
-                    }.onFailure { err ->
-                        ArchiveToastManager.show("变卖失败: ${err.message}", isError = true)
+                            LedgerRepository.refreshAssets(apiClient)
+                            refreshAllData()
+                            ArchiveToastManager.show("已登记二手回血")
+                        }.onSuccess {
+                            isSelling = false
+                            sellingGearItem = null
+                        }.onFailure { err ->
+                            isSelling = false
+                            ArchiveToastManager.show("变卖失败: ${err.message}", isError = true)
+                        }
                     }
-                    sellingGearItem = null
                 }
             }
         ) {
@@ -1676,20 +1853,19 @@ fun LedgerScreen(
                     LedgerRepository.refreshAssets(apiClient)
                     refreshAllData()
                     created
+                }.onFailure { err ->
+                    ArchiveToastManager.show("新建渠道失败: ${err.message}", isError = true)
                 }.getOrNull()
             },
             onSubmit = { req ->
-                scope.launch {
-                    runCatching {
-                        apiClient.createInstallmentPlan(req)
-                        LedgerRepository.refreshAssets(apiClient)
-                        refreshAllData()
-                        ArchiveToastManager.show("分期计划创建成功")
-                    }.onFailure { err ->
-                        ArchiveToastManager.show("创建分期失败: ${err.message}", isError = true)
-                    }
-                    showNewInstallmentSheet = false
-                }
+                runCatching {
+                    apiClient.createInstallmentPlan(req)
+                    LedgerRepository.refreshAssets(apiClient)
+                    refreshAllData()
+                    ArchiveToastManager.show("分期计划创建成功")
+                }.onFailure { err ->
+                    ArchiveToastManager.show("创建分期失败: ${err.message}", isError = true)
+                }.isSuccess
             }
         )
     }
@@ -1736,10 +1912,11 @@ fun LedgerScreen(
                         LedgerRepository.refreshAssets(apiClient)
                         refreshAllData()
                         ArchiveToastManager.show("分期计划已更新")
+                    }.onSuccess {
+                        editingInstallmentPlanDetail = null
                     }.onFailure { err ->
                         ArchiveToastManager.show("更新失败: ${err.message}", isError = true)
                     }
-                    editingInstallmentPlanDetail = null
                 }
             }
         )
@@ -1764,10 +1941,11 @@ fun LedgerScreen(
                         LedgerRepository.refreshAssets(apiClient)
                         refreshAllData()
                         ArchiveToastManager.show("已标记第 ${item.seq} 期已还")
+                    }.onSuccess {
+                        payingInstallmentItem = null
                     }.onFailure { err ->
                         ArchiveToastManager.show("标记还款失败: ${err.message}", isError = true)
                     }
-                    payingInstallmentItem = null
                 }
             }
         )
@@ -1792,10 +1970,11 @@ fun LedgerScreen(
                         LedgerRepository.refreshAssets(apiClient)
                         refreshAllData()
                         ArchiveToastManager.show("已提前结清")
+                    }.onSuccess {
+                        settlingInstallmentPlan = null
                     }.onFailure { err ->
                         ArchiveToastManager.show("结清失败: ${err.message}", isError = true)
                     }
-                    settlingInstallmentPlan = null
                 }
             }
         )
@@ -1844,148 +2023,77 @@ fun LedgerScreen(
 
     // 6. 二次确认弹窗：撤销已还记录
     showUnpayInstallmentConfirm?.let { item ->
-        AlertDialog(
-            onDismissRequest = { showUnpayInstallmentConfirm = null },
-            title = {
-                Text(
-                    text = "撤销该期还款？",
-                    style = LedgerTheme.typography.title,
-                    fontFamily = LedgerTheme.typography.serif,
-                    color = colors.textPrimary
-                )
-            },
-            text = {
-                Text(
-                    text = "撤销后将恢复该期待还本金，冲销还款支出流水，并回滚负债大盘。",
-                    style = LedgerTheme.typography.body,
-                    color = colors.textSecondary
-                )
-            },
-            confirmButton = {
-                LedgerTextButton(
-                    text = "确认撤销",
-                    onClick = {
-                        scope.launch {
-                            runCatching {
-                                apiClient.unpayInstallmentItem(item.id)
-                                val updated = apiClient.fetchInstallmentPlanDetail(item.planId)
-                                viewingInstallmentPlanDetail = updated
-                                LedgerRepository.refreshAssets(apiClient)
-                                refreshAllData()
-                                ArchiveToastManager.show("已撤销还款")
-                            }.onFailure { err ->
-                                ArchiveToastManager.show("撤销失败: ${err.message}", isError = true)
-                            }
-                            showUnpayInstallmentConfirm = null
-                        }
+        ArchiveConfirmDialog(
+            title = "撤销该期还款？",
+            content = "撤销后将恢复该期待还本金，冲销还款支出流水，并回滚负债大盘。",
+            confirmText = "确认撤销",
+            isDestructive = true,
+            onDismiss = { showUnpayInstallmentConfirm = null },
+            onConfirm = {
+                scope.launch {
+                    runCatching {
+                        apiClient.unpayInstallmentItem(item.id)
+                        val updated = apiClient.fetchInstallmentPlanDetail(item.planId)
+                        viewingInstallmentPlanDetail = updated
+                        LedgerRepository.refreshAssets(apiClient)
+                        refreshAllData()
+                        ArchiveToastManager.show("已撤销还款")
+                    }.onFailure { err ->
+                        ArchiveToastManager.show("撤销失败: ${err.message}", isError = true)
                     }
-                )
-            },
-            dismissButton = {
-                LedgerTextButton(
-                    text = "取消",
-                    onClick = { showUnpayInstallmentConfirm = null }
-                )
-            },
-            containerColor = colors.surface,
-            shape = RoundedCornerShape(4.dp)
+                    showUnpayInstallmentConfirm = null
+                }
+            }
         )
     }
 
     // 7. 二次确认弹窗：取消分期计划
     showCancelInstallmentConfirm?.let { plan ->
-        AlertDialog(
-            onDismissRequest = { showCancelInstallmentConfirm = null },
-            title = {
-                Text(
-                    text = "取消分期计划？",
-                    style = LedgerTheme.typography.title,
-                    fontFamily = LedgerTheme.typography.serif,
-                    color = colors.textPrimary
-                )
-            },
-            text = {
-                Text(
-                    text = "取消后将彻底删除此分期计划及所有期次记录。",
-                    style = LedgerTheme.typography.body,
-                    color = colors.textSecondary
-                )
-            },
-            confirmButton = {
-                LedgerTextButton(
-                    text = "确认取消",
-                    onClick = {
-                        scope.launch {
-                            runCatching {
-                                apiClient.deleteInstallmentPlan(plan.id)
-                                viewingInstallmentPlanDetail = null
-                                LedgerRepository.refreshAssets(apiClient)
-                                refreshAllData()
-                                ArchiveToastManager.show("已取消分期计划")
-                            }.onFailure { err ->
-                                ArchiveToastManager.show("取消失败: ${err.message}", isError = true)
-                            }
-                            showCancelInstallmentConfirm = null
-                        }
+        ArchiveConfirmDialog(
+            title = "取消分期计划？",
+            content = "取消后将彻底删除此分期计划及所有期次记录。",
+            confirmText = "确认取消",
+            dismissText = "暂不取消",
+            isDestructive = true,
+            onDismiss = { showCancelInstallmentConfirm = null },
+            onConfirm = {
+                scope.launch {
+                    runCatching {
+                        apiClient.deleteInstallmentPlan(plan.id)
+                        viewingInstallmentPlanDetail = null
+                        LedgerRepository.refreshAssets(apiClient)
+                        refreshAllData()
+                        ArchiveToastManager.show("已取消分期计划")
+                    }.onFailure { err ->
+                        ArchiveToastManager.show("取消失败: ${err.message}", isError = true)
                     }
-                )
-            },
-            dismissButton = {
-                LedgerTextButton(
-                    text = "暂不取消",
-                    onClick = { showCancelInstallmentConfirm = null }
-                )
-            },
-            containerColor = colors.surface,
-            shape = RoundedCornerShape(4.dp)
+                    showCancelInstallmentConfirm = null
+                }
+            }
         )
     }
 
     // 8. 二次确认弹窗：删除分期还款账目联动撤销
     showDeleteTxRepayConfirm?.let { tx ->
-        AlertDialog(
-            onDismissRequest = { showDeleteTxRepayConfirm = null },
-            title = {
-                Text(
-                    text = "删除此还款账目？",
-                    style = LedgerTheme.typography.title,
-                    fontFamily = LedgerTheme.typography.serif,
-                    color = colors.textPrimary
-                )
-            },
-            text = {
-                Text(
-                    text = "删除此分期还款账目将同时撤销对应的分期还款期次，并恢复待还负债本金。",
-                    style = LedgerTheme.typography.body,
-                    color = colors.textSecondary
-                )
-            },
-            confirmButton = {
-                LedgerTextButton(
-                    text = "确认删除",
-                    onClick = {
-                        scope.launch {
-                            runCatching {
-                                LedgerRepository.deleteTransaction(tx.id)
-                                LedgerRepository.refreshAssets(apiClient)
-                                refreshAllData()
-                                ArchiveToastManager.show("已删除账目并撤销还款")
-                            }.onFailure { err ->
-                                ArchiveToastManager.show("删除失败: ${err.message}", isError = true)
-                            }
-                            showDeleteTxRepayConfirm = null
-                        }
+        ArchiveConfirmDialog(
+            title = "删除此还款账目？",
+            content = "删除此分期还款账目将同时撤销对应的分期还款期次，并恢复待还负债本金。",
+            confirmText = "确认删除",
+            isDestructive = true,
+            onDismiss = { showDeleteTxRepayConfirm = null },
+            onConfirm = {
+                scope.launch {
+                    runCatching {
+                        LedgerRepository.deleteTransaction(tx.id)
+                        LedgerRepository.refreshAssets(apiClient)
+                        refreshAllData()
+                        ArchiveToastManager.show("已删除账目并撤销还款")
+                    }.onFailure { err ->
+                        ArchiveToastManager.show("删除失败: ${err.message}", isError = true)
                     }
-                )
-            },
-            dismissButton = {
-                LedgerTextButton(
-                    text = "取消",
-                    onClick = { showDeleteTxRepayConfirm = null }
-                )
-            },
-            containerColor = colors.surface,
-            shape = RoundedCornerShape(4.dp)
+                    showDeleteTxRepayConfirm = null
+                }
+            }
         )
     }
 }

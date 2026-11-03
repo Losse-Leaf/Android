@@ -195,18 +195,15 @@ fun StreamScreen(
     LaunchedEffect(listState) {
         snapshotFlow {
             Triple(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, listState.isScrollInProgress)
-        }.collect { (index, offset, isScrolling) ->
-            if (!isScrolling) {
-                // 停止滚动后恢复显示
+        }.collect { (index, offset, _) ->
+            if (index == 0 && offset < 24) {
                 isFabExpanded = true
-            } else {
-                if (index > lastFirstVisibleItemIndex || (index == lastFirstVisibleItemIndex && offset > lastFirstVisibleItemScrollOffset + 8)) {
-                    // 向下滚动时收缩并淡出隐藏
-                    isFabExpanded = false
-                } else if (index < lastFirstVisibleItemIndex || (index == lastFirstVisibleItemIndex && offset < lastFirstVisibleItemScrollOffset - 8)) {
-                    // 向上滚动恢复显示
-                    isFabExpanded = true
-                }
+            } else if (index > lastFirstVisibleItemIndex || (index == lastFirstVisibleItemIndex && offset > lastFirstVisibleItemScrollOffset + 10)) {
+                // 向下滚动时收缩并保持隐藏，避免遮挡底部条目日期
+                isFabExpanded = false
+            } else if (index < lastFirstVisibleItemIndex || (index == lastFirstVisibleItemIndex && offset < lastFirstVisibleItemScrollOffset - 10)) {
+                // 向上滚动时恢复显示
+                isFabExpanded = true
             }
             lastFirstVisibleItemIndex = index
             lastFirstVisibleItemScrollOffset = offset
@@ -913,9 +910,11 @@ fun StreamScreen(
             }
         }
 
-        // 「写一页」钢笔尖悬浮操作印章 (Fountain Pen FAB)
+        // 「写一页」悬浮操作按钮：空状态已有主按钮时自动隐藏，避免同屏双入口
+        val isStreamCurrentlyEmpty = (loadedEntries.isEmpty() && (!filterCriteria.isActive && onThisDayEntries.isEmpty())) ||
+            (loadedEntries.isEmpty() && filterCriteria.isActive)
         FountainPenFab(
-            isExpanded = isFabExpanded,
+            isExpanded = isFabExpanded && !isStreamCurrentlyEmpty,
             onClick = { showQuickNoteDialog = true },
             onQuickText = { showQuickNoteDialog = true },
             onQuickPhoto = { showQuickNoteDialog = true },

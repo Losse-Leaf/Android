@@ -3,7 +3,9 @@ package com.looseleaf.app.ui.profile
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -17,13 +19,15 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.ArchiveTextButton
 import com.looseleaf.app.utils.FormatUtils
@@ -41,12 +45,11 @@ private data class HeatmapDay(
 
 /**
  * 展台专享 · 时光刻度热力图 (ShowcaseHeatmap)
- * 严格遵循阶段 3 规范：
  * 1. 标题左"时光刻度" + 右侧等宽小字"共 N 篇" + 右侧文字按钮"年度年鉴"（赤陶、无图标）
- * 2. 7 行（周一在上）× N 列（自适应屏宽 20~22 周），右侧含今天
- * 3. 正文墨色四档透明度（6% / 20% / 45% / 75%），不用赤陶；圆角 4dp；今天 1dp 正文色描边
- * 4. 月份标注于每个月第一列上方，左侧标 一 / 三 / 五，右下角图例"少 ■■■■ 多"
- * 5. 点选高亮（2dp 赤陶描边）并在下方展示"X月X日 · N 篇"
+ * 2. 默认视口展示最近 15 周（约三个半月），可横向滑动回看最近 26 周，右侧对齐今天
+ * 3. 正文墨色四档透明度（6% / 20% / 45% / 75%），圆角 4dp；今天 1dp 内嵌描边（严格与邻格同尺寸对齐）
+ * 4. 月份标注于每个月第一列上方，左侧紧凑贴齐"一 / 三 / 五"，右下角图例"少 ■■■■ 多"
+ * 5. 点选高亮（2dp 赤陶内嵌描边）并在下方展示"X月X日 · N 篇"
  */
 @Composable
 fun ShowcaseHeatmap(
@@ -56,6 +59,7 @@ fun ShowcaseHeatmap(
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
+    val haptic = LocalHapticFeedback.current
     val today = remember { LocalDate.now(FormatUtils.BeijingZone) }
     val totalCount = remember(dayCounts, totalEntryCount) {
         if (totalEntryCount > 0) totalEntryCount else dayCounts.values.sum()
@@ -81,15 +85,16 @@ fun ShowcaseHeatmap(
                     text = "时光刻度",
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
+                    fontSize = ArchiveTypeScale.bodyLarge,
                     color = colors.inkPrimary
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "共 $totalCount 篇",
                     fontFamily = ArchiveFontFamilies.MonoScale,
-                    fontSize = 12.sp,
-                    color = colors.inkSecondary
+                    fontSize = ArchiveTypeScale.caption,
+                    color = colors.inkSecondary,
+                    style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
                 )
             }
 
@@ -102,14 +107,16 @@ fun ShowcaseHeatmap(
         Spacer(modifier = Modifier.height(6.dp))
 
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val numCols = 21
-            val leftLabelWidth = 14.dp
+            val visibleCols = 15
+            val numCols = 26
+            val leftLabelWidth = 13.dp
             val labelSpacing = 6.dp
-            val gapDp = 3.dp
+            val gapDp = 4.dp
 
-            val totalGridWidth = (maxWidth - leftLabelWidth - labelSpacing).coerceAtLeast(100.dp)
-            val cellDp = (totalGridWidth - gapDp * (numCols - 1)) / numCols
+            val viewportGridWidth = (maxWidth - leftLabelWidth - labelSpacing).coerceAtLeast(140.dp)
+            val cellDp = ((viewportGridWidth - gapDp * (visibleCols - 1)) / visibleCols).coerceIn(13.dp, 20.dp)
             val stepDp = cellDp + gapDp
+            val totalCanvasWidth = cellDp * numCols + gapDp * (numCols - 1)
 
             val todayRow = today.dayOfWeek.value - 1 // 0 = Mon ... 6 = Sun
             val lastCol = numCols - 1
@@ -158,7 +165,6 @@ fun ShowcaseHeatmap(
                         labels.add(col to "${firstDay.date.monthValue}月")
                     }
                 }
-                // 如果首列距离第一个打标月份有至少 3 列（>= 45dp），把首列代表的月份也补在最左侧
                 if (labels.isNotEmpty()) {
                     val firstLabeledCol = labels.first().first
                     if (firstLabeledCol >= 3) {
@@ -171,121 +177,161 @@ fun ShowcaseHeatmap(
                 labels
             }
 
-            val monthHeaderHeightDp = 22.dp
+            val monthHeaderHeightDp = 20.dp
             val gridHeightDp = monthHeaderHeightDp + cellDp * 7 + gapDp * 6
-            val gridLeftDp = leftLabelWidth + labelSpacing
+            val scrollState = rememberScrollState(initial = Int.MAX_VALUE)
+            var didInitialScroll by remember { mutableStateOf(false) }
+            LaunchedEffect(scrollState.maxValue) {
+                if (!didInitialScroll && scrollState.maxValue > 0) {
+                    scrollState.scrollTo(scrollState.maxValue)
+                    didInitialScroll = true
+                }
+            }
 
             Column(modifier = Modifier.fillMaxWidth()) {
-                // 7xN 热力图、上方月份标注与左侧星期标签 Canvas（完全使用 Canvas 原生绘制，杜绝 Box 截断与数字遮挡）
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(gridHeightDp)
-                        .semantics {
-                            contentDescription = "时光刻度热力图，共统计 $numCols 周，累计 $totalCount 篇手记"
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    // 固定左侧星期坐标轴：一 / 三 / 五，紧凑贴齐左边界且横向滑动时保持不动
+                    Canvas(
+                        modifier = Modifier
+                            .width(leftLabelWidth)
+                            .height(gridHeightDp)
+                    ) {
+                        val cellPx = cellDp.toPx()
+                        val stepPx = stepDp.toPx()
+                        val monthHeaderHeightPx = monthHeaderHeightDp.toPx()
+                        val weekPaint = android.graphics.Paint().apply {
+                            isAntiAlias = true
+                            textSize = ArchiveTypeScale.micro.toPx()
+                            color = colors.inkSecondary.toArgb()
+                            typeface = android.graphics.Typeface.SERIF
+                            textAlign = android.graphics.Paint.Align.LEFT
                         }
-                        .pointerInput(gridMatrix) {
-                            detectTapGestures { offset ->
-                                val stepPx = stepDp.toPx()
-                                val gridLeftPx = gridLeftDp.toPx()
-                                val monthHeaderHeightPx = monthHeaderHeightDp.toPx()
-                                val col = ((offset.x - gridLeftPx) / stepPx).toInt()
-                                val row = ((offset.y - monthHeaderHeightPx) / stepPx).toInt()
-                                if (col in 0 until numCols && row in 0 until 7) {
-                                    val day = gridMatrix[col][row]
-                                    if (!day.isFuture) {
-                                        selectedDate = day.date
-                                        selectedDateKey = day.dateKey
-                                    }
-                                }
+                        val weekFm = weekPaint.fontMetrics
+                        val textYCenterOffset = (cellPx - (weekFm.ascent + weekFm.descent)) / 2f
+
+                        drawIntoCanvas { canvas ->
+                            listOf(0 to "一", 2 to "三", 4 to "五").forEach { (r, label) ->
+                                val y = monthHeaderHeightPx + r * stepPx + textYCenterOffset
+                                canvas.nativeCanvas.drawText(label, 0f, y, weekPaint)
                             }
                         }
-                ) {
-                    val cellPx = cellDp.toPx()
-                    val stepPx = stepDp.toPx()
-                    val gridLeftPx = gridLeftDp.toPx()
-                    val monthHeaderHeightPx = monthHeaderHeightDp.toPx()
-                    val radius = CornerRadius(4.dp.toPx())
-
-                    // 1. 绘制上方月份标签（Canvas 原生绘制，绝对不被父容器裁剪，右侧自适应避让边界）
-                    val monthPaint = android.graphics.Paint().apply {
-                        isAntiAlias = true
-                        textSize = 10.sp.toPx()
-                        color = colors.inkSecondary.toArgb()
-                        typeface = android.graphics.Typeface.SERIF
-                        textAlign = android.graphics.Paint.Align.LEFT
-                    }
-                    val monthBaselineY = monthHeaderHeightPx - 6.dp.toPx()
-
-                    // 2. 绘制左侧星期一、三、五（字体与行严格垂直居中，不被任何容器约束截断）
-                    val weekPaint = android.graphics.Paint().apply {
-                        isAntiAlias = true
-                        textSize = 9.5.sp.toPx()
-                        color = colors.inkSecondary.toArgb()
-                        typeface = android.graphics.Typeface.SERIF
-                        textAlign = android.graphics.Paint.Align.LEFT
-                    }
-                    val weekFm = weekPaint.fontMetrics
-                    val textYCenterOffset = (cellPx - (weekFm.ascent + weekFm.descent)) / 2f
-
-                    drawIntoCanvas { canvas ->
-                        // 绘制月份
-                        monthLabels.forEach { (col, monthName) ->
-                            val rawX = gridLeftPx + col * stepPx
-                            val textW = monthPaint.measureText(monthName)
-                            val safeX = rawX.coerceAtMost(size.width - textW)
-                            canvas.nativeCanvas.drawText(monthName, safeX, monthBaselineY, monthPaint)
-                        }
-
-                        // 绘制星期一、三、五
-                        listOf(0 to "一", 2 to "三", 4 to "五").forEach { (r, label) ->
-                            val y = monthHeaderHeightPx + r * stepPx + textYCenterOffset
-                            canvas.nativeCanvas.drawText(label, 0f, y, weekPaint)
-                        }
                     }
 
-                    // 3. 绘制 7xN 热力图单元格
-                    gridMatrix.forEachIndexed { col, colDays ->
-                        colDays.forEachIndexed { row, day ->
-                            if (!day.isFuture) {
-                                val topLeft = Offset(gridLeftPx + col * stepPx, monthHeaderHeightPx + row * stepPx)
-                                val cellSize = Size(cellPx, cellPx)
+                    Spacer(modifier = Modifier.width(labelSpacing))
 
-                                // 四档透明度：无记录 6% / 1 篇 20% / 2–3 篇 45% / 4 篇以上 75%
-                                val fillColor = when {
-                                    day.count >= 4 -> colors.inkPrimary.copy(alpha = 0.75f)
-                                    day.count in 2..3 -> colors.inkPrimary.copy(alpha = 0.45f)
-                                    day.count == 1 -> colors.inkPrimary.copy(alpha = 0.20f)
-                                    else -> colors.inkPrimary.copy(alpha = 0.06f)
+                    // 右侧可横向滑动的 7×26 周热力图（首屏默认停在右侧最近 15 周）
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(scrollState)
+                    ) {
+                        Canvas(
+                            modifier = Modifier
+                                .width(totalCanvasWidth)
+                                .height(gridHeightDp)
+                                .semantics {
+                                    contentDescription = "时光刻度热力图，展示最近 $numCols 周，累计 $totalCount 篇手记"
                                 }
-
-                                drawRoundRect(
-                                    color = fillColor,
-                                    topLeft = topLeft,
-                                    size = cellSize,
-                                    cornerRadius = radius
-                                )
-
-                                // 今天的格子加 1dp 正文色描边
-                                if (day.isToday) {
-                                    drawRoundRect(
-                                        color = colors.inkPrimary,
-                                        topLeft = topLeft,
-                                        size = cellSize,
-                                        cornerRadius = radius,
-                                        style = Stroke(width = 1.dp.toPx())
-                                    )
+                                .pointerInput(gridMatrix, cellDp, stepDp) {
+                                    detectTapGestures { offset ->
+                                        val stepPx = stepDp.toPx()
+                                        val cellPx = cellDp.toPx()
+                                        val monthHeaderHeightPx = monthHeaderHeightDp.toPx()
+                                        if (offset.y < monthHeaderHeightPx) return@detectTapGestures
+                                        val col = (offset.x / stepPx).toInt()
+                                        val row = ((offset.y - monthHeaderHeightPx) / stepPx).toInt()
+                                        val inCellX = (offset.x - col * stepPx) <= cellPx
+                                        val inCellY = (offset.y - monthHeaderHeightPx - row * stepPx) <= cellPx
+                                        if (col in 0 until numCols && row in 0 until 7 && inCellX && inCellY) {
+                                            val day = gridMatrix[col][row]
+                                            if (!day.isFuture) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                selectedDate = day.date
+                                                selectedDateKey = day.dateKey
+                                            }
+                                        }
+                                    }
                                 }
+                        ) {
+                            val cellPx = cellDp.toPx()
+                            val stepPx = stepDp.toPx()
+                            val monthHeaderHeightPx = monthHeaderHeightDp.toPx()
+                            val cornerPx = 4.dp.toPx()
+                            val radius = CornerRadius(cornerPx)
 
-                                // 选中格加 2dp 赤陶描边
-                                if (selectedDateKey == day.dateKey) {
-                                    drawRoundRect(
-                                        color = colors.accentWarm,
-                                        topLeft = topLeft,
-                                        size = cellSize,
-                                        cornerRadius = radius,
-                                        style = Stroke(width = 2.dp.toPx())
-                                    )
+                            val monthPaint = android.graphics.Paint().apply {
+                                isAntiAlias = true
+                                textSize = ArchiveTypeScale.micro.toPx()
+                                color = colors.inkSecondary.toArgb()
+                                typeface = android.graphics.Typeface.SERIF
+                                textAlign = android.graphics.Paint.Align.LEFT
+                            }
+                            val monthBaselineY = monthHeaderHeightPx - 5.dp.toPx()
+
+                            drawIntoCanvas { canvas ->
+                                monthLabels.forEach { (col, monthName) ->
+                                    val rawX = col * stepPx
+                                    val textW = monthPaint.measureText(monthName)
+                                    val safeX = rawX.coerceAtMost((size.width - textW).coerceAtLeast(0f))
+                                    canvas.nativeCanvas.drawText(monthName, safeX, monthBaselineY, monthPaint)
+                                }
+                            }
+
+                            gridMatrix.forEachIndexed { col, colDays ->
+                                colDays.forEachIndexed { row, day ->
+                                    if (!day.isFuture) {
+                                        val topLeft = Offset(col * stepPx, monthHeaderHeightPx + row * stepPx)
+                                        val cellSize = Size(cellPx, cellPx)
+
+                                        val fillColor = when {
+                                            day.count >= 4 -> colors.inkPrimary.copy(alpha = 0.75f)
+                                            day.count in 2..3 -> colors.inkPrimary.copy(alpha = 0.45f)
+                                            day.count == 1 -> colors.inkPrimary.copy(alpha = 0.20f)
+                                            else -> colors.inkPrimary.copy(alpha = 0.06f)
+                                        }
+
+                                        drawRoundRect(
+                                            color = fillColor,
+                                            topLeft = topLeft,
+                                            size = cellSize,
+                                            cornerRadius = radius
+                                        )
+
+                                        // 今天的格子：严格内嵌 1dp 正文色描边，外轮廓尺寸与同列邻格完全一致
+                                        if (day.isToday) {
+                                            val strokePx = 1.dp.toPx()
+                                            val half = strokePx / 2f
+                                            drawRoundRect(
+                                                color = colors.inkPrimary,
+                                                topLeft = Offset(topLeft.x + half, topLeft.y + half),
+                                                size = Size(
+                                                    (cellPx - strokePx).coerceAtLeast(1f),
+                                                    (cellPx - strokePx).coerceAtLeast(1f)
+                                                ),
+                                                cornerRadius = CornerRadius((cornerPx - half).coerceAtLeast(1f)),
+                                                style = Stroke(width = strokePx)
+                                            )
+                                        }
+
+                                        // 选中格：严格内嵌 2dp 赤陶描边
+                                        if (selectedDateKey == day.dateKey) {
+                                            val selStroke = 2.dp.toPx()
+                                            val selHalf = selStroke / 2f
+                                            drawRoundRect(
+                                                color = colors.accentWarm,
+                                                topLeft = Offset(topLeft.x + selHalf, topLeft.y + selHalf),
+                                                size = Size(
+                                                    (cellPx - selStroke).coerceAtLeast(1f),
+                                                    (cellPx - selStroke).coerceAtLeast(1f)
+                                                ),
+                                                cornerRadius = CornerRadius((cornerPx - selHalf).coerceAtLeast(1f)),
+                                                style = Stroke(width = selStroke)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -303,7 +349,7 @@ fun ShowcaseHeatmap(
                     Text(
                         text = "少",
                         fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 10.sp,
+                        fontSize = ArchiveTypeScale.micro,
                         color = colors.inkSecondary
                     )
                     Spacer(modifier = Modifier.width(4.dp))
@@ -320,7 +366,7 @@ fun ShowcaseHeatmap(
                     Text(
                         text = "多",
                         fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 10.sp,
+                        fontSize = ArchiveTypeScale.micro,
                         color = colors.inkSecondary
                     )
                 }
@@ -337,7 +383,7 @@ fun ShowcaseHeatmap(
                         Text(
                             text = "${selectedDate!!.monthValue}月${selectedDate!!.dayOfMonth}日 · $count 篇",
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 13.5.sp,
+                            fontSize = ArchiveTypeScale.body,
                             fontWeight = FontWeight.Medium,
                             color = colors.inkPrimary
                         )
@@ -347,7 +393,7 @@ fun ShowcaseHeatmap(
                     Text(
                         text = "还没有手记",
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 12.sp,
+                        fontSize = ArchiveTypeScale.caption,
                         color = colors.inkSecondary
                     )
                 }

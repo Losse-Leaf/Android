@@ -98,7 +98,7 @@ internal fun TrustedDeviceRow(
             ) {
                 Text(
                     text = if (isLocal) "本机" else platformUpper,
-                    fontSize = 10.5.sp,
+                    fontSize = 11.sp,
                     fontFamily = ArchiveFontFamilies.MonoScale,
                     fontWeight = FontWeight.Medium,
                     color = if (isLocal) colors.accentMoss else colors.inkSecondary,

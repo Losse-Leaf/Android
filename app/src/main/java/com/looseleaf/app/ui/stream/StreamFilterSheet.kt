@@ -20,7 +20,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.LooseLeafTheme
+import com.looseleaf.app.ui.components.ArchiveSheet
 
 /**
  * 筛选条件持久化模型
@@ -141,32 +143,17 @@ internal fun StreamFilterSheet(
         }
     }
 
-    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-    val sheetMaxHeight = (configuration.screenHeightDp * 0.85f).dp
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    ModalBottomSheet(
+    ArchiveSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = colors.archivePaper,
-        tonalElevation = 0.dp,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(top = 10.dp, bottom = 4.dp)
-                    .size(width = 32.dp, height = 3.dp)
-                    .background(colors.borderSubtle.copy(alpha = 0.6f), RoundedCornerShape(2.dp))
-            )
-        }
+        title = "筛选归档",
+        cancelText = "取消",
+        actionText = if (tempCriteria.isActive) "重置" else null,
+        onAction = { tempCriteria = StreamFilterCriteria() }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = sheetMaxHeight)
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 4.dp)
+                .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
             // 前三组可纵向滚动，保证无论字体缩放或月份展开，底部按钮始终固定可见
             Column(
@@ -375,7 +362,7 @@ internal fun StreamFilterSheet(
                             Text(
                                 text = "${m}月",
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 14.5.sp,
+                                fontSize = 14.sp,
                                 fontWeight = if (isMonthSelected) FontWeight.Bold else FontWeight.Normal,
                                 color = when {
                                     !isAvailable -> colors.inkMuted.copy(alpha = 0.35f)
@@ -418,7 +405,7 @@ internal fun StreamFilterSheet(
                             Text(
                                 text = "${m}月",
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 14.5.sp,
+                                fontSize = 14.sp,
                                 fontWeight = if (isMonthSelected) FontWeight.Bold else FontWeight.Normal,
                                 color = when {
                                     !isAvailable -> colors.inkMuted.copy(alpha = 0.35f)

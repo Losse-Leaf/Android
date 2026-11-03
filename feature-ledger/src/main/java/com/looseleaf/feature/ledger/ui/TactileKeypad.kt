@@ -125,7 +125,7 @@ fun TactileKeypad(
             // 第 3 & 4 行：确认主按钮（高度跨两行）
             val confirmHeight = keyHeight * 2 + spacing
             val confirmBg = if (isConfirmEnabled) colors.accent else colors.surfaceElevated
-            val confirmTextColor = if (isConfirmEnabled) Color.White else colors.textMuted
+            val confirmTextColor = if (isConfirmEnabled) colors.background else colors.textMuted
 
             Box(
                 contentAlignment = Alignment.Center,

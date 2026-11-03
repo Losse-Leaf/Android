@@ -75,7 +75,7 @@ internal fun EditWishSheetDialog(
     ArchiveSheet(
         onDismissRequest = onDismiss,
         title = stringResource(R.string.projects_wishes_sheets_title_tpl_01, wish.title),
-        actionText = "保存修订",
+        actionText = if (isSubmitting) "保存中…" else "保存",
         isActionEnabled = title.isNotBlank() && !budgetInvalid && !isSubmitting,
         onAction = {
             if (budgetInvalid) {
@@ -123,9 +123,9 @@ internal fun EditWishSheetDialog(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 listOf("item" to "好物", "travel" to "旅程", "milestone" to "里程碑").forEach { (k, label) ->
-                    ArchiveChoiceItem(
+                    ArchiveSelectableCapsule(
                         text = label,
-                        isSelected = kind == k,
+                        selected = kind == k,
                         onClick = { kind = k }
                     )
                 }
@@ -217,7 +217,7 @@ internal fun EditFootprintSheetDialog(
     ArchiveSheet(
         onDismissRequest = onDismiss,
         title = stringResource(R.string.projects_wishes_sheets_title_tpl_02, footprint.cityName),
-        actionText = "保存票根",
+        actionText = if (isSubmitting) "保存中…" else "保存",
         isActionEnabled = cityName.isNotBlank() && !isSubmitting,
         onAction = {
             footprint.departedAt?.let { departed ->
@@ -320,7 +320,7 @@ internal fun ProvinceMemoryDrawerBottomSheet(
     ArchiveSheet(
         onDismissRequest = onDismiss,
         title = stringResource(R.string.projects_wishes_sheets_title_tpl_03, provinceName),
-        cancelText = "合上"
+        cancelText = "关闭"
     ) {
         val d = drawerData
         if (drawerError != null && d == null) {

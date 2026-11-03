@@ -246,7 +246,7 @@ fun StorageBackupSheetDialog(
                     Text(
                         text = stringResource(R.string.storage_backup_sheet_dialog_text_01),
                         fontFamily = ArchiveFontFamilies.BodySans,
-                        fontSize = 11.5.sp,
+                        fontSize = 12.sp,
                         lineHeight = 18.sp,
                         color = colors.inkSecondary
                     )
@@ -321,7 +321,7 @@ fun StorageBackupSheetDialog(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
                                             text = stringResource(R.string.storage_backup_sheet_dialog_text_02),
-                                            fontSize = 11.5.sp,
+                                            fontSize = 12.sp,
                                             fontFamily = ArchiveFontFamilies.BodySans,
                                             color = colors.inkPrimary,
                                             modifier = Modifier
@@ -332,7 +332,7 @@ fun StorageBackupSheetDialog(
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = stringResource(R.string.storage_backup_sheet_dialog_text_03),
-                                            fontSize = 11.5.sp,
+                                            fontSize = 12.sp,
                                             fontFamily = ArchiveFontFamilies.BodySans,
                                             color = colors.accentWarm,
                                             modifier = Modifier
@@ -343,7 +343,7 @@ fun StorageBackupSheetDialog(
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = stringResource(R.string.ledger_transactions_tab_contentDescription_03),
-                                            fontSize = 11.5.sp,
+                                            fontSize = 12.sp,
                                             fontFamily = ArchiveFontFamilies.BodySans,
                                             color = colors.inkMuted,
                                             modifier = Modifier
@@ -387,7 +387,7 @@ fun StorageBackupSheetDialog(
                                 color = if (isConfigured) colors.accentMoss else colors.inkPrimary
                             )
                             val fileStats = "本地媒体: ${storageStatus?.localFileCount ?: 0} 个文件"
-                            Text(text = fileStats, fontSize = 10.5.sp, color = colors.inkMuted)
+                            Text(text = fileStats, fontSize = 11.sp, color = colors.inkMuted)
                         }
                     }
 

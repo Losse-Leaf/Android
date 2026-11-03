@@ -35,7 +35,7 @@ fun TemporalGapSeparator(
         Text(
             text = stringResource(R.string.temporal_gap_separator_text_tpl_01, days).trim(),
             fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontSize = 11.5.sp,
+            fontSize = 12.sp,
             letterSpacing = 0.8.sp,
             color = colors.inkMuted
         )

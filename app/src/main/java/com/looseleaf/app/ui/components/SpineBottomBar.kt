@@ -3,12 +3,10 @@ package com.looseleaf.app.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -17,17 +15,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.looseleaf.app.R
 import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveMotion
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 
 /**
@@ -44,8 +47,8 @@ data class SpineNavigationItem(
  * 散页手账 · 统一底栏 (Stream Unified Bottom Bar)
  *
  * 统一化规范：
- * - 底栏与页面同色，顶部一条 1dp 淡线，去掉色带与虚线
- * - 选中：图标与文字赤陶色，无胶囊；未选中：次要暖灰；图标统一 Outlined
+ * - 底栏与页面同色，顶部一条 1dp 淡线
+ * - 选中态：顶部赤陶小指示条 + 图标与文字赤陶色加粗 + 轻触感反馈，扫一眼即分清选中项
  */
 @Composable
 fun SpineBottomBar(
@@ -75,11 +78,10 @@ fun SpineBottomBar(
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // 顶部一条 1dp 淡线
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(1.dp)
+                    .height(ArchiveLines.hairline)
                     .background(colors.borderDivider)
             )
 
@@ -126,6 +128,7 @@ private fun SpineBottomTabItem(
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
+    val haptic = LocalHapticFeedback.current
     val interactionSource = remember { MutableInteractionSource() }
 
     val contentColor by animateColorAsState(
@@ -133,34 +136,62 @@ private fun SpineBottomTabItem(
         animationSpec = tween(ArchiveMotion.DurationFast),
         label = "contentColor"
     )
+    val indicatorWidth by animateDpAsState(
+        targetValue = if (isSelected) 20.dp else 0.dp,
+        animationSpec = tween(ArchiveMotion.DurationBase),
+        label = "indicatorWidth"
+    )
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxHeight()
+            .semantics { selected = isSelected }
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick
+                role = Role.Tab,
+                onClick = {
+                    if (!isSelected) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+                    onClick()
+                }
             ),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        contentAlignment = Alignment.Center
     ) {
-        // 图标统一 Outlined
-        Icon(
-            painter = item.icon,
-            contentDescription = item.label,
-            tint = contentColor,
-            modifier = Modifier.size(22.dp)
-        )
+        // 顶部选中指示条（不单靠颜色区分选中态）
+        if (indicatorWidth > 0.dp) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .width(indicatorWidth)
+                    .height(2.dp)
+                    .clip(ArchiveShapes.full)
+                    .background(colors.accentWarm)
+            )
+        }
 
-        Spacer(modifier = Modifier.height(3.dp))
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                painter = if (isSelected && item.selectedIcon != null) item.selectedIcon else item.icon,
+                contentDescription = item.label,
+                tint = contentColor,
+                modifier = Modifier.size(22.dp)
+            )
 
-        Text(
-            text = item.label,
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontSize = 11.5.sp,
-            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-            color = contentColor
-        )
+            Spacer(modifier = Modifier.height(3.dp))
+
+            Text(
+                text = item.label,
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontSize = ArchiveTypeScale.caption,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                maxLines = 1,
+                color = contentColor
+            )
+        }
     }
 }

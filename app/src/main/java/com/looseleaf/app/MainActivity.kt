@@ -280,8 +280,10 @@ class MainActivity : FragmentActivity() {
         // MOB-P0-09：稳定的路由切换回调（键为状态对象本身，引用恒定）
         val onRouteSelected: (String) -> Unit = remember(currentRouteState) {
             { route: String ->
-                if (route != currentRouteState.value) {
-                    val fromSection = sectionOf(currentRouteState.value)
+                val current = currentRouteState.value
+                val alreadyInWorkshop = route == "workshop" && sectionOf(current) == "workshop"
+                if (route != current && !alreadyInWorkshop) {
+                    val fromSection = sectionOf(current)
                     val toSection = sectionOf(route)
                     if (fromSection != toSection) {
                         // MOB-P1-xx：不压入**重复**的段 ——
@@ -302,7 +304,7 @@ class MainActivity : FragmentActivity() {
                 val target = when (tab) {
                     2 -> "footprints"
                     1 -> "wishes"
-                    else -> "workshop"
+                    else -> "projects"
                 }
                 if (target != currentRouteState.value) {
                     if (sectionOf(target) != sectionOf(currentRouteState.value)) {
@@ -577,7 +579,11 @@ class MainActivity : FragmentActivity() {
                             when (currentRoute) {
                                 "stream" -> StreamScreen()
                                 "ledger" -> LedgerEntry()
-                                "workshop", "projects" -> ProjectsWishesScreen(
+                                "workshop" -> ProjectsWishesScreen(
+                                    initialTab = null,
+                                    onTabChanged = onSubTabChanged
+                                )
+                                "projects" -> ProjectsWishesScreen(
                                     initialTab = 0,
                                     onTabChanged = onSubTabChanged
                                 )

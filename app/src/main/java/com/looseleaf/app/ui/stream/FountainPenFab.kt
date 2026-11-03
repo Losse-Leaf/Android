@@ -94,13 +94,12 @@ internal fun FountainPenFab(
             }
         }
 
-        // 向下滚动时收缩并淡出隐藏；向上滚动或停止后恢复
+        // 向下滚动时收缩并淡出隐藏；向上滚动时恢复
         AnimatedVisibility(
             visible = isExpanded,
             enter = scaleIn(tween(ArchiveMotion.DurationFast)) + fadeIn(tween(ArchiveMotion.DurationFast)),
             exit = scaleOut(tween(ArchiveMotion.DurationFast)) + fadeOut(tween(ArchiveMotion.DurationFast))
         ) {
-            // 圆形 56dp，只有笔尖图标，无文字、无投影、无边框
             Box(
                 modifier = Modifier
                     .size(56.dp)
@@ -108,6 +107,7 @@ internal fun FountainPenFab(
                     .background(colors.accentWarm)
                     .combinedClickable(
                         onClick = {
+                            view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                             if (showQuickMenu) {
                                 showQuickMenu = false
                             } else {
@@ -125,7 +125,7 @@ internal fun FountainPenFab(
                     painter = painterResource(R.drawable.ic_fountain_pen),
                     contentDescription = "写一页",
                     tint = colors.archivePaper,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }

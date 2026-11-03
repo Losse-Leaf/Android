@@ -51,6 +51,7 @@ import com.looseleaf.app.model.ProvinceMemoryDrawerResponse
 import com.looseleaf.app.model.ResolveWishRequest
 import com.looseleaf.app.model.Wish
 import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.CityDictionary
@@ -68,7 +69,7 @@ import androidx.compose.ui.res.painterResource
 @Composable
 fun ProjectsWishesScreen(
     modifier: Modifier = Modifier,
-    initialTab: Int = 0,
+    initialTab: Int? = null,
     /**
      * 内部 tab 切换回传（0 造物 / 1 心愿 / 2 山川）：
      * 底栏「足迹」「造物」共用本页，必须同步 currentRoute 才不会出现
@@ -81,8 +82,39 @@ fun ProjectsWishesScreen(
     val colors = LooseLeafTheme.colors
     val apiClient = remember { APIClient.getInstance(context) }
     val syncManager = remember { com.looseleaf.app.data.sync.SyncManager.getInstance(context) }
+    val uiPrefs = remember(context) {
+        context.getSharedPreferences("looseleaf_ui_prefs", android.content.Context.MODE_PRIVATE)
+    }
 
-    val pagerState = rememberPagerState(initialPage = initialTab.coerceIn(0, 2)) { 3 }
+    val projects by syncManager.projectsFlow.collectAsStateWithLifecycle()
+    val wishes by syncManager.wishesFlow.collectAsStateWithLifecycle()
+    val footprints by syncManager.footprintsFlow.collectAsStateWithLifecycle()
+
+    fun resolvePreferredTab(): Int {
+        if (initialTab != null) return initialTab.coerceIn(0, 2)
+        val savedTab = uiPrefs.getInt("workshop_last_sub_tab", -1)
+        val firstNonEmpty = when {
+            projects.isNotEmpty() -> 0
+            wishes.isNotEmpty() -> 1
+            footprints.isNotEmpty() -> 2
+            else -> -1
+        }
+        return if (savedTab in 0..2) {
+            val savedHasItems = when (savedTab) {
+                0 -> projects.isNotEmpty()
+                1 -> wishes.isNotEmpty()
+                else -> footprints.isNotEmpty()
+            }
+            if (savedHasItems || firstNonEmpty == -1) savedTab else firstNonEmpty
+        } else if (firstNonEmpty != -1) {
+            firstNonEmpty
+        } else {
+            0
+        }
+    }
+
+    var hasUserInteractedWithTab by rememberSaveable { mutableStateOf(false) }
+    val pagerState = rememberPagerState(initialPage = resolvePreferredTab()) { 3 }
     val selectedTab = pagerState.currentPage
 
     val projectsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
@@ -102,6 +134,9 @@ fun ProjectsWishesScreen(
     var previousOffset by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(currentListState) {
+        previousIndex = currentListState.firstVisibleItemIndex
+        previousOffset = currentListState.firstVisibleItemScrollOffset
+        isScrollingUp = true
         snapshotFlow { currentListState.firstVisibleItemIndex to currentListState.firstVisibleItemScrollOffset }
             .collect { (idx, off) ->
                 if (idx > previousIndex || (idx == previousIndex && off > previousOffset + 12)) {
@@ -114,25 +149,53 @@ fun ProjectsWishesScreen(
             }
     }
 
-    val isFabVisible by remember {
+    val isFabVisible by remember(currentListState) {
         derivedStateOf {
-            isScrollingUp || currentListState.firstVisibleItemIndex == 0
+            val isAtTop = currentListState.firstVisibleItemIndex == 0 &&
+                currentListState.firstVisibleItemScrollOffset < 24
+            isAtTop || isScrollingUp
         }
     }
 
-    LaunchedEffect(pagerState.currentPage) {
-        onTabChanged?.invoke(pagerState.currentPage)
+    val currentTabHasItems = when (selectedTab) {
+        0 -> projects.isNotEmpty()
+        1 -> wishes.isNotEmpty()
+        else -> footprints.isNotEmpty()
     }
 
     LaunchedEffect(initialTab) {
-        if (pagerState.currentPage != initialTab) {
-            pagerState.scrollToPage(initialTab.coerceIn(0, 2))
+        if (initialTab != null) {
+            val target = initialTab.coerceIn(0, 2)
+            if (pagerState.currentPage != target) {
+                pagerState.scrollToPage(target)
+            }
         }
     }
 
-    val projects by syncManager.projectsFlow.collectAsStateWithLifecycle()
-    val wishes by syncManager.wishesFlow.collectAsStateWithLifecycle()
-    val footprints by syncManager.footprintsFlow.collectAsStateWithLifecycle()
+    LaunchedEffect(projects.isNotEmpty(), wishes.isNotEmpty(), footprints.isNotEmpty()) {
+        if (initialTab == null && !hasUserInteractedWithTab) {
+            val preferred = resolvePreferredTab()
+            if (pagerState.currentPage != preferred) {
+                pagerState.scrollToPage(preferred)
+            }
+            if (projects.isNotEmpty() || wishes.isNotEmpty() || footprints.isNotEmpty()) {
+                onTabChanged?.invoke(preferred)
+            }
+        }
+    }
+
+    LaunchedEffect(pagerState.settledPage) {
+        if (hasUserInteractedWithTab || initialTab != null) {
+            uiPrefs.edit().putInt("workshop_last_sub_tab", pagerState.settledPage).apply()
+            onTabChanged?.invoke(pagerState.settledPage)
+        }
+    }
+
+    LaunchedEffect(pagerState.isScrollInProgress) {
+        if (pagerState.isScrollInProgress) {
+            hasUserInteractedWithTab = true
+        }
+    }
 
     var isLoading by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
@@ -200,6 +263,8 @@ fun ProjectsWishesScreen(
                     tabs = listOf("造物", "心愿", "山川"),
                     selectedIndex = pagerState.currentPage,
                     onTabSelected = { index ->
+                        hasUserInteractedWithTab = true
+                        uiPrefs.edit().putInt("workshop_last_sub_tab", index).apply()
                         scope.launch { pagerState.animateScrollToPage(index) }
                     },
                     counts = listOf(projects.size, wishes.size, footprints.size),
@@ -365,7 +430,7 @@ fun ProjectsWishesScreen(
             )
 
             AnimatedVisibility(
-                visible = isFabVisible,
+                visible = isFabVisible && currentTabHasItems,
                 enter = fadeIn() + scaleIn(),
                 exit = fadeOut() + scaleOut(),
                 modifier = Modifier
@@ -510,9 +575,9 @@ fun ProjectsWishesScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             listOf("item" to "好物", "travel" to "旅程", "milestone" to "里程碑").forEach { (k, label) ->
-                                ArchiveChoiceItem(
+                                ArchiveSelectableCapsule(
                                     text = label,
-                                    isSelected = wishKind == k,
+                                    selected = wishKind == k,
                                     onClick = { wishKind = k }
                                 )
                             }
@@ -568,14 +633,14 @@ fun ProjectsWishesScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            ArchiveChoiceItem(
+                            ArchiveSelectableCapsule(
                                 text = "单日",
-                                isSelected = !fpIsMultiDay,
+                                selected = !fpIsMultiDay,
                                 onClick = { fpIsMultiDay = false }
                             )
-                            ArchiveChoiceItem(
+                            ArchiveSelectableCapsule(
                                 text = "多日",
-                                isSelected = fpIsMultiDay,
+                                selected = fpIsMultiDay,
                                 onClick = { fpIsMultiDay = true }
                             )
                         }
@@ -619,24 +684,16 @@ fun ProjectsWishesScreen(
             var createTx by remember(wish.id) { mutableStateOf(wish.budget > 0) }
             var wishPayChoice by remember(wish.id) { mutableStateOf("full") }
             var wishPeriodPreset by remember(wish.id) { mutableStateOf("12") }
-            var wishChannelCode by remember(wish.id) { mutableStateOf("huabei") }
+            var wishChannelCode by remember(wish.id) { mutableStateOf("") }
             var wishChannels by remember(wish.id) {
-                mutableStateOf(
-                    listOf(
-                        "huabei" to "花呗",
-                        "baitiao" to "京东白条",
-                        "credit_card" to "信用卡"
-                    )
-                )
+                mutableStateOf<List<Pair<String, String>>>(emptyList())
             }
             LaunchedEffect(wish.id) {
                 runCatching {
-                    val channels = apiClient.fetchCreditChannels()
-                    if (channels.isNotEmpty()) {
-                        wishChannels = channels.map { it.code to it.name }
-                        if (wishChannelCode !in wishChannels.map { it.first }) {
-                            wishChannelCode = channels.first().code
-                        }
+                    val channels = apiClient.fetchCreditChannels().filter { !it.isBuiltin }
+                    wishChannels = channels.map { it.code to it.name }
+                    if (channels.isNotEmpty() && wishChannelCode !in wishChannels.map { it.first }) {
+                        wishChannelCode = channels.first().code
                     }
                 }
             }
@@ -645,12 +702,14 @@ fun ProjectsWishesScreen(
             var createFp by remember(wish.id) { mutableStateOf(wish.kind == "travel") }
             val costInvalid = !resType.equals("relinquished") &&
                 costInput.isNotBlank() && costInput.trim().toDoubleOrNull() == null
+            val installmentReady = resType == "relinquished" || !createTx ||
+                wishPayChoice != "installment" || wishChannelCode.isNotBlank()
 
             ArchiveSheet(
                 onDismissRequest = { resolvingWish = null },
                 title = "达成归册 · ${wish.title}",
-                actionText = "确认归册",
-                isActionEnabled = !costInvalid,
+                actionText = "归册",
+                isActionEnabled = !costInvalid && installmentReady,
                 onAction = {
                     if (costInvalid) {
                         ArchiveToastManager.show("金额格式不正确，请输入有效数字", isError = true)
@@ -702,9 +761,9 @@ fun ProjectsWishesScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listOf("exact" to "如愿拿下", "altered" to "替代方案", "relinquished" to "理性拔草").forEach { (k, label) ->
-                            ArchiveChoiceItem(
+                            ArchiveSelectableCapsule(
                                 text = label,
-                                isSelected = resType == k,
+                                selected = resType == k,
                                 onClick = { resType = k }
                             )
                         }
@@ -735,7 +794,7 @@ fun ProjectsWishesScreen(
                         if (costInvalid) {
                             Text(
                                 text = "金额格式不正确，请输入有效数字",
-                                fontSize = 11.5.sp,
+                                fontSize = ArchiveTypeScale.caption,
                                 color = colors.alertRed
                             )
                         }
@@ -746,15 +805,15 @@ fun ProjectsWishesScreen(
                                 .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            ArchiveChoiceItem(
+                            ArchiveSelectableCapsule(
                                 text = if (createTx) "✓ 记账" else "不记账",
-                                isSelected = createTx,
+                                selected = createTx,
                                 onClick = { createTx = !createTx }
                             )
                             if (wish.kind == "item") {
-                                ArchiveChoiceItem(
+                                ArchiveSelectableCapsule(
                                     text = if (createGear) "✓ 建固资" else "不建固资",
-                                    isSelected = createGear,
+                                    selected = createGear,
                                     onClick = { createGear = !createGear }
                                 )
                             }
@@ -762,21 +821,21 @@ fun ProjectsWishesScreen(
                                 if (wish.cityCode.isNullOrBlank()) {
                                     Text(
                                         text = "未设目的地，无法亮足迹",
-                                        fontSize = 12.sp,
+                                        fontSize = ArchiveTypeScale.caption,
                                         color = colors.inkMuted,
                                         modifier = Modifier.align(Alignment.CenterVertically).padding(horizontal = 8.dp)
                                     )
                                 } else {
-                                    ArchiveChoiceItem(
+                                    ArchiveSelectableCapsule(
                                         text = if (createFp) "✓ 亮足迹" else "不建足迹",
-                                        isSelected = createFp,
+                                        selected = createFp,
                                         onClick = { createFp = !createFp }
                                     )
                                 }
                             }
-                            ArchiveChoiceItem(
+                            ArchiveSelectableCapsule(
                                 text = if (createEntry) "✓ 伴生手记" else "不写手记",
-                                isSelected = createEntry,
+                                selected = createEntry,
                                 onClick = { createEntry = !createEntry }
                             )
                         }
@@ -786,14 +845,14 @@ fun ProjectsWishesScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                ArchiveChoiceItem(
+                                ArchiveSelectableCapsule(
                                     text = "一次付清",
-                                    isSelected = wishPayChoice == "full",
+                                    selected = wishPayChoice == "full",
                                     onClick = { wishPayChoice = "full" }
                                 )
-                                ArchiveChoiceItem(
+                                ArchiveSelectableCapsule(
                                     text = "分期付款",
-                                    isSelected = wishPayChoice == "installment",
+                                    selected = wishPayChoice == "installment",
                                     onClick = { wishPayChoice = "installment" }
                                 )
                             }
@@ -804,26 +863,35 @@ fun ProjectsWishesScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     listOf("3", "6", "12", "24").forEach { p ->
-                                        ArchiveChoiceItem(
+                                        ArchiveSelectableCapsule(
                                             text = "${p}期",
-                                            isSelected = wishPeriodPreset == p,
+                                            selected = wishPeriodPreset == p,
+                                            isMonospace = true,
                                             onClick = { wishPeriodPreset = p }
                                         )
                                     }
                                 }
 
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    wishChannels.forEach { (code, name) ->
-                                        ArchiveChoiceItem(
-                                            text = name,
-                                            isSelected = wishChannelCode == code,
-                                            onClick = { wishChannelCode = code }
-                                        )
+                                if (wishChannels.isEmpty()) {
+                                    Text(
+                                        text = "暂无自定义还款渠道，请先在账本「渠道」中添加",
+                                        fontSize = ArchiveTypeScale.caption,
+                                        color = colors.inkMuted
+                                    )
+                                } else {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        wishChannels.forEach { (code, name) ->
+                                            ArchiveSelectableCapsule(
+                                                text = name,
+                                                selected = wishChannelCode == code,
+                                                onClick = { wishChannelCode = code }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1016,7 +1084,7 @@ fun ProjectsWishesScreen(
             ArchiveSheet(
                 onDismissRequest = { editingProject = null },
                 title = stringResource(R.string.projects_wishes_screen_title_tpl_03, proj.title),
-                actionText = "保存更新",
+                actionText = "保存",
                 isActionEnabled = editTitle.isNotBlank(),
                 onAction = {
                     scope.launch {
@@ -1052,7 +1120,9 @@ fun ProjectsWishesScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listOf(
@@ -1061,10 +1131,10 @@ fun ProjectsWishesScreen(
                             "维护中" to colors.tagProject,
                             "已搁置" to colors.inkMuted
                         ).forEach { (s, dotColor) ->
-                            ArchiveChoiceItem(
+                            ArchiveSelectableCapsule(
                                 text = s,
-                                isSelected = editStatus == s,
-                                colorDot = dotColor,
+                                selected = editStatus == s,
+                                leadingDotColor = dotColor,
                                 onClick = { editStatus = s }
                             )
                         }

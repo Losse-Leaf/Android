@@ -188,26 +188,17 @@ internal fun EntryDetailSheetDialog(
                         "wish" to "心愿印记"
                     )
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         for ((k, label) in typeOptions) {
-                            val selected = editType == k
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(if (selected) colors.accentWarm else colors.archivePaper)
-                                    .border(0.5.dp, colors.borderDivider, RoundedCornerShape(12.dp))
-                                    .clickable { editType = k }
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 11.sp,
-                                    color = if (selected) colors.archivePaper else colors.inkSecondary
-                                )
-                            }
+                            ArchiveSelectableCapsule(
+                                text = label,
+                                selected = editType == k,
+                                onClick = { editType = k }
+                            )
                         }
                     }
 
@@ -559,7 +550,7 @@ internal fun AlmanacDialog(
                         Text(
                             text = stringResource(R.string.stream_dialogs_text_05),
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 11.5.sp,
+                            fontSize = 12.sp,
                             color = colors.inkSecondary
                         )
                     }
@@ -777,7 +768,7 @@ internal fun AlmanacChapterSection(
             Text(
                 text = chapterNumber,
                 fontFamily = ArchiveFontFamilies.MonoScale,
-                fontSize = 11.5.sp,
+                fontSize = 12.sp,
                 color = colors.inkSecondary
             )
             Spacer(modifier = Modifier.width(8.dp))
@@ -785,7 +776,7 @@ internal fun AlmanacChapterSection(
                 text = title,
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                 fontWeight = FontWeight.Medium,
-                fontSize = 14.5.sp,
+                fontSize = 14.sp,
                 color = colors.inkPrimary
             )
         }

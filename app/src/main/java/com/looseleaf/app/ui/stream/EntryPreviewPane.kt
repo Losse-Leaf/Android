@@ -171,7 +171,7 @@ internal fun EntryPreviewPane(
                 Text(
                     text = entry.content,
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 14.5.sp,
+                    fontSize = 14.sp,
                     lineHeight = 25.sp,
                     color = colors.inkPrimary
                 )

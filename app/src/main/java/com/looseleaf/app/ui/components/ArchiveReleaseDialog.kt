@@ -106,7 +106,7 @@ fun ArchiveReleaseDialog(
                         append(" · 来源 GitHub Releases")
                     },
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 13.5.sp,
+                    fontSize = 14.sp,
                     color = colors.inkSecondary
                 )
 
@@ -188,7 +188,7 @@ fun ArchiveReleaseDialog(
                         ),
                         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
                     ) {
-                        Text(stringResource(R.string.archive_release_dialog_update_now), fontFamily = ArchiveFontFamilies.EditorialSerif, fontWeight = FontWeight.Medium, fontSize = 13.5.sp)
+                        Text(stringResource(R.string.archive_release_dialog_update_now), fontFamily = ArchiveFontFamilies.EditorialSerif, fontWeight = FontWeight.Medium, fontSize = 14.sp)
                     }
                 }
             }
