@@ -671,21 +671,10 @@ fun StreamScreen(
     val onEntryDelete = remember { { entry: LifeEntry -> entryToDelete = entry } }
     val onPhotoClick = remember { { url: String, meta: String? -> lightboxPhoto = url to meta } }
 
-    val showBinderHoles = false
-    var binderScrollY by remember { mutableFloatStateOf(0f) }
-    val nestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                binderScrollY += available.y
-                return Offset.Zero
-            }
-        }
+    // 切换筛选后滚回顶部
+    LaunchedEffect(filterCriteria) {
+        listState.scrollToItem(0)
     }
-
-            // 切换筛选后滚回顶部
-            LaunchedEffect(filterCriteria) {
-                listState.scrollToItem(0)
-            }
 
             // 时间流列表：封面区下方直接接列表，间距 16dp 由 LazyColumn contentPadding.top 提供
             val isFiltering = filterCriteria.isActive
@@ -760,9 +749,7 @@ fun StreamScreen(
                         .fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .nestedScroll(nestedScrollConnection)
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         // 预分组：按天聚合生成粘性页签 (Sticky Header)
                         val groupedDays = remember(streamRowsVersion) {

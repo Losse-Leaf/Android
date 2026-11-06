@@ -82,6 +82,7 @@ object LedgerRepository {
             runCatching {
                 val db = LedgerDatabase.getInstance(context.applicationContext)
                 db.transactionDao().deleteDuplicateServerIds()
+                db.transactionDao().deleteSyncedShadowsOfPending()
             }
         }
     }
@@ -567,6 +568,10 @@ object LedgerRepository {
                         saveCursor(newCursor)
                     }
                 }
+
+                // 4. 清理超过 7 天的发件箱死信（与主库策略对齐）
+                val sevenDaysAgo = Instant.now().minus(java.time.Duration.ofDays(7)).toString()
+                db.outboxDao().cleanExpiredFailedEvents(sevenDaysAgo)
             }
         }
     }

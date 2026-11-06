@@ -99,6 +99,7 @@ class MainActivity : FragmentActivity() {
     // 这样回调可以做成「稳定引用」，MainContent 才有机会跳过重组。
     private val appearanceModeState = mutableStateOf(AppearanceMode.SYSTEM)
     private val enableDecorationsState = mutableStateOf(true)
+    private val isPairedState = mutableStateOf(false)
 
     /**
      * 生物识别门禁状态必须放在 Activity 字段并用 SnapshotState 暴露给 Compose：
@@ -167,6 +168,7 @@ class MainActivity : FragmentActivity() {
         // 这里只读普通 SharedPreferences（非加密存储），开销远小于一次主题闪变。
         appearanceModeState.value = credentialStore.appearanceMode
         enableDecorationsState.value = credentialStore.enableDecorations
+        isPairedState.value = credentialStore.isPaired()
 
         setContent {
             // MOB-P1-85：待同步与失败计数（供全局离线横幅使用）
@@ -275,7 +277,7 @@ class MainActivity : FragmentActivity() {
         onAppearanceModeChanged: (AppearanceMode) -> Unit,
         onEnableDecorationsChanged: (Boolean) -> Unit
     ) {
-        var isPaired by remember { mutableStateOf(credentialStore.isPaired()) }
+        var isPaired by isPairedState
         val currentRouteState = rememberSaveable {
             mutableStateOf(requestedRouteState.value ?: "stream")
         }

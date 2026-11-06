@@ -581,24 +581,6 @@ class SyncManager private constructor(private val context: Context) {
         database.entryDao().getAvailableMonthsForYear(year.toString())
     }
 
-    // 观察全量记账明细 (合并本地乐观与云端权威，0ms 内存态直出)
-    //
-    // AND-4：保留全量流供搜索/导出等仍需要完整数据的路径使用，
-    // 但补上 distinctUntilChanged —— Room 表级失效会整表重发射，
-    // 内容没变时不必让下游重新映射。
-    val transactionsFlow: StateFlow<List<Transaction>> by lazy {
-        flow { emitAll(database.transactionDao().getAllTransactionsFlow()) }
-            .catch { emit(emptyList()) }
-            .map { entities ->
-                // 拉取中途若出现重复 server_id，至少不能让 UI 因 LazyColumn key 冲突崩溃。
-                // 数据库侧的真正收口见 pullTransactionsDataset。
-                entities.map { it.toTransaction() }.distinctBy { it.id }
-            }
-            .distinctUntilChanged()
-            .flowOn(Dispatchers.Default)
-            .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    }
-
     /**
      * AND-4：账本页**只观察当月**的流水。
      *

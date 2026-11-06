@@ -174,7 +174,7 @@ interface EntryDao {
           AND (
             (:isPending = 0 AND :isFailed = 0)
             OR (:isPending = 1 AND sync_status IN ('PENDING_CREATE', 'PENDING_UPDATE', 'PENDING_DELETE'))
-            OR (:isFailed = 1 AND sync_status = 'FAILED')
+            OR (:isFailed = 1 AND EXISTS (SELECT 1 FROM outbox_events WHERE local_target_id = cached_entries.local_id AND failed_at IS NOT NULL))
           )
         ORDER BY occurred_at DESC
         LIMIT :limit OFFSET :offset
@@ -213,7 +213,7 @@ interface EntryDao {
           AND (
             (:isPending = 0 AND :isFailed = 0)
             OR (:isPending = 1 AND sync_status IN ('PENDING_CREATE', 'PENDING_UPDATE', 'PENDING_DELETE'))
-            OR (:isFailed = 1 AND sync_status = 'FAILED')
+            OR (:isFailed = 1 AND EXISTS (SELECT 1 FROM outbox_events WHERE local_target_id = cached_entries.local_id AND failed_at IS NOT NULL))
           )
         """
     )

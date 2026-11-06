@@ -124,6 +124,18 @@ class InstallmentReminderWorker(
             if (items.isEmpty()) return
 
             val prefs = context.getSharedPreferences("installment_reminder_cache", Context.MODE_PRIVATE)
+
+            // P2-5, P2-8: 清理 3 天前的过期通知缓存键，防止 SharedPreferences 无限膨胀
+            val cutoff = today.minusDays(3).toString()
+            val toRemove = prefs.all.keys.filter { key ->
+                key.startsWith("notified_") && key.substringAfter("notified_").take(10) < cutoff
+            }
+            if (toRemove.isNotEmpty()) {
+                val editor = prefs.edit()
+                toRemove.forEach { editor.remove(it) }
+                editor.apply()
+            }
+
             val byChannel = items.groupBy { it.channelName.ifBlank { "信贷渠道" } }
 
             byChannel.forEach { (channel, channelItems) ->
@@ -143,7 +155,9 @@ class InstallmentReminderWorker(
                     return@forEach
                 }
 
-                showNotification(context, contentText, channel.hashCode() + if (isTomorrow) 10000 else 20000)
+                // 稳定正数 ID，防碰撞
+                val stableId = (channel.hashCode() and 0x3FFFFFFF) + if (isTomorrow) 10000 else 20000
+                showNotification(context, contentText, stableId)
                 prefs.edit().putBoolean(reminderKey, true).apply()
             }
         }
@@ -163,7 +177,7 @@ class InstallmentReminderWorker(
 
         private fun showNotification(context: Context, contentText: String, notificationId: Int) {
             val intent = Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra("shortcut_route", "ledger")
             }
             val pendingIntent = PendingIntent.getActivity(

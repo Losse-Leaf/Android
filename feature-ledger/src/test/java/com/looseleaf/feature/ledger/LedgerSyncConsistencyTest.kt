@@ -254,4 +254,93 @@ class LedgerSyncConsistencyTest {
         assertEquals("PENDING_UPDATE", localRow!!.syncStatus)
         assertEquals("本地待同步编辑", localRow.title)
     }
+
+    @Test
+    fun `test outbox strictly monotonic sequence and retry scheduling`() = runBlocking {
+        val outboxDao = db.outboxDao()
+
+        val seq1 = outboxDao.getNextSequence()
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = "e1",
+                action = "CREATE",
+                payload = "{}",
+                localTargetId = 1,
+                clientRequestId = "req_1",
+                sequence = seq1,
+                enqueuedAt = "2026-11-01T10:00:00Z"
+            )
+        )
+
+        val seq2 = outboxDao.getNextSequence()
+        assertTrue("Sequence must be strictly monotonic", seq2 > seq1)
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = "e2",
+                action = "UPDATE",
+                payload = "{}",
+                localTargetId = 1,
+                clientRequestId = "req_2",
+                sequence = seq2,
+                enqueuedAt = "2026-11-01T10:05:00Z"
+            )
+        )
+
+        val pending = outboxDao.getAllPendingEvents()
+        assertEquals(2, pending.size)
+        assertEquals("e1", pending[0].eventId)
+        assertEquals("e2", pending[1].eventId)
+
+        // 模拟失败退避调度
+        outboxDao.scheduleRetry("e1", "2026-11-01T10:10:00Z", "Network timeout")
+        val scheduled = outboxDao.getAllPendingEvents("2026-11-01T10:06:00Z")
+        assertEquals(1, scheduled.size)
+        assertEquals("e2", scheduled[0].eventId)
+
+        // 到达重试时刻
+        val ready = outboxDao.getAllPendingEvents("2026-11-01T10:11:00Z")
+        assertEquals(2, ready.size)
+    }
+
+    @Test
+    fun `test expired dead letter cleanup removes 7 day old failed events`() = runBlocking {
+        val outboxDao = db.outboxDao()
+
+        // 插入 10 天前失败的死信与 2 天前失败的死信
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = "old_dead",
+                action = "CREATE",
+                payload = "{}",
+                localTargetId = 1,
+                clientRequestId = "req_old",
+                sequence = 1L,
+                enqueuedAt = "2026-10-20T09:50:00Z",
+                failedAt = "2026-10-20T10:00:00Z",
+                lastError = "400 Bad Request"
+            )
+        )
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = "recent_dead",
+                action = "CREATE",
+                payload = "{}",
+                localTargetId = 2,
+                clientRequestId = "req_recent",
+                sequence = 2L,
+                enqueuedAt = "2026-10-30T09:50:00Z",
+                failedAt = "2026-10-30T10:00:00Z",
+                lastError = "400 Bad Request"
+            )
+        )
+
+        assertEquals(2, outboxDao.countFailedEvents())
+
+        // 清理 7 天前（2026-10-25 之前）的死信
+        outboxDao.cleanExpiredFailedEvents("2026-10-25T00:00:00Z")
+
+        val remainingFailed = outboxDao.getFailedEvents()
+        assertEquals(1, remainingFailed.size)
+        assertEquals("recent_dead", remainingFailed[0].eventId)
+    }
 }

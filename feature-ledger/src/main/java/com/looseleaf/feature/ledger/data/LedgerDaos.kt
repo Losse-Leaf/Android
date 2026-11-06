@@ -195,9 +195,6 @@ interface LedgerOutboxDao {
     @Query("DELETE FROM ledger_outbox_events WHERE local_target_id = :localTargetId")
     suspend fun deleteByLocalTarget(localTargetId: Long)
 
-    @Query("UPDATE ledger_outbox_events SET retry_count = retry_count + 1 WHERE event_id = :eventId")
-    suspend fun incrementRetry(eventId: String)
-
     @Query("UPDATE ledger_outbox_events SET next_retry_at = :nextRetryAt, retry_count = retry_count + 1, last_error = :error WHERE event_id = :eventId")
     suspend fun scheduleRetry(eventId: String, nextRetryAt: String, error: String)
 
