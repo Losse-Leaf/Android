@@ -152,7 +152,6 @@ fun ProfileScreen(
             ProfileRepository.updateSiteConfig(context, remoteConfig)
             siteConfig = remoteConfig
             runCatching { globalStats = apiClient.fetchGlobalStats() }
-            runCatching { syncManager.pullStreamData() }
             reloadDevices()
             Result.success(Unit)
         } catch (e: CancellationException) {
@@ -171,12 +170,36 @@ fun ProfileScreen(
     }
 
     LaunchedEffect(Unit) {
-        reloadDevices()
-        isLoadingInitialStats = true
-        runCatching {
-            globalStats = apiClient.fetchGlobalStats()
+        launch { reloadDevices() }
+        launch {
+            isLoadingInitialStats = true
+            runCatching {
+                globalStats = apiClient.fetchGlobalStats()
+            }
+            isLoadingInitialStats = false
         }
-        isLoadingInitialStats = false
+        if (!SyncManager.isSessionPullDone("profile")) {
+            val result = try {
+                val remoteProfile = apiClient.fetchCuratorProfile()
+                ProfileRepository.updateProfile(context, remoteProfile)
+                profile = remoteProfile
+                val remoteConfig = apiClient.fetchSiteConfig()
+                ProfileRepository.updateSiteConfig(context, remoteConfig)
+                siteConfig = remoteConfig
+                Result.success(Unit)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            result.onSuccess {
+                SyncManager.markSessionPullDone("profile")
+            }
+            result.onFailure { err ->
+                if (err is CancellationException) return@onFailure
+                ArchiveToastManager.show("档案刷新失败: ${err.message}", isError = true)
+            }
+        }
     }
 
     val avatarPickerLauncher = rememberLauncherForActivityResult(
@@ -250,34 +273,6 @@ fun ProfileScreen(
                 } finally {
                     isUploadingAvatar = false
                 }
-            }
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        // 会话门禁改为**进程级**标志：原先 rememberSaveable 在系统回收进程后恢复时
-        // 仍为 true，新会话里展台页不再首拉档案，用户对着陈旧数据无提示。
-        // 与时间流/账本页同口径：仅成功才标记门禁，失败可重试且给轻提示。
-        if (!SyncManager.isSessionPullDone("profile")) {
-            val result = try {
-                val remoteProfile = apiClient.fetchCuratorProfile()
-                ProfileRepository.updateProfile(context, remoteProfile)
-                profile = remoteProfile
-                val remoteConfig = apiClient.fetchSiteConfig()
-                ProfileRepository.updateSiteConfig(context, remoteConfig)
-                siteConfig = remoteConfig
-                Result.success(Unit)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-            result.onSuccess {
-                SyncManager.markSessionPullDone("profile")
-            }
-            result.onFailure { err ->
-                if (err is CancellationException) return@onFailure
-                ArchiveToastManager.show("档案刷新失败: ${err.message}", isError = true)
             }
         }
     }
@@ -794,6 +789,11 @@ fun ProfileScreen(
                     onInstallmentReminderChanged = { enabled ->
                         isInstallmentReminderEnabled = enabled
                         credentialStore.isInstallmentReminderEnabled = enabled
+                        if (enabled) {
+                            com.looseleaf.app.reminder.InstallmentReminderWorker.enqueuePeriodicWork(context)
+                        } else {
+                            com.looseleaf.app.reminder.InstallmentReminderWorker.cancelWork(context)
+                        }
                     },
                     localDeviceName = credentialStore.deviceName,
                     localDeviceId = credentialStore.deviceId ?: "",

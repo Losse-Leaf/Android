@@ -196,11 +196,11 @@ fun LedgerScreen(
         }
     }
 
-    fun refreshAllData() {
+    fun refreshAllData(force: Boolean = false) {
         if (isRefreshingLedger) return
         scope.launch {
             isRefreshingLedger = true
-            val res = LedgerRepository.pullLedgerData()
+            val res = LedgerRepository.pullLedgerData(force = force)
             isRefreshingLedger = false
             if (res.isSuccess) {
                 ledgerLoadError = null
@@ -213,7 +213,7 @@ fun LedgerScreen(
     }
 
     LaunchedEffect(Unit) {
-        refreshAllData()
+        refreshAllData(force = false)
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -414,7 +414,7 @@ fun LedgerScreen(
                 val pullToRefreshState = rememberPullToRefreshState()
                 PullToRefreshBox(
                     isRefreshing = isRefreshingLedger,
-                    onRefresh = { refreshAllData() },
+                    onRefresh = { refreshAllData(force = true) },
                     state = pullToRefreshState,
                     indicator = {
                         PaperclipPullIndicator(
@@ -874,8 +874,10 @@ fun LedgerScreen(
 
         fun parseYuanToCents(str: String): Long {
             return if (str.contains("+")) {
-                val sumYuan = str.split("+").mapNotNull { it.trim().toDoubleOrNull() }.sum()
-                (sumYuan * 100).toLong()
+                str.split("+")
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .sumOf { FormatUtils.yuanStringToCents(it) }
             } else {
                 FormatUtils.yuanStringToCents(str)
             }

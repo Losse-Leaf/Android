@@ -104,7 +104,6 @@ internal fun QuickRecordSheet(
         creditChannels.filterNot { it.isBuiltin || it.code in setOf("HUABEI", "BAITIAO", "CUSTOM_INSTALLMENT", "huabei", "baitiao", "custom_installment") }
     }
     var selectedChannel by remember(userChannels) { mutableStateOf(userChannels.firstOrNull()) }
-    var repayDay by remember(selectedChannel) { mutableStateOf(selectedChannel?.repaymentDay ?: 10) }
     var showCreateChannelDialog by remember { mutableStateOf(false) }
     var showChannelSelectDialog by remember { mutableStateOf(false) }
 
@@ -131,13 +130,12 @@ internal fun QuickRecordSheet(
         )
     }
 
-    // 简单累加计算
+    // 简单累加计算（使用 FormatUtils.yuanStringToCents 整数分运算，杜绝浮点精度丢失）
     fun calculateEffectiveCents(): Long {
         return if (inputAmountString.contains("+")) {
-            val sumYuan = inputAmountString.split("+")
-                .mapNotNull { it.trim().toDoubleOrNull() }
+            inputAmountString.split("+")
+                .map { FormatUtils.yuanStringToCents(it.trim()) }
                 .sum()
-            (sumYuan * 100).toLong()
         } else {
             FormatUtils.yuanStringToCents(inputAmountString)
         }
@@ -147,6 +145,8 @@ internal fun QuickRecordSheet(
 
     val isInstallment = (selectedType == "expense" && payMethodChoice == "installment")
     val approxMonthly = if (effectivePeriods > 0) effectiveCents / effectivePeriods else 0L
+
+    var isSubmitting by remember { mutableStateOf(false) }
 
     fun appendDigit(digit: String) {
         if (inputAmountString == "0") {
@@ -196,7 +196,8 @@ internal fun QuickRecordSheet(
 
     val handleSubmit: () -> Unit = {
         val cents = calculateEffectiveCents()
-        if (cents > 0) {
+        if (cents > 0 && !isSubmitting) {
+            isSubmitting = true
             // 持久化上次使用的支付方式
             sp.edit().putString("last_payment_method", selectedPaymentMethod).apply()
 
@@ -210,30 +211,34 @@ internal fun QuickRecordSheet(
             val firstDueDateStr = String.format(Locale.US, "%04d-%02d-%02d", firstDueYearMonth.year, firstDueYearMonth.monthValue, targetDay)
 
             scope.launch {
-                val req = CreateTransactionRequest(
-                    amount = cents,
-                    type = selectedType,
-                    category = selectedCategory,
-                    title = title,
-                    note = note,
-                    paymentMethod = if (isInstallment) (selectedChannel?.name ?: "分期付款") else selectedPaymentMethod,
-                    occurredAt = FormatUtils.toBeijingIsoString(txOccurredAt),
-                    isInstallment = if (isInstallment) true else null,
-                    installmentChannelCode = if (isInstallment) selectedChannel?.code else null,
-                    installmentTotalAmount = if (isInstallment) cents else null,
-                    installmentMonths = if (isInstallment) effectivePeriods else null,
-                    installmentMonthlyPay = if (isInstallment) approxMonthly else null,
-                    installmentRemainMonths = if (isInstallment) effectivePeriods else null,
-                    repaymentDay = if (isInstallment) (selectedChannel?.repaymentDay ?: 10) else null,
-                    installmentFeeMode = if (isInstallment) "none" else null,
-                    installmentFeeValue = if (isInstallment) 0L else null,
-                    firstDueDate = if (isInstallment) firstDueDateStr else null,
-                    linkGearAsset = isInstallment && linkGearAsset,
-                    gearCategory = if (isInstallment && linkGearAsset) selectedCategory else null
-                )
-                ledgerRepository.createTransactionOptimistic(req)
-                onTransactionCreated()
-                onDismiss()
+                try {
+                    val req = CreateTransactionRequest(
+                        amount = cents,
+                        type = selectedType,
+                        category = selectedCategory,
+                        title = title,
+                        note = note,
+                        paymentMethod = if (isInstallment) (selectedChannel?.name ?: "分期付款") else selectedPaymentMethod,
+                        occurredAt = FormatUtils.toBeijingIsoString(txOccurredAt),
+                        isInstallment = if (isInstallment) true else null,
+                        installmentChannelCode = if (isInstallment) selectedChannel?.code else null,
+                        installmentTotalAmount = if (isInstallment) cents else null,
+                        installmentMonths = if (isInstallment) effectivePeriods else null,
+                        installmentMonthlyPay = if (isInstallment) approxMonthly else null,
+                        installmentRemainMonths = if (isInstallment) effectivePeriods else null,
+                        repaymentDay = if (isInstallment) (selectedChannel?.repaymentDay ?: 10) else null,
+                        installmentFeeMode = if (isInstallment) "none" else null,
+                        installmentFeeValue = if (isInstallment) 0L else null,
+                        firstDueDate = if (isInstallment) firstDueDateStr else null,
+                        linkGearAsset = isInstallment && linkGearAsset,
+                        gearCategory = if (isInstallment && linkGearAsset) selectedCategory else null
+                    )
+                    ledgerRepository.createTransactionOptimistic(req)
+                    onTransactionCreated()
+                } catch (e: Exception) {
+                    ArchiveToastManager.show("记账失败: ${e.message}", isError = true)
+                    isSubmitting = false
+                }
             }
         }
     }
@@ -813,8 +818,8 @@ internal fun QuickRecordSheet(
             // 分期付款使用全宽按钮，普通记账保留快速计算小键盘
             if (isInstallment) {
                 ArchivePrimaryButton(
-                    text = "分期记下",
-                    enabled = effectiveCents > 0,
+                    text = if (isSubmitting) "记账中…" else "分期记下",
+                    enabled = effectiveCents > 0 && !isSubmitting,
                     onClick = handleSubmit,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -827,8 +832,8 @@ internal fun QuickRecordSheet(
                     onBackspaceClick = { backspace() },
                     onPlusClick = { appendPlus() },
                     onClearAll = { clearAll() },
-                    confirmText = "记下",
-                    isConfirmEnabled = effectiveCents > 0,
+                    confirmText = if (isSubmitting) "记账中…" else "记下",
+                    isConfirmEnabled = effectiveCents > 0 && !isSubmitting,
                     onConfirm = handleSubmit,
                     showPlus = true,
                     keyHeight = 46.dp
@@ -903,7 +908,6 @@ internal fun QuickRecordSheet(
                                     CreateCreditChannelRequest(name = newName.trim(), repaymentDay = day)
                                 )
                                 selectedChannel = created
-                                repayDay = created.repaymentDay
                                 LedgerRepository.refreshAssets(apiClient)
                             }.onFailure { err ->
                                 ArchiveToastManager.show("创建渠道失败: ${err.message}", isError = true)
@@ -955,7 +959,6 @@ internal fun QuickRecordSheet(
                                 .background(if (isSelected) colors.surfaceElevated else Color.Transparent)
                                 .clickable {
                                     selectedChannel = ch
-                                    repayDay = ch.repaymentDay
                                     showChannelSelectDialog = false
                                 }
                                 .padding(horizontal = 12.dp, vertical = 10.dp),

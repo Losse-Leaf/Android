@@ -12,6 +12,7 @@ import com.looseleaf.app.ui.components.ArchiveToastHost
 import com.looseleaf.app.ui.components.ArchiveToastManager
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -168,14 +169,23 @@ class MainActivity : FragmentActivity() {
         enableDecorationsState.value = credentialStore.enableDecorations
 
         setContent {
-            // MOB-P1-85：待同步计数（供全局离线横幅使用）
+            // MOB-P1-85：待同步与失败计数（供全局离线横幅使用）
             var pendingEventCount by remember { mutableIntStateOf(0) }
+            var failedEventCount by remember { mutableIntStateOf(0) }
+            var showFailedEventsSheet by remember { mutableStateOf(false) }
             LaunchedEffect(Unit) {
                 runCatching {
                     // AND-7：先显式启动后台基础设施，再订阅计数（幂等）
                     syncManager.ensureStarted()
-                    syncManager.pendingEventCountFlow.collect { count ->
-                        pendingEventCount = count
+                    launch {
+                        syncManager.pendingEventCountFlow.collect { count ->
+                            pendingEventCount = count
+                        }
+                    }
+                    launch {
+                        syncManager.failedEventCountFlow.collect { count ->
+                            failedEventCount = count
+                        }
                     }
                 }
             }
@@ -226,7 +236,11 @@ class MainActivity : FragmentActivity() {
                             // 此前「离线」这件事只有时间流页的一枚小徽标在表达，
                             // 账本 / 造物 / 展台页完全没有任何提示，
                             // 用户在其它页面断网保存后根本不知道数据还没同步。
-                            OfflineBanner(pendingCount = pendingEventCount)
+                            OfflineBanner(
+                                pendingCount = pendingEventCount,
+                                failedCount = failedEventCount,
+                                onOpenFailedSheet = { showFailedEventsSheet = true }
+                            )
                             MainContent(
                                 modifier = Modifier.weight(1f),
                                 isDarkTheme = isDarkTheme,
@@ -235,6 +249,13 @@ class MainActivity : FragmentActivity() {
                                 onEnableDecorationsChanged = { enabled ->
                                     enableDecorationsState.value = enabled
                                 }
+                            )
+                        }
+
+                        if (showFailedEventsSheet) {
+                            com.looseleaf.app.ui.stream.FailedEventsSheet(
+                                syncManager = syncManager,
+                                onDismiss = { showFailedEventsSheet = false }
                             )
                         }
 
@@ -286,13 +307,9 @@ class MainActivity : FragmentActivity() {
                     val fromSection = sectionOf(current)
                     val toSection = sectionOf(route)
                     if (fromSection != toSection) {
-                        // MOB-P1-xx：不压入**重复**的段 ——
-                        // 原先栈只增不减且允许重复：时间流→账本→时间流→账本 会压成
-                        // ["stream","ledger","stream"]，此后返回键就在两个分段之间来回横跳，
-                        // 必须按多次才能退出到首页。
-                        if (routeStack.isEmpty() || routeStack.last() != fromSection) {
-                            routeStack.add(fromSection)
-                        }
+                        // MOB-P1-08：彻底消除往复回跳栈 —— 切换分段时移除历史中的现有记录并重新压入，避免形成 [stream, ledger, stream]
+                        routeStack.removeAll { it == toSection || it == fromSection }
+                        routeStack.add(fromSection)
                     }
                     currentRouteState.value = route
                 }
@@ -309,9 +326,8 @@ class MainActivity : FragmentActivity() {
                 if (target != currentRouteState.value) {
                     if (sectionOf(target) != sectionOf(currentRouteState.value)) {
                         val fromSection = sectionOf(currentRouteState.value)
-                        if (routeStack.isEmpty() || routeStack.last() != fromSection) {
-                            routeStack.add(fromSection)
-                        }
+                        routeStack.removeAll { it == sectionOf(target) || it == fromSection }
+                        routeStack.add(fromSection)
                     }
                     currentRouteState.value = target
                 }
@@ -336,6 +352,7 @@ class MainActivity : FragmentActivity() {
         }
         // 直接委托到 Activity 字段：ON_STOP 改它，Compose 会立即重锁。
         var isUnlocked by isUnlockedState
+        var isAuthenticating by remember { mutableStateOf(false) }
 
         LaunchedEffect(biometricsEnabled) {
             if (biometricsEnabled) {
@@ -351,6 +368,7 @@ class MainActivity : FragmentActivity() {
         val biometricUnlockTitle = stringResource(R.string.main_activity_title_01)
 
         fun requestBiometricUnlock() {
+            if (isAuthenticating) return
             if (!biometricsEnabled || canAuth == false) {
                 isUnlocked = true
                 return
@@ -358,6 +376,7 @@ class MainActivity : FragmentActivity() {
             // 后台检测尚未完成：等 LaunchedEffect(canAuth) 再决定，避免主线程同步探测
             if (canAuth == null) return
 
+            isAuthenticating = true
             BiometricHelper.authenticate(
                 activity = this@MainActivity,
                 title = biometricUnlockTitle,
@@ -365,8 +384,11 @@ class MainActivity : FragmentActivity() {
                 onSuccess = {
                     sessionUnlocked = true
                     isUnlocked = true
+                    isAuthenticating = false
                 },
-                onError = { /* 保持锁屏门禁态 */ }
+                onError = {
+                    isAuthenticating = false
+                }
             )
         }
 
@@ -395,9 +417,8 @@ class MainActivity : FragmentActivity() {
             showCrashNotice = CrashReporter.lastCrashReport(this@MainActivity) != null
         }
         val apiClient = remember { com.looseleaf.app.data.api.APIClient.getInstance(this@MainActivity) }
-        // MOB-P1-xx：replay=1 之后，早于订阅的那次 401 也会被送来 ——
-        // 但**只应该提示一次**（replay 会在重新订阅时再送一次，例如旋转屏幕）。
-        var repairPromptShown by remember { mutableStateOf(false) }
+        // MOB-P1-07：使用 rememberSaveable 并在重配对/弹窗关闭后 resetReplayCache，避免旋转屏幕时重复提示 401
+        var repairPromptShown by rememberSaveable { mutableStateOf(false) }
         LaunchedEffect(Unit) {
             apiClient.unauthorizedEvents.collect {
                 if (isPaired && !repairPromptShown) {
@@ -435,12 +456,17 @@ class MainActivity : FragmentActivity() {
                 dismissText = stringResource(R.string.main_activity_dismissText_01),
                 onConfirm = {
                     showRepairDialog = false
+                    repairPromptShown = false
+                    apiClient.unauthorizedEvents.resetReplayCache()
                     isPaired = false
                     // 彻底清除会话状态
                     credentialStore.deviceToken = null
                     syncManager.cancelScheduledSync()
                 },
-                onDismiss = { showRepairDialog = false }
+                onDismiss = {
+                    showRepairDialog = false
+                    apiClient.unauthorizedEvents.resetReplayCache()
+                }
             )
         }
 
@@ -452,6 +478,8 @@ class MainActivity : FragmentActivity() {
                     sessionUnlocked = true
                     isPaired = true
                     isUnlocked = true
+                    repairPromptShown = false
+                    apiClient.unauthorizedEvents.resetReplayCache()
                     pendingDeepLinkPayloadState.value = null
                     currentRouteState.value = "stream"
                     // 重新配对后必须重启队列：401 暂停期间挂起的发件箱事件
@@ -673,12 +701,14 @@ private fun rememberBottomTabs(): List<NavigationTabItem> {
 }
 
 /**
- * MOB-P1-85：全局离线横幅。
- * 断网时明确告知「当前离线 · N 项待同步」，让离线优先不再是「静默失败」。
+ * MOB-P1-85：全局离线与同步异常横幅。
+ * 断网时明确告知「当前离线 · N 项待同步」；发生同步失败时明确提示异常并支持点击查看重试。
  */
 @Composable
 private fun OfflineBanner(
     pendingCount: Int,
+    failedCount: Int = 0,
+    onOpenFailedSheet: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -696,12 +726,14 @@ private fun OfflineBanner(
         onDispose { runCatching { cm?.unregisterNetworkCallback(callback) } }
     }
 
-    if (!isOnline) {
+    if (!isOnline || failedCount > 0) {
+        val hasFailed = failedCount > 0
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = modifier
                 .fillMaxWidth()
-                .background(colors.accentWarm)
+                .background(if (hasFailed) colors.accentWarm else colors.accentWarm.copy(alpha = 0.9f))
+                .then(if (hasFailed) Modifier.clickable(onClick = onOpenFailedSheet) else Modifier)
                 .padding(horizontal = 16.dp, vertical = 6.dp)
         ) {
             Icon(
@@ -712,10 +744,11 @@ private fun OfflineBanner(
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = if (pendingCount > 0) {
-                    "当前离线 · $pendingCount 项待同步（联网后自动上传）"
-                } else {
-                    "当前离线 · 记录会先存到本机"
+                text = when {
+                    hasFailed && pendingCount > 0 -> "同步异常：$failedCount 项失败 · $pendingCount 项待同步（点击查看）"
+                    hasFailed -> "同步异常：$failedCount 项记录同步失败（点击查看）"
+                    pendingCount > 0 -> "当前离线 · $pendingCount 项待同步（联网后自动上传）"
+                    else -> "当前离线 · 记录会先存到本机"
                 },
                 fontFamily = ArchiveFontFamilies.BodySans,
                 fontSize = 12.sp,

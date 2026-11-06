@@ -159,6 +159,12 @@ interface LedgerOutboxDao {
     @Query("SELECT COUNT(*) FROM ledger_outbox_events WHERE failed_at IS NOT NULL")
     suspend fun countFailedEvents(): Int
 
+    @Query("SELECT COUNT(*) FROM ledger_outbox_events WHERE failed_at IS NULL")
+    fun getPendingEventCountFlow(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM ledger_outbox_events WHERE failed_at IS NOT NULL")
+    fun getFailedEventCountFlow(): Flow<Int>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(event: LedgerOutboxEventEntity)
 

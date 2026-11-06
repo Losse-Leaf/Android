@@ -178,6 +178,7 @@ class SyncManager private constructor(private val context: Context) {
     // 改成 lazy 后，getInstance() 只是一次对象分配；真正的重量级初始化
     // 推迟到首次实际使用（或后台 ensureStarted()）时发生。
     private val database by lazy { AppDatabase.getInstance(context) }
+    private val ledgerDatabase by lazy { com.looseleaf.feature.ledger.data.LedgerDatabase.getInstance(context) }
     private val apiClient by lazy { APIClient.getInstance(context) }
     private val workManager by lazy { WorkManager.getInstance(context) }
     private val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
@@ -229,13 +230,17 @@ class SyncManager private constructor(private val context: Context) {
             if (started) return
             started = true
             scope.launch {
-                database.outboxDao().getPendingEventCountFlow()
-                    .catch { emit(0) }
+                combine(
+                    database.outboxDao().getPendingEventCountFlow().catch { emit(0) },
+                    ledgerDatabase.outboxDao().getPendingEventCountFlow().catch { emit(0) }
+                ) { appPending, ledgerPending -> appPending + ledgerPending }
                     .collect { _pendingEventCount.value = it }
             }
             scope.launch {
-                database.outboxDao().getFailedEventCountFlow()
-                    .catch { emit(0) }
+                combine(
+                    database.outboxDao().getFailedEventCountFlow().catch { emit(0) },
+                    ledgerDatabase.outboxDao().getFailedEventCountFlow().catch { emit(0) }
+                ) { appFailed, ledgerFailed -> appFailed + ledgerFailed }
                     .collect { _failedEventCount.value = it }
             }
             scope.launch { normalizeLegacyTimestamps() }

@@ -54,13 +54,25 @@ class InstallmentReminderWorker(
         const val CHANNEL_ID = "installment_reminders"
 
         fun enqueuePeriodicWork(context: Context) {
+            val nowBeijing = java.time.ZonedDateTime.now(com.looseleaf.app.utils.FormatUtils.BeijingZone)
+            var nextTarget = nowBeijing.withHour(9).withMinute(0).withSecond(0).withNano(0)
+            if (nowBeijing.isAfter(nextTarget)) {
+                nextTarget = nextTarget.plusDays(1)
+            }
+            val initialDelayMinutes = java.time.Duration.between(nowBeijing, nextTarget).toMinutes().coerceAtLeast(0)
+
             val request = PeriodicWorkRequestBuilder<InstallmentReminderWorker>(24, TimeUnit.HOURS)
+                .setInitialDelay(initialDelayMinutes, TimeUnit.MINUTES)
                 .build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 request
             )
+        }
+
+        fun cancelWork(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
         }
 
         suspend fun checkAndNotify(context: Context) = withContext(Dispatchers.IO) {
@@ -85,7 +97,7 @@ class InstallmentReminderWorker(
                 val items = apiClient.fetchUpcomingInstallmentItems()
                 if (items.isEmpty()) return@withContext
 
-                val today = LocalDate.now()
+                val today = LocalDate.now(com.looseleaf.app.utils.FormatUtils.BeijingZone)
                 val tomorrow = today.plusDays(1)
                 val todayStr = today.toString()
                 val tomorrowStr = tomorrow.toString()
@@ -162,7 +174,7 @@ class InstallmentReminderWorker(
             )
 
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(R.drawable.ic_calculate)
                 .setContentTitle("散页 · 分期还款提醒")
                 .setContentText(contentText)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)

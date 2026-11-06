@@ -124,9 +124,12 @@ private fun shouldCheckForUpdate(context: android.content.Context): Boolean {
     val prefs = context.getSharedPreferences(UPDATE_CHECK_PREFS, android.content.Context.MODE_PRIVATE)
     val last = prefs.getLong(KEY_LAST_CHECK_AT, 0L)
     val now = System.currentTimeMillis()
-    if (now - last < UPDATE_CHECK_INTERVAL_MS) return false
-    prefs.edit().putLong(KEY_LAST_CHECK_AT, now).apply()
-    return true
+    return (now - last >= UPDATE_CHECK_INTERVAL_MS)
+}
+
+private fun markUpdateChecked(context: android.content.Context) {
+    val prefs = context.getSharedPreferences(UPDATE_CHECK_PREFS, android.content.Context.MODE_PRIVATE)
+    prefs.edit().putLong(KEY_LAST_CHECK_AT, System.currentTimeMillis()).apply()
 }
 
 /** MOB-P1-32：时间流分页窗口大小（首屏 60 条，滚动到底再取下一批） */
@@ -260,17 +263,18 @@ fun StreamScreen(
     // 更新检查：整个进程只查一次，失败静默（避免每次切 Tab 都打 GitHub API）
     LaunchedEffect(Unit) {
         if (!updateCheckedThisProcess && cloudUpdate == null && shouldCheckForUpdate(context)) {
-            updateCheckedThisProcess = true
-            // 检查本身放到后台线程，避免阻塞首帧。
-            //
-            // MOB-P1-xx：整段必须兜住 —— 「检测到新版本」这条链路一旦抛异常，
-            // 会直接把**时间流**连带整个 App 送走（协程里的未捕获异常 = 进程崩溃），
-            // 而用户此刻只是想看看自己的记录。更新提示是可选项，崩 App 不是。
             runCatching {
                 val result = withContext(Dispatchers.IO) { UpdateChecker.checkForUpdates() }
                 when (result) {
-                    is UpdateCheckResult.HasUpdate ->
+                    is UpdateCheckResult.HasUpdate -> {
+                        updateCheckedThisProcess = true
+                        markUpdateChecked(context)
                         cloudUpdateJson = Json { ignoreUnknownKeys = true }.encodeToString(result.release)
+                    }
+                    is UpdateCheckResult.AlreadyLatest -> {
+                        updateCheckedThisProcess = true
+                        markUpdateChecked(context)
+                    }
                     else -> Unit
                 }
             }.onFailure { error ->
@@ -450,19 +454,25 @@ fun StreamScreen(
                 ) {
                     isLoadingMore = true
                     val generation = windowGeneration
-                    val more = loadWindow(loadedEntries.size, STREAM_PAGE_SIZE).entries
-                    if (generation != windowGeneration) {
+                    try {
+                        val more = loadWindow(loadedEntries.size, STREAM_PAGE_SIZE).entries
+                        if (generation != windowGeneration) {
+                            return@collect
+                        }
+                        if (more.isNotEmpty()) {
+                            // 增量追加：只算新页的行，旧行对象原样复用
+                            loadedEntries.addAll(more)
+                            streamRows.addAll(rowsBuilder.append(more))
+                            streamRowsVersion++
+                        }
+                        hasMore = more.isNotEmpty()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w("StreamScreen", "加载更多数据失败: ${e.message}")
+                    } finally {
                         isLoadingMore = false
-                        return@collect
                     }
-                    if (more.isNotEmpty()) {
-                        // 增量追加：只算新页的行，旧行对象原样复用
-                        loadedEntries.addAll(more)
-                        streamRows.addAll(rowsBuilder.append(more))
-                        streamRowsVersion++
-                    }
-                    hasMore = more.isNotEmpty()
-                    isLoadingMore = false
                 }
             }
     }

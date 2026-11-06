@@ -18,7 +18,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -147,6 +149,7 @@ private fun QuickNoteSheetBody(
     var isSubmitting by remember { mutableStateOf(false) }
 
     LaunchedEffect(noteType, noteTitle, noteContent, noteCityCode, noteCityName, noteLocation, noteOccurredAt) {
+        delay(300)
         draftPrefs.edit()
             .putString("type", noteType)
             .putString("title", noteTitle)
@@ -162,33 +165,38 @@ private fun QuickNoteSheetBody(
     }
 
     // 游历专属字段
-    var selectedFootprintId by remember { mutableStateOf<Long?>(null) }
+    var selectedFootprintId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     // 造物专属字段。
     // MOB 表单审计 #17：状态统一中文四态（进行中/已完成/维护中/已搁置），
     // 与新建弹窗/编辑抽屉同一套枚举（后端白名单中英全集放行，此处收敛为中文）。
-    var projectMode by remember { mutableStateOf("entry") } // "entry" (进展手记) vs "new" (立项新造物)
-    var selectedProjectId by remember { mutableStateOf<Long?>(null) }
-    var projTitle by remember { mutableStateOf("") }
-    var projSubtitle by remember { mutableStateOf("") }
-    var projCategory by remember { mutableStateOf("软件") }
-    var projStatus by remember { mutableStateOf("进行中") }
-    var projDescription by remember { mutableStateOf("") }
-    var projStory by remember { mutableStateOf("") }
-    var projGithubUrl by remember { mutableStateOf("") }
+    var projectMode by rememberSaveable { mutableStateOf("entry") } // "entry" (进展手记) vs "new" (立项新造物)
+    var selectedProjectId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var projTitle by rememberSaveable { mutableStateOf("") }
+    var projSubtitle by rememberSaveable { mutableStateOf("") }
+    var projCategory by rememberSaveable { mutableStateOf("软件") }
+    var projStatus by rememberSaveable { mutableStateOf("进行中") }
+    var projDescription by rememberSaveable { mutableStateOf("") }
+    var projStory by rememberSaveable { mutableStateOf("") }
+    var projGithubUrl by rememberSaveable { mutableStateOf("") }
 
     // 心愿专属字段
-    var wishKind by remember { mutableStateOf("item") } // "item", "travel", "milestone"
-    var wishTitle by remember { mutableStateOf("") }
-    var wishBudgetYuan by remember { mutableStateOf("") }
-    var wishSpec by remember { mutableStateOf("") }
-    var wishTargetDate by remember { mutableStateOf<LocalDate?>(null) }
-    var wishNote by remember { mutableStateOf("") }
+    var wishKind by rememberSaveable { mutableStateOf("item") } // "item", "travel", "milestone"
+    var wishTitle by rememberSaveable { mutableStateOf("") }
+    var wishBudgetYuan by rememberSaveable { mutableStateOf("") }
+    var wishSpec by rememberSaveable { mutableStateOf("") }
+    var wishTargetDate by rememberSaveable(stateSaver = run {
+        androidx.compose.runtime.saveable.Saver<LocalDate?, String>(
+            save = { it?.toString() },
+            restore = { if (it.isNullOrBlank()) null else LocalDate.parse(it) }
+        )
+    }) { mutableStateOf<LocalDate?>(null) }
+    var wishNote by rememberSaveable { mutableStateOf("") }
     // MOB 表单审计 #13：心愿-旅程目的地用独立状态——
     // 不复用速记共享属地 noteCity*（GPS 定位/上一模式残留会被误预填为「远方旅程」目的地），
     // 提交也不再借道不可见的 noteLocation 做地名反推。
-    var wishCityCode by remember { mutableStateOf("") }
-    var wishCityName by remember { mutableStateOf("") }
+    var wishCityCode by rememberSaveable { mutableStateOf("") }
+    var wishCityName by rememberSaveable { mutableStateOf("") }
 
     // 照片装裱状态
     var attachedPhotos by remember { mutableStateOf<List<AttachedPhotoItem>>(emptyList()) }
@@ -207,11 +215,12 @@ private fun QuickNoteSheetBody(
     }
 
     // 未提交就关闭速记抽屉：清掉已落盘的压缩图，避免 outbox_media 无限堆积孤儿文件
-    // （DarkroomScreen 有同样的 DisposableEffect 清理，这里此前漏了）
+    // （DarkroomScreen 有同样的 DisposableEffect 清理，这里此前漏了；屏幕旋转等配置变更时不应误删）
     var noteSubmitted by remember { mutableStateOf(false) }
     DisposableEffect(Unit) {
         onDispose {
-            if (!noteSubmitted) {
+            val isChangingConfig = (context as? android.app.Activity)?.isChangingConfigurations == true
+            if (!noteSubmitted && !isChangingConfig) {
                 attachedPhotos.forEach { photo ->
                     runCatching { photo.savedFile.delete() }
                 }
@@ -251,10 +260,10 @@ private fun QuickNoteSheetBody(
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(noteType) {
         if (LocationHelper.hasLocationPermission(context)) {
             fetchCurrentLocation()
-        } else {
+        } else if (noteType == "travel") {
             locationPermissionLauncher.launch(
                 arrayOf(
                     Manifest.permission.ACCESS_FINE_LOCATION,
@@ -333,15 +342,15 @@ private fun QuickNoteSheetBody(
         }
     }
 
-    val canSave = when (noteType) {
-        "life" -> (noteTitle.isNotBlank() || noteContent.isNotBlank() || attachedPhotos.isNotEmpty()) && !isSubmitting
-        "travel" -> noteContent.isNotBlank() && (!noteCityCode.isNullOrBlank() || !noteCityName.isNullOrBlank() || noteLocation.isNotBlank()) && !isSubmitting
+    val canSave = !isProcessingPhoto && !isSubmitting && when (noteType) {
+        "life" -> (noteTitle.isNotBlank() || noteContent.isNotBlank() || attachedPhotos.isNotEmpty())
+        "travel" -> noteContent.isNotBlank() && (!noteCityCode.isNullOrBlank() || !noteCityName.isNullOrBlank() || noteLocation.isNotBlank())
         "project" -> if (projectMode == "entry") {
-            selectedProjectId != null && noteContent.isNotBlank() && !isSubmitting
+            selectedProjectId != null && noteContent.isNotBlank()
         } else {
-            projTitle.isNotBlank() && projDescription.isNotBlank() && !isSubmitting
+            projTitle.isNotBlank() && projDescription.isNotBlank()
         }
-        "wish" -> wishTitle.isNotBlank() && !isSubmitting
+        "wish" -> wishTitle.isNotBlank()
         else -> false
     }
 
@@ -542,16 +551,22 @@ private fun QuickNoteSheetBody(
                     "wish" -> {
                         val budgetCents = FormatUtils.yuanStringToCents(wishBudgetYuan)
                         val targetIso = wishTargetDate?.atStartOfDay()?.let { FormatUtils.toBeijingIsoString(it) }
-                        val attachmentIds = withContext(Dispatchers.IO) {
-                            attachedPhotos.map { photo ->
-                                ImagePipeline.uploadImage(
-                                    apiClient = apiClient,
-                                    file = photo.savedFile,
-                                    mimeType = photo.processed.mimeType,
-                                    filename = photo.savedFile.name,
-                                    width = photo.processed.width,
-                                    height = photo.processed.height
-                                ).id
+                        val attachmentIds = if (attachedPhotos.isEmpty()) {
+                            emptyList()
+                        } else {
+                            withContext(Dispatchers.IO) {
+                                runCatching {
+                                    attachedPhotos.map { photo ->
+                                        ImagePipeline.uploadImage(
+                                            apiClient = apiClient,
+                                            file = photo.savedFile,
+                                            mimeType = photo.processed.mimeType,
+                                            filename = photo.savedFile.name,
+                                            width = photo.processed.width,
+                                            height = photo.processed.height
+                                        ).id
+                                    }
+                                }.getOrDefault(emptyList())
                             }
                         }
                         val req = CreateWishRequest(

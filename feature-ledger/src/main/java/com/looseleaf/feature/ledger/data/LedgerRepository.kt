@@ -59,6 +59,11 @@ object LedgerRepository {
     @Volatile
     private var customCredentialStore: CredentialStore? = null
 
+    private const val METADATA_TTL_MS = 30_000L
+
+    @Volatile
+    private var lastMetadataRefreshTime: Long = 0L
+
     private val _snapshot = MutableStateFlow(LedgerSnapshot())
     val snapshot: StateFlow<LedgerSnapshot> = _snapshot.asStateFlow()
 
@@ -485,12 +490,16 @@ object LedgerRepository {
 
     // ──────────────────────────── 接口并行拉取、增量游标与数据同步 ────────────────────────────
 
-    suspend fun pullLedgerData(): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun pullLedgerData(force: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
         syncMutex.withLock {
             runCatching {
                 val api = getApiClient()
-                // 1. 刷新基础配置与大盘
-                refreshAll(api, force = true)
+                // 1. 刷新基础配置与大盘（P1-10：非强制刷新时遵循 30 秒缓存 TTL，避免切 Tab / 频繁打开引发 6-12 请求风暴）
+                val now = System.currentTimeMillis()
+                if (force || (now - lastMetadataRefreshTime) > METADATA_TTL_MS) {
+                    refreshAll(api, force = true)
+                    lastMetadataRefreshTime = now
+                }
 
                 val db = appContext?.let { LedgerDatabase.getInstance(it) } ?: return@runCatching
 
@@ -498,6 +507,7 @@ object LedgerRepository {
                 val hasPushed = flushOutbox(db, api)
                 if (hasPushed) {
                     refreshAll(api, force = true)
+                    lastMetadataRefreshTime = System.currentTimeMillis()
                 }
 
                 // 3. 增量游标拉取 (P0-1)
