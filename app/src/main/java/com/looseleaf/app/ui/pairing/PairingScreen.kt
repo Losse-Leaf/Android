@@ -125,7 +125,11 @@ fun PairingScreen(
                 if (previousBaseUrl.isNotBlank() &&
                     HubUrlPolicy.normalize(previousBaseUrl) != HubUrlPolicy.normalize(canonical)
                 ) {
-                    syncManager.clearAllLocalData()
+                    com.looseleaf.app.data.sync.LocalDataResetCoordinator.resetAll(
+                        context = context,
+                        syncManager = syncManager,
+                        reason = com.looseleaf.app.data.sync.ResetReason.SWITCH_HUB
+                    )
                     ArchiveToastManager.show("已切换到新的数据中枢，旧中枢的本地数据与待同步记录已清除")
                 }
                 // 同一进程内重新配对：旧的「本会话已首拉」门禁必须失效，

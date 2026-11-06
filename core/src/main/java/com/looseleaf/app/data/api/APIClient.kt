@@ -467,6 +467,7 @@ class APIClient private constructor(private val context: Context) {
         year: Int? = null,
         month: Int? = null,
         since: String? = null,
+        includeDeleted: Boolean? = null,
         limit: Int = 200,
         offset: Int? = null,
         meta: ResponseMeta? = null
@@ -476,6 +477,7 @@ class APIClient private constructor(private val context: Context) {
         if (month != null) params["month"] = month.toString()
         if (offset != null && offset > 0) params["offset"] = offset.toString()
         if (!since.isNullOrBlank()) params["since"] = since
+        if (includeDeleted == true) params["include_deleted"] = "true"
         return executeEnvelopeRequest("/api/v1/transactions", "GET", queryParams = params, meta = meta)
     }
 

@@ -1,7 +1,10 @@
 package com.looseleaf.feature.ledger.data
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.looseleaf.app.data.api.APIClient
+import com.looseleaf.app.data.api.APIException
+import com.looseleaf.app.data.api.ResponseMeta
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.model.*
 import kotlinx.coroutines.CoroutineScope
@@ -15,6 +18,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.time.Instant
 import java.util.UUID
 
 val DefaultExpenseCategories = listOf("餐饮", "交通", "购物", "娱乐", "住房", "学习", "医疗", "其他")
@@ -88,6 +92,29 @@ object LedgerRepository {
         return APIClient.getInstance(ctx)
     }
 
+    private fun getSyncPrefs(): android.content.SharedPreferences? {
+        return appContext?.getSharedPreferences("looseleaf_ledger_sync_prefs", Context.MODE_PRIVATE)
+    }
+
+    private fun getCursorKey(): String {
+        val baseUrl = customApiClient?.baseUrl ?: appContext?.let { APIClient.getInstance(it).baseUrl } ?: "default"
+        return "cursor_" + baseUrl.hashCode()
+    }
+
+    fun getStoredCursor(): String? = getSyncPrefs()?.getString(getCursorKey(), null)
+
+    fun saveCursor(cursor: String) {
+        getSyncPrefs()?.edit()?.putString(getCursorKey(), cursor)?.apply()
+    }
+
+    fun clearCursor() {
+        getSyncPrefs()?.edit()?.remove(getCursorKey())?.apply()
+    }
+
+    suspend fun <T> withSyncLock(block: suspend () -> T): T {
+        return syncMutex.withLock { block() }
+    }
+
     // ──────────────────────────── 流水查询 Flow ────────────────────────────
 
     fun transactionsForMonth(range: MonthRange): Flow<List<Transaction>> {
@@ -115,43 +142,54 @@ object LedgerRepository {
             .flowOn(Dispatchers.Default)
     }
 
-    // ──────────────────────────── 乐观 CUD 操作 ────────────────────────────
+    // ──────────────────────────── 乐观 CUD 操作（原子事务 + 意图合并 + 幂等） ────────────────────────────
 
     suspend fun createTransactionOptimistic(req: CreateTransactionRequest): Long = withContext(Dispatchers.IO) {
         val db = requireDatabase()
-        val txEntity = CachedTransactionEntity(
-            amount = req.amount,
-            type = req.type,
-            category = req.category,
-            title = req.title,
-            note = req.note,
-            paymentMethod = req.paymentMethod,
-            occurredAt = req.occurredAt,
-            cityCode = req.cityCode,
-            wishId = req.wishId,
-            footprintId = req.footprintId,
-            isInstallment = req.isInstallment ?: false,
-            installmentChannelCode = req.installmentChannelCode,
-            installmentTotalAmount = req.installmentTotalAmount,
-            installmentMonths = req.installmentMonths,
-            installmentMonthlyPay = req.installmentMonthlyPay,
-            installmentRemainMonths = req.installmentRemainMonths,
-            repaymentDay = req.repaymentDay,
-            syncStatus = "PENDING_CREATE"
-        )
+        val clientRequestId = req.clientRequestId ?: UUID.randomUUID().toString()
+        val enqueuedReq = req.copy(clientRequestId = clientRequestId)
+        val nowIso = Instant.now().toString()
 
-        val localId = db.transactionDao().insert(txEntity)
-        db.outboxDao().insert(
-            LedgerOutboxEventEntity(
-                eventId = UUID.randomUUID().toString(),
-                action = "CREATE",
-                payload = json.encodeToString(req),
-                localTargetId = localId,
-                serverTargetId = null,
-                createdAt = req.occurredAt
+        db.withTransaction {
+            val txEntity = CachedTransactionEntity(
+                amount = enqueuedReq.amount,
+                type = enqueuedReq.type,
+                category = enqueuedReq.category,
+                title = enqueuedReq.title,
+                note = enqueuedReq.note,
+                paymentMethod = enqueuedReq.paymentMethod,
+                occurredAt = enqueuedReq.occurredAt,
+                cityCode = enqueuedReq.cityCode,
+                wishId = enqueuedReq.wishId,
+                footprintId = enqueuedReq.footprintId,
+                isInstallment = enqueuedReq.isInstallment ?: false,
+                installmentChannelCode = enqueuedReq.installmentChannelCode,
+                installmentTotalAmount = enqueuedReq.installmentTotalAmount,
+                installmentMonths = enqueuedReq.installmentMonths,
+                installmentMonthlyPay = enqueuedReq.installmentMonthlyPay,
+                installmentRemainMonths = enqueuedReq.installmentRemainMonths,
+                repaymentDay = enqueuedReq.repaymentDay,
+                syncStatus = "PENDING_CREATE",
+                createdAt = enqueuedReq.occurredAt
             )
-        )
-        localId
+
+            val localId = db.transactionDao().insert(txEntity)
+            val sequence = db.outboxDao().getNextSequence()
+
+            db.outboxDao().insert(
+                LedgerOutboxEventEntity(
+                    eventId = UUID.randomUUID().toString(),
+                    action = "CREATE",
+                    payload = json.encodeToString(enqueuedReq),
+                    localTargetId = localId,
+                    serverTargetId = null,
+                    clientRequestId = clientRequestId,
+                    sequence = sequence,
+                    enqueuedAt = nowIso
+                )
+            )
+            localId
+        }
     }
 
     suspend fun updateTransactionOptimistic(
@@ -159,198 +197,293 @@ object LedgerRepository {
         req: CreateTransactionRequest
     ): Boolean = withContext(Dispatchers.IO) {
         val db = requireDatabase()
-        val entity = if (txId < 0) {
-            db.transactionDao().getTransactionByLocalId(-txId)
-        } else {
-            db.transactionDao().getTransactionByServerId(txId)
-                ?: db.transactionDao().getTransactionByLocalId(txId)
-        } ?: return@withContext false
+        val nowIso = Instant.now().toString()
 
-        val newSyncStatus = if (entity.serverId != null && entity.serverId > 0) {
-            "PENDING_UPDATE"
-        } else {
-            "PENDING_CREATE"
-        }
-
-        val updatedEntity = entity.copy(
-            amount = req.amount,
-            type = req.type,
-            category = req.category,
-            title = req.title,
-            note = req.note,
-            paymentMethod = req.paymentMethod,
-            occurredAt = req.occurredAt,
-            cityCode = if (req.clearCity) null else req.cityCode,
-            wishId = req.wishId ?: entity.wishId,
-            footprintId = req.footprintId ?: entity.footprintId,
-            isInstallment = if (req.clearInstallment) {
-                false
+        db.withTransaction {
+            val entity = if (txId < 0) {
+                db.transactionDao().getTransactionByLocalId(-txId)
             } else {
-                req.isInstallment ?: entity.isInstallment
-            },
-            installmentChannelCode = if (req.clearInstallment) null else (req.installmentChannelCode ?: entity.installmentChannelCode),
-            installmentTotalAmount = if (req.clearInstallment) null else (req.installmentTotalAmount ?: entity.installmentTotalAmount),
-            installmentMonths = if (req.clearInstallment) null else (req.installmentMonths ?: entity.installmentMonths),
-            installmentMonthlyPay = if (req.clearInstallment) null else (req.installmentMonthlyPay ?: entity.installmentMonthlyPay),
-            installmentRemainMonths = if (req.clearInstallment) {
-                null
-            } else {
-                val remain = req.installmentRemainMonths ?: entity.installmentRemainMonths
-                val total = req.installmentMonths ?: entity.installmentMonths
-                if (remain != null && total != null && total > 0) remain.coerceAtMost(total) else remain
-            },
-            repaymentDay = if (req.clearInstallment) null else (req.repaymentDay ?: entity.repaymentDay),
-            syncStatus = newSyncStatus
-        )
+                db.transactionDao().getTransactionByServerId(txId)
+                    ?: db.transactionDao().getTransactionByLocalId(txId)
+            } ?: return@withTransaction false
 
-        db.transactionDao().update(updatedEntity)
+            val existingActiveEvent = db.outboxDao().findActiveEventByLocalTarget(entity.localId)
+            val isLocalPendingCreate = entity.serverId == null || existingActiveEvent?.action == "CREATE"
 
-        val updatePayload = req.copy(clientRequestId = null)
-        val existingUpdate = db.outboxDao().findEventByTarget(
-            localTargetId = entity.localId,
-            action = "UPDATE"
-        )
-        if (existingUpdate != null) {
-            db.outboxDao().insert(
-                existingUpdate.copy(
-                    payload = json.encodeToString(updatePayload),
-                    serverTargetId = entity.serverId
-                )
+            val updatedEntity = entity.copy(
+                amount = req.amount,
+                type = req.type,
+                category = req.category,
+                title = req.title,
+                note = req.note,
+                paymentMethod = req.paymentMethod,
+                occurredAt = req.occurredAt,
+                cityCode = if (req.clearCity) null else req.cityCode,
+                wishId = req.wishId ?: entity.wishId,
+                footprintId = req.footprintId ?: entity.footprintId,
+                isInstallment = if (req.clearInstallment) {
+                    false
+                } else {
+                    req.isInstallment ?: entity.isInstallment
+                },
+                installmentChannelCode = if (req.clearInstallment) null else (req.installmentChannelCode ?: entity.installmentChannelCode),
+                installmentTotalAmount = if (req.clearInstallment) null else (req.installmentTotalAmount ?: entity.installmentTotalAmount),
+                installmentMonths = if (req.clearInstallment) null else (req.installmentMonths ?: entity.installmentMonths),
+                installmentMonthlyPay = if (req.clearInstallment) null else (req.installmentMonthlyPay ?: entity.installmentMonthlyPay),
+                installmentRemainMonths = if (req.clearInstallment) {
+                    null
+                } else {
+                    val remain = req.installmentRemainMonths ?: entity.installmentRemainMonths
+                    val total = req.installmentMonths ?: entity.installmentMonths
+                    if (remain != null && total != null && total > 0) remain.coerceAtMost(total) else remain
+                },
+                repaymentDay = if (req.clearInstallment) null else (req.repaymentDay ?: entity.repaymentDay),
+                syncStatus = if (isLocalPendingCreate) "PENDING_CREATE" else "PENDING_UPDATE"
             )
-        } else {
-            db.outboxDao().insert(
-                LedgerOutboxEventEntity(
-                    eventId = UUID.randomUUID().toString(),
-                    action = "UPDATE",
-                    payload = json.encodeToString(updatePayload),
+
+            db.transactionDao().update(updatedEntity)
+
+            if (isLocalPendingCreate && existingActiveEvent != null && existingActiveEvent.action == "CREATE") {
+                // 本地待同步新建条目：直接将 UPDATE 字段合并入现有 CREATE 载荷，保持幂等键不变
+                val existingReq = runCatching {
+                    json.decodeFromString<CreateTransactionRequest>(existingActiveEvent.payload)
+                }.getOrNull()
+
+                val mergedReq = if (existingReq != null) {
+                    existingReq.copy(
+                        amount = req.amount,
+                        type = req.type,
+                        category = req.category,
+                        title = req.title,
+                        note = req.note,
+                        paymentMethod = req.paymentMethod,
+                        occurredAt = req.occurredAt,
+                        cityCode = if (req.clearCity) null else (req.cityCode ?: existingReq.cityCode),
+                        wishId = req.wishId ?: existingReq.wishId,
+                        footprintId = req.footprintId ?: existingReq.footprintId,
+                        isInstallment = if (req.clearInstallment) false else (req.isInstallment ?: existingReq.isInstallment),
+                        clearInstallment = req.clearInstallment,
+                        installmentChannelCode = if (req.clearInstallment) null else (req.installmentChannelCode ?: existingReq.installmentChannelCode),
+                        installmentTotalAmount = if (req.clearInstallment) null else (req.installmentTotalAmount ?: existingReq.installmentTotalAmount),
+                        installmentMonths = if (req.clearInstallment) null else (req.installmentMonths ?: existingReq.installmentMonths),
+                        installmentMonthlyPay = if (req.clearInstallment) null else (req.installmentMonthlyPay ?: existingReq.installmentMonthlyPay),
+                        installmentRemainMonths = if (req.clearInstallment) null else (req.installmentRemainMonths ?: existingReq.installmentRemainMonths),
+                        repaymentDay = if (req.clearInstallment) null else (req.repaymentDay ?: existingReq.repaymentDay),
+                        clientRequestId = existingActiveEvent.clientRequestId
+                    )
+                } else {
+                    req.copy(clientRequestId = existingActiveEvent.clientRequestId)
+                }
+
+                db.outboxDao().updatePayload(existingActiveEvent.eventId, json.encodeToString(mergedReq))
+            } else {
+                // 已同步上云或有独立 UPDATE 意图：按目标合并或新建 UPDATE 事件
+                val existingUpdate = db.outboxDao().findEventByTarget(
                     localTargetId = entity.localId,
-                    serverTargetId = entity.serverId,
-                    createdAt = req.occurredAt
+                    action = "UPDATE"
                 )
-            )
+                val clientRequestId = existingUpdate?.clientRequestId ?: UUID.randomUUID().toString()
+                val updatePayload = req.copy(clientRequestId = clientRequestId)
+
+                if (existingUpdate != null) {
+                    db.outboxDao().insert(
+                        existingUpdate.copy(
+                            payload = json.encodeToString(updatePayload),
+                            serverTargetId = entity.serverId,
+                            enqueuedAt = nowIso
+                        )
+                    )
+                } else {
+                    val sequence = db.outboxDao().getNextSequence()
+                    db.outboxDao().insert(
+                        LedgerOutboxEventEntity(
+                            eventId = UUID.randomUUID().toString(),
+                            action = "UPDATE",
+                            payload = json.encodeToString(updatePayload),
+                            localTargetId = entity.localId,
+                            serverTargetId = entity.serverId,
+                            clientRequestId = clientRequestId,
+                            sequence = sequence,
+                            enqueuedAt = nowIso
+                        )
+                    )
+                }
+            }
+            true
         }
-        true
     }
 
     suspend fun deleteTransaction(idOrLocalId: Long): LedgerDeleteUndoTicket? = withContext(Dispatchers.IO) {
         val db = requireDatabase()
-        val entity = if (idOrLocalId < 0) {
-            db.transactionDao().getTransactionByLocalId(-idOrLocalId)
-        } else {
-            db.transactionDao().getTransactionByServerId(idOrLocalId)
-                ?: db.transactionDao().getTransactionByLocalId(idOrLocalId)
-        } ?: return@withContext null
+        val nowIso = Instant.now().toString()
 
-        if (entity.serverId != null && entity.serverId > 0) {
-            db.outboxDao().insert(
-                LedgerOutboxEventEntity(
-                    eventId = UUID.randomUUID().toString(),
-                    action = "DELETE",
-                    payload = "{}",
-                    localTargetId = entity.localId,
-                    serverTargetId = entity.serverId,
-                    createdAt = entity.occurredAt
+        db.withTransaction {
+            val entity = if (idOrLocalId < 0) {
+                db.transactionDao().getTransactionByLocalId(-idOrLocalId)
+            } else {
+                db.transactionDao().getTransactionByServerId(idOrLocalId)
+                    ?: db.transactionDao().getTransactionByLocalId(idOrLocalId)
+            } ?: return@withTransaction null
+
+            val existingActiveEvent = db.outboxDao().findActiveEventByLocalTarget(entity.localId)
+            val isLocalOnly = entity.serverId == null || existingActiveEvent?.action == "CREATE"
+
+            if (!isLocalOnly && entity.serverId > 0) {
+                // 清除同实体的未发 UPDATE，避免乱序更新覆盖删除
+                db.outboxDao().deleteByLocalTarget(entity.localId)
+
+                val clientRequestId = UUID.randomUUID().toString()
+                val sequence = db.outboxDao().getNextSequence()
+                db.outboxDao().insert(
+                    LedgerOutboxEventEntity(
+                        eventId = UUID.randomUUID().toString(),
+                        action = "DELETE",
+                        payload = "{}",
+                        localTargetId = entity.localId,
+                        serverTargetId = entity.serverId,
+                        clientRequestId = clientRequestId,
+                        sequence = sequence,
+                        enqueuedAt = nowIso
+                    )
                 )
-            )
-            db.transactionDao().deleteByServerId(entity.serverId)
-        } else {
-            db.outboxDao().deleteByLocalTarget(entity.localId)
-            db.transactionDao().deleteByLocalId(entity.localId)
-        }
-
-        // 联动本地大盘流动资金
-        if (entity.type == "expense" && !entity.isInstallment) {
-            _snapshot.update { s ->
-                s.copy(assetsOverview = s.assetsOverview?.let { ov ->
-                    ov.copy(liquidBalance = ov.liquidBalance + entity.amount)
-                })
+                // 标记待删除，列表不再展示；在宽限期内可直接撤销还原
+                db.transactionDao().markPendingDelete(entity.localId)
+            } else {
+                db.outboxDao().deleteByLocalTarget(entity.localId)
+                db.transactionDao().deleteByLocalId(entity.localId)
             }
-        } else if (entity.type == "income") {
-            _snapshot.update { s ->
-                s.copy(assetsOverview = s.assetsOverview?.let { ov ->
-                    ov.copy(liquidBalance = ov.liquidBalance - entity.amount)
-                })
-            }
-        }
 
-        LedgerDeleteUndoTicket(entity = entity)
+            // 联动本地大盘流动资金
+            if (entity.type == "expense" && !entity.isInstallment) {
+                _snapshot.update { s ->
+                    s.copy(assetsOverview = s.assetsOverview?.let { ov ->
+                        ov.copy(liquidBalance = ov.liquidBalance + entity.amount)
+                    })
+                }
+            } else if (entity.type == "income") {
+                _snapshot.update { s ->
+                    s.copy(assetsOverview = s.assetsOverview?.let { ov ->
+                        ov.copy(liquidBalance = ov.liquidBalance - entity.amount)
+                    })
+                }
+            }
+
+            LedgerDeleteUndoTicket(entity = entity)
+        }
     }
 
     suspend fun undoDeleteTransaction(ticket: LedgerDeleteUndoTicket): Boolean = withContext(Dispatchers.IO) {
         val db = requireDatabase()
         val entity = ticket.entity
         val serverId = entity.serverId
+        val nowIso = Instant.now().toString()
 
-        val wasPendingDelete = if (serverId != null && serverId > 0) {
-            val deleteEvents = db.outboxDao().getAllPendingEvents()
-                .filter { it.action == "DELETE" && it.serverTargetId == serverId }
-            if (deleteEvents.isNotEmpty()) {
-                deleteEvents.forEach { db.outboxDao().deleteByEventId(it.eventId) }
-                true
+        db.withTransaction {
+            if (serverId != null && serverId > 0) {
+                val pendingDelete = db.outboxDao().findEventByTarget(entity.localId, "DELETE")
+                if (pendingDelete != null) {
+                    // DELETE 事件仍在发件箱中：撤销事件并恢复本地为 SYNCED，完美保留原 localId 与 serverId
+                    db.outboxDao().deleteByEventId(pendingDelete.eventId)
+                    db.transactionDao().update(entity.copy(syncStatus = "SYNCED"))
+                } else {
+                    // 远端已物理删除，需以 PENDING_CREATE 重新建账
+                    val newLocalId = db.transactionDao().insert(
+                        entity.copy(localId = 0, serverId = null, syncStatus = "PENDING_CREATE")
+                    )
+                    val clientRequestId = UUID.randomUUID().toString()
+                    val sequence = db.outboxDao().getNextSequence()
+                    val createReq = CreateTransactionRequest(
+                        amount = entity.amount,
+                        type = entity.type,
+                        category = entity.category,
+                        title = entity.title,
+                        note = entity.note,
+                        paymentMethod = entity.paymentMethod,
+                        occurredAt = entity.occurredAt,
+                        cityCode = entity.cityCode,
+                        wishId = entity.wishId,
+                        footprintId = entity.footprintId,
+                        isInstallment = entity.isInstallment,
+                        installmentChannelCode = entity.installmentChannelCode,
+                        installmentTotalAmount = entity.installmentTotalAmount,
+                        installmentMonths = entity.installmentMonths,
+                        installmentMonthlyPay = entity.installmentMonthlyPay,
+                        repaymentDay = entity.repaymentDay,
+                        clientRequestId = clientRequestId
+                    )
+                    db.outboxDao().insert(
+                        LedgerOutboxEventEntity(
+                            eventId = UUID.randomUUID().toString(),
+                            action = "CREATE",
+                            payload = json.encodeToString(createReq),
+                            localTargetId = newLocalId,
+                            serverTargetId = null,
+                            clientRequestId = clientRequestId,
+                            sequence = sequence,
+                            enqueuedAt = nowIso
+                        )
+                    )
+                }
             } else {
-                false
+                // 本地新增条目撤销删除：重新插回本地并入队 CREATE
+                val newLocalId = db.transactionDao().insert(
+                    entity.copy(localId = 0, serverId = null, syncStatus = "PENDING_CREATE")
+                )
+                val clientRequestId = UUID.randomUUID().toString()
+                val sequence = db.outboxDao().getNextSequence()
+                val createReq = CreateTransactionRequest(
+                    amount = entity.amount,
+                    type = entity.type,
+                    category = entity.category,
+                    title = entity.title,
+                    note = entity.note,
+                    paymentMethod = entity.paymentMethod,
+                    occurredAt = entity.occurredAt,
+                    cityCode = entity.cityCode,
+                    wishId = entity.wishId,
+                    footprintId = entity.footprintId,
+                    isInstallment = entity.isInstallment,
+                    installmentChannelCode = entity.installmentChannelCode,
+                    installmentTotalAmount = entity.installmentTotalAmount,
+                    installmentMonths = entity.installmentMonths,
+                    installmentMonthlyPay = entity.installmentMonthlyPay,
+                    repaymentDay = entity.repaymentDay,
+                    clientRequestId = clientRequestId
+                )
+                db.outboxDao().insert(
+                    LedgerOutboxEventEntity(
+                        eventId = UUID.randomUUID().toString(),
+                        action = "CREATE",
+                        payload = json.encodeToString(createReq),
+                        localTargetId = newLocalId,
+                        serverTargetId = null,
+                        clientRequestId = clientRequestId,
+                        sequence = sequence,
+                        enqueuedAt = nowIso
+                    )
+                )
             }
-        } else {
+
+            // 联动扣回流动资金
+            if (entity.type == "expense" && !entity.isInstallment) {
+                _snapshot.update { s ->
+                    s.copy(assetsOverview = s.assetsOverview?.let { ov ->
+                        ov.copy(liquidBalance = ov.liquidBalance - entity.amount)
+                    })
+                }
+            } else if (entity.type == "income") {
+                _snapshot.update { s ->
+                    s.copy(assetsOverview = s.assetsOverview?.let { ov ->
+                        ov.copy(liquidBalance = ov.liquidBalance + entity.amount)
+                    })
+                }
+            }
+
             true
         }
-
-        if (!wasPendingDelete && serverId != null && serverId > 0) {
-            // 远端已物理删除，需重新作为待同步新增条目提交建账
-            val newLocalId = db.transactionDao().insert(
-                entity.copy(localId = 0, serverId = null, syncStatus = "PENDING_CREATE")
-            )
-            val createReq = CreateTransactionRequest(
-                amount = entity.amount,
-                type = entity.type,
-                category = entity.category,
-                title = entity.title,
-                note = entity.note,
-                paymentMethod = entity.paymentMethod,
-                occurredAt = entity.occurredAt,
-                cityCode = entity.cityCode,
-                wishId = entity.wishId,
-                footprintId = entity.footprintId,
-                isInstallment = entity.isInstallment,
-                installmentChannelCode = entity.installmentChannelCode,
-                installmentTotalAmount = entity.installmentTotalAmount,
-                installmentMonths = entity.installmentMonths,
-                installmentMonthlyPay = entity.installmentMonthlyPay,
-                repaymentDay = entity.repaymentDay
-            )
-            db.outboxDao().insert(
-                LedgerOutboxEventEntity(
-                    eventId = UUID.randomUUID().toString(),
-                    action = "CREATE",
-                    payload = json.encodeToString(createReq),
-                    localTargetId = newLocalId,
-                    serverTargetId = null,
-                    createdAt = entity.occurredAt
-                )
-            )
-        } else {
-            // 重新插回本地表
-            db.transactionDao().insert(entity.copy(localId = 0))
-        }
-
-        // 联动扣回流动资金
-        if (entity.type == "expense" && !entity.isInstallment) {
-            _snapshot.update { s ->
-                s.copy(assetsOverview = s.assetsOverview?.let { ov ->
-                    ov.copy(liquidBalance = ov.liquidBalance - entity.amount)
-                })
-            }
-        } else if (entity.type == "income") {
-            _snapshot.update { s ->
-                s.copy(assetsOverview = s.assetsOverview?.let { ov ->
-                    ov.copy(liquidBalance = ov.liquidBalance + entity.amount)
-                })
-            }
-        }
-
-        true
     }
 
-    // ──────────────────────────── 接口并行拉取与数据同步 ────────────────────────────
+    // ──────────────────────────── 接口并行拉取、增量游标与数据同步 ────────────────────────────
 
     suspend fun pullLedgerData(): Result<Unit> = withContext(Dispatchers.IO) {
         syncMutex.withLock {
@@ -359,52 +492,163 @@ object LedgerRepository {
                 // 1. 刷新基础配置与大盘
                 refreshAll(api, force = true)
 
-                val db = appContext?.let { LedgerDatabase.getInstance(it) }
-                if (db != null) {
-                    // 2. 推送待发事件
-                    val hasPushed = flushOutbox(db, api)
-                    if (hasPushed) {
-                        refreshAll(api, force = true)
+                val db = appContext?.let { LedgerDatabase.getInstance(it) } ?: return@runCatching
+
+                // 2. 推送待发事件
+                val hasPushed = flushOutbox(db, api)
+                if (hasPushed) {
+                    refreshAll(api, force = true)
+                }
+
+                // 3. 增量游标拉取 (P0-1)
+                val storedCursor = getStoredCursor()
+                if (storedCursor.isNullOrBlank()) {
+                    // 首次全量拉取：分页遍历直至完全同步
+                    var offset = 0
+                    val batchLimit = 200
+                    var pages = 0
+                    val maxPages = 50
+                    var maxCursorCandidate: String? = null
+
+                    while (pages < maxPages) {
+                        val meta = ResponseMeta()
+                        val batch = api.fetchTransactions(
+                            limit = batchLimit,
+                            offset = if (offset > 0) offset else null,
+                            meta = meta
+                        )
+                        pages++
+                        if (batch.isEmpty()) break
+
+                        mergeTransactions(db, batch)
+
+                        val serverCursor = meta.syncCursor
+                        if (!serverCursor.isNullOrBlank()) {
+                            maxCursorCandidate = serverCursor
+                        } else {
+                            val batchMax = batch.mapNotNull { it.updatedAt ?: it.createdAt }.maxOrNull()
+                            if (batchMax != null && (maxCursorCandidate == null || batchMax > maxCursorCandidate)) {
+                                maxCursorCandidate = batchMax
+                            }
+                        }
+
+                        if (batch.size < batchLimit) break
+                        offset += batch.size
                     }
 
-                    // 3. 拉取远端交易记录增量
-                    val remoteTx = api.fetchTransactions(limit = 200)
-                    if (remoteTx.isNotEmpty()) {
-                        val entities = remoteTx.map { it.toCacheEntity() }
-                        db.transactionDao().insertAll(entities)
-                        db.transactionDao().deleteDuplicateServerIds()
+                    if (!maxCursorCandidate.isNullOrBlank()) {
+                        saveCursor(maxCursorCandidate)
+                    }
+                } else {
+                    // 增量拉取：带 since 与 include_deleted=true，处理修改与 Tombstone
+                    val meta = ResponseMeta()
+                    val batch = api.fetchTransactions(
+                        since = storedCursor,
+                        includeDeleted = true,
+                        limit = 500,
+                        meta = meta
+                    )
+                    if (batch.isNotEmpty()) {
+                        mergeTransactions(db, batch)
+                    }
+                    val newCursor = meta.syncCursor
+                        ?: batch.mapNotNull { it.updatedAt ?: it.deletedAt }.maxOrNull()
+                    if (!newCursor.isNullOrBlank() && newCursor > storedCursor) {
+                        saveCursor(newCursor)
                     }
                 }
             }
         }
     }
 
+    /**
+     * 权威 UPSERT 合并（P0-2）：
+     * 1. 远端 Tombstone（软删除）：仅在本地无待同步修改时执行删除；
+     * 2. 远端活跃行：若本地有待同步修改则保留本地优先，否则原地 UPSERT 避免重新生成 localId。
+     */
+    private suspend fun mergeTransactions(db: LedgerDatabase, remote: List<Transaction>) {
+        if (remote.isEmpty()) return
+
+        val activeRemote = remote.filter { it.deletedAt.isNullOrBlank() }.distinctBy { it.id }
+        val softDeleted = remote.filter { !it.deletedAt.isNullOrBlank() }.distinctBy { it.id }
+
+        val localIndex = db.transactionDao().getTransactionSyncIndex()
+            .mapNotNull { it.serverId?.let { sid -> sid to it } }
+            .toMap()
+
+        db.withTransaction {
+            // 1. 处理服务端 Tombstone 软删除
+            for (del in softDeleted) {
+                val existing = localIndex[del.id]
+                if (existing != null && existing.syncStatus != "SYNCED") {
+                    // 本地有待同步修改，保护本地行
+                    continue
+                }
+                db.transactionDao().deleteByServerId(del.id)
+            }
+
+            // 2. 原地 UPSERT 活跃条目
+            val toUpsert = mutableListOf<CachedTransactionEntity>()
+            for (item in activeRemote) {
+                val existing = localIndex[item.id]
+                if (existing != null && existing.syncStatus != "SYNCED") {
+                    // 本地待同步行优先，避免远端旧状态覆盖
+                    continue
+                }
+                toUpsert += item.toCacheEntity(localId = existing?.localId ?: 0)
+            }
+            if (toUpsert.isNotEmpty()) {
+                db.transactionDao().insertAll(toUpsert)
+            }
+        }
+    }
+
+    /**
+     * 排空发件箱（P0-4、P0-6）：
+     * 严格按入队序列 (sequence ASC) 发送；
+     * 对网络与 5xx 故障实施退避重试，4xx 错误进入死信，409 幂等查重自动回填。
+     */
     private suspend fun flushOutbox(db: LedgerDatabase, api: APIClient): Boolean {
         val events = db.outboxDao().getAllPendingEvents()
         var hasPushed = false
+        val now = Instant.now()
+
         for (event in events) {
             try {
                 when (event.action) {
                     "CREATE" -> {
                         val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
                         val created = api.createTransaction(req)
-                        db.transactionDao().markSynced(event.localTargetId, created.id)
-                        db.outboxDao().deleteByEventId(event.eventId)
+                        db.withTransaction {
+                            db.transactionDao().markSynced(event.localTargetId, created.id, created.updatedAt)
+                            db.outboxDao().bindServerId(event.localTargetId, created.id)
+                            db.outboxDao().deleteByEventId(event.eventId)
+                        }
                         hasPushed = true
                     }
                     "UPDATE" -> {
-                        val serverId = event.serverTargetId
+                        var serverId = event.serverTargetId
+                        if (serverId == null || serverId <= 0) {
+                            serverId = db.transactionDao().getTransactionByLocalId(event.localTargetId)?.serverId
+                        }
                         if (serverId != null && serverId > 0) {
                             val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
-                            api.updateTransaction(serverId, req)
-                            db.outboxDao().deleteByEventId(event.eventId)
+                            val updated = api.updateTransaction(serverId, req)
+                            db.withTransaction {
+                                db.transactionDao().markSynced(event.localTargetId, serverId, updated.updatedAt)
+                                db.outboxDao().deleteByEventId(event.eventId)
+                            }
                             hasPushed = true
                         } else {
-                            db.outboxDao().deleteByEventId(event.eventId)
+                            // 仍在等待 CREATE 事件完成绑定，跳过本次处理
+                            continue
                         }
                     }
                     "DELETE" -> {
-                        val serverId = event.serverTargetId
+                        var serverId = event.serverTargetId
+                        if (serverId == null || serverId <= 0) {
+                            serverId = db.transactionDao().getTransactionByLocalId(event.localTargetId)?.serverId
+                        }
                         if (serverId != null && serverId > 0) {
                             try {
                                 api.deleteTransaction(serverId)
@@ -416,16 +660,77 @@ object LedgerRepository {
                                     throw e
                                 }
                             }
+                            db.withTransaction {
+                                db.transactionDao().deleteByServerId(serverId)
+                                db.outboxDao().deleteByEventId(event.eventId)
+                            }
                             hasPushed = true
+                        } else {
+                            db.withTransaction {
+                                db.transactionDao().deleteByLocalId(event.localTargetId)
+                                db.outboxDao().deleteByEventId(event.eventId)
+                            }
                         }
-                        db.outboxDao().deleteByEventId(event.eventId)
                     }
                 }
             } catch (e: Exception) {
-                db.outboxDao().recordFailure(event.eventId, e.message ?: "Unknown sync error")
+                val apiEx = e as? APIException
+                val code = apiEx?.code ?: -1
+                val errorMsg = e.message ?: "Unknown sync error"
+
+                when {
+                    code == 409 -> {
+                        // 409 幂等冲突：尝试从远端对账回填
+                        handleIdempotentCreateConflict(db, api, event)
+                        hasPushed = true
+                    }
+                    code == 401 -> {
+                        // 鉴权失败：暂停本次队列处理，等待重配对
+                        break
+                    }
+                    code in 400..499 && code != 408 && code != 429 -> {
+                        // 客户端业务/参数致命错误：记录死信
+                        db.outboxDao().markFailed(event.eventId, now.toString(), errorMsg)
+                    }
+                    else -> {
+                        // 网络抖动、5xx 服务端错误或 429 限流：执行指数退避重试，不记入死信
+                        val backoffSeconds = calculateExponentialBackoff(event.retryCount)
+                        val nextRetryTime = now.plusSeconds(backoffSeconds).toString()
+                        db.outboxDao().scheduleRetry(event.eventId, nextRetryTime, errorMsg)
+                    }
+                }
             }
         }
         return hasPushed
+    }
+
+    private fun calculateExponentialBackoff(retryCount: Int): Long {
+        val baseSeconds = 5L
+        val multiplier = 1L shl minOf(retryCount, 6)
+        return minOf(baseSeconds * multiplier, 900L)
+    }
+
+    private suspend fun handleIdempotentCreateConflict(
+        db: LedgerDatabase,
+        api: APIClient,
+        event: LedgerOutboxEventEntity
+    ) {
+        runCatching {
+            val recent = api.fetchTransactions(limit = 50)
+            val matched = recent.firstOrNull { it.createdAt == event.enqueuedAt }
+                ?: recent.firstOrNull()
+            if (matched != null) {
+                db.withTransaction {
+                    db.transactionDao().markSynced(event.localTargetId, matched.id, matched.updatedAt)
+                    db.outboxDao().bindServerId(event.localTargetId, matched.id)
+                    db.outboxDao().deleteByEventId(event.eventId)
+                }
+            } else {
+                db.outboxDao().scheduleRetry(event.eventId, Instant.now().plusSeconds(30).toString(), "409 幂等对账中")
+            }
+        }.onFailure {
+            db.outboxDao().scheduleRetry(event.eventId, Instant.now().plusSeconds(30).toString(), "409 对账异常: ${it.message}")
+        }
     }
 
     suspend fun refreshAll(
@@ -549,6 +854,18 @@ object LedgerRepository {
                 upcomingInstallmentItems = upcoming,
                 isLoadingAssets = false
             )
+        }
+    }
+
+    suspend fun clearDatabase() = withContext(Dispatchers.IO) {
+        syncMutex.withLock {
+            appContext?.let {
+                val db = LedgerDatabase.getInstance(it)
+                db.transactionDao().clearAll()
+                db.outboxDao().discardAllFailed()
+            }
+            clearCursor()
+            clear()
         }
     }
 

@@ -14,7 +14,7 @@ import com.looseleaf.app.model.Transaction
     tableName = "cached_transactions",
     indices = [
         Index(value = ["occurred_at"]),
-        Index(value = ["server_id"]),
+        Index(value = ["server_id"], unique = true),
         Index(value = ["sync_status"])
     ]
 )
@@ -45,7 +45,9 @@ data class CachedTransactionEntity(
     @ColumnInfo(name = "principal_amount") val principalAmount: Long = 0,
     @ColumnInfo(name = "fee_amount") val feeAmount: Long = 0,
     @ColumnInfo(name = "sync_status") val syncStatus: String = "SYNCED",
-    @ColumnInfo(name = "created_at") val createdAt: String = occurredAt
+    @ColumnInfo(name = "created_at") val createdAt: String = occurredAt,
+    @ColumnInfo(name = "updated_at") val updatedAt: String? = null,
+    @ColumnInfo(name = "deleted_at") val deletedAt: String? = null
 )
 
 fun CachedTransactionEntity.toDomainModel(): Transaction = Transaction(
@@ -73,7 +75,9 @@ fun CachedTransactionEntity.toDomainModel(): Transaction = Transaction(
     principalAmount = principalAmount,
     feeAmount = feeAmount,
     syncStatus = syncStatus,
-    createdAt = createdAt
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    deletedAt = deletedAt
 )
 
 fun Transaction.toCacheEntity(localId: Long = 0): CachedTransactionEntity = CachedTransactionEntity(
@@ -102,13 +106,23 @@ fun Transaction.toCacheEntity(localId: Long = 0): CachedTransactionEntity = Cach
     principalAmount = principalAmount,
     feeAmount = feeAmount,
     syncStatus = syncStatus ?: "SYNCED",
-    createdAt = createdAt ?: occurredAt
+    createdAt = createdAt ?: occurredAt,
+    updatedAt = updatedAt,
+    deletedAt = deletedAt
 )
 
 /**
  * 账本独立发件箱事件实体
+ * 遵循严格入队顺序（sequence）与 client_request_id 幂等约束
  */
-@Entity(tableName = "ledger_outbox_events")
+@Entity(
+    tableName = "ledger_outbox_events",
+    indices = [
+        Index(value = ["client_request_id"], unique = true),
+        Index(value = ["sequence"]),
+        Index(value = ["local_target_id"])
+    ]
+)
 data class LedgerOutboxEventEntity(
     @PrimaryKey
     @ColumnInfo(name = "event_id") val eventId: String,
@@ -116,8 +130,11 @@ data class LedgerOutboxEventEntity(
     @ColumnInfo(name = "payload") val payload: String,
     @ColumnInfo(name = "local_target_id") val localTargetId: Long,
     @ColumnInfo(name = "server_target_id") val serverTargetId: Long? = null,
+    @ColumnInfo(name = "client_request_id") val clientRequestId: String,
+    @ColumnInfo(name = "sequence") val sequence: Long,
     @ColumnInfo(name = "retry_count") val retryCount: Int = 0,
+    @ColumnInfo(name = "enqueued_at") val enqueuedAt: String,
+    @ColumnInfo(name = "next_retry_at") val nextRetryAt: String? = null,
     @ColumnInfo(name = "failed_at") val failedAt: String? = null,
-    @ColumnInfo(name = "last_error") val lastError: String? = null,
-    @ColumnInfo(name = "created_at") val createdAt: String
+    @ColumnInfo(name = "last_error") val lastError: String? = null
 )

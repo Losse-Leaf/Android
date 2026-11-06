@@ -33,6 +33,15 @@ android {
         compose = true
         buildConfig = true
     }
+
+    sourceSets {
+        getByName("test").assets.srcDir("$projectDir/schemas")
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+}
+
+ksp {
+    arg("room.schemaLocation", "${projectDir.absolutePath}/schemas")
 }
 
 dependencies {

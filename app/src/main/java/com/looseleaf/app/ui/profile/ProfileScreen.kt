@@ -287,8 +287,8 @@ fun ProfileScreen(
     var pendingOutboxCount by remember { mutableStateOf(0) }
     LaunchedEffect(showUnpairDialog) {
         if (showUnpairDialog) {
-            // 失败态事件同样只在本机，清库后无法找回，必须计入警告。
-            pendingOutboxCount = syncManager.unsyncedEventCountNow()
+            // 失败态事件同样只在本机，清库后无法找回，必须计入警告（含账本库）。
+            pendingOutboxCount = com.looseleaf.app.data.sync.LocalDataResetCoordinator.getUnsyncedCount(context)
         }
     }
 
@@ -898,28 +898,11 @@ fun ProfileScreen(
                                     }
                                 }
                             }
-                            syncManager.cancelScheduledSync()
-                            runCatching { syncManager.clearAllLocalData() }
-                            credentialStore.clearCredentials()
-                            ProfileRepository.clearCache(context)
-                            LedgerRepository.clear()
-                            // 解绑必须清掉可还原内容的本地痕迹：图片缓存与已下载安装包
-                            runCatching {
-                                File(context.cacheDir, "image_cache").deleteRecursively()
-                                context.getExternalFilesDir(null)?.let { dir ->
-                                    File(dir, "Download").deleteRecursively()
-                                }
-                            }
-                            // 以及两处表单草稿（修订草稿 + 速记草稿）——
-                            // 与确认框「连同删除且无法找回」的承诺一致，原样留在本机就是可还原内容
-                            runCatching {
-                                context.getSharedPreferences(
-                                    "looseleaf_form_drafts", android.content.Context.MODE_PRIVATE
-                                ).edit().clear().apply()
-                                context.getSharedPreferences(
-                                    "quick_note_draft", android.content.Context.MODE_PRIVATE
-                                ).edit().clear().apply()
-                            }
+                            com.looseleaf.app.data.sync.LocalDataResetCoordinator.resetAll(
+                                context = context,
+                                syncManager = syncManager,
+                                reason = com.looseleaf.app.data.sync.ResetReason.UNPAIR
+                            )
                             onUnpair()
                         }
                     },

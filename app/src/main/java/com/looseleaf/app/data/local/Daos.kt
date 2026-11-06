@@ -500,7 +500,11 @@ interface OutboxDao {
     @Query("UPDATE outbox_events SET failed_at = :failedAt, last_error = :error, retry_count = retry_count + 1 WHERE event_id = :eventId")
     suspend fun markFailed(eventId: String, failedAt: String, error: String?)
 
-    /** 用户点「重试」：清空失败态与重试计数，重新进入待发队列。 */
+    /** 用户点「单条重试」：清空该事件失败态与重试计数，重新进入待发队列。 */
+    @Query("UPDATE outbox_events SET failed_at = NULL, last_error = NULL, retry_count = 0 WHERE event_id = :eventId")
+    suspend fun resetFailedById(eventId: String)
+
+    /** 用户点「全部重试」：清空失败态与重试计数，重新进入待发队列。 */
     @Query("UPDATE outbox_events SET failed_at = NULL, last_error = NULL, retry_count = 0 WHERE failed_at IS NOT NULL")
     suspend fun resetAllFailed()
 }

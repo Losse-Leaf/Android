@@ -17,23 +17,34 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.data.local.AppDatabase
-import com.looseleaf.app.data.local.OutboxEventEntity
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.ArchiveBottomSheet
 import com.looseleaf.app.ui.components.ArchiveToastManager
+import com.looseleaf.feature.ledger.data.LedgerDatabase
+import com.looseleaf.feature.ledger.data.LedgerRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+internal data class DisplayFailedEvent(
+    val eventId: String,
+    val isLedger: Boolean,
+    val entityType: String,
+    val action: String,
+    val retryCount: Int,
+    val lastError: String?,
+    val localTargetId: Long
+)
+
 /**
  * 失败事件处置抽屉 (Failed Events BottomSheet)
  *
- * 点击封面区赤陶色邮戳展开：
- * - 列出所有在发件箱中被阻滞的条目（带类型、操作、错误摘要）
- * - 支持单条重试、单条放弃，以及底部一键全部重试
+ * 统一展示主库（手稿/造物/心愿/足迹）与独立账本库中阻滞的死信事件：
+ * - 支持单条重试（正确置空 failed_at 与重置 retry_count）、单条放弃（联动清理未上云的本地孤儿行）；
+ * - 底部支持一键全部重新排队与全部放弃。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,15 +56,38 @@ internal fun FailedEventsSheet(
     val colors = LooseLeafTheme.colors
     val scope = rememberCoroutineScope()
     val database = remember { AppDatabase.getInstance(context) }
+    val ledgerDatabase = remember { LedgerDatabase.getInstance(context) }
 
-    var failedList by remember { mutableStateOf<List<OutboxEventEntity>>(emptyList()) }
+    var failedList by remember { mutableStateOf<List<DisplayFailedEvent>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
     fun reload() {
         scope.launch {
             isLoading = true
             val items = withContext(Dispatchers.IO) {
-                database.outboxDao().getFailedEvents()
+                val mainItems = database.outboxDao().getFailedEvents().map {
+                    DisplayFailedEvent(
+                        eventId = it.eventId,
+                        isLedger = false,
+                        entityType = it.entityType,
+                        action = it.action,
+                        retryCount = it.retryCount,
+                        lastError = it.lastError,
+                        localTargetId = it.localTargetId
+                    )
+                }
+                val ledgerItems = ledgerDatabase.outboxDao().getFailedEvents().map {
+                    DisplayFailedEvent(
+                        eventId = it.eventId,
+                        isLedger = true,
+                        entityType = "ledger",
+                        action = it.action,
+                        retryCount = it.retryCount,
+                        lastError = it.lastError,
+                        localTargetId = it.localTargetId
+                    )
+                }
+                mainItems + ledgerItems
             }
             failedList = items
             isLoading = false
@@ -77,7 +111,7 @@ internal fun FailedEventsSheet(
                 .padding(bottom = 24.dp)
         ) {
             Text(
-                text = "下列手稿在与中枢同步时受阻，已妥善保存在本地离线库中，请确认后重发或放弃：",
+                text = "下列记录在与中枢同步时受阻，已妥善保存在本地离线库中，请确认后重发或放弃：",
                 fontFamily = ArchiveFontFamilies.BodySans,
                 fontSize = 12.sp,
                 lineHeight = 18.sp,
@@ -118,16 +152,23 @@ internal fun FailedEventsSheet(
                         .weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(failedList, key = { it.eventId }) { event ->
+                    items(failedList, key = { "${if (it.isLedger) "l" else "m"}_${it.eventId}" }) { event ->
                         FailedEventItemRow(
                             event = event,
                             onRetry = {
                                 scope.launch {
                                     withContext(Dispatchers.IO) {
-                                        // 重置单条重试计数
-                                        database.outboxDao().markFailed(event.eventId, null.toString(), null)
+                                        if (event.isLedger) {
+                                            ledgerDatabase.outboxDao().resetEventToPending(event.eventId)
+                                        } else {
+                                            database.outboxDao().resetFailedById(event.eventId)
+                                        }
                                     }
-                                    syncManager.scheduleSync()
+                                    if (event.isLedger) {
+                                        LedgerRepository.pullLedgerData()
+                                    } else {
+                                        syncManager.scheduleSync()
+                                    }
                                     ArchiveToastManager.show("已重新排队")
                                     reload()
                                 }
@@ -135,7 +176,19 @@ internal fun FailedEventsSheet(
                             onDiscard = {
                                 scope.launch {
                                     withContext(Dispatchers.IO) {
-                                        database.outboxDao().deleteById(event.eventId)
+                                        if (event.isLedger) {
+                                            ledgerDatabase.outboxDao().deleteById(event.eventId)
+                                            if (event.action == "CREATE") {
+                                                ledgerDatabase.transactionDao().deleteByLocalId(event.localTargetId)
+                                            }
+                                        } else {
+                                            database.outboxDao().deleteById(event.eventId)
+                                            if (event.action == "CREATE") {
+                                                when (event.entityType) {
+                                                    "entry" -> database.entryDao().deleteByLocalId(event.localTargetId)
+                                                }
+                                            }
+                                        }
                                     }
                                     ArchiveToastManager.show("已放弃该条发件箱记录")
                                     reload()
@@ -157,7 +210,10 @@ internal fun FailedEventsSheet(
                 TextButton(
                     onClick = {
                         scope.launch {
-                            syncManager.discardFailedEvents()
+                            withContext(Dispatchers.IO) {
+                                syncManager.discardFailedEvents()
+                                ledgerDatabase.outboxDao().discardAllFailed()
+                            }
                             ArchiveToastManager.show("已放弃所有失败事件")
                             onDismiss()
                         }
@@ -174,7 +230,12 @@ internal fun FailedEventsSheet(
                 Button(
                     onClick = {
                         scope.launch {
+                            withContext(Dispatchers.IO) {
+                                database.outboxDao().resetAllFailed()
+                                ledgerDatabase.outboxDao().retryAllFailed()
+                            }
                             syncManager.retryFailedEvents()
+                            LedgerRepository.pullLedgerData()
                             ArchiveToastManager.show("正在重试所有失败记录…")
                             onDismiss()
                         }
@@ -200,7 +261,7 @@ internal fun FailedEventsSheet(
 
 @Composable
 private fun FailedEventItemRow(
-    event: OutboxEventEntity,
+    event: DisplayFailedEvent,
     onRetry: () -> Unit,
     onDiscard: () -> Unit
 ) {
@@ -208,6 +269,8 @@ private fun FailedEventItemRow(
     val entityLabel = when (event.entityType) {
         "travel" -> "游历"
         "project" -> "造物"
+        "wish" -> "心愿"
+        "footprint" -> "足迹"
         "ledger" -> "账本"
         else -> "日常"
     }
