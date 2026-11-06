@@ -515,7 +515,13 @@ interface ProjectDao {
     fun getAllProjectsFlow(): Flow<List<CachedProjectEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(project: CachedProjectEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(projects: List<CachedProjectEntity>)
+
+    @Query("DELETE FROM cached_projects WHERE id = :id")
+    suspend fun deleteById(id: Long)
 
     @Query("DELETE FROM cached_projects")
     suspend fun clearAll()
@@ -527,7 +533,13 @@ interface WishDao {
     fun getAllWishesFlow(): Flow<List<CachedWishEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(wish: CachedWishEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(wishes: List<CachedWishEntity>)
+
+    @Query("DELETE FROM cached_wishes WHERE id = :id")
+    suspend fun deleteById(id: Long)
 
     @Query("DELETE FROM cached_wishes")
     suspend fun clearAll()

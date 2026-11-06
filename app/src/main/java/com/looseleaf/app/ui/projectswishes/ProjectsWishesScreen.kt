@@ -332,39 +332,7 @@ fun ProjectsWishesScreen(
                                 0 -> ProjectsList(
                                     projects = projects,
                                     onProjectClick = { editingProject = it },
-                                    onDeleteClick = { proj ->
-                                        scope.launch {
-                                            runCatching {
-                                                apiClient.deleteProject(proj.id)
-                                                reloadAll()
-                                                snackbarData = ArchiveSnackbarData(
-                                                    message = "已删除造物《${proj.title}》",
-                                                    actionLabel = "撤销",
-                                                    onActionClick = {
-                                                        scope.launch {
-                                                            runCatching {
-                                                                apiClient.createProject(
-                                                                    CreateProjectRequest(
-                                                                        title = proj.title,
-                                                                        subtitle = proj.subtitle,
-                                                                        description = proj.description,
-                                                                        story = proj.story,
-                                                                        category = proj.category,
-                                                                        status = proj.status ?: "进行中",
-                                                                        githubUrl = proj.githubUrl,
-                                                                        order = proj.order ?: 0
-                                                                    )
-                                                                )
-                                                                reloadAll()
-                                                            }
-                                                        }
-                                                    }
-                                                )
-                                            }.onFailure {
-                                                ArchiveToastManager.show("删除造物失败: ${it.message}", isError = true)
-                                            }
-                                        }
-                                    },
+                                    onDeleteClick = { proj -> projectToDelete = proj },
                                     onNewProjectClick = { showCreateDialog = true },
                                     listState = projectsListState,
                                     modifier = Modifier.fillMaxSize()
@@ -373,39 +341,7 @@ fun ProjectsWishesScreen(
                                     wishes = wishes,
                                     onResolveClick = { resolvingWish = it },
                                     onEditClick = { editingWish = it },
-                                    onDeleteClick = { wish ->
-                                        scope.launch {
-                                            runCatching {
-                                                apiClient.deleteWish(wish.id)
-                                                reloadAll()
-                                                snackbarData = ArchiveSnackbarData(
-                                                    message = "已移除心愿《${wish.title}》",
-                                                    actionLabel = "撤销",
-                                                    onActionClick = {
-                                                        scope.launch {
-                                                            runCatching {
-                                                                apiClient.createWish(
-                                                                    CreateWishRequest(
-                                                                        title = wish.title,
-                                                                        kind = wish.kind ?: "item",
-                                                                        budget = wish.budget,
-                                                                        spec = wish.spec,
-                                                                        cityCode = wish.cityCode,
-                                                                        cityName = wish.cityName,
-                                                                        note = wish.note,
-                                                                        targetDate = wish.targetDate
-                                                                    )
-                                                                )
-                                                                reloadAll()
-                                                            }
-                                                        }
-                                                    }
-                                                )
-                                            }.onFailure {
-                                                ArchiveToastManager.show("移除心愿失败: ${it.message}", isError = true)
-                                            }
-                                        }
-                                    },
+                                    onDeleteClick = { wish -> wishToDelete = wish },
                                     onNewWishClick = { showCreateDialog = true },
                                     listState = wishesListState,
                                     modifier = Modifier.fillMaxSize()
@@ -500,23 +436,31 @@ fun ProjectsWishesScreen(
                     scope.launch {
                         try {
                             when (selectedTab) {
-                                0 -> apiClient.createProject(
-                                    CreateProjectRequest(
-                                        title = inputTitle.trim(),
-                                        subtitle = inputSubtitle.trim().takeIf { it.isNotBlank() },
-                                        description = inputNote.trim()
+                                0 -> {
+                                    val queued = syncManager.createProjectOrQueue(
+                                        CreateProjectRequest(
+                                            title = inputTitle.trim(),
+                                            subtitle = inputSubtitle.trim().takeIf { it.isNotBlank() },
+                                            description = inputNote.trim()
+                                        )
                                     )
-                                )
-                                1 -> apiClient.createWish(
-                                    CreateWishRequest(
-                                        title = inputTitle.trim(),
-                                        kind = wishKind,
-                                        note = inputNote.trim().takeIf { it.isNotBlank() },
-                                        budget = FormatUtils.yuanStringToCents(inputThird),
-                                        cityCode = wishCityCode.takeIf { it.isNotBlank() },
-                                        cityName = wishCityName.takeIf { it.isNotBlank() }
+                                    if (queued) ArchiveToastManager.show("已离线排队创建造物")
+                                    else ArchiveToastManager.show("造物已创建")
+                                }
+                                1 -> {
+                                    val queued = syncManager.createWishOrQueue(
+                                        CreateWishRequest(
+                                            title = inputTitle.trim(),
+                                            kind = wishKind,
+                                            note = inputNote.trim().takeIf { it.isNotBlank() },
+                                            budget = FormatUtils.yuanStringToCents(inputThird),
+                                            cityCode = wishCityCode.takeIf { it.isNotBlank() },
+                                            cityName = wishCityName.takeIf { it.isNotBlank() }
+                                        )
                                     )
-                                )
+                                    if (queued) ArchiveToastManager.show("已离线排队许下心愿")
+                                    else ArchiveToastManager.show("心愿已记录")
+                                }
                                 else -> apiClient.createFootprint(
                                     CreateFootprintRequest(
                                         cityCode = fpCityCode,
@@ -1089,7 +1033,7 @@ fun ProjectsWishesScreen(
                 onAction = {
                     scope.launch {
                         runCatching {
-                            apiClient.updateProject(
+                            val queued = syncManager.updateProjectOrQueue(
                                 id = proj.id,
                                 req = CreateProjectRequest(
                                     title = editTitle.trim(),
@@ -1102,7 +1046,11 @@ fun ProjectsWishesScreen(
                                     order = proj.order ?: 0
                                 )
                             )
-                            ArchiveToastManager.show("造物项目已更新")
+                            if (queued) {
+                                ArchiveToastManager.show("已离线排队更新造物")
+                            } else {
+                                ArchiveToastManager.show("造物项目已更新")
+                            }
                         }.onFailure { err ->
                             ArchiveToastManager.show("更新造物失败: ${err.message}", isError = true)
                             return@launch
@@ -1202,8 +1150,12 @@ fun ProjectsWishesScreen(
                 onConfirm = {
                     scope.launch {
                         runCatching {
-                            apiClient.deleteWish(wish.id)
-                            ArchiveToastManager.show("心愿已移除")
+                            val queued = syncManager.deleteWishOrQueue(wish.id)
+                            if (queued) {
+                                ArchiveToastManager.show("已离线排队移除心愿")
+                            } else {
+                                ArchiveToastManager.show("心愿已移除")
+                            }
                         }.onFailure { err ->
                             ArchiveToastManager.show("移除心愿失败: ${err.message}", isError = true)
                             return@launch
@@ -1226,8 +1178,12 @@ fun ProjectsWishesScreen(
                 onConfirm = {
                     scope.launch {
                         runCatching {
-                            apiClient.deleteProject(proj.id)
-                            ArchiveToastManager.show("造物项目已删除")
+                            val queued = syncManager.deleteProjectOrQueue(proj.id)
+                            if (queued) {
+                                ArchiveToastManager.show("已离线排队删除造物")
+                            } else {
+                                ArchiveToastManager.show("造物项目已删除")
+                            }
                         }.onFailure { err ->
                             ArchiveToastManager.show("删除造物失败: ${err.message}", isError = true)
                             return@launch

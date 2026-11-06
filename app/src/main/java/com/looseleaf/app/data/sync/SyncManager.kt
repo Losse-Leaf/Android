@@ -1734,31 +1734,171 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     /**
-     * 在线直连创建造物；网络不可达时入发件箱，联网后自动补发。
+     * 在线直连创建造物；网络不可达时入发件箱，并写入本地临时行，联网后自动补发。
      * 返回 true 表示「已离线排队」。
      */
-    suspend fun createProjectOrQueue(req: CreateProjectRequest): Boolean = try {
-        withContext(Dispatchers.IO) { apiClient.createProject(req) }
-        false
-    } catch (e: APIException) {
-        if (e.code == -1) {
-            enqueueSimpleEvent("project", "CREATE", json.encodeToString(req), 0)
-            true
-        } else {
-            throw e
+    suspend fun createProjectOrQueue(req: CreateProjectRequest): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val created = apiClient.createProject(req)
+            database.projectDao().insert(created.toCacheEntity())
+            false
+        } catch (e: Exception) {
+            val code = (e as? APIException)?.code ?: -1
+            if (code == -1 || code >= 500) {
+                val tempId = -System.currentTimeMillis()
+                val tempProject = CachedProjectEntity(
+                    id = tempId,
+                    title = req.title,
+                    subtitle = req.subtitle,
+                    description = req.description,
+                    story = req.story,
+                    category = req.category,
+                    status = req.status ?: "进行中",
+                    githubUrl = req.githubUrl,
+                    order = req.order,
+                    updatedAt = java.time.Instant.now().toString()
+                )
+                database.projectDao().insert(tempProject)
+                enqueueSimpleEvent("project", "CREATE", json.encodeToString(req), tempId)
+                scheduleSync()
+                true
+            } else {
+                throw e
+            }
         }
     }
 
-    /** 在线直连许愿；网络不可达时入发件箱。返回 true 表示已离线排队。 */
-    suspend fun createWishOrQueue(req: CreateWishRequest): Boolean = try {
-        withContext(Dispatchers.IO) { apiClient.createWish(req) }
-        false
-    } catch (e: APIException) {
-        if (e.code == -1) {
-            enqueueSimpleEvent("wish", "CREATE", json.encodeToString(req), 0)
-            true
-        } else {
-            throw e
+    suspend fun updateProjectOrQueue(id: Long, req: CreateProjectRequest): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val updated = apiClient.updateProject(id, req)
+            database.projectDao().insert(updated.toCacheEntity())
+            false
+        } catch (e: Exception) {
+            val code = (e as? APIException)?.code ?: -1
+            if (code == -1 || code >= 500) {
+                val tempProject = CachedProjectEntity(
+                    id = id,
+                    title = req.title,
+                    subtitle = req.subtitle,
+                    description = req.description,
+                    story = req.story,
+                    category = req.category,
+                    status = req.status ?: "进行中",
+                    githubUrl = req.githubUrl,
+                    order = req.order,
+                    updatedAt = java.time.Instant.now().toString()
+                )
+                database.projectDao().insert(tempProject)
+                enqueueSimpleEvent("project", "UPDATE", json.encodeToString(req), id)
+                scheduleSync()
+                true
+            } else {
+                throw e
+            }
+        }
+    }
+
+    suspend fun deleteProjectOrQueue(id: Long): Boolean = withContext(Dispatchers.IO) {
+        try {
+            apiClient.deleteProject(id)
+            database.projectDao().deleteById(id)
+            false
+        } catch (e: Exception) {
+            val code = (e as? APIException)?.code ?: -1
+            if (code == -1 || code >= 500) {
+                database.projectDao().deleteById(id)
+                enqueueSimpleEvent("project", "DELETE", "{}", id)
+                scheduleSync()
+                true
+            } else {
+                throw e
+            }
+        }
+    }
+
+    /** 在线直连许愿；网络不可达时入发件箱，并写入本地临时行，联网后自动补发。返回 true 表示已离线排队。 */
+    suspend fun createWishOrQueue(req: CreateWishRequest): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val created = apiClient.createWish(req)
+            database.wishDao().insert(created.toCacheEntity(json))
+            false
+        } catch (e: Exception) {
+            val code = (e as? APIException)?.code ?: -1
+            if (code == -1 || code >= 500) {
+                val tempId = -System.currentTimeMillis()
+                val tempWish = CachedWishEntity(
+                    id = tempId,
+                    title = req.title,
+                    kind = req.kind,
+                    note = req.note,
+                    spec = req.spec,
+                    cityCode = req.cityCode,
+                    cityName = req.cityName,
+                    budget = req.budget,
+                    actualCost = 0,
+                    status = "pending",
+                    targetDate = req.targetDate,
+                    attachmentsJson = "[]",
+                    updatedAt = java.time.Instant.now().toString()
+                )
+                database.wishDao().insert(tempWish)
+                enqueueSimpleEvent("wish", "CREATE", json.encodeToString(req), tempId)
+                scheduleSync()
+                true
+            } else {
+                throw e
+            }
+        }
+    }
+
+    suspend fun updateWishOrQueue(id: Long, req: CreateWishRequest): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val updated = apiClient.updateWish(id, req)
+            database.wishDao().insert(updated.toCacheEntity(json))
+            false
+        } catch (e: Exception) {
+            val code = (e as? APIException)?.code ?: -1
+            if (code == -1 || code >= 500) {
+                val tempWish = CachedWishEntity(
+                    id = id,
+                    title = req.title,
+                    kind = req.kind,
+                    note = req.note,
+                    spec = req.spec,
+                    cityCode = req.cityCode,
+                    cityName = req.cityName,
+                    budget = req.budget,
+                    actualCost = 0,
+                    status = "pending",
+                    targetDate = req.targetDate,
+                    attachmentsJson = "[]",
+                    updatedAt = java.time.Instant.now().toString()
+                )
+                database.wishDao().insert(tempWish)
+                enqueueSimpleEvent("wish", "UPDATE", json.encodeToString(req), id)
+                scheduleSync()
+                true
+            } else {
+                throw e
+            }
+        }
+    }
+
+    suspend fun deleteWishOrQueue(id: Long): Boolean = withContext(Dispatchers.IO) {
+        try {
+            apiClient.deleteWish(id)
+            database.wishDao().deleteById(id)
+            false
+        } catch (e: Exception) {
+            val code = (e as? APIException)?.code ?: -1
+            if (code == -1 || code >= 500) {
+                database.wishDao().deleteById(id)
+                enqueueSimpleEvent("wish", "DELETE", "{}", id)
+                scheduleSync()
+                true
+            } else {
+                throw e
+            }
         }
     }
 
@@ -2122,9 +2262,11 @@ class SyncManager private constructor(private val context: Context) {
                     "CREATE" -> {
                         val req = json.decodeFromString<CreateProjectRequest>(event.payload)
                         val created = apiClient.createProject(req)
-                        // 离线创建补发成功后写回本地缓存，否则页面的首拉门禁已过，
-                        // 新造物要等用户手动下拉刷新才出现。
-                        database.projectDao().insertAll(listOf(created.toCacheEntity()))
+                        // 离线创建补发成功后替换临时本地行并写回权威缓存
+                        if (event.localTargetId < 0) {
+                            database.projectDao().deleteById(event.localTargetId)
+                        }
+                        database.projectDao().insert(created.toCacheEntity())
                         database.outboxDao().delete(event)
                     }
                     "UPDATE" -> {
@@ -2154,7 +2296,10 @@ class SyncManager private constructor(private val context: Context) {
                     "CREATE" -> {
                         val req = json.decodeFromString<CreateWishRequest>(event.payload)
                         val created = apiClient.createWish(req)
-                        database.wishDao().insertAll(listOf(created.toCacheEntity(json)))
+                        if (event.localTargetId < 0) {
+                            database.wishDao().deleteById(event.localTargetId)
+                        }
+                        database.wishDao().insert(created.toCacheEntity(json))
                         database.outboxDao().delete(event)
                     }
                     "UPDATE" -> {
