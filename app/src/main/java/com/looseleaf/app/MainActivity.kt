@@ -409,9 +409,8 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        // 401 全局引导（AOPT-09b）：设备在 Web/Mac 端被吊销时主动提示重新配对，
-        // 而不是让用户对着「同步失败」干瞪眼。Room 中的 outbox 不清空，重配对后自动续传。
-        var showRepairDialog by remember { mutableStateOf(false) }
+        // 401 全局引导（AOPT-09b, P1-7）：使用 rememberSaveable 保护弹窗展示状态，防止屏幕旋转丢失
+        var showRepairDialog by rememberSaveable { mutableStateOf(false) }
 
         // MOB-P1-63：上次是非正常退出（崩溃）时，给出一次友好提示并保留诊断信息入口
         var showCrashNotice by remember { mutableStateOf(false) }

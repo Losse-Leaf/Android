@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.R
 import com.looseleaf.app.data.api.APIClient
+import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.model.CreateFootprintRequest
 import com.looseleaf.app.model.CreateWishRequest
 import com.looseleaf.app.model.Footprint
@@ -86,7 +87,8 @@ internal fun EditWishSheetDialog(
             scope.launch {
                 runCatching {
                     val cents = FormatUtils.yuanStringToCents(budgetYuan)
-                    apiClient.updateWish(
+                    val syncManager = SyncManager.getInstance(draftContext)
+                    val queued = syncManager.updateWishOrQueue(
                         id = wish.id,
                         req = CreateWishRequest(
                             title = title.trim(),
@@ -100,7 +102,8 @@ internal fun EditWishSheetDialog(
                             attachmentIds = wish.attachments.map { it.id }.takeIf { it.isNotEmpty() }
                         )
                     )
-                    ArchiveToastManager.show("心愿已修订")
+                    if (queued) ArchiveToastManager.show("当前离线，已排队保存修改")
+                    else ArchiveToastManager.show("心愿已修订")
                     draftStore.clearPrefix(draftPrefix)
                     onSaved()
                     onDismiss()
@@ -230,7 +233,8 @@ internal fun EditFootprintSheetDialog(
             isSubmitting = true
             scope.launch {
                 runCatching {
-                    apiClient.updateFootprint(
+                    val syncManager = SyncManager.getInstance(draftContext)
+                    val queued = syncManager.updateFootprintOrQueue(
                         id = footprint.id,
                         req = CreateFootprintRequest(
                             cityCode = cityCode.ifBlank { footprint.cityCode },
@@ -241,7 +245,8 @@ internal fun EditFootprintSheetDialog(
                             note = note.trim()
                         )
                     )
-                    ArchiveToastManager.show("票根已更新")
+                    if (queued) ArchiveToastManager.show("当前离线，已排队保存修改")
+                    else ArchiveToastManager.show("票根已更新")
                     draftStore.clearPrefix(draftPrefix)
                     onSaved()
                     onDismiss()

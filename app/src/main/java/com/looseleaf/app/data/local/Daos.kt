@@ -274,6 +274,9 @@ interface EntryDao {
     @Query("DELETE FROM cached_entries WHERE local_id = :localId")
     suspend fun deleteByLocalId(localId: Long)
 
+    @Query("UPDATE cached_entries SET sync_status = :status WHERE local_id = :localId")
+    suspend fun updateSyncStatus(localId: Long, status: String)
+
     @Query("DELETE FROM cached_entries WHERE server_id = :serverId")
     suspend fun deleteByServerId(serverId: Long)
 
@@ -532,6 +535,9 @@ interface WishDao {
     @Query("SELECT * FROM cached_wishes ORDER BY id DESC")
     fun getAllWishesFlow(): Flow<List<CachedWishEntity>>
 
+    @Query("SELECT * FROM cached_wishes WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Long): CachedWishEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(wish: CachedWishEntity)
 
@@ -550,8 +556,17 @@ interface FootprintDao {
     @Query("SELECT * FROM cached_footprints ORDER BY visited_at DESC")
     fun getAllFootprintsFlow(): Flow<List<CachedFootprintEntity>>
 
+    @Query("SELECT * FROM cached_footprints WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Long): CachedFootprintEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(footprint: CachedFootprintEntity)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(footprints: List<CachedFootprintEntity>)
+
+    @Query("DELETE FROM cached_footprints WHERE id = :id")
+    suspend fun deleteById(id: Long)
 
     @Query("DELETE FROM cached_footprints")
     suspend fun clearAll()

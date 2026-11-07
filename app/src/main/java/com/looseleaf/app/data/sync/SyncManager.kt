@@ -1889,6 +1889,115 @@ class SyncManager private constructor(private val context: Context) {
         }
     }
 
+    suspend fun resolveWishOrQueue(id: Long, req: ResolveWishRequest): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val updated = apiClient.resolveWish(id, req)
+            database.wishDao().insert(updated.toCacheEntity(json))
+            false
+        } catch (e: Exception) {
+            val code = (e as? APIException)?.code ?: -1
+            if (code == -1 || code >= 500) {
+                val existing = database.wishDao().getById(id)
+                if (existing != null) {
+                    database.wishDao().insert(existing.copy(status = "fulfilled", actualCost = req.actualCost ?: existing.actualCost))
+                }
+                enqueueSimpleEvent("wish", "RESOLVE", json.encodeToString(req), id)
+                scheduleSync()
+                true
+            } else {
+                throw e
+            }
+        }
+    }
+
+    suspend fun createFootprintOrQueue(req: CreateFootprintRequest): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val created = apiClient.createFootprint(req)
+            database.footprintDao().insert(created.toCacheEntity(json))
+            false
+        } catch (e: Exception) {
+            val code = (e as? APIException)?.code ?: -1
+            if (code == -1 || code >= 500) {
+                val tempId = -System.currentTimeMillis()
+                val tempFootprint = CachedFootprintEntity(
+                    id = tempId,
+                    cityCode = req.cityCode,
+                    cityName = req.cityName,
+                    title = req.title,
+                    visitedAt = req.visitedAt,
+                    departedAt = req.departedAt,
+                    note = req.note,
+                    lifeEntryId = null,
+                    wishId = null,
+                    attachmentsJson = "[]",
+                    entriesCount = 0,
+                    totalSpent = 0L,
+                    transactionCount = 0,
+                    updatedAt = java.time.Instant.now().toString()
+                )
+                database.footprintDao().insert(tempFootprint)
+                enqueueSimpleEvent("footprint", "CREATE", json.encodeToString(req), tempId)
+                scheduleSync()
+                true
+            } else {
+                throw e
+            }
+        }
+    }
+
+    suspend fun updateFootprintOrQueue(id: Long, req: CreateFootprintRequest): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val updated = apiClient.updateFootprint(id, req)
+            database.footprintDao().insert(updated.toCacheEntity(json))
+            false
+        } catch (e: Exception) {
+            val code = (e as? APIException)?.code ?: -1
+            if (code == -1 || code >= 500) {
+                val existing = database.footprintDao().getById(id)
+                val tempFootprint = CachedFootprintEntity(
+                    id = id,
+                    cityCode = req.cityCode,
+                    cityName = req.cityName,
+                    title = req.title ?: existing?.title,
+                    visitedAt = req.visitedAt,
+                    departedAt = req.departedAt ?: existing?.departedAt,
+                    note = req.note ?: existing?.note,
+                    lifeEntryId = existing?.lifeEntryId,
+                    wishId = existing?.wishId,
+                    attachmentsJson = existing?.attachmentsJson ?: "[]",
+                    entriesCount = existing?.entriesCount,
+                    totalSpent = existing?.totalSpent,
+                    transactionCount = existing?.transactionCount,
+                    updatedAt = java.time.Instant.now().toString()
+                )
+                database.footprintDao().insert(tempFootprint)
+                enqueueSimpleEvent("footprint", "UPDATE", json.encodeToString(req), id)
+                scheduleSync()
+                true
+            } else {
+                throw e
+            }
+        }
+    }
+
+    suspend fun deleteFootprintOrQueue(id: Long): Boolean = withContext(Dispatchers.IO) {
+        try {
+            apiClient.deleteFootprint(id)
+            database.footprintDao().deleteById(id)
+            false
+        } catch (e: Exception) {
+            val code = (e as? APIException)?.code ?: -1
+            if (code == -1 || code >= 500) {
+                database.footprintDao().deleteById(id)
+                enqueueSimpleEvent("footprint", "DELETE", "{}", id)
+                scheduleSync()
+                true
+            } else {
+                throw e
+            }
+        }
+    }
+
     private suspend fun enqueueSimpleEvent(
         entityType: String,
         action: String,
@@ -2293,7 +2402,17 @@ class SyncManager private constructor(private val context: Context) {
                         val targetServerId = event.serverTargetId
                         if (targetServerId != null && targetServerId > 0) {
                             val req = json.decodeFromString<CreateWishRequest>(event.payload)
-                            apiClient.updateWish(targetServerId, req)
+                            val updated = apiClient.updateWish(targetServerId, req)
+                            database.wishDao().insert(updated.toCacheEntity(json))
+                        }
+                        database.outboxDao().delete(event)
+                    }
+                    "RESOLVE" -> {
+                        val targetServerId = event.serverTargetId
+                        if (targetServerId != null && targetServerId > 0) {
+                            val req = json.decodeFromString<ResolveWishRequest>(event.payload)
+                            val resolved = apiClient.resolveWish(targetServerId, req)
+                            database.wishDao().insert(resolved.toCacheEntity(json))
                         }
                         database.outboxDao().delete(event)
                     }
@@ -2315,14 +2434,19 @@ class SyncManager private constructor(private val context: Context) {
                 when (event.action) {
                     "CREATE" -> {
                         val req = json.decodeFromString<CreateFootprintRequest>(event.payload)
-                        apiClient.createFootprint(req)
+                        val created = apiClient.createFootprint(req)
+                        if (event.localTargetId < 0) {
+                            database.footprintDao().deleteById(event.localTargetId)
+                        }
+                        database.footprintDao().insert(created.toCacheEntity(json))
                         database.outboxDao().delete(event)
                     }
                     "UPDATE" -> {
                         val targetServerId = event.serverTargetId
                         if (targetServerId != null && targetServerId > 0) {
                             val req = json.decodeFromString<CreateFootprintRequest>(event.payload)
-                            apiClient.updateFootprint(targetServerId, req)
+                            val updated = apiClient.updateFootprint(targetServerId, req)
+                            database.footprintDao().insert(updated.toCacheEntity(json))
                         }
                         database.outboxDao().delete(event)
                     }

@@ -58,6 +58,10 @@ import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.app.utils.LocationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -88,6 +92,47 @@ internal data class AttachedPhotoItem(
     val previewUri: String,
     val processed: AttachedPhotoMeta,
     val savedFile: File
+)
+
+@Serializable
+internal data class AttachedPhotoSaveModel(
+    val previewUri: String,
+    val filePath: String,
+    val mimeType: String,
+    val width: Int,
+    val height: Int,
+    val exif: com.looseleaf.app.darkroom.ExtractedExif
+)
+
+internal fun AttachedPhotoItem.toSaveModel() = AttachedPhotoSaveModel(
+    previewUri = previewUri,
+    filePath = savedFile.absolutePath,
+    mimeType = processed.mimeType,
+    width = processed.width,
+    height = processed.height,
+    exif = processed.exif
+)
+
+internal fun AttachedPhotoSaveModel.toItem() = AttachedPhotoItem(
+    previewUri = previewUri,
+    processed = AttachedPhotoMeta(
+        mimeType = mimeType,
+        width = width,
+        height = height,
+        exif = exif
+    ),
+    savedFile = File(filePath)
+)
+
+internal val attachedPhotosSaver = androidx.compose.runtime.saveable.Saver<MutableState<List<AttachedPhotoItem>>, String>(
+    save = { state ->
+        val models = state.value.map { it.toSaveModel() }
+        Json.encodeToString(models)
+    },
+    restore = { jsonStr ->
+        val models = runCatching { Json.decodeFromString<List<AttachedPhotoSaveModel>>(jsonStr) }.getOrDefault(emptyList())
+        mutableStateOf(models.filter { File(it.filePath).exists() }.map { it.toItem() })
+    }
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -198,8 +243,8 @@ private fun QuickNoteSheetBody(
     var wishCityCode by rememberSaveable { mutableStateOf("") }
     var wishCityName by rememberSaveable { mutableStateOf("") }
 
-    // 照片装裱状态
-    var attachedPhotos by remember { mutableStateOf<List<AttachedPhotoItem>>(emptyList()) }
+    // 照片装裱状态 (P1-9)：使用 Saver 保护相纸，旋转屏幕不丢失相纸
+    var attachedPhotos by rememberSaveable(saver = attachedPhotosSaver) { mutableStateOf<List<AttachedPhotoItem>>(emptyList()) }
     var isProcessingPhoto by remember { mutableStateOf(false) }
 
     fun clearAttachedPhotos() {
@@ -370,10 +415,10 @@ private fun QuickNoteSheetBody(
         else -> "归册"
     }
 
-    val onSubmitAction: () -> Unit = {
+    val onSubmitAction: () -> Unit = onSubmitAction@{
+        if (isSubmitting) return@onSubmitAction
+        isSubmitting = true
         scope.launch {
-            isSubmitting = true
-
             try {
                 val finalCode = noteCityCode ?: CityDictionary.codeForLocation(noteLocation)
                 val finalCityName = noteCityName ?: finalCode?.let { CityDictionary.cityNameForCode(it) }
@@ -595,11 +640,15 @@ private fun QuickNoteSheetBody(
                 draftPrefs.edit().clear().apply()
                 onSuccess()
             } catch (e: CancellationException) {
+                isSubmitting = false
                 throw e
             } catch (e: Exception) {
+                isSubmitting = false
                 ArchiveToastManager.show("归册失败: ${e.message}", isError = true)
             } finally {
-                isSubmitting = false
+                if (!noteSubmitted) {
+                    isSubmitting = false
+                }
             }
         }
     }

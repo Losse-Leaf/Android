@@ -38,7 +38,8 @@ data class LedgerSnapshot(
 )
 
 data class LedgerDeleteUndoTicket(
-    val entity: CachedTransactionEntity
+    val entity: CachedTransactionEntity,
+    val pendingUpdatePayload: String? = null
 )
 
 /**
@@ -121,6 +122,20 @@ object LedgerRepository {
         return syncMutex.withLock { block() }
     }
 
+    var onScheduleSyncListener: (() -> Unit)? = null
+
+    fun scheduleOutboxFlush() {
+        val ctx = appContext ?: return
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                pullLedgerData()
+            }
+        }
+        runCatching {
+            onScheduleSyncListener?.invoke()
+        }
+    }
+
     // ──────────────────────────── 流水查询 Flow ────────────────────────────
 
     fun transactionsForMonth(range: MonthRange): Flow<List<Transaction>> {
@@ -195,6 +210,8 @@ object LedgerRepository {
                 )
             )
             localId
+        }.also {
+            scheduleOutboxFlush()
         }
     }
 
@@ -316,6 +333,8 @@ object LedgerRepository {
                 }
             }
             true
+        }.also { success ->
+            if (success) scheduleOutboxFlush()
         }
     }
 
@@ -333,6 +352,9 @@ object LedgerRepository {
 
             val existingActiveEvent = db.outboxDao().findActiveEventByLocalTarget(entity.localId)
             val isLocalOnly = entity.serverId == null || existingActiveEvent?.action == "CREATE"
+
+            val pendingUpdate = db.outboxDao().findEventByTarget(entity.localId, "UPDATE")
+            val pendingUpdatePayload = pendingUpdate?.payload
 
             if (!isLocalOnly && entity.serverId > 0) {
                 // 清除同实体的未发 UPDATE，避免乱序更新覆盖删除
@@ -374,7 +396,9 @@ object LedgerRepository {
                 }
             }
 
-            LedgerDeleteUndoTicket(entity = entity)
+            LedgerDeleteUndoTicket(entity = entity, pendingUpdatePayload = pendingUpdatePayload)
+        }.also { ticket ->
+            if (ticket != null) scheduleOutboxFlush()
         }
     }
 
@@ -388,9 +412,28 @@ object LedgerRepository {
             if (serverId != null && serverId > 0) {
                 val pendingDelete = db.outboxDao().findEventByTarget(entity.localId, "DELETE")
                 if (pendingDelete != null) {
-                    // DELETE 事件仍在发件箱中：撤销事件并恢复本地为 SYNCED，完美保留原 localId 与 serverId
+                    // DELETE 事件仍在发件箱中：撤销事件
                     db.outboxDao().deleteByEventId(pendingDelete.eventId)
-                    db.transactionDao().update(entity.copy(syncStatus = "SYNCED"))
+                    if (ticket.pendingUpdatePayload != null) {
+                        // P1-1: 撤销删除时保留未同步编辑，恢复为 PENDING_UPDATE 并重新入队 UPDATE 事件
+                        db.transactionDao().update(entity.copy(syncStatus = "PENDING_UPDATE"))
+                        val clientRequestId = UUID.randomUUID().toString()
+                        val sequence = db.outboxDao().getNextSequence()
+                        db.outboxDao().insert(
+                            LedgerOutboxEventEntity(
+                                eventId = UUID.randomUUID().toString(),
+                                action = "UPDATE",
+                                payload = ticket.pendingUpdatePayload,
+                                localTargetId = entity.localId,
+                                serverTargetId = serverId,
+                                clientRequestId = clientRequestId,
+                                sequence = sequence,
+                                enqueuedAt = nowIso
+                            )
+                        )
+                    } else {
+                        db.transactionDao().update(entity.copy(syncStatus = "SYNCED"))
+                    }
                 } else {
                     // 远端已物理删除，需以 PENDING_CREATE 重新建账
                     val newLocalId = db.transactionDao().insert(
@@ -398,7 +441,10 @@ object LedgerRepository {
                     )
                     val clientRequestId = UUID.randomUUID().toString()
                     val sequence = db.outboxDao().getNextSequence()
-                    val createReq = CreateTransactionRequest(
+                    val parsedUpdateReq = ticket.pendingUpdatePayload?.let {
+                        runCatching { json.decodeFromString<CreateTransactionRequest>(it) }.getOrNull()
+                    }
+                    val createReq = parsedUpdateReq?.copy(clientRequestId = clientRequestId) ?: CreateTransactionRequest(
                         amount = entity.amount,
                         type = entity.type,
                         category = entity.category,
@@ -437,7 +483,10 @@ object LedgerRepository {
                 )
                 val clientRequestId = UUID.randomUUID().toString()
                 val sequence = db.outboxDao().getNextSequence()
-                val createReq = CreateTransactionRequest(
+                val parsedUpdateReq = ticket.pendingUpdatePayload?.let {
+                    runCatching { json.decodeFromString<CreateTransactionRequest>(it) }.getOrNull()
+                }
+                val createReq = parsedUpdateReq?.copy(clientRequestId = clientRequestId) ?: CreateTransactionRequest(
                     amount = entity.amount,
                     type = entity.type,
                     category = entity.category,
@@ -486,6 +535,8 @@ object LedgerRepository {
             }
 
             true
+        }.also { success ->
+            if (success) scheduleOutboxFlush()
         }
     }
 

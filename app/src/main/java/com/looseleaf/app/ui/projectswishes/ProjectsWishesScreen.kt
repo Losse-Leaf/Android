@@ -461,16 +461,20 @@ fun ProjectsWishesScreen(
                                     if (queued) ArchiveToastManager.show("已离线排队许下心愿")
                                     else ArchiveToastManager.show("心愿已记录")
                                 }
-                                else -> apiClient.createFootprint(
-                                    CreateFootprintRequest(
-                                        cityCode = fpCityCode,
-                                        cityName = fpCityName,
-                                        title = inputThird.trim().takeIf { it.isNotBlank() },
-                                        visitedAt = FormatUtils.toBeijingIsoString(fpVisitedAt),
-                                        departedAt = if (fpIsMultiDay) FormatUtils.toBeijingIsoString(fpDepartedAt) else null,
-                                        note = inputNote.trim().takeIf { it.isNotBlank() }
+                                else -> {
+                                    val queued = syncManager.createFootprintOrQueue(
+                                        CreateFootprintRequest(
+                                            cityCode = fpCityCode,
+                                            cityName = fpCityName,
+                                            title = inputThird.trim().takeIf { it.isNotBlank() },
+                                            visitedAt = FormatUtils.toBeijingIsoString(fpVisitedAt),
+                                            departedAt = if (fpIsMultiDay) FormatUtils.toBeijingIsoString(fpDepartedAt) else null,
+                                            note = inputNote.trim().takeIf { it.isNotBlank() }
+                                        )
                                     )
-                                )
+                                    if (queued) ArchiveToastManager.show("已离线排队足迹")
+                                    else ArchiveToastManager.show("足迹已记录")
+                                }
                             }
                             showCreateDialog = false
                             reloadAll()
@@ -664,7 +668,7 @@ fun ProjectsWishesScreen(
                             val isRel = resType == "relinquished"
                             val cents = if (isRel) 0L else FormatUtils.yuanStringToCents(costInput)
                             val isInst = !isRel && createTx && wishPayChoice == "installment"
-                            apiClient.resolveWish(
+                            val queued = syncManager.resolveWishOrQueue(
                                 id = wish.id,
                                 req = ResolveWishRequest(
                                     fulfilledAt = FormatUtils.toBeijingIsoString(fulfilledAtDt),
@@ -683,6 +687,8 @@ fun ProjectsWishesScreen(
                                     repaymentDay = if (isInst) 10 else null
                                 )
                             )
+                            if (queued) ArchiveToastManager.show("已离线排队心愿达成")
+                            else ArchiveToastManager.show("心愿已如愿达成")
                             resolvingWish = null
                             reloadAll()
                         } catch (e: CancellationException) {
@@ -1212,8 +1218,9 @@ fun ProjectsWishesScreen(
                 onConfirm = {
                     scope.launch {
                         runCatching {
-                            apiClient.deleteFootprint(foot.id)
-                            ArchiveToastManager.show("票根已移除")
+                            val queued = syncManager.deleteFootprintOrQueue(foot.id)
+                            if (queued) ArchiveToastManager.show("当前离线，已排队移除票根")
+                            else ArchiveToastManager.show("票根已移除")
                         }.onFailure { err ->
                             ArchiveToastManager.show("移除票根失败: ${err.message}", isError = true)
                             return@launch

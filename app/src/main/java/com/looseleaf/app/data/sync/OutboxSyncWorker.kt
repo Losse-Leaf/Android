@@ -143,6 +143,15 @@ class OutboxSyncWorker(
             }
             }
 
+            // MOB-P1-03: 同步排空独立账本数据库 (looseleaf_ledger.db) 发件箱
+            runCatching {
+                val ledgerDb = com.looseleaf.feature.ledger.data.LedgerDatabase.getInstance(applicationContext)
+                if (ledgerDb.outboxDao().countPendingEvents() > 0) {
+                    val ledgerResult = com.looseleaf.feature.ledger.data.LedgerRepository.pullLedgerData()
+                    if (ledgerResult.isFailure) anyFailed = true
+                }
+            }
+
             // 只要还有**可重试**的失败事件就整体退避重试（WorkManager 会按指数退避再跑一轮）。
             // 下一轮里已成功的事件已从发件箱删除，只会重试剩下失败的那些；
             // 永久失败（4xx / 重试耗尽）的事件已进入 FAILED 态，不会再拖住队列。

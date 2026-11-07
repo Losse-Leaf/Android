@@ -5,6 +5,7 @@ import androidx.work.WorkManager
 import com.looseleaf.app.data.local.AppDatabase
 import com.looseleaf.app.data.local.ProfileRepository
 import com.looseleaf.app.data.security.CredentialStore
+import com.looseleaf.app.reminder.InstallmentReminderWorker
 import com.looseleaf.feature.ledger.data.LedgerDatabase
 import com.looseleaf.feature.ledger.data.LedgerRepository
 import kotlinx.coroutines.Dispatchers
@@ -40,11 +41,14 @@ object LocalDataResetCoordinator {
         syncManager: SyncManager,
         reason: ResetReason
     ) = withContext(Dispatchers.IO) {
-        // 1. 中止后台在途同步任务
+        // 1. 中止后台在途同步任务并重置提醒开关
         runCatching {
             syncManager.cancelScheduledSync()
-            WorkManager.getInstance(context).cancelUniqueWork("looseleaf_outbox_sync")
-            WorkManager.getInstance(context).cancelUniqueWork("looseleaf_installment_reminder")
+            val wm = WorkManager.getInstance(context)
+            wm.cancelUniqueWork(OutboxSyncWorker.WORK_NAME)
+            wm.cancelUniqueWork(OutboxSyncWorker.GRACE_WORK_NAME)
+            InstallmentReminderWorker.cancelWork(context)
+            CredentialStore.getInstance(context).isInstallmentReminderEnabled = false
         }
 
         // 2. 获取账本同步互斥锁，确保无在途 pullLedgerData 竞争

@@ -18,6 +18,7 @@ import com.looseleaf.app.model.PresignUploadRequest
 import com.looseleaf.app.utils.CityDictionary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -27,6 +28,7 @@ import java.io.InputStream
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+@Serializable
 data class ExtractedExif(
     val make: String? = null,
     val model: String? = null,

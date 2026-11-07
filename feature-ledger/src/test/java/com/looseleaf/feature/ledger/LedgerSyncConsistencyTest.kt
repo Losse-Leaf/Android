@@ -521,4 +521,93 @@ class LedgerSyncConsistencyTest {
         assertEquals(777L, updateEvent.serverTargetId)
         assertEquals(updatedPayload, updateEvent.payload)
     }
+
+    @Test
+    fun `test undo transaction deletion preserves pending update`() = runBlocking {
+        val outboxDao = db.outboxDao()
+        val txDao = db.transactionDao()
+
+        // 1. 本地有一条处于待更新的记录 (serverId = 300)
+        val localId = txDao.insert(
+            CachedTransactionEntity(
+                localId = 30,
+                serverId = 300L,
+                amount = 5000,
+                type = "expense",
+                category = "生活",
+                title = "电费",
+                occurredAt = "2026-11-03T10:00:00+08:00",
+                syncStatus = "PENDING_UPDATE"
+            )
+        )
+        val updatePayload = """{"amount":6000,"category":"生活","title":"电费修改"}"""
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = "evt_up_300",
+                action = "UPDATE",
+                payload = updatePayload,
+                localTargetId = localId,
+                serverTargetId = 300L,
+                clientRequestId = "crid_up_300",
+                sequence = 1L,
+                enqueuedAt = "2026-11-03T10:05:00+08:00"
+            )
+        )
+
+        // 2. 模拟 deleteTransaction 中的保存逻辑
+        val pendingUpdate = outboxDao.findEventByTarget(localId, "UPDATE")
+        assertNotNull(pendingUpdate)
+        val ticket = LedgerDeleteUndoTicket(
+            entity = txDao.getTransactionByLocalId(localId)!!,
+            pendingUpdatePayload = pendingUpdate!!.payload
+        )
+        outboxDao.deleteByLocalTarget(localId)
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = "evt_del_300",
+                action = "DELETE",
+                payload = "{}",
+                localTargetId = localId,
+                serverTargetId = 300L,
+                clientRequestId = "crid_del_300",
+                sequence = 2L,
+                enqueuedAt = "2026-11-03T10:06:00+08:00"
+            )
+        )
+        txDao.markPendingDelete(localId)
+
+        // 3. 模拟 undoDeleteTransaction 逻辑
+        db.withTransaction {
+            val pendingDel = outboxDao.findEventByTarget(ticket.entity.localId, "DELETE")
+            assertNotNull(pendingDel)
+            outboxDao.deleteByEventId(pendingDel!!.eventId)
+            if (ticket.pendingUpdatePayload != null) {
+                txDao.update(ticket.entity.copy(syncStatus = "PENDING_UPDATE"))
+                outboxDao.insert(
+                    LedgerOutboxEventEntity(
+                        eventId = "evt_re_up_300",
+                        action = "UPDATE",
+                        payload = ticket.pendingUpdatePayload,
+                        localTargetId = ticket.entity.localId,
+                        serverTargetId = 300L,
+                        clientRequestId = "crid_re_300",
+                        sequence = 3L,
+                        enqueuedAt = "2026-11-03T10:07:00+08:00"
+                    )
+                )
+            }
+        }
+
+        // 验证：本地行恢复为 PENDING_UPDATE，而不是误标记为 SYNCED
+        val restored = txDao.getTransactionByLocalId(localId)
+        assertNotNull(restored)
+        assertEquals("PENDING_UPDATE", restored!!.syncStatus)
+
+        // 验证：发件箱中重新拥有 UPDATE 事件且载荷为用户未同步修改
+        val activeEvents = outboxDao.getAllPendingEvents()
+        assertEquals(1, activeEvents.size)
+        val reEnqueuedUpdate = activeEvents.first()
+        assertEquals("UPDATE", reEnqueuedUpdate.action)
+        assertEquals(updatePayload, reEnqueuedUpdate.payload)
+    }
 }

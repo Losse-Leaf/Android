@@ -180,12 +180,37 @@ internal fun FailedEventsSheet(
                                             ledgerDatabase.outboxDao().deleteById(event.eventId)
                                             if (event.action == "CREATE") {
                                                 ledgerDatabase.transactionDao().deleteByLocalId(event.localTargetId)
+                                            } else {
+                                                val tx = ledgerDatabase.transactionDao().getTransactionByLocalId(event.localTargetId)
+                                                if (tx != null) {
+                                                    if (tx.serverId == null) {
+                                                        ledgerDatabase.transactionDao().deleteByLocalId(event.localTargetId)
+                                                    } else {
+                                                        ledgerDatabase.transactionDao().updateSyncStatus(event.localTargetId, "SYNCED")
+                                                    }
+                                                }
                                             }
                                         } else {
                                             database.outboxDao().deleteById(event.eventId)
                                             if (event.action == "CREATE") {
                                                 when (event.entityType) {
                                                     "entry" -> database.entryDao().deleteByLocalId(event.localTargetId)
+                                                    "project" -> database.projectDao().deleteById(event.localTargetId)
+                                                    "wish" -> database.wishDao().deleteById(event.localTargetId)
+                                                    "footprint" -> database.footprintDao().deleteById(event.localTargetId)
+                                                }
+                                            } else {
+                                                when (event.entityType) {
+                                                    "entry" -> {
+                                                        val entry = database.entryDao().getEntryByLocalId(event.localTargetId)
+                                                        if (entry != null) {
+                                                            if (entry.serverId == null) {
+                                                                database.entryDao().deleteByLocalId(event.localTargetId)
+                                                            } else {
+                                                                database.entryDao().updateSyncStatus(event.localTargetId, "SYNCED")
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -211,8 +236,47 @@ internal fun FailedEventsSheet(
                     onClick = {
                         scope.launch {
                             withContext(Dispatchers.IO) {
-                                syncManager.discardFailedEvents()
-                                ledgerDatabase.outboxDao().discardAllFailed()
+                                val ledgerFailed = ledgerDatabase.outboxDao().getFailedEvents()
+                                for (evt in ledgerFailed) {
+                                    ledgerDatabase.outboxDao().deleteById(evt.eventId)
+                                    if (evt.action == "CREATE") {
+                                        ledgerDatabase.transactionDao().deleteByLocalId(evt.localTargetId)
+                                    } else {
+                                        val tx = ledgerDatabase.transactionDao().getTransactionByLocalId(evt.localTargetId)
+                                        if (tx != null) {
+                                            if (tx.serverId == null) {
+                                                ledgerDatabase.transactionDao().deleteByLocalId(evt.localTargetId)
+                                            } else {
+                                                ledgerDatabase.transactionDao().updateSyncStatus(evt.localTargetId, "SYNCED")
+                                            }
+                                        }
+                                    }
+                                }
+                                val mainFailed = database.outboxDao().getFailedEvents()
+                                for (evt in mainFailed) {
+                                    database.outboxDao().deleteById(evt.eventId)
+                                    if (evt.action == "CREATE") {
+                                        when (evt.entityType) {
+                                            "entry" -> database.entryDao().deleteByLocalId(evt.localTargetId)
+                                            "project" -> database.projectDao().deleteById(evt.localTargetId)
+                                            "wish" -> database.wishDao().deleteById(evt.localTargetId)
+                                            "footprint" -> database.footprintDao().deleteById(evt.localTargetId)
+                                        }
+                                    } else {
+                                        when (evt.entityType) {
+                                            "entry" -> {
+                                                val entry = database.entryDao().getEntryByLocalId(evt.localTargetId)
+                                                if (entry != null) {
+                                                    if (entry.serverId == null) {
+                                                        database.entryDao().deleteByLocalId(evt.localTargetId)
+                                                    } else {
+                                                        database.entryDao().updateSyncStatus(evt.localTargetId, "SYNCED")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                             ArchiveToastManager.show("已放弃所有失败事件")
                             onDismiss()

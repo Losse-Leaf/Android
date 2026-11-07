@@ -57,30 +57,26 @@ class LedgerNotificationListenerService : NotificationListenerService() {
 
         val parsed = parseBillFromText(content, pkg) ?: return
 
-        // 5 分钟去重键检查
+        // 5 分钟去重键检查 (P1-10)：移除纯金额降级 key，防止误伤 5 分钟内多笔正常同金额消费
         val nowMs = System.currentTimeMillis()
         val dedupeBucket = nowMs / (5 * 60 * 1000)
-        val dedupeKey = "$pkg:${sbn.key}:${parsed.type}:${parsed.amount}:$dedupeBucket"
-        val fallbackAmountKey = "${parsed.type}:${parsed.amount}:$dedupeBucket"
+        val dedupeKey = "$pkg:${sbn.key}:${parsed.type}:${parsed.amount}:${parsed.title}:$dedupeBucket"
 
         synchronized(recentDedupeKeys) {
             cleanExpiredDedupeKeys(nowMs)
-            if (recentDedupeKeys.containsKey(dedupeKey) || recentDedupeKeys.containsKey(fallbackAmountKey)) {
+            if (recentDedupeKeys.containsKey(dedupeKey)) {
                 Log.d(TAG, "忽略 5 分钟内重复支付通知: $dedupeKey")
                 return
             }
             recentDedupeKeys[dedupeKey] = nowMs
-            recentDedupeKeys[fallbackAmountKey] = nowMs
         }
 
         serviceScope.launch {
             try {
                 LedgerRepository.createTransactionOptimistic(parsed)
                 Log.i(TAG, "自动记账成功: ${parsed.title} - ${parsed.amount / 100.0}元")
-                // 插入后立即调度账本同步 (P0-9)
-                runCatching {
-                    LedgerRepository.pullLedgerData()
-                }
+                // 插入后立即调度账本同步 (P0-9, P1-3)
+                LedgerRepository.scheduleOutboxFlush()
             } catch (e: Exception) {
                 Log.e(TAG, "自动记账写入失败", e)
             }

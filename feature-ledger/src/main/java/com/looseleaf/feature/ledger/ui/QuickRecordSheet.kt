@@ -194,9 +194,19 @@ internal fun QuickRecordSheet(
         txOccurredAtMillis = System.currentTimeMillis()
     }
 
-    val handleSubmit: () -> Unit = {
+    val handleSubmit: () -> Unit = handleSubmit@{
         val cents = calculateEffectiveCents()
         if (cents > 0 && !isSubmitting) {
+            if (isInstallment) {
+                if (selectedChannel == null) {
+                    ArchiveToastManager.show("请选择分期渠道", isError = true)
+                    return@handleSubmit
+                }
+                if (effectivePeriods !in 1..60) {
+                    ArchiveToastManager.show("分期期数需在 1 至 60 期之间", isError = true)
+                    return@handleSubmit
+                }
+            }
             isSubmitting = true
             // 持久化上次使用的支付方式
             sp.edit().putString("last_payment_method", selectedPaymentMethod).apply()
@@ -819,7 +829,7 @@ internal fun QuickRecordSheet(
             if (isInstallment) {
                 ArchivePrimaryButton(
                     text = if (isSubmitting) "记账中…" else "分期记下",
-                    enabled = effectiveCents > 0 && !isSubmitting,
+                    enabled = effectiveCents > 0 && !isSubmitting && selectedChannel != null && effectivePeriods in 1..60,
                     onClick = handleSubmit,
                     modifier = Modifier
                         .fillMaxWidth()
