@@ -371,6 +371,7 @@ fun StreamScreen(
     var totalCount by remember { mutableIntStateOf(0) }
     var hasMore by remember { mutableStateOf(true) }
     var isLoadingMore by remember { mutableStateOf(false) }
+    var loadMoreFailed by remember { mutableStateOf(false) }
     // 窗口代号：筛选切换 / 同步刷新会让在途的分页结果作废，防止旧页追加到新窗口。
     var windowGeneration by remember { mutableIntStateOf(0) }
     // 刷新窗口期间禁止分页：否则「刷新先取 N 条、分页后补一页」时，
@@ -394,6 +395,7 @@ fun StreamScreen(
     LaunchedEffect(filterCriteria) {
         val generation = ++windowGeneration
         isLoadingMore = false
+        loadMoreFailed = false
         isRefreshingWindow = true
         loadedEntries.clear()
         streamRows.clear()
@@ -420,6 +422,7 @@ fun StreamScreen(
         syncManager.entriesRevisionFlow.collect {
             val generation = ++windowGeneration
             isLoadingMore = false
+            loadMoreFailed = false
             isRefreshingWindow = true
             try {
                 val windowSize = maxOf(loadedEntries.size, STREAM_PAGE_SIZE)
@@ -450,7 +453,7 @@ fun StreamScreen(
                 if (
                     loadedEntries.isNotEmpty() &&
                     !isRefreshingWindow &&
-                    hasMore && !isLoadingMore && lastVisible >= loadedEntries.size - 6
+                    hasMore && !isLoadingMore && !loadMoreFailed && lastVisible >= loadedEntries.size - 6
                 ) {
                     isLoadingMore = true
                     val generation = windowGeneration
@@ -470,6 +473,7 @@ fun StreamScreen(
                         throw e
                     } catch (e: Exception) {
                         Log.w("StreamScreen", "加载更多数据失败: ${e.message}")
+                        loadMoreFailed = true
                     } finally {
                         isLoadingMore = false
                     }
@@ -899,6 +903,76 @@ fun StreamScreen(
                                 washiTapeText = null,
                                 modifier = Modifier.fillMaxWidth()
                             )
+                        }
+                    }
+
+                    if (isLoadingMore) {
+                        item(key = "stream_loading_more_indicator") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp,
+                                    color = colors.inkMuted.copy(alpha = 0.5f)
+                                )
+                            }
+                        }
+                    } else if (loadMoreFailed) {
+                        item(key = "stream_load_more_failed_retry") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .clickable {
+                                            loadMoreFailed = false
+                                            scope.launch {
+                                                isLoadingMore = true
+                                                val generation = windowGeneration
+                                                try {
+                                                    val more = loadWindow(loadedEntries.size, STREAM_PAGE_SIZE).entries
+                                                    if (generation != windowGeneration) return@launch
+                                                    if (more.isNotEmpty()) {
+                                                        loadedEntries.addAll(more)
+                                                        streamRows.addAll(rowsBuilder.append(more))
+                                                        streamRowsVersion++
+                                                    }
+                                                    hasMore = more.isNotEmpty()
+                                                } catch (e: CancellationException) {
+                                                    throw e
+                                                } catch (e: Exception) {
+                                                    Log.w("StreamScreen", "重试加载更多数据失败: ${e.message}")
+                                                    loadMoreFailed = true
+                                                } finally {
+                                                    isLoadingMore = false
+                                                }
+                                            }
+                                        }
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Refresh,
+                                        contentDescription = "重试",
+                                        tint = colors.inkMuted,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "加载失败，点击重试",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = colors.inkMuted
+                                    )
+                                }
+                            }
                         }
                     }
                 }

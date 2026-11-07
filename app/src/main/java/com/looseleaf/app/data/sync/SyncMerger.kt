@@ -6,7 +6,6 @@ import com.looseleaf.app.data.local.CachedEntryEntity
 import com.looseleaf.app.data.local.CachedTransactionEntity
 import com.looseleaf.app.data.local.EntrySyncIndex
 import com.looseleaf.app.model.LifeEntry
-import com.looseleaf.app.model.Transaction
 import kotlinx.serialization.json.Json
 
 /**
@@ -77,36 +76,6 @@ internal object SyncMerger {
         }
     }
 
-    /** 逐页 upsert 记账流水（规则与档案一致）。 */
-    suspend fun upsertTransactions(
-        database: AppDatabase,
-        remote: List<Transaction>,
-        localByServerId: Map<Long, EntrySyncIndex>
-    ) {
-        if (remote.isEmpty()) return
-        // 分页边界若有重叠，同一 server_id 会在一批里出现两次；
-        // 直接 insertAll 会生成两条同 server_id 的行 → LazyColumn key 冲突。
-        val activeRemote = remote.filter { it.deletedAt.isNullOrBlank() }.distinctBy { it.id }
-        val softDeleted = remote.filter { !it.deletedAt.isNullOrBlank() }.distinctBy { it.id }
-        if (softDeleted.isNotEmpty()) {
-            database.withTransaction {
-                softDeleted.forEach { database.transactionDao().deleteByServerId(it.id) }
-            }
-        }
-
-        val toUpsert = mutableListOf<CachedTransactionEntity>()
-        for (item in activeRemote) {
-            val existing = localByServerId[item.id]
-            if (existing != null && existing.syncStatus != "SYNCED") {
-                continue
-            }
-            toUpsert += item.toCacheEntity(existing?.localId ?: 0)
-        }
-        if (toUpsert.isNotEmpty()) {
-            database.withTransaction { database.transactionDao().insertAll(toUpsert) }
-        }
-    }
-
     /**
      * MOB-P2-47：撤销一次生活档案删除。
      *
@@ -132,7 +101,7 @@ internal object SyncMerger {
         return true
     }
 
-    /** MOB-P2-47：撤销一次账目删除 */
+    /** MOB-P2-47：撤销一次账目删除（旧主库遗留兼容） */
     suspend fun undoDeleteTransaction(
         database: AppDatabase,
         ticket: DeleteUndoTicket
@@ -146,20 +115,5 @@ internal object SyncMerger {
             database.transactionDao().insertAll(listOf(entity))
         }
         return true
-    }
-
-    /** 全量收口：删除「服务端已不存在」的已同步流水。 */
-    suspend fun finalizeFullTransactions(
-        database: AppDatabase,
-        remoteIds: Set<Long>,
-        localByServerId: Map<Long, EntrySyncIndex>
-    ) {
-        val toDelete = localByServerId.filter { (serverId, local) ->
-            local.syncStatus == "SYNCED" && serverId !in remoteIds
-        }.keys
-        if (toDelete.isEmpty()) return
-        database.withTransaction {
-            toDelete.forEach { database.transactionDao().deleteByServerId(it) }
-        }
     }
 }

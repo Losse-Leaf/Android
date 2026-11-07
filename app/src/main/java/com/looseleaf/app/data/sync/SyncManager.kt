@@ -100,7 +100,6 @@ class SyncManager private constructor(private val context: Context) {
         const val STATUS_PENDING_DELETE = "PENDING_DELETE"
         private const val SYNC_PREFS_NAME = "looseleaf_sync_prefs"
         private const val KEY_ENTRIES_CURSOR = "last_entries_sync_cursor"
-        private const val KEY_TX_CURSOR = "last_tx_sync_cursor"
         private const val KEY_ON_THIS_DAY_JSON = "on_this_day_json"
         private const val KEY_ON_THIS_DAY_DATE = "on_this_day_date"
 
@@ -1344,11 +1343,18 @@ class SyncManager private constructor(private val context: Context) {
      * 于是「切到造物页」也会连带把用户根本看不到的生活档案与账目流水重拉一遍，
      * 流量与耗时都是白给。现在每个页面只拉自己渲染的那一类。
      */
-    enum class SyncDataset { ENTRIES, TRANSACTIONS, PROJECTS, WISHES, FOOTPRINTS }
+    enum class SyncDataset {
+        ENTRIES,
+        @Deprecated("账本已独立至 LedgerRepository/LedgerDatabase")
+        TRANSACTIONS,
+        PROJECTS,
+        WISHES,
+        FOOTPRINTS
+    }
 
     suspend fun pullRemoteData(
         forceFull: Boolean = false,
-        datasets: Set<SyncDataset> = SyncDataset.entries.toSet()
+        datasets: Set<SyncDataset> = setOf(SyncDataset.ENTRIES, SyncDataset.PROJECTS, SyncDataset.WISHES, SyncDataset.FOOTPRINTS)
     ): Result<Unit> = pullMutex.withLock {
         // MOB-P0-04：调用方（Compose 的 rememberCoroutineScope）可能在主线程发起拉取，
         // 而函数体内的游标计算、对象映射、合并都是纯 CPU 的重活：
@@ -1365,7 +1371,8 @@ class SyncManager private constructor(private val context: Context) {
                 pullEntriesDataset(forceFull)?.let { failures += it }
             }
             if (SyncDataset.TRANSACTIONS in datasets) {
-                pullTransactionsDataset(forceFull)?.let { failures += it }
+                val res = com.looseleaf.feature.ledger.data.LedgerRepository.pullLedgerData(force = forceFull)
+                res.exceptionOrNull()?.let { failures += "记账流水：${it.message}" }
             }
             if (SyncDataset.PROJECTS in datasets) {
                 pullProjectsDataset()?.let { failures += it }
@@ -1486,79 +1493,6 @@ class SyncManager private constructor(private val context: Context) {
         return null
     }
 
-    /** MOB-P1-37 / MOB-P1-41：记账流水拉取（同样是增量逐页合并）。 */
-    private suspend fun pullTransactionsDataset(forceFull: Boolean): String? {
-        val txCursor = syncPrefs.getString(KEY_TX_CURSOR, null)
-        val useIncremental =
-            !forceFull && database.transactionDao().hasAny() && !txCursor.isNullOrBlank()
-
-        val remoteIds = mutableSetOf<Long>()
-        val updatedCandidates = mutableListOf<String?>()
-
-        // 重复 server_id 会让账本 LazyColumn 的 key 冲突直接崩溃，
-        // 也会让 SQL 汇总把同一笔钱算两遍。拉取前先收口历史重复，
-        // 且优先保留 pending 本地行（同步状态才代表用户最新的编辑）。
-        database.transactionDao().deleteSyncedShadowsOfPending()
-        if (!useIncremental) {
-            database.transactionDao().deleteDuplicateServerIds()
-        }
-
-        // MOB-P1-41：本地索引只建一次，逐页复用
-        val localIndex = database.transactionDao().getTransactionSyncIndex()
-            .mapNotNull { index -> index.serverId?.let { it to index } }
-            .toMap()
-
-        try {
-            var offset = 0
-            var pages = 0
-            while (pages < MAX_PAGES) {
-                val batchMeta = ResponseMeta()
-                val batch = apiClient.fetchTransactions(
-                    since = if (useIncremental) cursorForRequest(txCursor) else null,
-                    limit = 200,
-                    offset = if (offset > 0) offset else null,
-                    meta = batchMeta
-                )
-                pages++
-                // MOB-P1-36：优先采用服务端权威游标（见 pullEntriesDataset 的说明）
-                val serverCursor = batchMeta.syncCursor
-                if (!serverCursor.isNullOrBlank()) {
-                    updatedCandidates += serverCursor
-                } else {
-                    updatedCandidates += batch.map { it.updatedAt }
-                    updatedCandidates += batch.map { it.deletedAt }
-                }
-                if (!useIncremental) {
-                    batch.forEach { remoteIds += it.id }
-                }
-                // MOB-P1-41：逐页合并并释放
-                SyncMerger.upsertTransactions(database, batch, localIndex)
-                if (batch.size < 200) break
-                offset += batch.size
-            }
-            if (pages >= MAX_PAGES) {
-                throw IllegalStateException("分页超过 $MAX_PAGES 页，本次拉取已中止")
-            }
-        } catch (e: Exception) {
-            return "记账流水：${e.message}"
-        }
-
-        // 分页期间若有重叠/排序抖动，收口一次重复 server_id（含 pending 优先规则）。
-        database.transactionDao().deleteSyncedShadowsOfPending()
-        database.transactionDao().deleteDuplicateServerIds()
-
-        if (!useIncremental) {
-            SyncMerger.finalizeFullTransactions(database, remoteIds, localIndex)
-        }
-
-        val maxTxUpdated = maxUpdatedCursor(updatedCandidates)
-        if (maxTxUpdated != null) {
-            syncPrefs.edit().putString(KEY_TX_CURSOR, maxTxUpdated).apply()
-        }
-        // MOB-P1-xx：同生活档案 —— 不拿不到游标就拿手机时钟顶上（服务器时钟慢于手机时会静默漏拉）
-        return null
-    }
-
     /** MOB-P1-37：造物项目（只读缓存，整表替换） */
     private suspend fun pullProjectsDataset(): String? = try {
         val remoteProjects = apiClient.fetchProjects()
@@ -1607,9 +1541,10 @@ class SyncManager private constructor(private val context: Context) {
     suspend fun pullStreamData(forceFull: Boolean = false): Result<Unit> =
         pullRemoteData(forceFull, setOf(SyncDataset.ENTRIES))
 
-    /** MOB-P1-37：账本页面专用拉取（只拉记账流水；资产由 LedgerRepository 单独刷新） */
+    /** 账本页面拉取已迁移至 LedgerRepository.pullLedgerData */
+    @Deprecated("请直接使用 LedgerRepository.pullLedgerData", ReplaceWith("com.looseleaf.feature.ledger.data.LedgerRepository.pullLedgerData(force = forceFull)"))
     suspend fun pullLedgerData(forceFull: Boolean = false): Result<Unit> =
-        pullRemoteData(forceFull, setOf(SyncDataset.TRANSACTIONS))
+        com.looseleaf.feature.ledger.data.LedgerRepository.pullLedgerData(force = forceFull)
 
     /** MOB-P1-37：造物 / 心愿 / 足迹页面专用拉取 */
     suspend fun pullProjectsWishesData(forceFull: Boolean = false): Result<Unit> =

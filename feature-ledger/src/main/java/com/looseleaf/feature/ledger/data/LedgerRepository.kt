@@ -1015,18 +1015,6 @@ object LedgerRepository {
         }
     }
 
-    suspend fun clearDatabase() = withContext(Dispatchers.IO) {
-        syncMutex.withLock {
-            appContext?.let {
-                val db = LedgerDatabase.getInstance(it)
-                db.transactionDao().clearAll()
-                db.outboxDao().discardAllFailed()
-            }
-            clearCursor()
-            clear()
-        }
-    }
-
     fun clear() {
         initialized = false
         _snapshot.value = LedgerSnapshot()

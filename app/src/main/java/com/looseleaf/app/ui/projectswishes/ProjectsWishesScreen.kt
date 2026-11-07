@@ -419,20 +419,23 @@ fun ProjectsWishesScreen(
             var fpVisitedAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone)) }
             var fpIsMultiDay by remember { mutableStateOf(false) }
             var fpDepartedAt by remember { mutableStateOf(LocalDateTime.now(FormatUtils.BeijingZone).plusDays(2)) }
+            var isSubmittingCreate by remember { mutableStateOf(false) }
 
-            val isSaveEnabled = if (selectedTab == 2) fpCityName.isNotBlank() else inputTitle.isNotBlank()
+            val isSaveEnabled = (if (selectedTab == 2) fpCityName.isNotBlank() else inputTitle.isNotBlank()) && !isSubmittingCreate
 
             ArchiveSheet(
-                onDismissRequest = { showCreateDialog = false },
+                onDismissRequest = { if (!isSubmittingCreate) showCreateDialog = false },
                 title = when (selectedTab) {
                     0 -> "新建造物"
                     1 -> "许下心愿"
                     else -> "点亮足迹"
                 },
                 cancelText = "取消",
-                actionText = "保存",
+                actionText = if (isSubmittingCreate) "保存中…" else "保存",
                 isActionEnabled = isSaveEnabled,
-                onAction = {
+                onAction = onAction@{
+                    if (isSubmittingCreate) return@onAction
+                    isSubmittingCreate = true
                     scope.launch {
                         try {
                             when (selectedTab) {
@@ -482,6 +485,8 @@ fun ProjectsWishesScreen(
                             throw e
                         } catch (e: Exception) {
                             ArchiveToastManager.show("创建失败: ${e.message}", isError = true)
+                        } finally {
+                            isSubmittingCreate = false
                         }
                     }
                 }
@@ -648,21 +653,24 @@ fun ProjectsWishesScreen(
             var createGear by remember(wish.id) { mutableStateOf(wish.kind == "item") }
             var createEntry by remember(wish.id) { mutableStateOf(true) }
             var createFp by remember(wish.id) { mutableStateOf(wish.kind == "travel") }
+            var isResolvingWish by remember { mutableStateOf(false) }
             val costInvalid = !resType.equals("relinquished") &&
                 costInput.isNotBlank() && costInput.trim().toDoubleOrNull() == null
             val installmentReady = resType == "relinquished" || !createTx ||
                 wishPayChoice != "installment" || wishChannelCode.isNotBlank()
 
             ArchiveSheet(
-                onDismissRequest = { resolvingWish = null },
+                onDismissRequest = { if (!isResolvingWish) resolvingWish = null },
                 title = "达成归册 · ${wish.title}",
-                actionText = "归册",
-                isActionEnabled = !costInvalid && installmentReady,
-                onAction = {
+                actionText = if (isResolvingWish) "归册中…" else "归册",
+                isActionEnabled = !costInvalid && installmentReady && !isResolvingWish,
+                onAction = onAction@{
+                    if (isResolvingWish) return@onAction
                     if (costInvalid) {
                         ArchiveToastManager.show("金额格式不正确，请输入有效数字", isError = true)
-                        return@ArchiveSheet
+                        return@onAction
                     }
+                    isResolvingWish = true
                     scope.launch {
                         try {
                             val isRel = resType == "relinquished"
@@ -695,6 +703,8 @@ fun ProjectsWishesScreen(
                             throw e
                         } catch (e: Exception) {
                             ArchiveToastManager.show("归册失败: ${e.message}", isError = true)
+                        } finally {
+                            isResolvingWish = false
                         }
                     }
                 }
@@ -1030,15 +1040,18 @@ fun ProjectsWishesScreen(
             var editDesc by remember(proj.id) { mutableStateOf(proj.description ?: "") }
             var editStatus by remember(proj.id) { mutableStateOf(proj.status ?: "进行中") }
             var editGithub by remember(proj.id) { mutableStateOf(proj.githubUrl ?: "") }
+            var isUpdatingProject by remember { mutableStateOf(false) }
 
             ArchiveSheet(
-                onDismissRequest = { editingProject = null },
+                onDismissRequest = { if (!isUpdatingProject) editingProject = null },
                 title = stringResource(R.string.projects_wishes_screen_title_tpl_03, proj.title),
-                actionText = "保存",
-                isActionEnabled = editTitle.isNotBlank(),
-                onAction = {
+                actionText = if (isUpdatingProject) "保存中…" else "保存",
+                isActionEnabled = editTitle.isNotBlank() && !isUpdatingProject,
+                onAction = onAction@{
+                    if (isUpdatingProject) return@onAction
+                    isUpdatingProject = true
                     scope.launch {
-                        runCatching {
+                        try {
                             val queued = syncManager.updateProjectOrQueue(
                                 id = proj.id,
                                 req = CreateProjectRequest(
@@ -1057,12 +1070,15 @@ fun ProjectsWishesScreen(
                             } else {
                                 ArchiveToastManager.show("造物项目已更新")
                             }
-                        }.onFailure { err ->
-                            ArchiveToastManager.show("更新造物失败: ${err.message}", isError = true)
-                            return@launch
+                            editingProject = null
+                            reloadAll()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            ArchiveToastManager.show("更新造物失败: ${e.message}", isError = true)
+                        } finally {
+                            isUpdatingProject = false
                         }
-                        editingProject = null
-                        reloadAll()
                     }
                 }
             ) {
@@ -1154,9 +1170,11 @@ fun ProjectsWishesScreen(
                 confirmText = stringResource(R.string.projects_wishes_screen_confirmText_01),
                 isDestructive = true,
                 onConfirm = {
+                    val targetWishId = wish.id
+                    wishToDelete = null
                     scope.launch {
                         runCatching {
-                            val queued = syncManager.deleteWishOrQueue(wish.id)
+                            val queued = syncManager.deleteWishOrQueue(targetWishId)
                             if (queued) {
                                 ArchiveToastManager.show("已离线排队移除心愿")
                             } else {
@@ -1166,7 +1184,6 @@ fun ProjectsWishesScreen(
                             ArchiveToastManager.show("移除心愿失败: ${err.message}", isError = true)
                             return@launch
                         }
-                        wishToDelete = null
                         reloadAll()
                     }
                 },
@@ -1182,9 +1199,12 @@ fun ProjectsWishesScreen(
                 confirmText = stringResource(R.string.ledger_dialogs_confirmText_01),
                 isDestructive = true,
                 onConfirm = {
+                    val targetProjId = proj.id
+                    projectToDelete = null
+                    editingProject = null
                     scope.launch {
                         runCatching {
-                            val queued = syncManager.deleteProjectOrQueue(proj.id)
+                            val queued = syncManager.deleteProjectOrQueue(targetProjId)
                             if (queued) {
                                 ArchiveToastManager.show("已离线排队删除造物")
                             } else {
@@ -1194,8 +1214,6 @@ fun ProjectsWishesScreen(
                             ArchiveToastManager.show("删除造物失败: ${err.message}", isError = true)
                             return@launch
                         }
-                        projectToDelete = null
-                        editingProject = null
                         reloadAll()
                     }
                 },
@@ -1216,17 +1234,18 @@ fun ProjectsWishesScreen(
                 confirmText = "确认移除",
                 isDestructive = true,
                 onConfirm = {
+                    val targetFootId = foot.id
+                    footprintToDelete = null
+                    selectedDrawerFootprint = null
                     scope.launch {
                         runCatching {
-                            val queued = syncManager.deleteFootprintOrQueue(foot.id)
+                            val queued = syncManager.deleteFootprintOrQueue(targetFootId)
                             if (queued) ArchiveToastManager.show("当前离线，已排队移除票根")
                             else ArchiveToastManager.show("票根已移除")
                         }.onFailure { err ->
                             ArchiveToastManager.show("移除票根失败: ${err.message}", isError = true)
                             return@launch
                         }
-                        footprintToDelete = null
-                        selectedDrawerFootprint = null
                         reloadAll()
                     }
                 },

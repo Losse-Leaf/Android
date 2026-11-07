@@ -38,6 +38,11 @@ class InstallmentReminderWorker(
 
     override suspend fun doWork(): Result {
         return withContext(Dispatchers.IO) {
+            val credStore = CredentialStore.getInstance(applicationContext)
+            if (!credStore.isInstallmentReminderEnabled) {
+                cancelWork(applicationContext)
+                return@withContext Result.success()
+            }
             try {
                 checkAndNotify(applicationContext)
                 Result.success()
@@ -54,6 +59,12 @@ class InstallmentReminderWorker(
         const val CHANNEL_ID = "installment_reminders"
 
         fun enqueuePeriodicWork(context: Context) {
+            val credStore = CredentialStore.getInstance(context)
+            if (!credStore.isInstallmentReminderEnabled) {
+                cancelWork(context)
+                return
+            }
+
             val nowBeijing = java.time.ZonedDateTime.now(com.looseleaf.app.utils.FormatUtils.BeijingZone)
             var nextTarget = nowBeijing.withHour(9).withMinute(0).withSecond(0).withNano(0)
             if (nowBeijing.isAfter(nextTarget)) {
