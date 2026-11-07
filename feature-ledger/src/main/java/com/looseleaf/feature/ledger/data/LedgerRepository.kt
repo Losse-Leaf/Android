@@ -81,8 +81,8 @@ object LedgerRepository {
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
                 val db = LedgerDatabase.getInstance(context.applicationContext)
-                db.transactionDao().deleteDuplicateServerIds()
                 db.transactionDao().deleteSyncedShadowsOfPending()
+                db.transactionDao().deleteDuplicateServerIds()
             }
         }
     }
@@ -511,12 +511,53 @@ object LedgerRepository {
                     lastMetadataRefreshTime = System.currentTimeMillis()
                 }
 
-                // 3. 增量游标拉取 (P0-1)
+                // 3. 增量游标拉取 (P0-1 & P0-2)
                 val storedCursor = getStoredCursor()
                 if (storedCursor.isNullOrBlank()) {
                     // 首次全量拉取：分页遍历直至完全同步
                     var offset = 0
                     val batchLimit = 200
+                    var pages = 0
+                    val maxPages = 100
+                    var maxCursorCandidate: String? = null
+
+                    while (pages < maxPages) {
+                        val meta = ResponseMeta()
+                        val batch = api.fetchTransactions(
+                            limit = batchLimit,
+                            offset = if (offset > 0) offset else null,
+                            includeDeleted = true,
+                            meta = meta
+                        )
+                        pages++
+                        if (batch.isEmpty()) break
+
+                        mergeTransactions(db, batch)
+
+                        val serverCursor = meta.syncCursor
+                        val batchMax = maxOfOrNull(
+                            serverCursor,
+                            batch.mapNotNull { it.updatedAt ?: it.deletedAt ?: it.createdAt }.maxOrNull()
+                        )
+                        if (batchMax != null && (maxCursorCandidate == null || batchMax > maxCursorCandidate)) {
+                            maxCursorCandidate = batchMax
+                        }
+
+                        if (batch.size < batchLimit) break
+                        offset += batch.size
+                    }
+
+                    if (pages >= maxPages && offset > 0) {
+                        throw IllegalStateException("全量同步超过最大页数限制 ($maxPages)，终止游标推进以避免数据不完整")
+                    }
+
+                    if (!maxCursorCandidate.isNullOrBlank()) {
+                        saveCursor(maxCursorCandidate)
+                    }
+                } else {
+                    // 增量拉取 (P0-2)：分页遍历直至拉完全部变更，防止超过 500 条静默漏拉
+                    var offset = 0
+                    val batchLimit = 500
                     var pages = 0
                     val maxPages = 50
                     var maxCursorCandidate: String? = null
@@ -524,6 +565,8 @@ object LedgerRepository {
                     while (pages < maxPages) {
                         val meta = ResponseMeta()
                         val batch = api.fetchTransactions(
+                            since = storedCursor,
+                            includeDeleted = true,
                             limit = batchLimit,
                             offset = if (offset > 0) offset else null,
                             meta = meta
@@ -534,38 +577,24 @@ object LedgerRepository {
                         mergeTransactions(db, batch)
 
                         val serverCursor = meta.syncCursor
-                        if (!serverCursor.isNullOrBlank()) {
-                            maxCursorCandidate = serverCursor
-                        } else {
-                            val batchMax = batch.mapNotNull { it.updatedAt ?: it.createdAt }.maxOrNull()
-                            if (batchMax != null && (maxCursorCandidate == null || batchMax > maxCursorCandidate)) {
-                                maxCursorCandidate = batchMax
-                            }
+                        val batchMax = maxOfOrNull(
+                            serverCursor,
+                            batch.mapNotNull { it.updatedAt ?: it.deletedAt ?: it.createdAt }.maxOrNull()
+                        )
+                        if (batchMax != null && (maxCursorCandidate == null || batchMax > maxCursorCandidate)) {
+                            maxCursorCandidate = batchMax
                         }
 
                         if (batch.size < batchLimit) break
                         offset += batch.size
                     }
 
-                    if (!maxCursorCandidate.isNullOrBlank()) {
+                    if (pages >= maxPages) {
+                        throw IllegalStateException("增量同步超过最大页数限制 ($maxPages)，终止游标推进以避免漏拉")
+                    }
+
+                    if (!maxCursorCandidate.isNullOrBlank() && maxCursorCandidate > storedCursor) {
                         saveCursor(maxCursorCandidate)
-                    }
-                } else {
-                    // 增量拉取：带 since 与 include_deleted=true，处理修改与 Tombstone
-                    val meta = ResponseMeta()
-                    val batch = api.fetchTransactions(
-                        since = storedCursor,
-                        includeDeleted = true,
-                        limit = 500,
-                        meta = meta
-                    )
-                    if (batch.isNotEmpty()) {
-                        mergeTransactions(db, batch)
-                    }
-                    val newCursor = meta.syncCursor
-                        ?: batch.mapNotNull { it.updatedAt ?: it.deletedAt }.maxOrNull()
-                    if (!newCursor.isNullOrBlank() && newCursor > storedCursor) {
-                        saveCursor(newCursor)
                     }
                 }
 
@@ -576,12 +605,20 @@ object LedgerRepository {
         }
     }
 
+    private fun maxOfOrNull(a: String?, b: String?): String? {
+        if (a == null) return b
+        if (b == null) return a
+        return if (a >= b) a else b
+    }
+
     /**
-     * 权威 UPSERT 合并（P0-2）：
+     * 权威 UPSERT 合并（P0-2, P1-4, P2-11）：
      * 1. 远端 Tombstone（软删除）：仅在本地无待同步修改时执行删除；
-     * 2. 远端活跃行：若本地有待同步修改则保留本地优先，否则原地 UPSERT 避免重新生成 localId。
+     * 2. 远端活跃行：若本地已标记为待删除 (PENDING_DELETE)，绝对不可被远端复活；
+     * 3. 本地待同步新建 (PENDING_CREATE) 行通过 client_request_id 与远端对齐，原地绑定 serverId 并清理 CREATE 事件；
+     * 4. 本地待同步更新优先，否则原地 UPSERT 避免重新生成 localId。
      */
-    private suspend fun mergeTransactions(db: LedgerDatabase, remote: List<Transaction>) {
+    internal suspend fun mergeTransactions(db: LedgerDatabase, remote: List<Transaction>) {
         if (remote.isEmpty()) return
 
         val activeRemote = remote.filter { it.deletedAt.isNullOrBlank() }.distinctBy { it.id }
@@ -591,12 +628,16 @@ object LedgerRepository {
             .mapNotNull { it.serverId?.let { sid -> sid to it } }
             .toMap()
 
+        // P1-4: 建立本地 PENDING_CREATE 的 client_request_id 第二索引
+        val activeCreateEvents = db.outboxDao().getActiveCreateEvents()
+        val pendingCreateByCrid = activeCreateEvents.associateBy { it.clientRequestId }
+
         db.withTransaction {
             // 1. 处理服务端 Tombstone 软删除
             for (del in softDeleted) {
                 val existing = localIndex[del.id]
                 if (existing != null && existing.syncStatus != "SYNCED") {
-                    // 本地有待同步修改，保护本地行
+                    // 本地有待同步修改或本地已处于 PENDING_DELETE，不打乱本地状态
                     continue
                 }
                 db.transactionDao().deleteByServerId(del.id)
@@ -606,11 +647,31 @@ object LedgerRepository {
             val toUpsert = mutableListOf<CachedTransactionEntity>()
             for (item in activeRemote) {
                 val existing = localIndex[item.id]
-                if (existing != null && existing.syncStatus != "SYNCED") {
-                    // 本地待同步行优先，避免远端旧状态覆盖
+                if (existing != null) {
+                    if (existing.syncStatus == "PENDING_DELETE") {
+                        // P2-11: 本地已标记待删除，严禁被远端拉取复活
+                        continue
+                    }
+                    if (existing.syncStatus != "SYNCED") {
+                        // 本地待同步行优先，避免远端旧状态覆盖
+                        continue
+                    }
+                    toUpsert += item.toCacheEntity(localId = existing.localId)
                     continue
                 }
-                toUpsert += item.toCacheEntity(localId = existing?.localId ?: 0)
+
+                // P1-4: 若 server_id 未命中，检查 client_request_id 是否命中本地 PENDING_CREATE
+                val crid = item.clientRequestId
+                val matchedCreate = if (!crid.isNullOrBlank()) pendingCreateByCrid[crid] else null
+                if (matchedCreate != null) {
+                    toUpsert += item.toCacheEntity(localId = matchedCreate.localTargetId)
+                    db.outboxDao().deleteByEventId(matchedCreate.eventId)
+                    db.outboxDao().bindServerId(matchedCreate.localTargetId, item.id)
+                    continue
+                }
+
+                // 远端全新记录
+                toUpsert += item.toCacheEntity(localId = 0)
             }
             if (toUpsert.isNotEmpty()) {
                 db.transactionDao().insertAll(toUpsert)
@@ -619,11 +680,12 @@ object LedgerRepository {
     }
 
     /**
-     * 排空发件箱（P0-4、P0-6）：
+     * 排空发件箱（P0-1, P0-4, P0-6, P1-2）：
      * 严格按入队序列 (sequence ASC) 发送；
-     * 对网络与 5xx 故障实施退避重试，4xx 错误进入死信，409 幂等查重自动回填。
+     * 写入完成在 Room 事务内重新比对事件载荷（Check-Then-Act），杜绝同步期间编辑静默丢弃；
+     * 对网络与 5xx 故障实施退避重试，4xx 错误进入死信。
      */
-    private suspend fun flushOutbox(db: LedgerDatabase, api: APIClient): Boolean {
+    internal suspend fun flushOutbox(db: LedgerDatabase, api: APIClient): Boolean {
         val events = db.outboxDao().getAllPendingEvents()
         var hasPushed = false
         val now = Instant.now()
@@ -635,9 +697,43 @@ object LedgerRepository {
                         val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
                         val created = api.createTransaction(req)
                         db.withTransaction {
-                            db.transactionDao().markSynced(event.localTargetId, created.id, created.updatedAt)
-                            db.outboxDao().bindServerId(event.localTargetId, created.id)
-                            db.outboxDao().deleteByEventId(event.eventId)
+                            val latest = db.outboxDao().findActiveEventById(event.eventId)
+                            if (latest == null) {
+                                // 飞行期间事件已被取消或移除，仍绑定 serverId 到本地行防孤立
+                                val localEntity = db.transactionDao().getTransactionByLocalId(event.localTargetId)
+                                if (localEntity != null && localEntity.syncStatus == "PENDING_DELETE") {
+                                    db.transactionDao().bindServerId(event.localTargetId, created.id)
+                                    db.outboxDao().bindServerId(event.localTargetId, created.id)
+                                }
+                                return@withTransaction
+                            }
+                            if (latest.payload != event.payload) {
+                                // P0-1 竞态保护：飞行期间用户再次编辑了该条目
+                                // 服务端已按旧载荷与 client_request_id 创建了记录 (created.id)
+                                // 绑定返回的 serverId 到本地行，保持本地状态为 PENDING_UPDATE
+                                db.transactionDao().bindServerId(event.localTargetId, created.id)
+                                db.transactionDao().updateSyncStatus(event.localTargetId, "PENDING_UPDATE")
+                                db.outboxDao().bindServerId(event.localTargetId, created.id)
+                                // 将原 CREATE 事件删除，替换为一条新的 UPDATE 事件，载荷为最新编辑内容
+                                db.outboxDao().deleteByEventId(event.eventId)
+                                val nextSeq = db.outboxDao().getNextSequence()
+                                db.outboxDao().insert(
+                                    LedgerOutboxEventEntity(
+                                        eventId = UUID.randomUUID().toString(),
+                                        action = "UPDATE",
+                                        payload = latest.payload,
+                                        localTargetId = event.localTargetId,
+                                        serverTargetId = created.id,
+                                        clientRequestId = UUID.randomUUID().toString(),
+                                        sequence = nextSeq,
+                                        enqueuedAt = Instant.now().toString()
+                                    )
+                                )
+                            } else {
+                                db.transactionDao().markSynced(event.localTargetId, created.id, created.updatedAt)
+                                db.outboxDao().bindServerId(event.localTargetId, created.id)
+                                db.outboxDao().deleteByEventId(event.eventId)
+                            }
                         }
                         hasPushed = true
                     }
@@ -648,8 +744,32 @@ object LedgerRepository {
                         }
                         if (serverId != null && serverId > 0) {
                             val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
-                            val updated = api.updateTransaction(serverId, req)
+                            val updated = try {
+                                api.updateTransaction(serverId, req)
+                            } catch (e: Exception) {
+                                val apiEx = e as? APIException
+                                val msg = e.message ?: ""
+                                if (apiEx?.code == 404 || msg.contains("404") || msg.contains("不存在")) {
+                                    // P1-2: 远端该记录已不存在，清理本地行与事件避免永久卡死
+                                    db.withTransaction {
+                                        db.transactionDao().deleteByLocalId(event.localTargetId)
+                                        db.outboxDao().deleteByEventId(event.eventId)
+                                    }
+                                    hasPushed = true
+                                    continue
+                                }
+                                throw e
+                            }
                             db.withTransaction {
+                                val latest = db.outboxDao().findActiveEventById(event.eventId)
+                                if (latest == null) {
+                                    return@withTransaction
+                                }
+                                if (latest.payload != event.payload) {
+                                    // P0-1 竞态保护：飞行期间用户再次编辑了该条目
+                                    // 不 markSynced、不删事件，下一轮循环将重发最新载荷
+                                    return@withTransaction
+                                }
                                 db.transactionDao().markSynced(event.localTargetId, serverId, updated.updatedAt)
                                 db.outboxDao().deleteByEventId(event.eventId)
                             }
@@ -694,11 +814,6 @@ object LedgerRepository {
                 val errorMsg = e.message ?: "Unknown sync error"
 
                 when {
-                    code == 409 -> {
-                        // 409 幂等冲突：尝试从远端对账回填
-                        handleIdempotentCreateConflict(db, api, event)
-                        hasPushed = true
-                    }
                     code == 401 -> {
                         // 鉴权失败：暂停本次队列处理，等待重配对
                         break
@@ -723,29 +838,6 @@ object LedgerRepository {
         val baseSeconds = 5L
         val multiplier = 1L shl minOf(retryCount, 6)
         return minOf(baseSeconds * multiplier, 900L)
-    }
-
-    private suspend fun handleIdempotentCreateConflict(
-        db: LedgerDatabase,
-        api: APIClient,
-        event: LedgerOutboxEventEntity
-    ) {
-        runCatching {
-            val recent = api.fetchTransactions(limit = 50)
-            val matched = recent.firstOrNull { it.createdAt == event.enqueuedAt }
-                ?: recent.firstOrNull()
-            if (matched != null) {
-                db.withTransaction {
-                    db.transactionDao().markSynced(event.localTargetId, matched.id, matched.updatedAt)
-                    db.outboxDao().bindServerId(event.localTargetId, matched.id)
-                    db.outboxDao().deleteByEventId(event.eventId)
-                }
-            } else {
-                db.outboxDao().scheduleRetry(event.eventId, Instant.now().plusSeconds(30).toString(), "409 幂等对账中")
-            }
-        }.onFailure {
-            db.outboxDao().scheduleRetry(event.eventId, Instant.now().plusSeconds(30).toString(), "409 对账异常: ${it.message}")
-        }
     }
 
     suspend fun refreshAll(

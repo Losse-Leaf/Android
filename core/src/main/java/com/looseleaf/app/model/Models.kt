@@ -98,6 +98,7 @@ data class Transaction(
     @SerialName("principal_amount") val principalAmount: Long = 0,
     @SerialName("fee_amount") val feeAmount: Long = 0,
     @SerialName("sync_status") val syncStatus: String? = "SYNCED",
+    @SerialName("client_request_id") val clientRequestId: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
     @SerialName("deleted_at") val deletedAt: String? = null

@@ -1,6 +1,7 @@
 package com.looseleaf.feature.ledger
 
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
@@ -342,5 +343,182 @@ class LedgerSyncConsistencyTest {
         val remainingFailed = outboxDao.getFailedEvents()
         assertEquals(1, remainingFailed.size)
         assertEquals("recent_dead", remainingFailed[0].eventId)
+    }
+
+    @Test
+    fun `test mergeTransactions binds pending create by clientRequestId without duplicating`() = runBlocking {
+        val outboxDao = db.outboxDao()
+        val txDao = db.transactionDao()
+
+        val crid = "crid-test-123"
+        val localId = txDao.insert(
+            CachedTransactionEntity(
+                amount = 2500,
+                type = "expense",
+                category = "娱乐",
+                title = "电影票",
+                occurredAt = "2026-11-02T19:00:00+08:00",
+                syncStatus = "PENDING_CREATE"
+            )
+        )
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = "evt_create_123",
+                action = "CREATE",
+                payload = "{}",
+                localTargetId = localId,
+                serverTargetId = null,
+                clientRequestId = crid,
+                sequence = 1L,
+                enqueuedAt = "2026-11-02T19:00:00+08:00"
+            )
+        )
+
+        // 远端返回已落库的记录，带同一 clientRequestId
+        val remoteTx = Transaction(
+            id = 555L,
+            amount = 2500,
+            category = "娱乐",
+            title = "电影票",
+            occurredAt = "2026-11-02T19:00:00+08:00",
+            clientRequestId = crid
+        )
+
+        LedgerRepository.mergeTransactions(db, listOf(remoteTx))
+
+        // 验证：本地行保留 localId，绑定 serverId = 555，标为 SYNCED
+        val mergedLocal = txDao.getTransactionByLocalId(localId)
+        assertNotNull(mergedLocal)
+        assertEquals(555L, mergedLocal!!.serverId)
+        assertEquals("SYNCED", mergedLocal.syncStatus)
+
+        // 验证：对应的 CREATE 出库事件已被彻底清理
+        val pendingEvents = outboxDao.getAllPendingEvents()
+        assertTrue(pendingEvents.none { it.eventId == "evt_create_123" })
+
+        // 验证：总记录数依然为 1，无任何重复行
+        assertEquals(1, txDao.getAllTransactions().size)
+    }
+
+    @Test
+    fun `test mergeTransactions does not resurrect pending delete row`() = runBlocking {
+        val txDao = db.transactionDao()
+
+        // 本地处于待删除状态 (serverId = 666, syncStatus = PENDING_DELETE)
+        val localId = txDao.insert(
+            CachedTransactionEntity(
+                localId = 10,
+                serverId = 666L,
+                amount = 1200,
+                type = "expense",
+                category = "生活",
+                title = "已删除本地账目",
+                occurredAt = "2026-11-02T10:00:00+08:00",
+                syncStatus = "PENDING_DELETE"
+            )
+        )
+
+        // 远端全量/增量返回了活跃的 serverId = 666 记录
+        val remoteTx = Transaction(
+            id = 666L,
+            amount = 1200,
+            category = "生活",
+            title = "远端仍然活跃",
+            occurredAt = "2026-11-02T10:00:00+08:00"
+        )
+
+        LedgerRepository.mergeTransactions(db, listOf(remoteTx))
+
+        // 验证：本地记录依然为 PENDING_DELETE，未被远端覆盖复活为 SYNCED
+        val row = txDao.getTransactionByLocalId(localId)
+        assertNotNull(row)
+        assertEquals("PENDING_DELETE", row!!.syncStatus)
+        assertEquals("已删除本地账目", row.title)
+    }
+
+    @Test
+    fun `test concurrent edit during CREATE converts to UPDATE outbox event`() = runBlocking {
+        val outboxDao = db.outboxDao()
+        val txDao = db.transactionDao()
+
+        val initialPayload = """{"amount":1000,"category":"餐饮","title":"初次创建"}"""
+        val updatedPayload = """{"amount":2000,"category":"餐饮","title":"飞行期间二次编辑"}"""
+
+        val localId = txDao.insert(
+            CachedTransactionEntity(
+                amount = 1000,
+                category = "餐饮",
+                title = "初次创建",
+                occurredAt = "2026-11-02T12:00:00+08:00",
+                syncStatus = "PENDING_CREATE"
+            )
+        )
+        val eventId = "evt_race_create"
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = eventId,
+                action = "CREATE",
+                payload = initialPayload,
+                localTargetId = localId,
+                serverTargetId = null,
+                clientRequestId = "crid_race",
+                sequence = 1L,
+                enqueuedAt = "2026-11-02T12:00:00+08:00"
+            )
+        )
+
+        // 模拟飞行期间用户再次编辑：本地行与 outbox payload 更新为 updatedPayload
+        outboxDao.updatePayload(eventId, updatedPayload)
+        txDao.update(
+            txDao.getTransactionByLocalId(localId)!!.copy(
+                amount = 2000,
+                title = "飞行期间二次编辑"
+            )
+        )
+
+        // 模拟网络返回：服务端生成了 serverId = 777
+        val serverCreatedId = 777L
+
+        // 执行 Check-then-act 事务逻辑
+        db.withTransaction {
+            val latest = outboxDao.findActiveEventById(eventId)
+            assertNotNull(latest)
+            assertNotEquals(initialPayload, latest!!.payload)
+
+            // 识别出竞态：绑定 serverId，本地保持 PENDING_UPDATE，将 CREATE 转为 UPDATE 事件
+            txDao.bindServerId(localId, serverCreatedId)
+            txDao.updateSyncStatus(localId, "PENDING_UPDATE")
+            outboxDao.bindServerId(localId, serverCreatedId)
+            outboxDao.deleteByEventId(eventId)
+
+            val nextSeq = outboxDao.getNextSequence()
+            outboxDao.insert(
+                LedgerOutboxEventEntity(
+                    eventId = UUID.randomUUID().toString(),
+                    action = "UPDATE",
+                    payload = latest.payload,
+                    localTargetId = localId,
+                    serverTargetId = serverCreatedId,
+                    clientRequestId = UUID.randomUUID().toString(),
+                    sequence = nextSeq,
+                    enqueuedAt = "2026-11-02T12:00:05+08:00"
+                )
+            )
+        }
+
+        // 验证：本地行已绑定 serverId = 777，且处于 PENDING_UPDATE 状态
+        val localRow = txDao.getTransactionByLocalId(localId)
+        assertNotNull(localRow)
+        assertEquals(777L, localRow!!.serverId)
+        assertEquals("PENDING_UPDATE", localRow.syncStatus)
+        assertEquals("飞行期间二次编辑", localRow.title)
+
+        // 验证：outbox 中 CREATE 事件已移除，生成了新的 UPDATE 事件，载荷为最新修改
+        val pendingEvents = outboxDao.getAllPendingEvents()
+        assertEquals(1, pendingEvents.size)
+        val updateEvent = pendingEvents.first()
+        assertEquals("UPDATE", updateEvent.action)
+        assertEquals(777L, updateEvent.serverTargetId)
+        assertEquals(updatedPayload, updateEvent.payload)
     }
 }

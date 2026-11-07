@@ -1011,13 +1011,25 @@ fun ProfileScreen(
                     onDismiss = { showStorageBackupDialog = false },
                     onRestored = {
                         scope.launch {
-                            syncManager.pullRemoteData(forceFull = true)
-                                .onFailure { err ->
-                                    ArchiveToastManager.show(
-                                        "恢复完成，但拉取中枢数据失败: ${err.message}，请下拉刷新",
-                                        isError = true
-                                    )
-                                }
+                            val unsyncedCount = com.looseleaf.app.data.sync.LocalDataResetCoordinator.getUnsyncedCount(context)
+                            if (unsyncedCount > 0) {
+                                ArchiveToastManager.show("检测到本机有 $unsyncedCount 条未同步修改，已保留并开始全量同步")
+                            }
+                            LedgerRepository.clearCursor()
+                            val ledgerResult = LedgerRepository.pullLedgerData(force = true)
+                            val mainResult = syncManager.pullRemoteData(forceFull = true)
+                            if (ledgerResult.isFailure || mainResult.isFailure) {
+                                val errMsg = listOfNotNull(
+                                    mainResult.exceptionOrNull()?.message,
+                                    ledgerResult.exceptionOrNull()?.message
+                                ).joinToString("; ")
+                                ArchiveToastManager.show(
+                                    "恢复完成，但拉取数据失败: $errMsg，请下拉刷新",
+                                    isError = true
+                                )
+                            } else {
+                                ArchiveToastManager.show("数据恢复成功，已全量同步最新数据")
+                            }
                             reloadDevices()
                         }
                     }

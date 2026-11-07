@@ -73,7 +73,7 @@ interface TransactionDao {
 
     @Query(
         "SELECT local_id AS localId, server_id AS serverId, sync_status AS syncStatus " +
-            "FROM cached_transactions WHERE sync_status != 'PENDING_DELETE' AND deleted_at IS NULL"
+            "FROM cached_transactions WHERE deleted_at IS NULL"
     )
     suspend fun getTransactionSyncIndex(): List<LedgerSyncIndex>
 
@@ -97,6 +97,12 @@ interface TransactionDao {
 
     @Query("UPDATE cached_transactions SET server_id = :serverId, sync_status = 'SYNCED', updated_at = COALESCE(:updatedAt, updated_at) WHERE local_id = :localId")
     suspend fun markSynced(localId: Long, serverId: Long, updatedAt: String? = null)
+
+    @Query("UPDATE cached_transactions SET server_id = :serverId WHERE local_id = :localId")
+    suspend fun bindServerId(localId: Long, serverId: Long)
+
+    @Query("UPDATE cached_transactions SET sync_status = :status WHERE local_id = :localId")
+    suspend fun updateSyncStatus(localId: Long, status: String)
 
     @Query("UPDATE cached_transactions SET sync_status = 'PENDING_DELETE' WHERE local_id = :localId")
     suspend fun markPendingDelete(localId: Long)
@@ -143,6 +149,12 @@ interface LedgerOutboxDao {
         val now = java.time.Instant.now().toString()
         return getAllPendingEvents(now)
     }
+
+    @Query("SELECT * FROM ledger_outbox_events WHERE event_id = :eventId AND failed_at IS NULL LIMIT 1")
+    suspend fun findActiveEventById(eventId: String): LedgerOutboxEventEntity?
+
+    @Query("SELECT * FROM ledger_outbox_events WHERE action = 'CREATE' AND failed_at IS NULL")
+    suspend fun getActiveCreateEvents(): List<LedgerOutboxEventEntity>
 
     @Query("SELECT * FROM ledger_outbox_events WHERE local_target_id = :localTargetId AND failed_at IS NULL LIMIT 1")
     suspend fun findActiveEventByLocalTarget(localTargetId: Long): LedgerOutboxEventEntity?
