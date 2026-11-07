@@ -130,9 +130,6 @@ class SyncManager private constructor(private val context: Context) {
             return elapsed < DELETE_GRACE_PERIOD_MS
         }
 
-        /** project/wish 这类没有本地行的事件用 -1 哨兵，绝不能用 0（会误删全表同类事件） */
-        const val LOCAL_TARGET_ID_NONE = -1L
-
         /**
          * 各页面「本会话已首拉」的**进程级**门禁。
          *
@@ -243,6 +240,26 @@ class SyncManager private constructor(private val context: Context) {
                     .collect { _failedEventCount.value = it }
             }
             scope.launch { normalizeLegacyTimestamps() }
+            scope.launch { repairLegacySimpleEntityTargets() }
+        }
+    }
+
+    /**
+     * P0-3：旧版本把 project / wish / footprint 的临时目标写成
+     * `local_target_id = -1, server_target_id = 负数`，导致 Worker 删除 -1、
+     * UPDATE / DELETE 直接消费事件，离线修改与删除静默丢失。
+     *
+     * 这里做一次性迁移，幂等且只跑一次；Worker 启动时也会兜底调用。
+     */
+    internal suspend fun repairLegacySimpleEntityTargets() = withContext(Dispatchers.IO) {
+        val key = "simple_entity_targets_repaired_v1"
+        if (syncPrefs.getBoolean(key, false)) return@withContext
+        runCatching {
+            val repaired = SimpleEntitySync.repairLegacyTargets(database.outboxDao())
+            if (repaired > 0) {
+                Log.i(TAG, "Repaired $repaired legacy simple-entity outbox targets")
+            }
+            syncPrefs.edit().putBoolean(key, true).apply()
         }
     }
 
@@ -1493,20 +1510,39 @@ class SyncManager private constructor(private val context: Context) {
         return null
     }
 
-    /** MOB-P1-37：造物项目（只读缓存，整表替换） */
+    /**
+     * MOB-P1-37：造物项目（整表对账）。
+     *
+     * 不能再用 clearAll() + insertAll()：那会把尚未上传的负数临时行一起清掉，
+     * 发件箱随后补发成功时本地已经没有可替换的行，列表还会短暂「消失」。
+     * 现在只删除「远端完整列表里不存在、且未被发件箱保护」的已同步行。
+     */
     private suspend fun pullProjectsDataset(): String? = try {
+        // 先快照本地 id 再发起网络请求：拉取期间 Worker 可能刚把临时行换成
+        // 真实 server id，新 id 不在远端响应里 —— 用旧快照对账可避免误删。
+        val localIdsBeforePull = database.projectDao().getAllIds()
         val remoteProjects = apiClient.fetchProjects()
         database.withTransaction {
-            database.projectDao().clearAll()
-            database.projectDao().insertAll(remoteProjects.map { it.toCacheEntity() })
+            val remoteIds = remoteProjects.mapTo(HashSet()) { it.id }
+            val protectedIds = database.outboxDao()
+                .getProtectedServerTargetIds(SimpleEntitySync.PROJECT)
+                .toHashSet()
+            SimpleEntitySync.staleServerIdsToDelete(
+                localIdsBeforePull, remoteIds, protectedIds
+            ).forEach { database.projectDao().deleteById(it) }
+            database.projectDao().insertAll(
+                remoteProjects.filter { it.id !in protectedIds }.map { it.toCacheEntity() }
+            )
         }
         null
     } catch (e: Exception) {
         "造物：${e.message}"
     }
 
-    /** MOB-P1-37：三维心愿（分页拉取，整表替换） */
+    /** MOB-P1-37：三维心愿（分页拉取，整表对账，保护发件箱引用的本地行） */
     private suspend fun pullWishesDataset(): String? = try {
+        // 同项目：先快照再拉取，避免误删拉取期间刚换绑出的新行。
+        val localIdsBeforePull = database.wishDao().getAllIds()
         val allWishes = mutableListOf<Wish>()
         var wishPage = 1
         while (wishPage <= MAX_PAGES) {
@@ -1517,20 +1553,38 @@ class SyncManager private constructor(private val context: Context) {
         }
         if (wishPage > MAX_PAGES) throw IllegalStateException("心愿分页超限")
         database.withTransaction {
-            database.wishDao().clearAll()
-            database.wishDao().insertAll(allWishes.map { it.toCacheEntity(json) })
+            val remoteIds = allWishes.mapTo(HashSet()) { it.id }
+            val protectedIds = database.outboxDao()
+                .getProtectedServerTargetIds(SimpleEntitySync.WISH)
+                .toHashSet()
+            SimpleEntitySync.staleServerIdsToDelete(
+                localIdsBeforePull, remoteIds, protectedIds
+            ).forEach { database.wishDao().deleteById(it) }
+            database.wishDao().insertAll(
+                allWishes.filter { it.id !in protectedIds }.map { it.toCacheEntity(json) }
+            )
         }
         null
     } catch (e: Exception) {
         "心愿：${e.message}"
     }
 
-    /** MOB-P1-37：山川足迹（只读缓存，整表替换） */
+    /** MOB-P1-37：山川足迹（整表对账，保护发件箱引用的本地行） */
     private suspend fun pullFootprintsDataset(): String? = try {
+        // 同项目：先快照再拉取，避免误删拉取期间刚换绑出的新行。
+        val localIdsBeforePull = database.footprintDao().getAllIds()
         val remoteFootprints = apiClient.fetchFootprints()
         database.withTransaction {
-            database.footprintDao().clearAll()
-            database.footprintDao().insertAll(remoteFootprints.map { it.toCacheEntity(json) })
+            val remoteIds = remoteFootprints.mapTo(HashSet()) { it.id }
+            val protectedIds = database.outboxDao()
+                .getProtectedServerTargetIds(SimpleEntitySync.FOOTPRINT)
+                .toHashSet()
+            SimpleEntitySync.staleServerIdsToDelete(
+                localIdsBeforePull, remoteIds, protectedIds
+            ).forEach { database.footprintDao().deleteById(it) }
+            database.footprintDao().insertAll(
+                remoteFootprints.filter { it.id !in protectedIds }.map { it.toCacheEntity(json) }
+            )
         }
         null
     } catch (e: Exception) {
@@ -1656,32 +1710,54 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     /**
+     * P1-2：临时行的 CREATE 载荷里已有幂等键；编辑改写 CREATE 载荷时必须沿用，
+     * 否则同一笔离线创建会在重试时换键，仍可能重复落库。
+     */
+    private suspend fun pendingSimpleCreateClientRequestId(
+        entityType: String,
+        tempLocalId: Long
+    ): String? = database.outboxDao()
+        .findEventByTarget(entityType, tempLocalId, "CREATE")
+        ?.let { event ->
+            runCatching {
+                when (entityType) {
+                    SimpleEntitySync.PROJECT ->
+                        json.decodeFromString<CreateProjectRequest>(event.payload).clientRequestId
+                    SimpleEntitySync.WISH ->
+                        json.decodeFromString<CreateWishRequest>(event.payload).clientRequestId
+                    SimpleEntitySync.FOOTPRINT ->
+                        json.decodeFromString<CreateFootprintRequest>(event.payload).clientRequestId
+                    else -> null
+                }
+            }.getOrNull()
+        }
+
+    /**
      * 在线直连创建造物；网络不可达时入发件箱，并写入本地临时行，联网后自动补发。
      * 返回 true 表示「已离线排队」。
      */
     suspend fun createProjectOrQueue(req: CreateProjectRequest): Boolean = withContext(Dispatchers.IO) {
+        // P1-2：在线请求与离线补发共用同一个幂等键 —— 响应丢失后重试不会建出第二条。
+        val request = req.copy(
+            clientRequestId = req.clientRequestId ?: SimpleEntitySync.newClientRequestId()
+        )
         try {
-            val created = apiClient.createProject(req)
+            val created = apiClient.createProject(request)
             database.projectDao().insert(created.toCacheEntity())
             false
         } catch (e: Exception) {
             val code = (e as? APIException)?.code ?: -1
             if (code == -1 || code >= 500) {
-                val tempId = -System.currentTimeMillis()
-                val tempProject = CachedProjectEntity(
-                    id = tempId,
-                    title = req.title,
-                    subtitle = req.subtitle,
-                    description = req.description,
-                    story = req.story,
-                    category = req.category,
-                    status = req.status ?: "进行中",
-                    githubUrl = req.githubUrl,
-                    order = req.order,
-                    updatedAt = java.time.Instant.now().toString()
-                )
-                database.projectDao().insert(tempProject)
-                enqueueSimpleEvent("project", "CREATE", json.encodeToString(req), tempId)
+                val tempId = SimpleEntitySync.nextTempLocalId()
+                database.withTransaction {
+                    database.projectDao().insert(request.toOfflineEntity(tempId))
+                    SimpleEntitySync.enqueueCreate(
+                        database.outboxDao(),
+                        SimpleEntitySync.PROJECT,
+                        json.encodeToString(request),
+                        tempId
+                    )
+                }
                 scheduleSync()
                 true
             } else {
@@ -1691,27 +1767,55 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     suspend fun updateProjectOrQueue(id: Long, req: CreateProjectRequest): Boolean = withContext(Dispatchers.IO) {
+        // 临时行还没有服务端 id：只改本地与 CREATE 载荷，绝不请求 /projects/-1。
+        if (id < 0) {
+            database.withTransaction {
+                // 读-改-写必须在同一事务里：若 CREATE 刚完成并换绑，临时行与
+                // CREATE 事件都已不在 —— 此时重新插回临时行会补发出第二条记录。
+                val tempRowExists = database.projectDao().getById(id) != null
+                val createExists = SimpleEntitySync.hasPendingCreate(
+                    database.outboxDao(), SimpleEntitySync.PROJECT, id
+                )
+                if (!tempRowExists && !createExists) return@withTransaction
+                val request = req.copy(
+                    clientRequestId = req.clientRequestId
+                        ?: pendingSimpleCreateClientRequestId(SimpleEntitySync.PROJECT, id)
+                        ?: SimpleEntitySync.newClientRequestId()
+                )
+                database.projectDao().insert(request.toOfflineEntity(id))
+                SimpleEntitySync.enqueueUpdate(
+                    database.outboxDao(),
+                    SimpleEntitySync.PROJECT,
+                    json.encodeToString(request),
+                    id
+                )
+            }
+            scheduleSync()
+            return@withContext true
+        }
         try {
+            val pendingUpdate = SimpleEntitySync.findPendingUpdate(
+                database.outboxDao(), SimpleEntitySync.PROJECT, id
+            )
             val updated = apiClient.updateProject(id, req)
-            database.projectDao().insert(updated.toCacheEntity())
+            database.withTransaction {
+                database.projectDao().insert(updated.toCacheEntity())
+                // 在线已成功：同载荷的待发 UPDATE 已无意义，删掉避免旧内容回灌。
+                SimpleEntitySync.discardSupersededUpdate(database.outboxDao(), pendingUpdate)
+            }
             false
         } catch (e: Exception) {
             val code = (e as? APIException)?.code ?: -1
             if (code == -1 || code >= 500) {
-                val tempProject = CachedProjectEntity(
-                    id = id,
-                    title = req.title,
-                    subtitle = req.subtitle,
-                    description = req.description,
-                    story = req.story,
-                    category = req.category,
-                    status = req.status ?: "进行中",
-                    githubUrl = req.githubUrl,
-                    order = req.order,
-                    updatedAt = java.time.Instant.now().toString()
-                )
-                database.projectDao().insert(tempProject)
-                enqueueSimpleEvent("project", "UPDATE", json.encodeToString(req), id)
+                database.withTransaction {
+                    database.projectDao().insert(req.toOfflineEntity(id))
+                    SimpleEntitySync.enqueueUpdate(
+                        database.outboxDao(),
+                        SimpleEntitySync.PROJECT,
+                        json.encodeToString(req),
+                        id
+                    )
+                }
                 scheduleSync()
                 true
             } else {
@@ -1721,15 +1825,36 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     suspend fun deleteProjectOrQueue(id: Long): Boolean = withContext(Dispatchers.IO) {
+        if (id < 0) {
+            // 临时行尚未上传：删本地行并撤销 CREATE，不产生 DELETE 事件。
+            database.withTransaction {
+                database.projectDao().deleteById(id)
+                SimpleEntitySync.enqueueDelete(database.outboxDao(), SimpleEntitySync.PROJECT, id)
+            }
+            scheduleSync()
+            return@withContext true
+        }
         try {
             apiClient.deleteProject(id)
-            database.projectDao().deleteById(id)
+            database.withTransaction {
+                database.projectDao().deleteById(id)
+                database.outboxDao().deleteByLocalTarget(SimpleEntitySync.PROJECT, id)
+            }
             false
         } catch (e: Exception) {
             val code = (e as? APIException)?.code ?: -1
-            if (code == -1 || code >= 500) {
-                database.projectDao().deleteById(id)
-                enqueueSimpleEvent("project", "DELETE", "{}", id)
+            if (code == 404) {
+                // 服务端已删（网页 / 其他设备）：本地同样收口，不再反复失败。
+                database.withTransaction {
+                    database.projectDao().deleteById(id)
+                    database.outboxDao().deleteByLocalTarget(SimpleEntitySync.PROJECT, id)
+                }
+                false
+            } else if (code == -1 || code >= 500) {
+                database.withTransaction {
+                    database.projectDao().deleteById(id)
+                    SimpleEntitySync.enqueueDelete(database.outboxDao(), SimpleEntitySync.PROJECT, id)
+                }
                 scheduleSync()
                 true
             } else {
@@ -1740,31 +1865,27 @@ class SyncManager private constructor(private val context: Context) {
 
     /** 在线直连许愿；网络不可达时入发件箱，并写入本地临时行，联网后自动补发。返回 true 表示已离线排队。 */
     suspend fun createWishOrQueue(req: CreateWishRequest): Boolean = withContext(Dispatchers.IO) {
+        // P1-2：在线请求与离线补发共用同一个幂等键。
+        val request = req.copy(
+            clientRequestId = req.clientRequestId ?: SimpleEntitySync.newClientRequestId()
+        )
         try {
-            val created = apiClient.createWish(req)
+            val created = apiClient.createWish(request)
             database.wishDao().insert(created.toCacheEntity(json))
             false
         } catch (e: Exception) {
             val code = (e as? APIException)?.code ?: -1
             if (code == -1 || code >= 500) {
-                val tempId = -System.currentTimeMillis()
-                val tempWish = CachedWishEntity(
-                    id = tempId,
-                    title = req.title,
-                    kind = req.kind,
-                    note = req.note,
-                    spec = req.spec,
-                    cityCode = req.cityCode,
-                    cityName = req.cityName,
-                    budget = req.budget,
-                    actualCost = 0,
-                    status = "pending",
-                    targetDate = req.targetDate,
-                    attachmentsJson = "[]",
-                    updatedAt = java.time.Instant.now().toString()
-                )
-                database.wishDao().insert(tempWish)
-                enqueueSimpleEvent("wish", "CREATE", json.encodeToString(req), tempId)
+                val tempId = SimpleEntitySync.nextTempLocalId()
+                database.withTransaction {
+                    database.wishDao().insert(request.toOfflineEntity(tempId))
+                    SimpleEntitySync.enqueueCreate(
+                        database.outboxDao(),
+                        SimpleEntitySync.WISH,
+                        json.encodeToString(request),
+                        tempId
+                    )
+                }
                 scheduleSync()
                 true
             } else {
@@ -1774,30 +1895,61 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     suspend fun updateWishOrQueue(id: Long, req: CreateWishRequest): Boolean = withContext(Dispatchers.IO) {
+        if (id < 0) {
+            database.withTransaction {
+                val existing = database.wishDao().getById(id)
+                val createExists = SimpleEntitySync.hasPendingCreate(
+                    database.outboxDao(), SimpleEntitySync.WISH, id
+                )
+                if (existing == null && !createExists) return@withTransaction
+                val request = req.copy(
+                    clientRequestId = req.clientRequestId
+                        ?: pendingSimpleCreateClientRequestId(SimpleEntitySync.WISH, id)
+                        ?: SimpleEntitySync.newClientRequestId()
+                )
+                database.wishDao().insert(request.toOfflineEntity(id, existing))
+                SimpleEntitySync.enqueueUpdate(
+                    database.outboxDao(),
+                    SimpleEntitySync.WISH,
+                    json.encodeToString(request),
+                    id
+                )
+            }
+            scheduleSync()
+            return@withContext true
+        }
         try {
+            val pendingUpdate = SimpleEntitySync.findPendingUpdate(
+                database.outboxDao(), SimpleEntitySync.WISH, id
+            )
+            val pendingResolve = database.outboxDao().findEventByTarget(
+                SimpleEntitySync.WISH, id, "RESOLVE"
+            )
             val updated = apiClient.updateWish(id, req)
-            database.wishDao().insert(updated.toCacheEntity(json))
+            database.withTransaction {
+                if (pendingResolve != null) {
+                    // 本地已有待归册状态，不能让服务端“wanting”响应把它回退。
+                    val local = database.wishDao().getById(id)
+                    database.wishDao().insert(req.toOfflineEntity(id, local))
+                } else {
+                    database.wishDao().insert(updated.toCacheEntity(json))
+                }
+                SimpleEntitySync.discardSupersededUpdate(database.outboxDao(), pendingUpdate)
+            }
             false
         } catch (e: Exception) {
             val code = (e as? APIException)?.code ?: -1
             if (code == -1 || code >= 500) {
-                val tempWish = CachedWishEntity(
-                    id = id,
-                    title = req.title,
-                    kind = req.kind,
-                    note = req.note,
-                    spec = req.spec,
-                    cityCode = req.cityCode,
-                    cityName = req.cityName,
-                    budget = req.budget,
-                    actualCost = 0,
-                    status = "pending",
-                    targetDate = req.targetDate,
-                    attachmentsJson = "[]",
-                    updatedAt = java.time.Instant.now().toString()
-                )
-                database.wishDao().insert(tempWish)
-                enqueueSimpleEvent("wish", "UPDATE", json.encodeToString(req), id)
+                val existing = database.wishDao().getById(id)
+                database.withTransaction {
+                    database.wishDao().insert(req.toOfflineEntity(id, existing))
+                    SimpleEntitySync.enqueueUpdate(
+                        database.outboxDao(),
+                        SimpleEntitySync.WISH,
+                        json.encodeToString(req),
+                        id
+                    )
+                }
                 scheduleSync()
                 true
             } else {
@@ -1807,15 +1959,34 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     suspend fun deleteWishOrQueue(id: Long): Boolean = withContext(Dispatchers.IO) {
+        if (id < 0) {
+            database.withTransaction {
+                database.wishDao().deleteById(id)
+                SimpleEntitySync.enqueueDelete(database.outboxDao(), SimpleEntitySync.WISH, id)
+            }
+            scheduleSync()
+            return@withContext true
+        }
         try {
             apiClient.deleteWish(id)
-            database.wishDao().deleteById(id)
+            database.withTransaction {
+                database.wishDao().deleteById(id)
+                database.outboxDao().deleteByLocalTarget(SimpleEntitySync.WISH, id)
+            }
             false
         } catch (e: Exception) {
             val code = (e as? APIException)?.code ?: -1
-            if (code == -1 || code >= 500) {
-                database.wishDao().deleteById(id)
-                enqueueSimpleEvent("wish", "DELETE", "{}", id)
+            if (code == 404) {
+                database.withTransaction {
+                    database.wishDao().deleteById(id)
+                    database.outboxDao().deleteByLocalTarget(SimpleEntitySync.WISH, id)
+                }
+                false
+            } else if (code == -1 || code >= 500) {
+                database.withTransaction {
+                    database.wishDao().deleteById(id)
+                    SimpleEntitySync.enqueueDelete(database.outboxDao(), SimpleEntitySync.WISH, id)
+                }
                 scheduleSync()
                 true
             } else {
@@ -1825,6 +1996,26 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     suspend fun resolveWishOrQueue(id: Long, req: ResolveWishRequest): Boolean = withContext(Dispatchers.IO) {
+        if (id < 0) {
+            val existing = database.wishDao().getById(id)
+            database.withTransaction {
+                if (existing != null) {
+                    database.wishDao().insert(existing.withResolvedState(req))
+                    // 极端情况下 CREATE 已丢：先补一份创建事件，RESOLVE 才有目标可换绑。
+                    if (!SimpleEntitySync.hasPendingCreate(database.outboxDao(), SimpleEntitySync.WISH, id)) {
+                        SimpleEntitySync.enqueueCreate(
+                            database.outboxDao(),
+                            SimpleEntitySync.WISH,
+                            json.encodeToString(existing.toCreateWishRequest()),
+                            id
+                        )
+                    }
+                }
+                SimpleEntitySync.enqueueResolve(database.outboxDao(), json.encodeToString(req), id)
+            }
+            scheduleSync()
+            return@withContext true
+        }
         try {
             val updated = apiClient.resolveWish(id, req)
             database.wishDao().insert(updated.toCacheEntity(json))
@@ -1833,10 +2024,12 @@ class SyncManager private constructor(private val context: Context) {
             val code = (e as? APIException)?.code ?: -1
             if (code == -1 || code >= 500) {
                 val existing = database.wishDao().getById(id)
-                if (existing != null) {
-                    database.wishDao().insert(existing.copy(status = "fulfilled", actualCost = req.actualCost ?: existing.actualCost))
+                database.withTransaction {
+                    if (existing != null) {
+                        database.wishDao().insert(existing.withResolvedState(req))
+                    }
+                    SimpleEntitySync.enqueueResolve(database.outboxDao(), json.encodeToString(req), id)
                 }
-                enqueueSimpleEvent("wish", "RESOLVE", json.encodeToString(req), id)
                 scheduleSync()
                 true
             } else {
@@ -1846,32 +2039,27 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     suspend fun createFootprintOrQueue(req: CreateFootprintRequest): Boolean = withContext(Dispatchers.IO) {
+        // P1-2：在线请求与离线补发共用同一个幂等键。
+        val request = req.copy(
+            clientRequestId = req.clientRequestId ?: SimpleEntitySync.newClientRequestId()
+        )
         try {
-            val created = apiClient.createFootprint(req)
+            val created = apiClient.createFootprint(request)
             database.footprintDao().insert(created.toCacheEntity(json))
             false
         } catch (e: Exception) {
             val code = (e as? APIException)?.code ?: -1
             if (code == -1 || code >= 500) {
-                val tempId = -System.currentTimeMillis()
-                val tempFootprint = CachedFootprintEntity(
-                    id = tempId,
-                    cityCode = req.cityCode,
-                    cityName = req.cityName,
-                    title = req.title,
-                    visitedAt = req.visitedAt,
-                    departedAt = req.departedAt,
-                    note = req.note,
-                    lifeEntryId = null,
-                    wishId = null,
-                    attachmentsJson = "[]",
-                    entriesCount = 0,
-                    totalSpent = 0L,
-                    transactionCount = 0,
-                    updatedAt = java.time.Instant.now().toString()
-                )
-                database.footprintDao().insert(tempFootprint)
-                enqueueSimpleEvent("footprint", "CREATE", json.encodeToString(req), tempId)
+                val tempId = SimpleEntitySync.nextTempLocalId()
+                database.withTransaction {
+                    database.footprintDao().insert(request.toOfflineEntity(tempId))
+                    SimpleEntitySync.enqueueCreate(
+                        database.outboxDao(),
+                        SimpleEntitySync.FOOTPRINT,
+                        json.encodeToString(request),
+                        tempId
+                    )
+                }
                 scheduleSync()
                 true
             } else {
@@ -1881,32 +2069,52 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     suspend fun updateFootprintOrQueue(id: Long, req: CreateFootprintRequest): Boolean = withContext(Dispatchers.IO) {
+        if (id < 0) {
+            database.withTransaction {
+                val existing = database.footprintDao().getById(id)
+                val createExists = SimpleEntitySync.hasPendingCreate(
+                    database.outboxDao(), SimpleEntitySync.FOOTPRINT, id
+                )
+                if (existing == null && !createExists) return@withTransaction
+                val request = req.copy(
+                    clientRequestId = req.clientRequestId
+                        ?: pendingSimpleCreateClientRequestId(SimpleEntitySync.FOOTPRINT, id)
+                        ?: SimpleEntitySync.newClientRequestId()
+                )
+                database.footprintDao().insert(request.toOfflineEntity(id, existing))
+                SimpleEntitySync.enqueueUpdate(
+                    database.outboxDao(),
+                    SimpleEntitySync.FOOTPRINT,
+                    json.encodeToString(request),
+                    id
+                )
+            }
+            scheduleSync()
+            return@withContext true
+        }
         try {
+            val pendingUpdate = SimpleEntitySync.findPendingUpdate(
+                database.outboxDao(), SimpleEntitySync.FOOTPRINT, id
+            )
             val updated = apiClient.updateFootprint(id, req)
-            database.footprintDao().insert(updated.toCacheEntity(json))
+            database.withTransaction {
+                database.footprintDao().insert(updated.toCacheEntity(json))
+                SimpleEntitySync.discardSupersededUpdate(database.outboxDao(), pendingUpdate)
+            }
             false
         } catch (e: Exception) {
             val code = (e as? APIException)?.code ?: -1
             if (code == -1 || code >= 500) {
                 val existing = database.footprintDao().getById(id)
-                val tempFootprint = CachedFootprintEntity(
-                    id = id,
-                    cityCode = req.cityCode,
-                    cityName = req.cityName,
-                    title = req.title ?: existing?.title,
-                    visitedAt = req.visitedAt,
-                    departedAt = req.departedAt ?: existing?.departedAt,
-                    note = req.note ?: existing?.note,
-                    lifeEntryId = existing?.lifeEntryId,
-                    wishId = existing?.wishId,
-                    attachmentsJson = existing?.attachmentsJson ?: "[]",
-                    entriesCount = existing?.entriesCount,
-                    totalSpent = existing?.totalSpent,
-                    transactionCount = existing?.transactionCount,
-                    updatedAt = java.time.Instant.now().toString()
-                )
-                database.footprintDao().insert(tempFootprint)
-                enqueueSimpleEvent("footprint", "UPDATE", json.encodeToString(req), id)
+                database.withTransaction {
+                    database.footprintDao().insert(req.toOfflineEntity(id, existing))
+                    SimpleEntitySync.enqueueUpdate(
+                        database.outboxDao(),
+                        SimpleEntitySync.FOOTPRINT,
+                        json.encodeToString(req),
+                        id
+                    )
+                }
                 scheduleSync()
                 true
             } else {
@@ -1916,15 +2124,34 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     suspend fun deleteFootprintOrQueue(id: Long): Boolean = withContext(Dispatchers.IO) {
+        if (id < 0) {
+            database.withTransaction {
+                database.footprintDao().deleteById(id)
+                SimpleEntitySync.enqueueDelete(database.outboxDao(), SimpleEntitySync.FOOTPRINT, id)
+            }
+            scheduleSync()
+            return@withContext true
+        }
         try {
             apiClient.deleteFootprint(id)
-            database.footprintDao().deleteById(id)
+            database.withTransaction {
+                database.footprintDao().deleteById(id)
+                database.outboxDao().deleteByLocalTarget(SimpleEntitySync.FOOTPRINT, id)
+            }
             false
         } catch (e: Exception) {
             val code = (e as? APIException)?.code ?: -1
-            if (code == -1 || code >= 500) {
-                database.footprintDao().deleteById(id)
-                enqueueSimpleEvent("footprint", "DELETE", "{}", id)
+            if (code == 404) {
+                database.withTransaction {
+                    database.footprintDao().deleteById(id)
+                    database.outboxDao().deleteByLocalTarget(SimpleEntitySync.FOOTPRINT, id)
+                }
+                false
+            } else if (code == -1 || code >= 500) {
+                database.withTransaction {
+                    database.footprintDao().deleteById(id)
+                    SimpleEntitySync.enqueueDelete(database.outboxDao(), SimpleEntitySync.FOOTPRINT, id)
+                }
                 scheduleSync()
                 true
             } else {
@@ -1933,26 +2160,86 @@ class SyncManager private constructor(private val context: Context) {
         }
     }
 
-    private suspend fun enqueueSimpleEvent(
+    private enum class SimpleCreateOutcome { CANCELED, INSERT_SERVER, KEEP_LOCAL_AND_UPDATE }
+
+    /**
+     * P0-3：造物 / 心愿 / 足迹 CREATE 收尾。
+     *
+     * 在**同一个事务**内按 eventId 重读事件、升级/删除事件并落本地行，避免
+     * 「事件已删、临时行还没换成真实 id」的崩溃窗口留下永远同步不掉的幽灵行。
+     *
+     * - 事件已不在 → 用户删除/放弃，调用方补偿删除刚建出的服务端行；
+     * - 载荷已变 → CREATE 原地升级为 UPDATE，绑定真实 id 后按最新内容补发；
+     * - 载荷未变但服务端响应是幂等命中的旧记录 → 同样升级为 UPDATE，
+     *   否则用户响应丢失后的编辑会被旧响应静默覆盖；
+     * - 载荷未变且响应一致 → 用服务端权威响应替换临时行。
+     */
+    private suspend fun finalizeSimpleCreate(
+        event: OutboxEventEntity,
+        sentPayload: String,
+        serverId: Long,
+        serverMatchesSentPayload: Boolean,
+        onPayloadUnchanged: suspend () -> Unit,
+        onPayloadChanged: suspend () -> Unit
+    ): SimpleCreateOutcome = database.withTransaction {
+        val latest = database.outboxDao().findEventById(event.eventId)
+            ?: return@withTransaction SimpleCreateOutcome.CANCELED
+        val tempLocalId = event.localTargetId
+        if (latest.payload != sentPayload || !serverMatchesSentPayload) {
+            database.outboxDao().insert(
+                latest.copy(
+                    action = "UPDATE",
+                    localTargetId = serverId,
+                    serverTargetId = serverId,
+                    failedAt = null,
+                    lastError = null,
+                    retryCount = 0
+                )
+            )
+            database.outboxDao().rebindFollowUpsToServerId(
+                event.entityType, tempLocalId, serverId
+            )
+            onPayloadChanged()
+            SimpleCreateOutcome.KEEP_LOCAL_AND_UPDATE
+        } else {
+            database.outboxDao().delete(latest)
+            database.outboxDao().rebindFollowUpsToServerId(
+                event.entityType, tempLocalId, serverId
+            )
+            onPayloadUnchanged()
+            SimpleCreateOutcome.INSERT_SERVER
+        }
+    }
+
+    /**
+     * CREATE 飞行期间用户已删除：尽力删除刚建出的服务端行。
+     * 删除失败（网络抖动等）时落一条 DELETE 事件，避免幽灵行被下次拉取复活。
+     */
+    private suspend fun compensateCanceledSimpleCreate(
         entityType: String,
-        action: String,
-        payload: String,
-        serverTargetId: Long
+        serverId: Long,
+        deleteRemote: suspend (Long) -> Unit
     ) {
+        try {
+            deleteRemote(serverId)
+        } catch (e: APIException) {
+            if (e.code != 404) enqueueCompensationDelete(entityType, serverId)
+        } catch (e: Exception) {
+            enqueueCompensationDelete(entityType, serverId)
+        }
+    }
+
+    private suspend fun enqueueCompensationDelete(entityType: String, serverId: Long) {
         database.outboxDao().insert(
             OutboxEventEntity(
                 eventId = UUID.randomUUID().toString(),
                 entityType = entityType,
-                action = action,
-                payload = payload,
-                // 注意：这类事件（project/wish）没有本地行，不能用 0——
-                // deleteByLocalTarget 按 (entity_type, local_target_id) 删除，
-                // 0 会命中全部同类事件。用 -1 哨兵值并在注释里锁死这一约定。
-                localTargetId = LOCAL_TARGET_ID_NONE,
-                serverTargetId = serverTargetId
+                action = "DELETE",
+                payload = "{}",
+                localTargetId = serverId,
+                serverTargetId = serverId
             )
         )
-        scheduleSync()
     }
 
     /**
@@ -2291,25 +2578,94 @@ class SyncManager private constructor(private val context: Context) {
             "project" -> {
                 when (event.action) {
                     "CREATE" -> {
-                        val req = json.decodeFromString<CreateProjectRequest>(event.payload)
-                        val created = apiClient.createProject(req)
-                        // 离线创建补发成功后替换临时本地行并写回权威缓存
-                        if (event.localTargetId < 0) {
-                            database.projectDao().deleteById(event.localTargetId)
+                        // 旧版本删除临时行时只入队 DELETE、没有撤销 CREATE；
+                        // 本地行已不在说明用户已放弃，直接消费事件，绝不让服务端复活。
+                        // （-1 是旧版本哨兵，迁移会先把它修成真实临时 id，这里不碰。）
+                        if (event.localTargetId < -1 &&
+                            database.projectDao().getById(event.localTargetId) == null
+                        ) {
+                            database.outboxDao().delete(event)
+                            return
                         }
-                        database.projectDao().insert(created.toCacheEntity())
-                        database.outboxDao().delete(event)
+                        val sentPayload = event.payload
+                        val req = json.decodeFromString<CreateProjectRequest>(sentPayload)
+                        val created = apiClient.createProject(req)
+                        val outcome = finalizeSimpleCreate(
+                            event = event,
+                            sentPayload = sentPayload,
+                            serverId = created.id,
+                            serverMatchesSentPayload = req.matchesServer(created),
+                            onPayloadUnchanged = {
+                                database.projectDao().deleteById(event.localTargetId)
+                                database.projectDao().insert(created.toCacheEntity())
+                            },
+                            onPayloadChanged = {
+                                // 临时行保留用户最新内容，只把主键换成真实 id。
+                                val local = database.projectDao().getById(event.localTargetId)
+                                database.projectDao().deleteById(event.localTargetId)
+                                database.projectDao().insert(
+                                    (local ?: req.toOfflineEntity(created.id)).copy(id = created.id)
+                                )
+                            }
+                        )
+                        when (outcome) {
+                            SimpleCreateOutcome.CANCELED -> {
+                                // 飞行期间用户已删除：不让服务端留下本机永远删不掉的幽灵。
+                                database.projectDao().deleteById(event.localTargetId)
+                                compensateCanceledSimpleCreate(SimpleEntitySync.PROJECT, created.id) {
+                                    apiClient.deleteProject(it)
+                                }
+                            }
+                            SimpleCreateOutcome.KEEP_LOCAL_AND_UPDATE -> {
+                                // 事件已原地升级为 UPDATE（eventId 不变）：移出本轮的
+                                // “已尝试”集合，让下一轮 drain 立即按最新载荷补发。
+                                onPayloadSuperseded?.invoke()
+                            }
+                            SimpleCreateOutcome.INSERT_SERVER -> Unit
+                        }
                     }
                     "UPDATE" -> {
-                        val targetServerId = event.serverTargetId
-                        if (targetServerId != null && targetServerId > 0) {
-                            val req = json.decodeFromString<CreateProjectRequest>(event.payload)
-                            apiClient.updateProject(targetServerId, req)
+                        val current = database.outboxDao().findEventById(event.eventId) ?: return
+                        val targetServerId = current.serverTargetId
+                            ?: current.localTargetId.takeIf { it > 0 }
+                        if (targetServerId == null || targetServerId <= 0) {
+                            // CREATE 还没拿到服务端 id：保留事件，等换绑后再发。
+                            // 本地行已不在说明用户已放弃，直接消费事件。
+                            if (database.projectDao().getById(current.localTargetId) == null) {
+                                database.outboxDao().delete(current)
+                            }
+                            return
                         }
-                        database.outboxDao().delete(event)
+                        try {
+                            val req = json.decodeFromString<CreateProjectRequest>(current.payload)
+                            val updated = apiClient.updateProject(targetServerId, req)
+                            database.withTransaction {
+                                val latest = database.outboxDao().findEventById(current.eventId)
+                                    ?: return@withTransaction
+                                if (latest.payload != current.payload) {
+                                    onPayloadSuperseded?.invoke()
+                                    return@withTransaction
+                                }
+                                database.projectDao().deleteById(current.localTargetId)
+                                database.projectDao().insert(updated.toCacheEntity())
+                                database.outboxDao().delete(latest)
+                            }
+                        } catch (e: APIException) {
+                            if (e.code == 404) {
+                                // 服务端已删：本地修改无处可去，与 DELETE 同口径收口。
+                                database.withTransaction {
+                                    database.projectDao().deleteById(current.localTargetId)
+                                    database.outboxDao().delete(current)
+                                }
+                            } else {
+                                throw e
+                            }
+                        }
                     }
                     "DELETE" -> {
-                        val targetServerId = event.serverTargetId
+                        val current = database.outboxDao().findEventById(event.eventId) ?: return
+                        val targetServerId = current.serverTargetId
+                            ?: current.localTargetId.takeIf { it > 0 }
                         if (targetServerId != null && targetServerId > 0) {
                             try {
                                 apiClient.deleteProject(targetServerId)
@@ -2317,7 +2673,13 @@ class SyncManager private constructor(private val context: Context) {
                                 if (e.code != 404) throw e
                             }
                         }
-                        database.outboxDao().delete(event)
+                        database.withTransaction {
+                            database.projectDao().deleteById(current.localTargetId)
+                            if (targetServerId != null && targetServerId != current.localTargetId) {
+                                database.projectDao().deleteById(targetServerId)
+                            }
+                            database.outboxDao().delete(current)
+                        }
                     }
                     else -> database.outboxDao().delete(event)
                 }
@@ -2325,34 +2687,128 @@ class SyncManager private constructor(private val context: Context) {
             "wish" -> {
                 when (event.action) {
                     "CREATE" -> {
-                        val req = json.decodeFromString<CreateWishRequest>(event.payload)
-                        val created = apiClient.createWish(req)
-                        if (event.localTargetId < 0) {
-                            database.wishDao().deleteById(event.localTargetId)
+                        if (event.localTargetId < -1 &&
+                            database.wishDao().getById(event.localTargetId) == null
+                        ) {
+                            database.outboxDao().delete(event)
+                            return
                         }
-                        database.wishDao().insert(created.toCacheEntity(json))
-                        database.outboxDao().delete(event)
+                        val sentPayload = event.payload
+                        val req = json.decodeFromString<CreateWishRequest>(sentPayload)
+                        val created = apiClient.createWish(req)
+                        val outcome = finalizeSimpleCreate(
+                            event = event,
+                            sentPayload = sentPayload,
+                            serverId = created.id,
+                            serverMatchesSentPayload = req.matchesServer(created),
+                            onPayloadUnchanged = {
+                                // 飞行期间用户可能已经归册：服务端响应仍是 wanting，
+                                // 不能把它盖到本地 fulfilled / relinquished 状态上。
+                                val pendingResolve = database.outboxDao().findEventByTarget(
+                                    SimpleEntitySync.WISH, created.id, "RESOLVE"
+                                )
+                                val local = database.wishDao().getById(event.localTargetId)
+                                database.wishDao().deleteById(event.localTargetId)
+                                if (pendingResolve != null && local != null) {
+                                    database.wishDao().insert(local.copy(id = created.id))
+                                } else {
+                                    database.wishDao().insert(created.toCacheEntity(json))
+                                }
+                            },
+                            onPayloadChanged = {
+                                val local = database.wishDao().getById(event.localTargetId)
+                                database.wishDao().deleteById(event.localTargetId)
+                                database.wishDao().insert(
+                                    (local ?: req.toOfflineEntity(created.id)).copy(id = created.id)
+                                )
+                            }
+                        )
+                        when (outcome) {
+                            SimpleCreateOutcome.CANCELED -> {
+                                database.wishDao().deleteById(event.localTargetId)
+                                compensateCanceledSimpleCreate(SimpleEntitySync.WISH, created.id) {
+                                    apiClient.deleteWish(it)
+                                }
+                            }
+                            SimpleCreateOutcome.KEEP_LOCAL_AND_UPDATE -> onPayloadSuperseded?.invoke()
+                            SimpleCreateOutcome.INSERT_SERVER -> Unit
+                        }
                     }
                     "UPDATE" -> {
-                        val targetServerId = event.serverTargetId
-                        if (targetServerId != null && targetServerId > 0) {
-                            val req = json.decodeFromString<CreateWishRequest>(event.payload)
-                            val updated = apiClient.updateWish(targetServerId, req)
-                            database.wishDao().insert(updated.toCacheEntity(json))
+                        val current = database.outboxDao().findEventById(event.eventId) ?: return
+                        val targetServerId = current.serverTargetId
+                            ?: current.localTargetId.takeIf { it > 0 }
+                        if (targetServerId == null || targetServerId <= 0) {
+                            if (database.wishDao().getById(current.localTargetId) == null) {
+                                database.outboxDao().delete(current)
+                            }
+                            return
                         }
-                        database.outboxDao().delete(event)
+                        try {
+                            val req = json.decodeFromString<CreateWishRequest>(current.payload)
+                            val updated = apiClient.updateWish(targetServerId, req)
+                            database.withTransaction {
+                                val latest = database.outboxDao().findEventById(current.eventId)
+                                    ?: return@withTransaction
+                                if (latest.payload != current.payload) {
+                                    onPayloadSuperseded?.invoke()
+                                    return@withTransaction
+                                }
+                                database.wishDao().deleteById(current.localTargetId)
+                                database.wishDao().insert(updated.toCacheEntity(json))
+                                database.outboxDao().delete(latest)
+                            }
+                        } catch (e: APIException) {
+                            if (e.code == 404) {
+                                database.withTransaction {
+                                    database.wishDao().deleteById(current.localTargetId)
+                                    database.outboxDao().delete(current)
+                                }
+                            } else {
+                                throw e
+                            }
+                        }
                     }
                     "RESOLVE" -> {
-                        val targetServerId = event.serverTargetId
-                        if (targetServerId != null && targetServerId > 0) {
-                            val req = json.decodeFromString<ResolveWishRequest>(event.payload)
-                            val resolved = apiClient.resolveWish(targetServerId, req)
-                            database.wishDao().insert(resolved.toCacheEntity(json))
+                        val current = database.outboxDao().findEventById(event.eventId) ?: return
+                        val targetServerId = current.serverTargetId
+                            ?: current.localTargetId.takeIf { it > 0 }
+                        if (targetServerId == null || targetServerId <= 0) {
+                            // CREATE 还没成功：保留 RESOLVE，等换绑后再归册。
+                            if (database.wishDao().getById(current.localTargetId) == null) {
+                                database.outboxDao().delete(current)
+                            }
+                            return
                         }
-                        database.outboxDao().delete(event)
+                        try {
+                            val req = json.decodeFromString<ResolveWishRequest>(current.payload)
+                            val resolved = apiClient.resolveWish(targetServerId, req)
+                            database.withTransaction {
+                                val latest = database.outboxDao().findEventById(current.eventId)
+                                    ?: return@withTransaction
+                                if (latest.payload != current.payload) {
+                                    onPayloadSuperseded?.invoke()
+                                    return@withTransaction
+                                }
+                                database.wishDao().deleteById(current.localTargetId)
+                                database.wishDao().insert(resolved.toCacheEntity(json))
+                                database.outboxDao().delete(latest)
+                            }
+                        } catch (e: APIException) {
+                            if (e.code == 404) {
+                                database.withTransaction {
+                                    database.wishDao().deleteById(current.localTargetId)
+                                    database.outboxDao().delete(current)
+                                }
+                            } else {
+                                throw e
+                            }
+                        }
                     }
                     "DELETE" -> {
-                        val targetServerId = event.serverTargetId
+                        val current = database.outboxDao().findEventById(event.eventId) ?: return
+                        val targetServerId = current.serverTargetId
+                            ?: current.localTargetId.takeIf { it > 0 }
                         if (targetServerId != null && targetServerId > 0) {
                             try {
                                 apiClient.deleteWish(targetServerId)
@@ -2360,7 +2816,13 @@ class SyncManager private constructor(private val context: Context) {
                                 if (e.code != 404) throw e
                             }
                         }
-                        database.outboxDao().delete(event)
+                        database.withTransaction {
+                            database.wishDao().deleteById(current.localTargetId)
+                            if (targetServerId != null && targetServerId != current.localTargetId) {
+                                database.wishDao().deleteById(targetServerId)
+                            }
+                            database.outboxDao().delete(current)
+                        }
                     }
                     else -> database.outboxDao().delete(event)
                 }
@@ -2368,25 +2830,82 @@ class SyncManager private constructor(private val context: Context) {
             "footprint" -> {
                 when (event.action) {
                     "CREATE" -> {
-                        val req = json.decodeFromString<CreateFootprintRequest>(event.payload)
-                        val created = apiClient.createFootprint(req)
-                        if (event.localTargetId < 0) {
-                            database.footprintDao().deleteById(event.localTargetId)
+                        if (event.localTargetId < -1 &&
+                            database.footprintDao().getById(event.localTargetId) == null
+                        ) {
+                            database.outboxDao().delete(event)
+                            return
                         }
-                        database.footprintDao().insert(created.toCacheEntity(json))
-                        database.outboxDao().delete(event)
+                        val sentPayload = event.payload
+                        val req = json.decodeFromString<CreateFootprintRequest>(sentPayload)
+                        val created = apiClient.createFootprint(req)
+                        val outcome = finalizeSimpleCreate(
+                            event = event,
+                            sentPayload = sentPayload,
+                            serverId = created.id,
+                            serverMatchesSentPayload = req.matchesServer(created),
+                            onPayloadUnchanged = {
+                                database.footprintDao().deleteById(event.localTargetId)
+                                database.footprintDao().insert(created.toCacheEntity(json))
+                            },
+                            onPayloadChanged = {
+                                val local = database.footprintDao().getById(event.localTargetId)
+                                database.footprintDao().deleteById(event.localTargetId)
+                                database.footprintDao().insert(
+                                    (local ?: req.toOfflineEntity(created.id)).copy(id = created.id)
+                                )
+                            }
+                        )
+                        when (outcome) {
+                            SimpleCreateOutcome.CANCELED -> {
+                                database.footprintDao().deleteById(event.localTargetId)
+                                compensateCanceledSimpleCreate(SimpleEntitySync.FOOTPRINT, created.id) {
+                                    apiClient.deleteFootprint(it)
+                                }
+                            }
+                            SimpleCreateOutcome.KEEP_LOCAL_AND_UPDATE -> onPayloadSuperseded?.invoke()
+                            SimpleCreateOutcome.INSERT_SERVER -> Unit
+                        }
                     }
                     "UPDATE" -> {
-                        val targetServerId = event.serverTargetId
-                        if (targetServerId != null && targetServerId > 0) {
-                            val req = json.decodeFromString<CreateFootprintRequest>(event.payload)
-                            val updated = apiClient.updateFootprint(targetServerId, req)
-                            database.footprintDao().insert(updated.toCacheEntity(json))
+                        val current = database.outboxDao().findEventById(event.eventId) ?: return
+                        val targetServerId = current.serverTargetId
+                            ?: current.localTargetId.takeIf { it > 0 }
+                        if (targetServerId == null || targetServerId <= 0) {
+                            if (database.footprintDao().getById(current.localTargetId) == null) {
+                                database.outboxDao().delete(current)
+                            }
+                            return
                         }
-                        database.outboxDao().delete(event)
+                        try {
+                            val req = json.decodeFromString<CreateFootprintRequest>(current.payload)
+                            val updated = apiClient.updateFootprint(targetServerId, req)
+                            database.withTransaction {
+                                val latest = database.outboxDao().findEventById(current.eventId)
+                                    ?: return@withTransaction
+                                if (latest.payload != current.payload) {
+                                    onPayloadSuperseded?.invoke()
+                                    return@withTransaction
+                                }
+                                database.footprintDao().deleteById(current.localTargetId)
+                                database.footprintDao().insert(updated.toCacheEntity(json))
+                                database.outboxDao().delete(latest)
+                            }
+                        } catch (e: APIException) {
+                            if (e.code == 404) {
+                                database.withTransaction {
+                                    database.footprintDao().deleteById(current.localTargetId)
+                                    database.outboxDao().delete(current)
+                                }
+                            } else {
+                                throw e
+                            }
+                        }
                     }
                     "DELETE" -> {
-                        val targetServerId = event.serverTargetId
+                        val current = database.outboxDao().findEventById(event.eventId) ?: return
+                        val targetServerId = current.serverTargetId
+                            ?: current.localTargetId.takeIf { it > 0 }
                         if (targetServerId != null && targetServerId > 0) {
                             try {
                                 apiClient.deleteFootprint(targetServerId)
@@ -2394,7 +2913,13 @@ class SyncManager private constructor(private val context: Context) {
                                 if (e.code != 404) throw e
                             }
                         }
-                        database.outboxDao().delete(event)
+                        database.withTransaction {
+                            database.footprintDao().deleteById(current.localTargetId)
+                            if (targetServerId != null && targetServerId != current.localTargetId) {
+                                database.footprintDao().deleteById(targetServerId)
+                            }
+                            database.outboxDao().delete(current)
+                        }
                     }
                     else -> database.outboxDao().delete(event)
                 }

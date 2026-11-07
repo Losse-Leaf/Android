@@ -196,7 +196,10 @@ data class CreateProjectRequest(
     val category: String? = null,
     val status: String? = "进行中",
     @SerialName("github_url") val githubUrl: String? = null,
-    val order: Int = 0
+    val order: Int = 0,
+    // P1-2：幂等创建标识（契约 B）。离线创建与在线直连共用同一个值，
+    // 网络超时后重试不会在服务端落下两条重复记录。
+    @SerialName("client_request_id") val clientRequestId: String? = null
 )
 
 /**
@@ -247,7 +250,9 @@ data class CreateWishRequest(
     @SerialName("city_name") val cityName: String? = null,
     val budget: Long = 0,
     @SerialName("target_date") val targetDate: String? = null,
-    @SerialName("attachment_ids") val attachmentIds: List<Long>? = null
+    @SerialName("attachment_ids") val attachmentIds: List<Long>? = null,
+    // P1-2：幂等创建标识（契约 B），语义同 CreateProjectRequest。
+    @SerialName("client_request_id") val clientRequestId: String? = null
 )
 
 @Serializable
@@ -302,7 +307,9 @@ data class CreateFootprintRequest(
     @SerialName("visited_at") val visitedAt: String,
     @SerialName("departed_at") val departedAt: String? = null,
     val note: String? = null,
-    @SerialName("attachment_ids") val attachmentIds: List<Long>? = null
+    @SerialName("attachment_ids") val attachmentIds: List<Long>? = null,
+    // P1-2：幂等创建标识（契约 B），语义同 CreateProjectRequest。
+    @SerialName("client_request_id") val clientRequestId: String? = null
 )
 
 /**

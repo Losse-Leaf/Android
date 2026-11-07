@@ -401,6 +401,159 @@ class LedgerSyncConsistencyTest {
     }
 
     @Test
+    fun `test mergeTransactions keeps newer local pending create and promotes to update`() = runBlocking {
+        val outboxDao = db.outboxDao()
+        val txDao = db.transactionDao()
+
+        val crid = "crid-race-001"
+        val latestPayload =
+            """{"amount":3000,"type":"expense","category":"娱乐","title":"新标题",""" +
+                """"occurred_at":"2026-11-02T19:00:00+08:00","client_request_id":"$crid"}"""
+        val localId = txDao.insert(
+            CachedTransactionEntity(
+                amount = 3000,
+                type = "expense",
+                category = "娱乐",
+                title = "新标题",
+                occurredAt = "2026-11-02T19:00:00+08:00",
+                syncStatus = "PENDING_CREATE"
+            )
+        )
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = "evt_create_race",
+                action = "CREATE",
+                payload = latestPayload,
+                localTargetId = localId,
+                serverTargetId = null,
+                clientRequestId = crid,
+                sequence = 1L,
+                enqueuedAt = "2026-11-02T19:00:00+08:00"
+            )
+        )
+
+        // 幂等重放返回的是旧载荷落库结果：金额与标题都落后于本地最新编辑
+        val staleRemote = Transaction(
+            id = 777L,
+            amount = 2500,
+            category = "娱乐",
+            title = "旧标题",
+            occurredAt = "2026-11-02T19:00:00+08:00",
+            clientRequestId = crid
+        )
+
+        LedgerRepository.mergeTransactions(db, listOf(staleRemote))
+
+        // 本地最新内容必须保留，不能被远端旧值覆盖
+        val local = txDao.getTransactionByLocalId(localId)
+        assertNotNull(local)
+        assertEquals(3000L, local!!.amount)
+        assertEquals("新标题", local.title)
+        assertEquals("PENDING_UPDATE", local.syncStatus)
+        assertEquals(777L, local.serverId)
+
+        // CREATE 事件必须升级为 UPDATE，并复用本地最新载荷
+        val events = outboxDao.getAllPendingEvents()
+        assertEquals(1, events.size)
+        assertEquals("UPDATE", events[0].action)
+        assertEquals(777L, events[0].serverTargetId)
+        assertEquals(latestPayload, events[0].payload)
+        assertTrue(events.none { it.action == "CREATE" })
+
+        // 不允许出现重复行
+        assertEquals(1, txDao.getAllTransactions().size)
+    }
+
+    @Test
+    fun `test transaction content comparison ignores server derived fields but detects stale payload`() {
+        val base = Transaction(
+            id = 1L,
+            amount = 3000,
+            category = "娱乐",
+            title = "电影票",
+            note = "IMAX",
+            occurredAt = "2026-11-02T19:00:00+08:00",
+            isInstallment = true,
+            installmentChannelCode = "CMB",
+            installmentTotalAmount = 3600,
+            installmentMonths = 6,
+            installmentMonthlyPay = 600,
+            repaymentDay = 5
+        )
+        // 服务端派生字段不同、时间字符串时区不同，但语义内容一致
+        val serverDerived = base.copy(
+            id = 99L,
+            occurredAt = "2026-11-02T11:00:00Z",
+            installmentRemainMonths = 3,
+            source = "installment_repay",
+            installmentPlanId = 88L,
+            installmentItemId = 99L,
+            principalAmount = 3000,
+            feeAmount = 600,
+            updatedAt = "2026-11-03T00:00:00Z"
+        )
+        assertTrue(LedgerRepository.transactionsHaveSameContent(base, serverDerived))
+
+        // 用户可编辑字段一旦不同，必须识别为旧载荷
+        assertFalse(
+            LedgerRepository.transactionsHaveSameContent(
+                base,
+                serverDerived.copy(amount = 2500)
+            )
+        )
+        assertFalse(
+            LedgerRepository.transactionsHaveSameContent(
+                base,
+                serverDerived.copy(title = "旧标题")
+            )
+        )
+
+        // 文本仅首尾空白差异视为一致
+        assertTrue(
+            LedgerRepository.transactionsHaveSameContent(
+                base,
+                serverDerived.copy(note = "  IMAX  ")
+            )
+        )
+    }
+
+    @Test
+    fun `test full sync reconciliation deletes synced ghosts but preserves pending rows`() = runBlocking {
+        val txDao = db.transactionDao()
+
+        suspend fun insert(serverId: Long?, title: String, status: String) = txDao.insert(
+            CachedTransactionEntity(
+                serverId = serverId,
+                amount = 1000,
+                type = "expense",
+                category = "测试",
+                title = title,
+                occurredAt = "2026-11-02T10:00:00+08:00",
+                syncStatus = status
+            )
+        )
+
+        insert(1L, "远端仍在 1", "SYNCED")
+        insert(2L, "远端仍在 2", "SYNCED")
+        insert(3L, "远端已删除", "SYNCED")
+        insert(4L, "本地待更新", "PENDING_UPDATE")
+        insert(5L, "本地待删除", "PENDING_DELETE")
+        insert(null, "本地待创建", "PENDING_CREATE")
+
+        LedgerRepository.reconcileFullSync(db, setOf(1L, 2L, 4L))
+
+        // 远端已不存在的已同步行被清理
+        assertNull(txDao.getTransactionByServerId(3L))
+        // 远端仍存在的已同步行保留
+        assertNotNull(txDao.getTransactionByServerId(1L))
+        assertNotNull(txDao.getTransactionByServerId(2L))
+        // 待同步行无论远端是否存在都必须保留
+        assertNotNull(txDao.getTransactionByServerId(4L))
+        assertNotNull(txDao.getTransactionByServerId(5L))
+        assertEquals(1, txDao.getAllTransactions().count { it.serverId == null })
+    }
+
+    @Test
     fun `test mergeTransactions does not resurrect pending delete row`() = runBlocking {
         val txDao = db.transactionDao()
 

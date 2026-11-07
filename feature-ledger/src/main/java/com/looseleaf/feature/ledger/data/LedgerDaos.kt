@@ -77,6 +77,23 @@ interface TransactionDao {
     )
     suspend fun getTransactionSyncIndex(): List<LedgerSyncIndex>
 
+    /** P0-2：全量对账用，只取已同步且未删除的 server_id。 */
+    @Query(
+        "SELECT server_id FROM cached_transactions " +
+            "WHERE server_id IS NOT NULL AND sync_status = 'SYNCED' AND deleted_at IS NULL"
+    )
+    suspend fun getSyncedServerIds(): List<Long>
+
+    /**
+     * P0-2：删除远端已不存在的已同步行。
+     * 再次限定 sync_status = 'SYNCED'，防止查询与删除之间被并发编辑成待同步行。
+     */
+    @Query(
+        "DELETE FROM cached_transactions WHERE server_id IN (:serverIds) " +
+            "AND sync_status = 'SYNCED' AND deleted_at IS NULL"
+    )
+    suspend fun deleteSyncedByServerIds(serverIds: List<Long>)
+
     @Query("SELECT EXISTS(SELECT 1 FROM cached_transactions WHERE deleted_at IS NULL LIMIT 1)")
     suspend fun hasAny(): Boolean
 

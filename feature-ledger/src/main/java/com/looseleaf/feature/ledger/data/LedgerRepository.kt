@@ -108,6 +108,14 @@ object LedgerRepository {
         return "cursor_" + baseUrl.hashCode()
     }
 
+    /**
+     * P1-1：供冷启动调度判断是否存在账本积压事件。
+     * 账本库独立于主库，主库计数为 0 时也必须能唤醒 OutboxSyncWorker。
+     */
+    suspend fun pendingOutboxCount(): Int = withContext(Dispatchers.IO) {
+        runCatching { requireDatabase().outboxDao().countPendingEvents() }.getOrDefault(0)
+    }
+
     fun getStoredCursor(): String? = getSyncPrefs()?.getString(getCursorKey(), null)
 
     fun saveCursor(cursor: String) {
@@ -571,6 +579,8 @@ object LedgerRepository {
                     var pages = 0
                     val maxPages = 100
                     var maxCursorCandidate: String? = null
+                    var fullSyncCompleted = false
+                    val remoteServerIds = HashSet<Long>()
 
                     while (pages < maxPages) {
                         val meta = ResponseMeta()
@@ -581,9 +591,13 @@ object LedgerRepository {
                             meta = meta
                         )
                         pages++
-                        if (batch.isEmpty()) break
+                        if (batch.isEmpty()) {
+                            fullSyncCompleted = true
+                            break
+                        }
 
                         mergeTransactions(db, batch)
+                        remoteServerIds += batch.map { it.id }
 
                         val serverCursor = meta.syncCursor
                         val batchMax = maxOfOrNull(
@@ -594,13 +608,22 @@ object LedgerRepository {
                             maxCursorCandidate = batchMax
                         }
 
-                        if (batch.size < batchLimit) break
+                        // P1-6：只有「不满一页」才代表拉取完成；
+                        // 最后一页恰好等于 maxPages 时不能因为 pages 计数而误报超限。
+                        if (batch.size < batchLimit) {
+                            fullSyncCompleted = true
+                            break
+                        }
                         offset += batch.size
                     }
 
-                    if (pages >= maxPages && offset > 0) {
+                    if (!fullSyncCompleted) {
                         throw IllegalStateException("全量同步超过最大页数限制 ($maxPages)，终止游标推进以避免数据不完整")
                     }
+
+                    // P0-2：完整拉取成功后才对账，删除服务端已不存在的已同步行；
+                    // 待同步行（PENDING_CREATE/UPDATE/DELETE）与本地新增行必须保留。
+                    reconcileFullSync(db, remoteServerIds)
 
                     if (!maxCursorCandidate.isNullOrBlank()) {
                         saveCursor(maxCursorCandidate)
@@ -612,6 +635,7 @@ object LedgerRepository {
                     var pages = 0
                     val maxPages = 50
                     var maxCursorCandidate: String? = null
+                    var incrementalCompleted = false
 
                     while (pages < maxPages) {
                         val meta = ResponseMeta()
@@ -623,7 +647,10 @@ object LedgerRepository {
                             meta = meta
                         )
                         pages++
-                        if (batch.isEmpty()) break
+                        if (batch.isEmpty()) {
+                            incrementalCompleted = true
+                            break
+                        }
 
                         mergeTransactions(db, batch)
 
@@ -636,11 +663,14 @@ object LedgerRepository {
                             maxCursorCandidate = batchMax
                         }
 
-                        if (batch.size < batchLimit) break
+                        if (batch.size < batchLimit) {
+                            incrementalCompleted = true
+                            break
+                        }
                         offset += batch.size
                     }
 
-                    if (pages >= maxPages) {
+                    if (!incrementalCompleted) {
                         throw IllegalStateException("增量同步超过最大页数限制 ($maxPages)，终止游标推进以避免漏拉")
                     }
 
@@ -662,11 +692,90 @@ object LedgerRepository {
         return if (a >= b) a else b
     }
 
+    private fun normalizedText(value: String?): String? =
+        value?.trim()?.takeIf { it.isNotEmpty() }
+
+    private fun parseInstantOrNull(value: String?): Instant? {
+        val text = normalizedText(value) ?: return null
+        return runCatching { Instant.parse(text) }.getOrNull()
+            ?: runCatching { java.time.OffsetDateTime.parse(text).toInstant() }.getOrNull()
+    }
+
+    private fun sameInstant(a: String?, b: String?): Boolean {
+        val left = normalizedText(a)
+        val right = normalizedText(b)
+        if (left == null || right == null) return left == right
+        val leftInstant = parseInstantOrNull(left)
+        val rightInstant = parseInstantOrNull(right)
+        return if (leftInstant != null && rightInstant != null) {
+            leftInstant == rightInstant
+        } else {
+            left == right
+        }
+    }
+
+    /**
+     * P0-1：比较本地行与远端/请求内容是否等价。
+     * 只比较用户可编辑字段；installmentRemainMonths、source、updatedAt 等
+     * 服务端派生字段一律忽略，避免把幂等重放误判为「本地有新编辑」。
+     */
+    internal fun transactionsHaveSameContent(local: Transaction, remote: Transaction): Boolean {
+        if (local.amount != remote.amount) return false
+        if (normalizedText(local.type)?.lowercase() != normalizedText(remote.type)?.lowercase()) return false
+        if (normalizedText(local.category) != normalizedText(remote.category)) return false
+        if (normalizedText(local.title) != normalizedText(remote.title)) return false
+        if (normalizedText(local.note) != normalizedText(remote.note)) return false
+        if (normalizedText(local.paymentMethod) != normalizedText(remote.paymentMethod)) return false
+        if (!sameInstant(local.occurredAt, remote.occurredAt)) return false
+        if (normalizedText(local.cityCode) != normalizedText(remote.cityCode)) return false
+        if (local.wishId != remote.wishId) return false
+        if (local.footprintId != remote.footprintId) return false
+
+        val localInstallment = local.isInstallment == true
+        val remoteInstallment = remote.isInstallment == true
+        if (localInstallment != remoteInstallment) return false
+        if (localInstallment) {
+            if (normalizedText(local.installmentChannelCode) != normalizedText(remote.installmentChannelCode)) return false
+            if (local.installmentTotalAmount != remote.installmentTotalAmount) return false
+            if (local.installmentMonths != remote.installmentMonths) return false
+            if (local.installmentMonthlyPay != remote.installmentMonthlyPay) return false
+            if (local.repaymentDay != remote.repaymentDay) return false
+        }
+        return true
+    }
+
+    /**
+     * P0-1：把幂等重放命中的 CREATE 事件升级为 UPDATE。
+     * 载荷沿用本地最新内容，确保服务端最终被推进到本地状态。
+     */
+    private suspend fun promoteCreateToUpdate(
+        db: LedgerDatabase,
+        createEvent: LedgerOutboxEventEntity,
+        serverId: Long,
+        payload: String
+    ) {
+        db.outboxDao().deleteByEventId(createEvent.eventId)
+        db.outboxDao().insert(
+            LedgerOutboxEventEntity(
+                eventId = UUID.randomUUID().toString(),
+                action = "UPDATE",
+                payload = payload,
+                localTargetId = createEvent.localTargetId,
+                serverTargetId = serverId,
+                clientRequestId = UUID.randomUUID().toString(),
+                sequence = db.outboxDao().getNextSequence(),
+                enqueuedAt = Instant.now().toString()
+            )
+        )
+    }
+
     /**
      * 权威 UPSERT 合并（P0-2, P1-4, P2-11）：
      * 1. 远端 Tombstone（软删除）：仅在本地无待同步修改时执行删除；
      * 2. 远端活跃行：若本地已标记为待删除 (PENDING_DELETE)，绝对不可被远端复活；
-     * 3. 本地待同步新建 (PENDING_CREATE) 行通过 client_request_id 与远端对齐，原地绑定 serverId 并清理 CREATE 事件；
+     * 3. 本地待同步新建 (PENDING_CREATE) 行通过 client_request_id 与远端对齐：
+     *    内容一致则原地绑定 serverId 并清理 CREATE；内容不一致说明本地有更新，
+     *    保留本地内容并将 CREATE 升级为 UPDATE；
      * 4. 本地待同步更新优先，否则原地 UPSERT 避免重新生成 localId。
      */
     internal suspend fun mergeTransactions(db: LedgerDatabase, remote: List<Transaction>) {
@@ -675,15 +784,16 @@ object LedgerRepository {
         val activeRemote = remote.filter { it.deletedAt.isNullOrBlank() }.distinctBy { it.id }
         val softDeleted = remote.filter { !it.deletedAt.isNullOrBlank() }.distinctBy { it.id }
 
-        val localIndex = db.transactionDao().getTransactionSyncIndex()
-            .mapNotNull { it.serverId?.let { sid -> sid to it } }
-            .toMap()
-
-        // P1-4: 建立本地 PENDING_CREATE 的 client_request_id 第二索引
-        val activeCreateEvents = db.outboxDao().getActiveCreateEvents()
-        val pendingCreateByCrid = activeCreateEvents.associateBy { it.clientRequestId }
-
+        // P0-1：索引查询与后续写入必须处于同一事务，避免合并期间新入队/新编辑被旧索引覆盖。
         db.withTransaction {
+            val localIndex = db.transactionDao().getTransactionSyncIndex()
+                .mapNotNull { it.serverId?.let { sid -> sid to it } }
+                .toMap()
+
+            // P1-4: 建立本地 PENDING_CREATE 的 client_request_id 第二索引
+            val activeCreateEvents = db.outboxDao().getActiveCreateEvents()
+            val pendingCreateByCrid = activeCreateEvents.associateBy { it.clientRequestId }
+
             // 1. 处理服务端 Tombstone 软删除
             for (del in softDeleted) {
                 val existing = localIndex[del.id]
@@ -711,13 +821,37 @@ object LedgerRepository {
                     continue
                 }
 
-                // P1-4: 若 server_id 未命中，检查 client_request_id 是否命中本地 PENDING_CREATE
+                // P1-4 / P0-1: 若 server_id 未命中，检查 client_request_id 是否命中本地 PENDING_CREATE
                 val crid = item.clientRequestId
                 val matchedCreate = if (!crid.isNullOrBlank()) pendingCreateByCrid[crid] else null
                 if (matchedCreate != null) {
-                    toUpsert += item.toCacheEntity(localId = matchedCreate.localTargetId)
-                    db.outboxDao().deleteByEventId(matchedCreate.eventId)
-                    db.outboxDao().bindServerId(matchedCreate.localTargetId, item.id)
+                    val localEntity = db.transactionDao().getTransactionByLocalId(matchedCreate.localTargetId)
+                    if (localEntity == null) {
+                        // 本地行已被删除，CREATE 事件不再有目标；远端记录按全新行落库
+                        db.outboxDao().deleteByEventId(matchedCreate.eventId)
+                        toUpsert += item.toCacheEntity(localId = 0)
+                        continue
+                    }
+                    if (localEntity.syncStatus == "PENDING_DELETE") {
+                        // 本地已删除：只绑定 serverId 供 DELETE 事件定位，绝不复活
+                        db.transactionDao().bindServerId(localEntity.localId, item.id)
+                        db.outboxDao().bindServerId(localEntity.localId, item.id)
+                        db.outboxDao().deleteByEventId(matchedCreate.eventId)
+                        continue
+                    }
+                    if (localEntity.syncStatus != "SYNCED" &&
+                        !transactionsHaveSameContent(localEntity.toDomainModel(), item)
+                    ) {
+                        // P0-1：CREATE 飞行期间本地又被编辑，远端只是旧载荷的落库结果。
+                        // 保留本地内容，绑定 serverId 并把 CREATE 升级为 UPDATE。
+                        db.transactionDao().bindServerId(localEntity.localId, item.id)
+                        db.transactionDao().updateSyncStatus(localEntity.localId, "PENDING_UPDATE")
+                        promoteCreateToUpdate(db, matchedCreate, item.id, matchedCreate.payload)
+                    } else {
+                        toUpsert += item.toCacheEntity(localId = matchedCreate.localTargetId)
+                        db.outboxDao().deleteByEventId(matchedCreate.eventId)
+                        db.outboxDao().bindServerId(matchedCreate.localTargetId, item.id)
+                    }
                     continue
                 }
 
@@ -726,6 +860,24 @@ object LedgerRepository {
             }
             if (toUpsert.isNotEmpty()) {
                 db.transactionDao().insertAll(toUpsert)
+            }
+        }
+    }
+
+    /**
+     * P0-2：全量同步收口。
+     *
+     * 仅删除「远端完整列表里不存在」且本地已 SYNCED 的行；
+     * PENDING_CREATE（server_id 为空）、PENDING_UPDATE、PENDING_DELETE 一律保留，
+     * 避免把尚未上传的本地修改当成幽灵数据清掉。
+     */
+    internal suspend fun reconcileFullSync(db: LedgerDatabase, remoteServerIds: Set<Long>) {
+        db.withTransaction {
+            val staleServerIds = db.transactionDao().getSyncedServerIds()
+                .filterNot { it in remoteServerIds }
+            // SQLite 绑定变量有上限，分批删除，避免大账号全量同步时触发 SQLITE_TOOBIG。
+            staleServerIds.chunked(500).forEach { chunk ->
+                db.transactionDao().deleteSyncedByServerIds(chunk)
             }
         }
     }
@@ -752,10 +904,18 @@ object LedgerRepository {
                             if (latest == null) {
                                 // 飞行期间事件已被取消或移除，仍绑定 serverId 到本地行防孤立
                                 val localEntity = db.transactionDao().getTransactionByLocalId(event.localTargetId)
-                                if (localEntity != null && localEntity.syncStatus == "PENDING_DELETE") {
+                                if (localEntity != null) {
                                     db.transactionDao().bindServerId(event.localTargetId, created.id)
                                     db.outboxDao().bindServerId(event.localTargetId, created.id)
                                 }
+                                return@withTransaction
+                            }
+                            val localEntity = db.transactionDao().getTransactionByLocalId(event.localTargetId)
+                            if (localEntity?.syncStatus == "PENDING_DELETE") {
+                                // 删除竞态：绑定 serverId 供 DELETE 事件定位，绝不把本地行复活为 SYNCED
+                                db.transactionDao().bindServerId(event.localTargetId, created.id)
+                                db.outboxDao().bindServerId(event.localTargetId, created.id)
+                                db.outboxDao().deleteByEventId(event.eventId)
                                 return@withTransaction
                             }
                             if (latest.payload != event.payload) {
@@ -766,20 +926,17 @@ object LedgerRepository {
                                 db.transactionDao().updateSyncStatus(event.localTargetId, "PENDING_UPDATE")
                                 db.outboxDao().bindServerId(event.localTargetId, created.id)
                                 // 将原 CREATE 事件删除，替换为一条新的 UPDATE 事件，载荷为最新编辑内容
-                                db.outboxDao().deleteByEventId(event.eventId)
-                                val nextSeq = db.outboxDao().getNextSequence()
-                                db.outboxDao().insert(
-                                    LedgerOutboxEventEntity(
-                                        eventId = UUID.randomUUID().toString(),
-                                        action = "UPDATE",
-                                        payload = latest.payload,
-                                        localTargetId = event.localTargetId,
-                                        serverTargetId = created.id,
-                                        clientRequestId = UUID.randomUUID().toString(),
-                                        sequence = nextSeq,
-                                        enqueuedAt = Instant.now().toString()
-                                    )
-                                )
+                                promoteCreateToUpdate(db, latest, created.id, latest.payload)
+                            } else if (localEntity != null &&
+                                localEntity.syncStatus != "SYNCED" &&
+                                !transactionsHaveSameContent(localEntity.toDomainModel(), created)
+                            ) {
+                                // P0-1：重试命中幂等键，服务端返回的是旧载荷落库结果，
+                                // 而本地在重试前已有新编辑 ⇒ 保留本地内容并升级为 UPDATE
+                                db.transactionDao().bindServerId(event.localTargetId, created.id)
+                                db.transactionDao().updateSyncStatus(event.localTargetId, "PENDING_UPDATE")
+                                db.outboxDao().bindServerId(event.localTargetId, created.id)
+                                promoteCreateToUpdate(db, latest, created.id, latest.payload)
                             } else {
                                 db.transactionDao().markSynced(event.localTargetId, created.id, created.updatedAt)
                                 db.outboxDao().bindServerId(event.localTargetId, created.id)

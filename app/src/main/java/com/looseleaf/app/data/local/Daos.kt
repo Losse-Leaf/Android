@@ -421,7 +421,7 @@ interface TransactionDao {
 
 @Dao
 interface OutboxDao {
-    @Query("SELECT * FROM outbox_events WHERE failed_at IS NULL ORDER BY created_at ASC")
+    @Query("SELECT * FROM outbox_events WHERE failed_at IS NULL ORDER BY created_at ASC, rowid ASC")
     suspend fun getAllPendingEvents(): List<OutboxEventEntity>
 
     /**
@@ -443,9 +443,25 @@ interface OutboxDao {
     @Query(
         "SELECT * FROM outbox_events WHERE entity_type = :entityType " +
             "AND local_target_id = :localTargetId AND action = :action " +
-            "ORDER BY created_at ASC LIMIT 1"
+            "ORDER BY created_at ASC, rowid ASC LIMIT 1"
     )
     suspend fun findEventByTarget(entityType: String, localTargetId: Long, action: String): OutboxEventEntity?
+
+    /**
+     * P0-3：按「本地或服务端目标」查找事件，兼容旧版本
+     * `local_target_id = -1, server_target_id = 负数临时 id` 的写法。
+     * 迁移与 UI 编辑可能并发，编辑路径必须两种写法都能命中，避免重复入队。
+     */
+    @Query(
+        "SELECT * FROM outbox_events WHERE entity_type = :entityType AND action = :action " +
+            "AND (local_target_id = :targetId OR server_target_id = :targetId) " +
+            "ORDER BY created_at ASC, rowid ASC LIMIT 1"
+    )
+    suspend fun findEventByLocalOrServerTarget(
+        entityType: String,
+        targetId: Long,
+        action: String
+    ): OutboxEventEntity?
 
     /** 投递前重读最新载荷：同一轮 flush 内事件可能被合并编辑或补绑服务端 id。 */
     @Query("SELECT * FROM outbox_events WHERE event_id = :eventId")
@@ -479,6 +495,87 @@ interface OutboxDao {
 
     @Query("DELETE FROM outbox_events WHERE entity_type = :entityType AND local_target_id = :localTargetId")
     suspend fun deleteByLocalTarget(entityType: String, localTargetId: Long)
+
+    /**
+     * P0-3：删除临时行时连旧版本「server_target_id = 负数临时 id」的事件一起撤销。
+     * 仅用于 project / wish / footprint —— 其它实体两列数值域不同，不能混用。
+     */
+    @Query(
+        "DELETE FROM outbox_events WHERE entity_type = :entityType " +
+            "AND (local_target_id = :localTargetId OR server_target_id = :localTargetId)"
+    )
+    suspend fun deleteByLocalOrServerTarget(entityType: String, localTargetId: Long)
+
+    /**
+     * P0-3：整表拉取对账时，保护仍被发件箱引用（待更新 / 待归册 / 待删除）的本地行。
+     *
+     * 临时行（id < 0）不会出现在这里 —— 它们不在远端 id 域内，对账时自然保留。
+     */
+    @Query(
+        "SELECT local_target_id FROM outbox_events " +
+            "WHERE entity_type = :entityType AND local_target_id > 0 " +
+            "UNION " +
+            "SELECT server_target_id FROM outbox_events " +
+            "WHERE entity_type = :entityType AND server_target_id IS NOT NULL AND server_target_id > 0"
+    )
+    suspend fun getProtectedServerTargetIds(entityType: String): List<Long>
+
+    /**
+     * P0-3：CREATE 拿到真实 server id 后，把同一临时目标的后续事件整体换绑。
+     *
+     * 临时本地行会被替换成 `id = serverId` 的权威行，因此 `local_target_id`
+     * 也必须一起换绑，否则后续 UPDATE / RESOLVE 会找不到本地行。
+     * 同时清空失败态：CREATE 成功后，之前因“等 CREATE”而失败的事件应重新自动投递。
+     */
+    @Query(
+        "UPDATE outbox_events SET local_target_id = :serverId, server_target_id = :serverId, " +
+            "failed_at = NULL, last_error = NULL, retry_count = 0 " +
+            "WHERE entity_type = :entityType AND local_target_id = :tempLocalTargetId AND action != 'CREATE'"
+    )
+    suspend fun rebindFollowUpsToServerId(entityType: String, tempLocalTargetId: Long, serverId: Long)
+
+    /**
+     * P0-3：旧版本把 project/wish/footprint 的临时目标写成
+     * `local_target_id = -1, server_target_id = 负数临时 id`。
+     * 启动时一次性迁移到新模型：`local_target_id = 临时 id, server_target_id = NULL`。
+     */
+    @Query(
+        "UPDATE outbox_events SET local_target_id = server_target_id, server_target_id = NULL " +
+            "WHERE entity_type IN ('project', 'wish', 'footprint') " +
+            "AND local_target_id = -1 AND server_target_id IS NOT NULL AND server_target_id < 0"
+    )
+    suspend fun repairLegacyNegativeSimpleEntityTargets(): Int
+
+    /**
+     * P0-3：旧版本已同步实体的 UPDATE / RESOLVE / DELETE 事件也写 `local_target_id = -1`，
+     * 只带正数 `server_target_id`。迁移后让失败事件放弃逻辑也能按 local_target_id 定位本地行。
+     */
+    @Query(
+        "UPDATE outbox_events SET local_target_id = server_target_id " +
+            "WHERE entity_type IN ('project', 'wish', 'footprint') " +
+            "AND local_target_id = -1 AND server_target_id IS NOT NULL AND server_target_id > 0"
+    )
+    suspend fun repairLegacyPositiveSimpleEntityTargets(): Int
+
+    /**
+     * P0-3：在线更新已经成功时，删掉**载荷相同**的待发 UPDATE。
+     * 若投递期间用户又改了内容（载荷不同），保留事件交给下一轮按新载荷重发。
+     */
+    @Query(
+        "DELETE FROM outbox_events WHERE event_id = :eventId AND payload = :expectedPayload"
+    )
+    suspend fun deleteIfPayloadUnchanged(eventId: String, expectedPayload: String): Int
+
+    /**
+     * P0-3：临时行只有一个上传入口（CREATE 载荷就是最新内容）。
+     * 旧版本离线编辑可能留下同一临时目标的 UPDATE；编辑时清掉它，
+     * 避免 CREATE 成功后旧 UPDATE 又把更旧的内容发回服务端。
+     */
+    @Query(
+        "DELETE FROM outbox_events WHERE entity_type = :entityType AND action = 'UPDATE' " +
+            "AND (local_target_id = :tempLocalId OR server_target_id = :tempLocalId)"
+    )
+    suspend fun deleteUpdatesForTempTarget(entityType: String, tempLocalId: Long)
 
     /**
      * CREATE 拿到服务端 id 后，把同一本地目标待发的 UPDATE 绑定到该 id。
@@ -517,6 +614,13 @@ interface ProjectDao {
     @Query("SELECT * FROM cached_projects ORDER BY `order` ASC, id DESC")
     fun getAllProjectsFlow(): Flow<List<CachedProjectEntity>>
 
+    @Query("SELECT * FROM cached_projects WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Long): CachedProjectEntity?
+
+    /** P0-3：整表拉取对账用，包含负数临时行。 */
+    @Query("SELECT id FROM cached_projects")
+    suspend fun getAllIds(): List<Long>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(project: CachedProjectEntity)
 
@@ -538,6 +642,10 @@ interface WishDao {
     @Query("SELECT * FROM cached_wishes WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): CachedWishEntity?
 
+    /** P0-3：整表拉取对账用，包含负数临时行。 */
+    @Query("SELECT id FROM cached_wishes")
+    suspend fun getAllIds(): List<Long>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(wish: CachedWishEntity)
 
@@ -558,6 +666,10 @@ interface FootprintDao {
 
     @Query("SELECT * FROM cached_footprints WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): CachedFootprintEntity?
+
+    /** P0-3：整表拉取对账用，包含负数临时行。 */
+    @Query("SELECT id FROM cached_footprints")
+    suspend fun getAllIds(): List<Long>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(footprint: CachedFootprintEntity)

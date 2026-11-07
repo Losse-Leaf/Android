@@ -43,6 +43,10 @@ class OutboxSyncWorker(
             val database = AppDatabase.getInstance(applicationContext)
             val outboxDao = database.outboxDao()
 
+            // P0-3：旧版本事件目标模型迁移（-1 哨兵 + 负数 server_target_id）。
+            // Application 启动时已经跑过一次；Worker 再兜底一次，幂等。
+            runCatching { syncManager.repairLegacySimpleEntityTargets() }
+
             // MOB-P1-49：每轮排空前先清理 7 天前的死信，避免发件箱无限膨胀
             runCatching {
                 val cutoff = java.time.LocalDateTime.now(FormatUtils.BeijingZone)
@@ -74,7 +78,9 @@ class OutboxSyncWorker(
             if (pendingEvents.isEmpty()) {
                 val allPending = outboxDao.getAllPendingEvents()
                 if (allPending.isEmpty()) {
-                    return@withLock Result.success()
+                    // P1-1：主库发件箱为空也必须继续往下走，
+                    // 账本库 (looseleaf_ledger.db) 可能仍有待同步事件。
+                    break
                 }
                 // 若剩下的全是「还在删除宽限期」的事件，必须再约一次延迟排空；
                 // 否则本次直接成功退出后，这些 DELETE 永远没有下一次机会。

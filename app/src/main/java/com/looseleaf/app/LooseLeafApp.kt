@@ -59,7 +59,10 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
                 syncManager.ensureStarted()
                 // MOB-P2-28 / AND-7：只在**确有积压**时才唤醒 WorkManager，
                 // 且用一次 COUNT 查询判断，无需先建立两条常驻 Flow。
-                if (syncManager.pendingEventCountNow() > 0) {
+                // P1-1：账本库独立于主库，必须把它的待同步事件一并计入。
+                val mainPending = syncManager.pendingEventCountNow()
+                val ledgerPending = com.looseleaf.feature.ledger.data.LedgerRepository.pendingOutboxCount()
+                if (mainPending > 0 || ledgerPending > 0) {
                     syncManager.scheduleSync()
                 }
             }
