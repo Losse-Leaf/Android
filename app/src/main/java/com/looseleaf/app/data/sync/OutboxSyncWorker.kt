@@ -2,7 +2,12 @@ package com.looseleaf.app.data.sync
 
 import android.content.Context
 import android.util.Log
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.looseleaf.app.data.api.APIException
 import com.looseleaf.app.data.local.AppDatabase
@@ -29,6 +34,8 @@ class OutboxSyncWorker(
         const val WORK_NAME = "com.looseleaf.outbox_sync"
         /** 删除宽限期专用的一次性延迟任务（与主同步任务互不覆盖） */
         const val GRACE_WORK_NAME = "com.looseleaf.outbox_sync_grace"
+        /** 达到单次排空上限后的续排任务（独立链，避免 REPLACE 取消正在运行的自己） */
+        const val CONTINUATION_WORK_NAME = "com.looseleaf.outbox_sync_continuation"
         const val MAX_RETRY = 10
         /** OPT-05：单批读取大小 */
         const val BATCH_SIZE = 50
@@ -37,6 +44,46 @@ class OutboxSyncWorker(
 
         /** MOB-P1-49：失败事件的保留天数（超过即清理） */
         const val DEAD_LETTER_RETENTION_DAYS = 7L
+
+        /** 是否还有「本轮没试过、且不在删除宽限期」的待发事件。 */
+        internal suspend fun hasUnattemptedPending(
+            outboxDao: com.looseleaf.app.data.local.OutboxDao,
+            attemptedEventIds: Set<String>
+        ): Boolean {
+            val remaining = if (attemptedEventIds.isEmpty()) {
+                outboxDao.getPendingEventsBatch(1)
+            } else {
+                outboxDao.getPendingEventsBatchExcluding(1, attemptedEventIds.toList())
+            }
+            return remaining.any { !SyncManager.isDeleteWithinGracePeriod(it) }
+        }
+
+        /** 只有「本轮没有可重试失败、且仍有未尝试事件」时才续排；有失败交给退避重试。 */
+        internal fun shouldScheduleContinuation(anyFailed: Boolean, hasUnattempted: Boolean): Boolean =
+            !anyFailed && hasUnattempted
+    }
+
+    /**
+     * 达到单次运行上限后预约下一轮排空。
+     *
+     * 用独立的 unique work + APPEND_OR_REPLACE：
+     * - 不能复用主 WORK_NAME：主任务使用 KEEP，正在运行的自己会吞掉续排请求；
+     * - 不能用 REPLACE：会把正在运行的自己取消掉；
+     * - APPEND_OR_REPLACE 会在当前链尾追加，等本轮正常结束后再跑。
+     */
+    private fun scheduleContinuation() {
+        val request = OneTimeWorkRequestBuilder<OutboxSyncWorker>()
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .build()
+        WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+            CONTINUATION_WORK_NAME,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            request
+        )
     }
 
     override suspend fun doWork(): Result {
@@ -62,7 +109,6 @@ class OutboxSyncWorker(
             // WorkManager 的 KEEP 策略意味着「运行期间新写入的事件」不会触发新任务，
             // 因此这里循环处理，直到发件箱真的空了为止（最多 MAX_DRAIN_ROUNDS 轮，
             // 防止异常情况下无限循环）。
-            var anySucceeded = false
             var anyFailed = false
             var round = 0
             // 本次运行已经尝试过的事件：失败的事件**不在同一轮里被反复重试**
@@ -74,6 +120,14 @@ class OutboxSyncWorker(
                 // 接近 SQLite 变量上限（999）时收口本轮，交由下次带退避的运行重试
                 if (attemptedEventIds.size >= 800) {
                     Log.w(TAG, "Attempted events cap reached (${attemptedEventIds.size}), stopping drain loop")
+                    // 还有没试过的事件 → 续排；否则会等到下一次外部触发才继续。
+                    if (shouldScheduleContinuation(
+                            anyFailed,
+                            hasUnattemptedPending(outboxDao, attemptedEventIds)
+                        )
+                    ) {
+                        scheduleContinuation()
+                    }
                     break
                 }
 
@@ -124,7 +178,6 @@ class OutboxSyncWorker(
                         // 或进程重启才被投递，其它端一直看到旧内容。
                         attemptedEventIds.remove(event.eventId)
                     })
-                    anySucceeded = true
                 } catch (e: Exception) {
                     val code = (e as? APIException)?.code
                     Log.w(TAG, "Failed syncing event ${event.eventId} (${event.entityType}/${event.action}): ${e.message}")
@@ -159,7 +212,14 @@ class OutboxSyncWorker(
 
             // 本轮跑完后如果发件箱还有**新写入**的事件，继续下一轮排空
             if (round >= MAX_DRAIN_ROUNDS) {
-                Log.w(TAG, "Drain rounds limit reached, remaining events will be picked up by the next run")
+                Log.w(TAG, "Drain rounds limit reached, scheduling continuation for remaining events")
+                if (shouldScheduleContinuation(
+                        anyFailed,
+                        hasUnattemptedPending(outboxDao, attemptedEventIds)
+                    )
+                ) {
+                    scheduleContinuation()
+                }
                 break
             }
             }

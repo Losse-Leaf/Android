@@ -162,6 +162,29 @@ class SyncManager private constructor(private val context: Context) {
         /** MOB-P0-03：媒体直传并发上限（超过会占满移动上行带宽并放大内存峰值） */
         private const val MAX_CONCURRENT_UPLOADS = 3
 
+        /**
+         * OPT-08：CREATE 返回 410 Gone —— 服务端该记录已被软删后物理清理。
+         * 本地临时行与对应 CREATE 事件必须一起丢弃，避免幽灵行与死信重试。
+         * 放在同一事务里，避免「行删了、事件还在」或反之。
+         */
+        internal suspend fun discardGoneCreate(
+            database: AppDatabase,
+            event: OutboxEventEntity,
+            deleteLocalRow: suspend () -> Unit
+        ) {
+            database.withTransaction {
+                deleteLocalRow()
+                database.outboxDao().delete(event)
+            }
+        }
+
+        /**
+         * 分页是否真的超限：短页（reachedEnd）说明已经到末页，
+         * 即使页数恰好用满 MAX_PAGES 也不能误报。
+         */
+        internal fun paginationExceeded(reachedEnd: Boolean, pages: Int, maxPages: Int): Boolean =
+            !reachedEnd && pages >= maxPages
+
         @Volatile
         private var instance: SyncManager? = null
 
@@ -1453,6 +1476,7 @@ class SyncManager private constructor(private val context: Context) {
         try {
             var page = 1
             var pages = 0
+            var reachedEnd = false
             while (pages < MAX_PAGES) {
                 val pageMeta = ResponseMeta()
                 val resp = apiClient.fetchEntries(
@@ -1480,10 +1504,15 @@ class SyncManager private constructor(private val context: Context) {
                 SyncMerger.upsertEntries(database, resp.entries, localIndex, json)
                 // 只用「不满页」做终止条件：resp.total 是 COUNT 快照，
                 // 并发写入会偏小，导致 size >= total 提前 break 漏拉后续页
-                if (resp.entries.size < 100) break
+                if (resp.entries.size < 100) {
+                    reachedEnd = true
+                    break
+                }
                 page++
             }
-            if (pages >= MAX_PAGES) {
+            // 只有「没看到短页且已经用满页数」才是真的超限；
+            // 第 MAX_PAGES 页恰好是最后一页（短页）时不能误报。
+            if (paginationExceeded(reachedEnd, pages, MAX_PAGES)) {
                 throw IllegalStateException("分页超过 $MAX_PAGES 页，本次拉取已中止")
             }
         } catch (e: Exception) {
@@ -1595,6 +1624,7 @@ class SyncManager private constructor(private val context: Context) {
         val updatedCandidates = mutableListOf<String?>()
         var wishPage = 1
         var pages = 0
+        var reachedEnd = false
 
         while (pages < MAX_PAGES) {
             val pageMeta = ResponseMeta()
@@ -1613,10 +1643,15 @@ class SyncManager private constructor(private val context: Context) {
                 updatedCandidates += wishes.map { it.deletedAt }
             }
             allWishes.addAll(wishes)
-            if (wishes.size < 100) break
+            if (wishes.size < 100) {
+                reachedEnd = true
+                break
+            }
             wishPage++
         }
-        if (pages >= MAX_PAGES) throw IllegalStateException("心愿分页超限")
+        if (paginationExceeded(reachedEnd, pages, MAX_PAGES)) {
+            throw IllegalStateException("心愿分页超限")
+        }
 
         database.withTransaction {
             val protectedIds = database.outboxDao()
@@ -2383,7 +2418,19 @@ class SyncManager private constructor(private val context: Context) {
                         val stillThere = database.entryDao().getEntryByLocalId(event.localTargetId) != null
                         if (stillThere) {
                             val req = json.decodeFromString<CreateEntryRequest>(event.payload)
-                            val serverEntry = apiClient.createEntry(req)
+                            val serverEntry = try {
+                                apiClient.createEntry(req)
+                            } catch (e: APIException) {
+                                if (e.code == 410) {
+                                    // OPT-08：服务端该记录已被软删后物理清理（purge）。
+                                    // 删除本地临时行并消费 CREATE，避免死信反复重试。
+                                    discardGoneCreate(database, event) {
+                                        database.entryDao().deleteByLocalId(event.localTargetId)
+                                    }
+                                    return
+                                }
+                                throw e
+                            }
                             database.entryDao().markSynced(event.localTargetId, serverEntry.id)
                             // CREATE 响应可能是幂等命中的旧记录；把编辑期间排队的 UPDATE
                             // 绑定到真实 id，随后补发最新内容。
@@ -2545,7 +2592,22 @@ class SyncManager private constructor(private val context: Context) {
                                 selectedAttachments.map { it.id }
                             ).distinct().takeIf { it.isNotEmpty() }
                     )
-                    val serverEntry = apiClient.createEntry(finalReq)
+                    val serverEntry = try {
+                        apiClient.createEntry(finalReq)
+                    } catch (e: APIException) {
+                        if (e.code == 410) {
+                            // OPT-08：服务端该记录已被软删后物理清理（purge）。
+                            // 删除本地临时行、消费事件并清掉本次上传产生的临时文件。
+                            discardGoneCreate(database, event) {
+                                database.entryDao().deleteByLocalId(event.localTargetId)
+                            }
+                            for (f in tempFiles) {
+                                runCatching { f.delete() }
+                            }
+                            return
+                        }
+                        throw e
+                    }
 
                     // 上传（秒级）与 createEntry（网络往返）的间隙里用户可能已删除
                     // 这条未同步条目（事件消失）。若不补偿，服务端会留下一条
@@ -2635,7 +2697,18 @@ class SyncManager private constructor(private val context: Context) {
                         val stillThere = database.transactionDao().getTransactionByLocalId(event.localTargetId) != null
                         if (stillThere) {
                             val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
-                            val serverTx = apiClient.createTransaction(req)
+                            val serverTx = try {
+                                apiClient.createTransaction(req)
+                            } catch (e: APIException) {
+                                if (e.code == 410) {
+                                    // OPT-08：服务端该记录已被软删后物理清理（purge）。
+                                    discardGoneCreate(database, event) {
+                                        database.transactionDao().deleteByLocalId(event.localTargetId)
+                                    }
+                                    return
+                                }
+                                throw e
+                            }
                             database.transactionDao().markSynced(event.localTargetId, serverTx.id)
                             database.outboxDao().bindPendingUpdatesToServerId(
                                 "transaction", event.localTargetId, serverTx.id
@@ -2737,7 +2810,7 @@ class SyncManager private constructor(private val context: Context) {
                             event = event,
                             sentPayload = sentPayload,
                             serverId = created.id,
-                            serverMatchesSentPayload = !meta.isIdempotentReplay && req.matchesServer(created),
+                            serverMatchesSentPayload = req.matchesServer(created),
                             onPayloadUnchanged = {
                                 database.projectDao().deleteById(event.localTargetId)
                                 database.projectDao().insert(created.toCacheEntity())
@@ -2866,7 +2939,7 @@ class SyncManager private constructor(private val context: Context) {
                             event = event,
                             sentPayload = sentPayload,
                             serverId = created.id,
-                            serverMatchesSentPayload = !meta.isIdempotentReplay && req.matchesServer(created),
+                            serverMatchesSentPayload = req.matchesServer(created),
                             onPayloadUnchanged = {
                                 // 飞行期间用户可能已经归册：服务端响应仍是 wanting，
                                 // 不能把它盖到本地 fulfilled / relinquished 状态上。
@@ -3032,7 +3105,7 @@ class SyncManager private constructor(private val context: Context) {
                             event = event,
                             sentPayload = sentPayload,
                             serverId = created.id,
-                            serverMatchesSentPayload = !meta.isIdempotentReplay && req.matchesServer(created),
+                            serverMatchesSentPayload = req.matchesServer(created),
                             onPayloadUnchanged = {
                                 database.footprintDao().deleteById(event.localTargetId)
                                 database.footprintDao().insert(created.toCacheEntity(json))

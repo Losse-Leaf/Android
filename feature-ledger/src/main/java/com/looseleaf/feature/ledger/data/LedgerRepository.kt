@@ -663,11 +663,14 @@ object LedgerRepository {
                             maxCursorCandidate = batchMax
                         }
 
-                        if (batch.size < batchLimit) {
+                        // 增量首页会额外注入 purge 墓碑；墓碑不占服务端 offset，
+                        // 因此分页终止与 offset 推进都只能按「非墓碑行」计数。
+                        val activeCount = activeTransactionCount(batch)
+                        if (activeCount < batchLimit) {
                             incrementalCompleted = true
                             break
                         }
-                        offset += batch.size
+                        offset += activeCount
                     }
 
                     if (!incrementalCompleted) {
@@ -685,6 +688,13 @@ object LedgerRepository {
             }
         }
     }
+
+    /**
+     * 增量分页只按非墓碑行推进 offset：purge 墓碑由首页注入，不占服务端 offset。
+     * 若把墓碑算进 offset，会跳过服务端真实行，造成静默漏拉。
+     */
+    internal fun activeTransactionCount(batch: List<Transaction>): Int =
+        batch.count { it.deletedAt.isNullOrBlank() }
 
     private fun maxOfOrNull(a: String?, b: String?): String? {
         if (a == null) return b
