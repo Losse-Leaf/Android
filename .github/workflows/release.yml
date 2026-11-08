@@ -25,9 +25,12 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: gradle
+          # 只按 Gradle 版本缓存：版本号提交（app/build.gradle.kts）不再让整个
+          # 依赖缓存失效，避免每次发版都重新下载 100MB+ 的 Gradle 分发包。
+          cache-dependency-path: gradle/wrapper/gradle-wrapper.properties
 
       - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+        run: chmod +x gradlew scripts/gradle-retry.sh
 
       - name: Verify tag matches app versionName
         if: startsWith(github.ref, 'refs/tags/')
@@ -47,9 +50,8 @@ jobs:
         run: |
           set +e
           # MOB-P1-62：变体化后必须显式点名（testDebugUnitTest 已成歧义任务名）
-          ./gradlew :core:testDebugUnitTest :feature-ledger:testDebugUnitTest :app:testPublicDebugUnitTest :app:testLanDebugUnitTest --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_test.log 2>&1
+          GRADLE_RETRY_LOG=gradle_test.log ./scripts/gradle-retry.sh :core:testDebugUnitTest :feature-ledger:testDebugUnitTest :app:testPublicDebugUnitTest :app:testLanDebugUnitTest --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace
           EXIT_CODE=$?
-          cat gradle_test.log
           if [ $EXIT_CODE -ne 0 ]; then
             echo "::error title=门禁未通过::单元测试失败，禁止发布"
             exit $EXIT_CODE
@@ -59,9 +61,8 @@ jobs:
         run: |
           set +e
           # MOB-P1-62：lintDebug 同样因变体而歧义，改点名两个变体
-          ./gradlew :app:lintPublicDebug :app:lintLanDebug --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_lint.log 2>&1
+          GRADLE_RETRY_LOG=gradle_lint.log ./scripts/gradle-retry.sh :app:lintPublicDebug :app:lintLanDebug --no-daemon -Pkotlin.compiler.execution.strategy=in-process --stacktrace
           EXIT_CODE=$?
-          cat gradle_lint.log
           if [ $EXIT_CODE -ne 0 ]; then
             echo "::error title=门禁未通过::lint 存在 error，禁止发布"
             exit $EXIT_CODE
@@ -106,13 +107,12 @@ jobs:
           LOOSELEAF_KEY_ALIAS: ${{ secrets.LOOSELEAF_KEY_ALIAS || 'looseleaf' }}
         run: |
           set +e
-          ./gradlew assembleRelease --no-daemon \
+          GRADLE_RETRY_LOG=gradle_release.log ./scripts/gradle-retry.sh assembleRelease --no-daemon \
             -PLOOSELEAF_STORE_PASSWORD="$LOOSELEAF_STORE_PASSWORD" \
             -PLOOSELEAF_KEY_PASSWORD="$LOOSELEAF_KEY_PASSWORD" \
             -PLOOSELEAF_KEY_ALIAS="$LOOSELEAF_KEY_ALIAS" \
-            -Pkotlin.compiler.execution.strategy=in-process --stacktrace > gradle_release.log 2>&1
+            -Pkotlin.compiler.execution.strategy=in-process --stacktrace
           EXIT_CODE=$?
-          cat gradle_release.log
           if [ $EXIT_CODE -ne 0 ]; then
             ERR_SUMMARY=$(grep -E "^e: " gradle_release.log | head -n 20)
             if [ -z "$ERR_SUMMARY" ]; then
