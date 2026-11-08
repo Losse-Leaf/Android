@@ -424,6 +424,24 @@ interface OutboxDao {
     @Query("SELECT * FROM outbox_events WHERE failed_at IS NULL ORDER BY created_at ASC, rowid ASC")
     suspend fun getAllPendingEvents(): List<OutboxEventEntity>
 
+    /** OPT-05：分批读取待同步事件，避免离线积压大量事件时整表载入内存 */
+    @Query("SELECT * FROM outbox_events WHERE failed_at IS NULL ORDER BY created_at ASC, rowid ASC LIMIT :limit")
+    suspend fun getPendingEventsBatch(limit: Int): List<OutboxEventEntity>
+
+    /** OPT-05：分批读取并排除本轮已尝试过的事件 */
+    @Query(
+        "SELECT * FROM outbox_events WHERE failed_at IS NULL AND event_id NOT IN (:excludedIds) " +
+            "ORDER BY created_at ASC, rowid ASC LIMIT :limit"
+    )
+    suspend fun getPendingEventsBatchExcluding(limit: Int, excludedIds: List<String>): List<OutboxEventEntity>
+
+    /** OPT-05：只读取待同步的删除事件（用于宽限期检查），避免读出全部事件的大载荷 */
+    @Query(
+        "SELECT * FROM outbox_events WHERE failed_at IS NULL AND action = 'DELETE' " +
+            "ORDER BY created_at ASC, rowid ASC"
+    )
+    suspend fun getPendingDeleteEvents(): List<OutboxEventEntity>
+
     /**
      * MOB-P1-49：清理长期滞留的死信。
      * 失败事件此前**永久保留**，每轮 worker 都要把整条队列（含 payload）读进内存，

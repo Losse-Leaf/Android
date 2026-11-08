@@ -30,8 +30,10 @@ class OutboxSyncWorker(
         /** 删除宽限期专用的一次性延迟任务（与主同步任务互不覆盖） */
         const val GRACE_WORK_NAME = "com.looseleaf.outbox_sync_grace"
         const val MAX_RETRY = 10
+        /** OPT-05：单批读取大小 */
+        const val BATCH_SIZE = 50
         /** MOB-P1-51：单次运行最多排空几轮（防止异常情况下无限循环） */
-        const val MAX_DRAIN_ROUNDS = 5
+        const val MAX_DRAIN_ROUNDS = 10
 
         /** MOB-P1-49：失败事件的保留天数（超过即清理） */
         const val DEAD_LETTER_RETENTION_DAYS = 7L
@@ -68,32 +70,45 @@ class OutboxSyncWorker(
             // 它们要等下一次运行（带指数退避）。只有「运行期间新写入」的事件才会被继续处理。
             val attemptedEventIds = mutableSetOf<String>()
 
-            while (true) {
-            val pendingEvents = outboxDao.getAllPendingEvents()
-                .filter { it.eventId !in attemptedEventIds }
+            while (round < MAX_DRAIN_ROUNDS) {
+                // 接近 SQLite 变量上限（999）时收口本轮，交由下次带退避的运行重试
+                if (attemptedEventIds.size >= 800) {
+                    Log.w(TAG, "Attempted events cap reached (${attemptedEventIds.size}), stopping drain loop")
+                    break
+                }
+
+                val batch = if (attemptedEventIds.isEmpty()) {
+                    outboxDao.getPendingEventsBatch(BATCH_SIZE)
+                } else {
+                    outboxDao.getPendingEventsBatchExcluding(BATCH_SIZE, attemptedEventIds.toList())
+                }
+
                 // MOB-P2-47：宽限期内的删除事件**先不上传** ——
                 // 删除刚发生时发件箱 Worker 可能正好被别的事件唤醒，
                 // 那样 DELETE 会立刻送到服务端，纸签上的「撤销」就永远赶不上。
-                .filterNot { SyncManager.isDeleteWithinGracePeriod(it) }
-            if (pendingEvents.isEmpty()) {
-                val allPending = outboxDao.getAllPendingEvents()
-                if (allPending.isEmpty()) {
-                    // P1-1：主库发件箱为空也必须继续往下走，
-                    // 账本库 (looseleaf_ledger.db) 可能仍有待同步事件。
+                val pendingEvents = batch.filterNot { SyncManager.isDeleteWithinGracePeriod(it) }
+
+                if (pendingEvents.isEmpty()) {
+                    val pendingCount = outboxDao.countPendingEvents()
+                    if (pendingCount == 0) {
+                        // P1-1：主库发件箱为空也必须继续往下走，
+                        // 账本库 (looseleaf_ledger.db) 可能仍有待同步事件。
+                        break
+                    }
+                    // 若剩下的全是「还在删除宽限期」的事件，必须再约一次延迟排空；
+                    // 否则本次直接成功退出后，这些 DELETE 永远没有下一次机会。
+                    val pendingDeletes = outboxDao.getPendingDeleteEvents()
+                    if (pendingDeletes.any { SyncManager.isDeleteWithinGracePeriod(it) }) {
+                        syncManager.scheduleGraceSync(SyncManager.DELETE_GRACE_PERIOD_MS + 250)
+                    }
+                    // 其余都是本轮已试过的事件 → 留给下一次运行（带退避）
                     break
                 }
-                // 若剩下的全是「还在删除宽限期」的事件，必须再约一次延迟排空；
-                // 否则本次直接成功退出后，这些 DELETE 永远没有下一次机会。
-                if (allPending.any { SyncManager.isDeleteWithinGracePeriod(it) }) {
-                    syncManager.scheduleGraceSync(SyncManager.DELETE_GRACE_PERIOD_MS + 250)
-                }
-                // 其余都是本轮已试过的事件 → 留给下一次运行（带退避）
-                break
-            }
-            attemptedEventIds += pendingEvents.map { it.eventId }
 
-            Log.d(TAG, "Starting outbox flush for ${pendingEvents.size} pending events (round ${round + 1})")
-            round++
+                attemptedEventIds += batch.map { it.eventId }
+
+                Log.d(TAG, "Starting outbox flush for ${pendingEvents.size} pending events (round ${round + 1})")
+                round++
 
             // MOB-P1-52：原先「单条失败即中止整队」——
             // 第 1 条事件遇到一次网络抖动，第 2..N 条全部被推迟，

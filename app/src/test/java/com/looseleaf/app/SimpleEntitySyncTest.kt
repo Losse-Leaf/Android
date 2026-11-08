@@ -512,4 +512,32 @@ class SimpleEntitySyncTest {
         db.projectDao().insertAll(remoteProjects.map { it.toCacheEntity() })
         assertEquals(count, db.projectDao().getAllIds().size)
     }
+
+    @Test
+    fun `OPT-05 发件箱支持分批读取与排除已尝试事件`() = runBlocking {
+        val outbox = db.outboxDao()
+        for (i in 1..10) {
+            outbox.insert(event(
+                eventId = "ev-$i",
+                action = if (i % 3 == 0) "DELETE" else "UPDATE",
+                serverTargetId = i.toLong()
+            ))
+        }
+
+        assertEquals(10, outbox.countPendingEvents())
+
+        // 批大小为 4
+        val batch1 = outbox.getPendingEventsBatch(4)
+        assertEquals(4, batch1.size)
+        assertEquals(listOf("ev-1", "ev-2", "ev-3", "ev-4"), batch1.map { it.eventId })
+
+        // 排除 batch1
+        val batch2 = outbox.getPendingEventsBatchExcluding(4, batch1.map { it.eventId })
+        assertEquals(4, batch2.size)
+        assertEquals(listOf("ev-5", "ev-6", "ev-7", "ev-8"), batch2.map { it.eventId })
+
+        // 只取待处理的 DELETE 事件
+        val deletes = outbox.getPendingDeleteEvents()
+        assertEquals(listOf("ev-3", "ev-6", "ev-9"), deletes.map { it.eventId })
+    }
 }
