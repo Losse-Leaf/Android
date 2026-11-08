@@ -19,6 +19,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 val DefaultExpenseCategories = listOf("餐饮", "交通", "购物", "娱乐", "住房", "学习", "医疗", "其他")
@@ -597,7 +599,7 @@ object LedgerRepository {
                 }
 
                 // 3. 增量游标拉取 (P0-1 & P0-2)
-                val storedCursor = getStoredCursor()
+                val storedCursor = normalizeCursor(getStoredCursor())
                 if (storedCursor.isNullOrBlank()) {
                     // 首次全量拉取：分页遍历直至完全同步
                     var offset = 0
@@ -625,11 +627,12 @@ object LedgerRepository {
                         mergeTransactions(db, batch)
                         remoteServerIds += batch.map { it.id }
 
-                        val serverCursor = meta.syncCursor
-                        val batchMax = maxOfOrNull(
-                            serverCursor,
-                            batch.mapNotNull { it.updatedAt ?: it.deletedAt ?: it.createdAt }.maxOrNull()
-                        )
+                        // P3：响应头是 UTC，行时间戳可能是 +08:00；先统一成固定宽度 UTC
+                        // 再比较，避免同一时刻被字符串比较误判，导致游标推进偏慢。
+                        val rowMax = batch.mapNotNull {
+                            normalizeCursor(it.updatedAt ?: it.deletedAt ?: it.createdAt)
+                        }.maxOrNull()
+                        val batchMax = maxCursorOf(meta.syncCursor, rowMax)
                         if (batchMax != null && (maxCursorCandidate == null || batchMax > maxCursorCandidate)) {
                             maxCursorCandidate = batchMax
                         }
@@ -680,11 +683,12 @@ object LedgerRepository {
 
                         mergeTransactions(db, batch)
 
-                        val serverCursor = meta.syncCursor
-                        val batchMax = maxOfOrNull(
-                            serverCursor,
-                            batch.mapNotNull { it.updatedAt ?: it.deletedAt ?: it.createdAt }.maxOrNull()
-                        )
+                        // P3：响应头是 UTC，行时间戳可能是 +08:00；先统一成固定宽度 UTC
+                        // 再比较，避免同一时刻被字符串比较误判，导致游标推进偏慢。
+                        val rowMax = batch.mapNotNull {
+                            normalizeCursor(it.updatedAt ?: it.deletedAt ?: it.createdAt)
+                        }.maxOrNull()
+                        val batchMax = maxCursorOf(meta.syncCursor, rowMax)
                         if (batchMax != null && (maxCursorCandidate == null || batchMax > maxCursorCandidate)) {
                             maxCursorCandidate = batchMax
                         }
@@ -727,11 +731,28 @@ object LedgerRepository {
     internal fun nextTransactionOffset(currentOffset: Int, batchSize: Int, batchLimit: Int): Int? =
         if (batchSize < batchLimit) null else currentOffset + batchLimit
 
-    private fun maxOfOrNull(a: String?, b: String?): String? {
-        if (a == null) return b
-        if (b == null) return a
-        return if (a >= b) a else b
+    /** 固定宽度的 UTC 游标格式；同一时刻的 `+08:00` 与 `Z` 形式会归一成同一字符串。 */
+    private val cursorFormatter: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ss.SSSSSSSSS'Z'")
+            .withZone(ZoneOffset.UTC)
+
+    /**
+     * P3：把 RFC3339 游标统一成固定宽度 UTC。
+     *
+     * 服务端 `X-Sync-Cursor` 是 UTC（Z），账本行时间戳可能是服务器本地时区（+08:00）。
+     * 直接做字符串比较会把 `10:00+08:00` 误判为晚于 `02:30Z`，导致游标推进偏慢、
+     * 同一批记录被反复拉取。统一成 UTC 且固定 9 位小数后，字典序即时间序。
+     * 无法解析的游标原样返回，交给服务端 400 暴露问题，不静默丢弃。
+     */
+    internal fun normalizeCursor(value: String?): String? {
+        val text = normalizedText(value) ?: return null
+        val instant = parseInstantOrNull(text) ?: return text
+        return cursorFormatter.format(instant)
     }
+
+    /** 返回若干个游标中真实时刻最大的一个（已归一化为 UTC）。 */
+    internal fun maxCursorOf(vararg values: String?): String? =
+        values.mapNotNull { normalizeCursor(it) }.maxOrNull()
 
     private fun normalizedText(value: String?): String? =
         value?.trim()?.takeIf { it.isNotEmpty() }
