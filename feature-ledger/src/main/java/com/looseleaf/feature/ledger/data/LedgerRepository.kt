@@ -126,6 +126,30 @@ object LedgerRepository {
         getSyncPrefs()?.edit()?.remove(getCursorKey())?.apply()
     }
 
+    /**
+     * P1 分页修复配套：一次性清空账目游标。
+     *
+     * 旧版增量分页把真实软删行误判为末页，提前停止后仍推进游标；
+     * 已漏拉的记录不会因为客户端升级而自动回来。这里在每个中枢首次同步前
+     * 清空一次游标，强制走全量补拉，用独立标记保证只执行一次。
+     */
+    internal fun resetCursorForPaginationFixIfNeeded() {
+        val prefs = getSyncPrefs() ?: return
+        val resetKey = getCursorResetKey()
+        if (prefs.getBoolean(resetKey, false)) return
+        prefs.edit()
+            .remove(getCursorKey())
+            .putBoolean(resetKey, true)
+            .apply()
+    }
+
+    private fun getCursorResetKey(): String {
+        val baseUrl = customApiClient?.baseUrl
+            ?: appContext?.let { APIClient.getInstance(it).baseUrl }
+            ?: "default"
+        return "cursor_reset_pagination_fix_v1_" + baseUrl.hashCode()
+    }
+
     suspend fun <T> withSyncLock(block: suspend () -> T): T {
         return syncMutex.withLock { block() }
     }
@@ -554,6 +578,8 @@ object LedgerRepository {
         syncMutex.withLock {
             runCatching {
                 val api = getApiClient()
+                // P1：旧版分页可能已漏拉账目；每个中枢首次同步前强制全量补拉一次。
+                resetCursorForPaginationFixIfNeeded()
                 // 1. 刷新基础配置与大盘（P1-10：非强制刷新时遵循 30 秒缓存 TTL，避免切 Tab / 频繁打开引发 6-12 请求风暴）
                 val now = System.currentTimeMillis()
                 if (force || (now - lastMetadataRefreshTime) > METADATA_TTL_MS) {
@@ -664,13 +690,14 @@ object LedgerRepository {
                         }
 
                         // 增量首页会额外注入 purge 墓碑；墓碑不占服务端 offset，
-                        // 因此分页终止与 offset 推进都只能按「非墓碑行」计数。
-                        val activeCount = activeTransactionCount(batch)
-                        if (activeCount < batchLimit) {
+                        // 但真实软删行仍占 offset。两者 deleted_at 都非空，无法区分，
+                        // 因此按服务端原始页大小判断终止与推进（limit 只作用于数据库行）。
+                        val nextOffset = nextTransactionOffset(offset, batch.size, batchLimit)
+                        if (nextOffset == null) {
                             incrementalCompleted = true
                             break
                         }
-                        offset += activeCount
+                        offset = nextOffset
                     }
 
                     if (!incrementalCompleted) {
@@ -690,11 +717,15 @@ object LedgerRepository {
     }
 
     /**
-     * 增量分页只按非墓碑行推进 offset：purge 墓碑由首页注入，不占服务端 offset。
-     * 若把墓碑算进 offset，会跳过服务端真实行，造成静默漏拉。
+     * 增量账目分页的下一页 offset；返回 null 表示已到最后一页。
+     *
+     * 服务端 `limit` 只作用于数据库行；purge 墓碑是在结果之后额外追加的，
+     * 不占 offset。真实软删行虽然 `deleted_at` 非空，但仍然占 offset。
+     * 客户端无法仅凭 `deleted_at` 区分两者，所以终止条件必须用原始批次大小，
+     * 推进量固定为页大小。墓碑把短页撑到满页时最多多一次空页请求，不会跳行。
      */
-    internal fun activeTransactionCount(batch: List<Transaction>): Int =
-        batch.count { it.deletedAt.isNullOrBlank() }
+    internal fun nextTransactionOffset(currentOffset: Int, batchSize: Int, batchLimit: Int): Int? =
+        if (batchSize < batchLimit) null else currentOffset + batchLimit
 
     private fun maxOfOrNull(a: String?, b: String?): String? {
         if (a == null) return b
