@@ -582,9 +582,7 @@ private fun QuickNoteSheetBody(
                                 githubUrl = projGithubUrl.trim().takeIf { it.isNotBlank() }
                             )
                             val queued = withContext(Dispatchers.IO) {
-                                val q = syncManager.createProjectOrQueue(req)
-                                if (!q) syncManager.pullProjectsWishesData()
-                                q
+                                syncManager.createProjectOrQueue(req)
                             }
                             ArchiveToastManager.show(
                                 if (queued) "当前离线，已排队；联网后自动立项"
@@ -626,9 +624,7 @@ private fun QuickNoteSheetBody(
                             attachmentIds = attachmentIds.takeIf { it.isNotEmpty() }
                         )
                         val queued = withContext(Dispatchers.IO) {
-                            val q = syncManager.createWishOrQueue(req)
-                            if (!q) syncManager.pullProjectsWishesData()
-                            q
+                            syncManager.createWishOrQueue(req)
                         }
                         ArchiveToastManager.show(
                             if (queued) "当前离线，已排队；联网后自动封存"

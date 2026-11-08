@@ -1521,15 +1521,18 @@ class SyncManager private constructor(private val context: Context) {
         // 先快照本地 id 再发起网络请求：拉取期间 Worker 可能刚把临时行换成
         // 真实 server id，新 id 不在远端响应里 —— 用旧快照对账可避免误删。
         val localIdsBeforePull = database.projectDao().getAllIds()
-        val remoteProjects = apiClient.fetchProjects()
+        val remoteProjects = apiClient.fetchProjects(limit = 0)
         database.withTransaction {
             val remoteIds = remoteProjects.mapTo(HashSet()) { it.id }
             val protectedIds = database.outboxDao()
                 .getProtectedServerTargetIds(SimpleEntitySync.PROJECT)
                 .toHashSet()
-            SimpleEntitySync.staleServerIdsToDelete(
+            val toDelete = SimpleEntitySync.staleServerIdsToDelete(
                 localIdsBeforePull, remoteIds, protectedIds
-            ).forEach { database.projectDao().deleteById(it) }
+            )
+            if (toDelete.isNotEmpty()) {
+                toDelete.chunked(500).forEach { database.projectDao().deleteByIds(it) }
+            }
             database.projectDao().insertAll(
                 remoteProjects.filter { it.id !in protectedIds }.map { it.toCacheEntity() }
             )
@@ -1557,9 +1560,12 @@ class SyncManager private constructor(private val context: Context) {
             val protectedIds = database.outboxDao()
                 .getProtectedServerTargetIds(SimpleEntitySync.WISH)
                 .toHashSet()
-            SimpleEntitySync.staleServerIdsToDelete(
+            val toDelete = SimpleEntitySync.staleServerIdsToDelete(
                 localIdsBeforePull, remoteIds, protectedIds
-            ).forEach { database.wishDao().deleteById(it) }
+            )
+            if (toDelete.isNotEmpty()) {
+                toDelete.chunked(500).forEach { database.wishDao().deleteByIds(it) }
+            }
             database.wishDao().insertAll(
                 allWishes.filter { it.id !in protectedIds }.map { it.toCacheEntity(json) }
             )
@@ -1579,9 +1585,12 @@ class SyncManager private constructor(private val context: Context) {
             val protectedIds = database.outboxDao()
                 .getProtectedServerTargetIds(SimpleEntitySync.FOOTPRINT)
                 .toHashSet()
-            SimpleEntitySync.staleServerIdsToDelete(
+            val toDelete = SimpleEntitySync.staleServerIdsToDelete(
                 localIdsBeforePull, remoteIds, protectedIds
-            ).forEach { database.footprintDao().deleteById(it) }
+            )
+            if (toDelete.isNotEmpty()) {
+                toDelete.chunked(500).forEach { database.footprintDao().deleteByIds(it) }
+            }
             database.footprintDao().insertAll(
                 remoteFootprints.filter { it.id !in protectedIds }.map { it.toCacheEntity(json) }
             )

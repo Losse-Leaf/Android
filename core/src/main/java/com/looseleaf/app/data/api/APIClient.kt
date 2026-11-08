@@ -647,8 +647,9 @@ class APIClient private constructor(private val context: Context) {
 
     // MARK: - 6. 造物、心愿与山川足迹 (Projects, Wishes & Footprints)
 
-    suspend fun fetchProjects(): List<Project> {
-        return executeEnvelopeRequest("/api/v1/projects", "GET")
+    suspend fun fetchProjects(limit: Int? = 0): List<Project> {
+        val params = if (limit != null) mapOf("limit" to limit.toString()) else null
+        return executeEnvelopeRequest("/api/v1/projects", "GET", queryParams = params)
     }
 
     suspend fun createProject(req: CreateProjectRequest): Project {

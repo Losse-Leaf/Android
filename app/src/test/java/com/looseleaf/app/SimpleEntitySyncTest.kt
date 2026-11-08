@@ -3,6 +3,9 @@ package com.looseleaf.app
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.looseleaf.app.data.local.AppDatabase
+import com.looseleaf.app.data.local.CachedFootprintEntity
+import com.looseleaf.app.data.local.CachedProjectEntity
+import com.looseleaf.app.data.local.CachedWishEntity
 import com.looseleaf.app.data.local.OutboxEventEntity
 import com.looseleaf.app.data.sync.SimpleEntitySync
 import com.looseleaf.app.data.sync.matchesServer
@@ -375,5 +378,30 @@ class SimpleEntitySyncTest {
 
         assertTrue(request.matchesServer(normalized))
         assertFalse(edited.matchesServer(normalized))
+    }
+
+    @Test
+    fun `ProjectDao, WishDao 与 FootprintDao 支持按 ID 集合批量删除`() = runBlocking {
+        val p1 = CachedProjectEntity(id = 1L, title = "P1", status = "进行中", order = 0)
+        val p2 = CachedProjectEntity(id = 2L, title = "P2", status = "进行中", order = 1)
+        val p3 = CachedProjectEntity(id = 3L, title = "P3", status = "进行中", order = 2)
+        db.projectDao().insertAll(listOf(p1, p2, p3))
+
+        db.projectDao().deleteByIds(listOf(1L, 3L))
+        assertEquals(listOf(2L), db.projectDao().getAllIds())
+
+        val w1 = CachedWishEntity(id = 10L, title = "W1", kind = "item", status = "open", attachmentsJson = "[]")
+        val w2 = CachedWishEntity(id = 20L, title = "W2", kind = "item", status = "open", attachmentsJson = "[]")
+        db.wishDao().insertAll(listOf(w1, w2))
+
+        db.wishDao().deleteByIds(listOf(10L))
+        assertEquals(listOf(20L), db.wishDao().getAllIds())
+
+        val f1 = CachedFootprintEntity(id = 100L, cityCode = "330100", cityName = "杭州", attachmentsJson = "[]")
+        val f2 = CachedFootprintEntity(id = 200L, cityCode = "310000", cityName = "上海", attachmentsJson = "[]")
+        db.footprintDao().insertAll(listOf(f1, f2))
+
+        db.footprintDao().deleteByIds(listOf(200L))
+        assertEquals(listOf(100L), db.footprintDao().getAllIds())
     }
 }

@@ -630,6 +630,9 @@ interface ProjectDao {
     @Query("DELETE FROM cached_projects WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    @Query("DELETE FROM cached_projects WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
     @Query("DELETE FROM cached_projects")
     suspend fun clearAll()
 }
@@ -655,6 +658,9 @@ interface WishDao {
     @Query("DELETE FROM cached_wishes WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    @Query("DELETE FROM cached_wishes WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
     @Query("DELETE FROM cached_wishes")
     suspend fun clearAll()
 }
@@ -679,6 +685,9 @@ interface FootprintDao {
 
     @Query("DELETE FROM cached_footprints WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM cached_footprints WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
 
     @Query("DELETE FROM cached_footprints")
     suspend fun clearAll()
