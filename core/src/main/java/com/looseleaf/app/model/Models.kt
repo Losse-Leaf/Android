@@ -184,7 +184,8 @@ data class Project(
     val status: String? = "进行中",
     val order: Int? = null,
     @SerialName("created_at") val createdAt: String? = null,
-    @SerialName("updated_at") val updatedAt: String? = null
+    @SerialName("updated_at") val updatedAt: String? = null,
+    @SerialName("deleted_at") val deletedAt: String? = null
 )
 
 @Serializable
@@ -228,7 +229,8 @@ data class Wish(
     @SerialName("gear_id") val gearId: String? = null,
     val attachments: List<Attachment> = emptyList(),
     @SerialName("created_at") val createdAt: String? = null,
-    @SerialName("updated_at") val updatedAt: String? = null
+    @SerialName("updated_at") val updatedAt: String? = null,
+    @SerialName("deleted_at") val deletedAt: String? = null
 )
 
 @Immutable
@@ -296,7 +298,8 @@ data class Footprint(
     @SerialName("total_spent") val totalSpent: Long? = null,
     @SerialName("transaction_count") val transactionCount: Int? = null,
     @SerialName("created_at") val createdAt: String? = null,
-    @SerialName("updated_at") val updatedAt: String? = null
+    @SerialName("updated_at") val updatedAt: String? = null,
+    @SerialName("deleted_at") val deletedAt: String? = null
 )
 
 @Serializable

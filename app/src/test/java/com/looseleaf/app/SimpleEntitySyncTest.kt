@@ -10,6 +10,7 @@ import com.looseleaf.app.data.local.OutboxEventEntity
 import com.looseleaf.app.data.sync.SimpleEntitySync
 import com.looseleaf.app.data.sync.matchesServer
 import com.looseleaf.app.data.sync.toOfflineEntity
+import com.looseleaf.app.data.sync.toCacheEntity
 import com.looseleaf.app.data.sync.withResolvedState
 import com.looseleaf.app.model.CreateFootprintRequest
 import com.looseleaf.app.model.CreateProjectRequest
@@ -18,6 +19,7 @@ import com.looseleaf.app.model.Footprint
 import com.looseleaf.app.model.Project
 import com.looseleaf.app.model.ResolveWishRequest
 import com.looseleaf.app.model.Wish
+import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -403,5 +405,111 @@ class SimpleEntitySyncTest {
 
         db.footprintDao().deleteByIds(listOf(200L))
         assertEquals(listOf(100L), db.footprintDao().getAllIds())
+    }
+
+    @Test
+    fun `Project, Wish, Footprint 能够正常反序列化 deleted_at 软删墓碑`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val projectJson = """{"id":1,"title":"测试项目","deleted_at":"2026-11-08T10:00:00+08:00"}"""
+        val proj = json.decodeFromString<Project>(projectJson)
+        assertEquals("2026-11-08T10:00:00+08:00", proj.deletedAt)
+
+        val wishJson = """{"id":2,"title":"测试心愿","deleted_at":"2026-11-08T10:00:00Z"}"""
+        val wish = json.decodeFromString<Wish>(wishJson)
+        assertEquals("2026-11-08T10:00:00Z", wish.deletedAt)
+
+        val fpJson = """{"id":3,"city_code":"330100","city_name":"杭州","deleted_at":"2026-11-08T02:00:00Z"}"""
+        val fp = json.decodeFromString<Footprint>(fpJson)
+        assertEquals("2026-11-08T02:00:00Z", fp.deletedAt)
+    }
+
+    @Test
+    fun `ProjectDao, WishDao, FootprintDao 的 hasAny 正确反映数据是否存在`() = runBlocking {
+        assertFalse(db.projectDao().hasAny())
+        assertFalse(db.wishDao().hasAny())
+        assertFalse(db.footprintDao().hasAny())
+
+        db.projectDao().insert(CachedProjectEntity(id = 1L, title = "P", status = "进行中"))
+        assertTrue(db.projectDao().hasAny())
+
+        db.wishDao().insert(CachedWishEntity(id = 2L, title = "W", kind = "item", status = "open", attachmentsJson = "[]"))
+        assertTrue(db.wishDao().hasAny())
+
+        db.footprintDao().insert(CachedFootprintEntity(id = 3L, cityCode = "330100", cityName = "杭州", attachmentsJson = "[]"))
+        assertTrue(db.footprintDao().hasAny())
+    }
+
+    @Test
+    fun `增量同步墓碑删除未受保护记录，但保留受保护记录`() = runBlocking {
+        val p1 = CachedProjectEntity(id = 10L, title = "P1", status = "进行中")
+        val p2 = CachedProjectEntity(id = 20L, title = "P2", status = "进行中")
+        db.projectDao().insertAll(listOf(p1, p2))
+
+        // p2 受保护（例如本地有 UPDATE 事件）
+        db.outboxDao().insert(event(
+            eventId = "ev-up-20",
+            entityType = SimpleEntitySync.PROJECT,
+            action = "UPDATE",
+            serverTargetId = 20L
+        ))
+
+        val remoteProjects = listOf(
+            Project(id = 10L, title = "P1", deletedAt = "2026-11-08T10:00:00Z"),
+            Project(id = 20L, title = "P2", deletedAt = "2026-11-08T10:00:00Z"),
+            Project(id = 30L, title = "P3", deletedAt = null)
+        )
+
+        // 模拟增量处理逻辑
+        val protectedIds = db.outboxDao().getProtectedServerTargetIds(SimpleEntitySync.PROJECT).toHashSet()
+        val tombstones = remoteProjects.filter { it.deletedAt != null && it.id !in protectedIds }
+        if (tombstones.isNotEmpty()) {
+            db.projectDao().deleteByIds(tombstones.map { it.id })
+        }
+        val active = remoteProjects.filter { it.deletedAt == null && it.id !in protectedIds }
+        if (active.isNotEmpty()) {
+            db.projectDao().insertAll(active.map { it.toCacheEntity() })
+        }
+
+        // p1 未受保护，被软删墓碑删除
+        assertNull(db.projectDao().getById(10L))
+        // p2 受保护，保留在本地
+        assertEquals("P2", db.projectDao().getById(20L)?.title)
+        // p3 活跃且未受保护，插入本地
+        assertEquals("P3", db.projectDao().getById(30L)?.title)
+    }
+
+    @Test
+    fun `游标混合时区时按绝对时刻取最大值`() {
+        val t1 = "2026-11-08T10:00:00+08:00" // UTC 02:00
+        val t2 = "2026-11-08T03:00:00Z"         // UTC 03:00 -> 更晚
+        val t3 = "2026-11-08T09:00:00+08:00" // UTC 01:00
+
+        val candidates = listOf(t1, t2, t3)
+        val max = candidates.mapNotNull { FormatUtils.parseOccurredInstantOrNull(it) }
+            .maxOrNull()
+            ?.let { FormatUtils.toBeijingIsoString(it) }
+
+        // t2 (UTC 03:00) 换算成北京时间是 2026-11-08T11:00:00+08:00
+        assertEquals("2026-11-08T11:00:00+08:00", max)
+    }
+
+    @Test
+    fun `501条造物全量拉取时正常保留，不会被误删`() = runBlocking {
+        // 505 条造物全量对账
+        val count = 505
+        val localEntities = (1..count).map { CachedProjectEntity(id = it.toLong(), title = "Proj #$it", status = "进行中") }
+        db.projectDao().insertAll(localEntities)
+        assertEquals(count, db.projectDao().getAllIds().size)
+
+        val remoteProjects = (1..count).map { Project(id = it.toLong(), title = "Proj #$it") }
+        val localIdsBeforePull = db.projectDao().getAllIds()
+        val remoteIds = remoteProjects.mapTo(HashSet()) { it.id }
+        val protectedIds = db.outboxDao().getProtectedServerTargetIds(SimpleEntitySync.PROJECT).toHashSet()
+
+        val toDelete = SimpleEntitySync.staleServerIdsToDelete(localIdsBeforePull, remoteIds, protectedIds)
+        assertEquals(0, toDelete.size)
+
+        db.projectDao().insertAll(remoteProjects.map { it.toCacheEntity() })
+        assertEquals(count, db.projectDao().getAllIds().size)
     }
 }

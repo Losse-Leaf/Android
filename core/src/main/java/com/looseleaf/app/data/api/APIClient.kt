@@ -647,9 +647,15 @@ class APIClient private constructor(private val context: Context) {
 
     // MARK: - 6. 造物、心愿与山川足迹 (Projects, Wishes & Footprints)
 
-    suspend fun fetchProjects(limit: Int? = 0): List<Project> {
-        val params = if (limit != null) mapOf("limit" to limit.toString()) else null
-        return executeEnvelopeRequest("/api/v1/projects", "GET", queryParams = params)
+    suspend fun fetchProjects(
+        limit: Int? = 0,
+        since: String? = null,
+        meta: ResponseMeta? = null
+    ): List<Project> {
+        val params = mutableMapOf<String, String>()
+        if (limit != null) params["limit"] = limit.toString()
+        if (!since.isNullOrBlank()) params["since"] = since
+        return executeEnvelopeRequest("/api/v1/projects", "GET", queryParams = params.ifEmpty { null }, meta = meta)
     }
 
     suspend fun createProject(req: CreateProjectRequest): Project {
@@ -671,7 +677,9 @@ class APIClient private constructor(private val context: Context) {
         page: Int = 1,
         pageSize: Int = 100,
         kind: String? = null,
-        status: String? = null
+        status: String? = null,
+        since: String? = null,
+        meta: ResponseMeta? = null
     ): List<Wish> {
         val params = mutableMapOf(
             "page" to page.toString(),
@@ -679,7 +687,8 @@ class APIClient private constructor(private val context: Context) {
         )
         if (!kind.isNullOrBlank() && kind != "all") params["kind"] = kind
         if (!status.isNullOrBlank() && status != "all") params["status"] = status
-        val resp: WishesListResponse = executeEnvelopeRequest("/api/v1/wishes", "GET", queryParams = params)
+        if (!since.isNullOrBlank()) params["since"] = since
+        val resp: WishesListResponse = executeEnvelopeRequest("/api/v1/wishes", "GET", queryParams = params, meta = meta)
         return resp.wishes
     }
 
@@ -703,9 +712,15 @@ class APIClient private constructor(private val context: Context) {
         executeEnvelopeRequest<DeleteResponse>("/api/v1/wishes/$id", "DELETE", queryParams = params)
     }
 
-    suspend fun fetchFootprints(year: Int? = null): List<Footprint> {
-        val params = if (year != null) mapOf("year" to year.toString()) else null
-        return executeEnvelopeRequest("/api/v1/footprints", "GET", queryParams = params)
+    suspend fun fetchFootprints(
+        year: Int? = null,
+        since: String? = null,
+        meta: ResponseMeta? = null
+    ): List<Footprint> {
+        val params = mutableMapOf<String, String>()
+        if (year != null) params["year"] = year.toString()
+        if (!since.isNullOrBlank()) params["since"] = since
+        return executeEnvelopeRequest("/api/v1/footprints", "GET", queryParams = params.ifEmpty { null }, meta = meta)
     }
 
     suspend fun createFootprint(req: CreateFootprintRequest): Footprint {

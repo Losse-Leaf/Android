@@ -100,6 +100,9 @@ class SyncManager private constructor(private val context: Context) {
         const val STATUS_PENDING_DELETE = "PENDING_DELETE"
         private const val SYNC_PREFS_NAME = "looseleaf_sync_prefs"
         private const val KEY_ENTRIES_CURSOR = "last_entries_sync_cursor"
+        private const val KEY_PROJECTS_CURSOR = "last_projects_sync_cursor"
+        private const val KEY_WISHES_CURSOR = "last_wishes_sync_cursor"
+        private const val KEY_FOOTPRINTS_CURSOR = "last_footprints_sync_cursor"
         private const val KEY_ON_THIS_DAY_JSON = "on_this_day_json"
         private const val KEY_ON_THIS_DAY_DATE = "on_this_day_date"
 
@@ -1392,13 +1395,13 @@ class SyncManager private constructor(private val context: Context) {
                 res.exceptionOrNull()?.let { failures += "记账流水：${it.message}" }
             }
             if (SyncDataset.PROJECTS in datasets) {
-                pullProjectsDataset()?.let { failures += it }
+                pullProjectsDataset(forceFull)?.let { failures += it }
             }
             if (SyncDataset.WISHES in datasets) {
-                pullWishesDataset()?.let { failures += it }
+                pullWishesDataset(forceFull)?.let { failures += it }
             }
             if (SyncDataset.FOOTPRINTS in datasets) {
-                pullFootprintsDataset()?.let { failures += it }
+                pullFootprintsDataset(forceFull)?.let { failures += it }
             }
 
             if (failures.isNotEmpty()) {
@@ -1517,83 +1520,191 @@ class SyncManager private constructor(private val context: Context) {
      * 发件箱随后补发成功时本地已经没有可替换的行，列表还会短暂「消失」。
      * 现在只删除「远端完整列表里不存在、且未被发件箱保护」的已同步行。
      */
-    private suspend fun pullProjectsDataset(): String? = try {
-        // 先快照本地 id 再发起网络请求：拉取期间 Worker 可能刚把临时行换成
-        // 真实 server id，新 id 不在远端响应里 —— 用旧快照对账可避免误删。
-        val localIdsBeforePull = database.projectDao().getAllIds()
-        val remoteProjects = apiClient.fetchProjects(limit = 0)
+    /**
+     * OPT-02：造物拉取（支持 since 增量与软删墓碑对齐，保护发件箱引用的本地行）。
+     *
+     * 不能再用 clearAll() + insertAll()：那会把尚未上传的负数临时行一起清掉，
+     * 发件箱随后补发成功时本地已经没有可替换的行，列表还会短暂「消失」。
+     * 增量模式下：
+     *   - 墓碑且未被保护 -> deleteById
+     *   - 正常且未被保护 -> upsert
+     * 全量模式下：只删除「远端完整列表里不存在、且未被发件箱保护」的已同步行。
+     */
+    private suspend fun pullProjectsDataset(forceFull: Boolean): String? = try {
+        val cursor = syncPrefs.getString(KEY_PROJECTS_CURSOR, null)
+        val useIncremental = !forceFull && database.projectDao().hasAny() && !cursor.isNullOrBlank()
+        val localIdsBeforePull = if (!useIncremental) database.projectDao().getAllIds() else emptyList()
+        val meta = ResponseMeta()
+        val remoteProjects = apiClient.fetchProjects(
+            limit = 0,
+            since = if (useIncremental) cursorForRequest(cursor) else null,
+            meta = meta
+        )
+        val updatedCandidates = mutableListOf<String?>()
+        val serverCursor = meta.syncCursor
+        if (!serverCursor.isNullOrBlank()) {
+            updatedCandidates += serverCursor
+        } else {
+            updatedCandidates += remoteProjects.map { it.updatedAt }
+            updatedCandidates += remoteProjects.map { it.deletedAt }
+        }
+
         database.withTransaction {
-            val remoteIds = remoteProjects.mapTo(HashSet()) { it.id }
             val protectedIds = database.outboxDao()
                 .getProtectedServerTargetIds(SimpleEntitySync.PROJECT)
                 .toHashSet()
-            val toDelete = SimpleEntitySync.staleServerIdsToDelete(
-                localIdsBeforePull, remoteIds, protectedIds
-            )
-            if (toDelete.isNotEmpty()) {
-                toDelete.chunked(500).forEach { database.projectDao().deleteByIds(it) }
+
+            if (useIncremental) {
+                val tombstones = remoteProjects.filter { it.deletedAt != null && it.id !in protectedIds }
+                if (tombstones.isNotEmpty()) {
+                    tombstones.map { it.id }.chunked(500).forEach { database.projectDao().deleteByIds(it) }
+                }
+                val active = remoteProjects.filter { it.deletedAt == null && it.id !in protectedIds }
+                if (active.isNotEmpty()) {
+                    database.projectDao().insertAll(active.map { it.toCacheEntity() })
+                }
+            } else {
+                val remoteIds = remoteProjects.mapTo(HashSet()) { it.id }
+                val toDelete = SimpleEntitySync.staleServerIdsToDelete(
+                    localIdsBeforePull, remoteIds, protectedIds
+                )
+                if (toDelete.isNotEmpty()) {
+                    toDelete.chunked(500).forEach { database.projectDao().deleteByIds(it) }
+                }
+                database.projectDao().insertAll(
+                    remoteProjects.filter { it.deletedAt == null && it.id !in protectedIds }.map { it.toCacheEntity() }
+                )
             }
-            database.projectDao().insertAll(
-                remoteProjects.filter { it.id !in protectedIds }.map { it.toCacheEntity() }
-            )
+        }
+
+        val maxUpdated = maxUpdatedCursor(updatedCandidates)
+        if (maxUpdated != null) {
+            syncPrefs.edit().putString(KEY_PROJECTS_CURSOR, maxUpdated).apply()
         }
         null
     } catch (e: Exception) {
         "造物：${e.message}"
     }
 
-    /** MOB-P1-37：三维心愿（分页拉取，整表对账，保护发件箱引用的本地行） */
-    private suspend fun pullWishesDataset(): String? = try {
-        // 同项目：先快照再拉取，避免误删拉取期间刚换绑出的新行。
-        val localIdsBeforePull = database.wishDao().getAllIds()
+    /** OPT-02：三维心愿（支持 since 增量与软删墓碑对齐，分页拉取，保护发件箱引用的本地行） */
+    private suspend fun pullWishesDataset(forceFull: Boolean): String? = try {
+        val cursor = syncPrefs.getString(KEY_WISHES_CURSOR, null)
+        val useIncremental = !forceFull && database.wishDao().hasAny() && !cursor.isNullOrBlank()
+        val localIdsBeforePull = if (!useIncremental) database.wishDao().getAllIds() else emptyList()
         val allWishes = mutableListOf<Wish>()
+        val updatedCandidates = mutableListOf<String?>()
         var wishPage = 1
-        while (wishPage <= MAX_PAGES) {
-            val wishes = apiClient.fetchWishes(page = wishPage, pageSize = 100)
+        var pages = 0
+
+        while (pages < MAX_PAGES) {
+            val pageMeta = ResponseMeta()
+            val wishes = apiClient.fetchWishes(
+                page = wishPage,
+                pageSize = 100,
+                since = if (useIncremental) cursorForRequest(cursor) else null,
+                meta = pageMeta
+            )
+            pages++
+            val serverCursor = pageMeta.syncCursor
+            if (!serverCursor.isNullOrBlank()) {
+                updatedCandidates += serverCursor
+            } else {
+                updatedCandidates += wishes.map { it.updatedAt }
+                updatedCandidates += wishes.map { it.deletedAt }
+            }
             allWishes.addAll(wishes)
             if (wishes.size < 100) break
             wishPage++
         }
-        if (wishPage > MAX_PAGES) throw IllegalStateException("心愿分页超限")
+        if (pages >= MAX_PAGES) throw IllegalStateException("心愿分页超限")
+
         database.withTransaction {
-            val remoteIds = allWishes.mapTo(HashSet()) { it.id }
             val protectedIds = database.outboxDao()
                 .getProtectedServerTargetIds(SimpleEntitySync.WISH)
                 .toHashSet()
-            val toDelete = SimpleEntitySync.staleServerIdsToDelete(
-                localIdsBeforePull, remoteIds, protectedIds
-            )
-            if (toDelete.isNotEmpty()) {
-                toDelete.chunked(500).forEach { database.wishDao().deleteByIds(it) }
+
+            if (useIncremental) {
+                val tombstones = allWishes.filter { it.deletedAt != null && it.id !in protectedIds }
+                if (tombstones.isNotEmpty()) {
+                    tombstones.map { it.id }.chunked(500).forEach { database.wishDao().deleteByIds(it) }
+                }
+                val active = allWishes.filter { it.deletedAt == null && it.id !in protectedIds }
+                if (active.isNotEmpty()) {
+                    database.wishDao().insertAll(active.map { it.toCacheEntity(json) })
+                }
+            } else {
+                val remoteIds = allWishes.mapTo(HashSet()) { it.id }
+                val toDelete = SimpleEntitySync.staleServerIdsToDelete(
+                    localIdsBeforePull, remoteIds, protectedIds
+                )
+                if (toDelete.isNotEmpty()) {
+                    toDelete.chunked(500).forEach { database.wishDao().deleteByIds(it) }
+                }
+                database.wishDao().insertAll(
+                    allWishes.filter { it.deletedAt == null && it.id !in protectedIds }.map { it.toCacheEntity(json) }
+                )
             }
-            database.wishDao().insertAll(
-                allWishes.filter { it.id !in protectedIds }.map { it.toCacheEntity(json) }
-            )
+        }
+
+        val maxUpdated = maxUpdatedCursor(updatedCandidates)
+        if (maxUpdated != null) {
+            syncPrefs.edit().putString(KEY_WISHES_CURSOR, maxUpdated).apply()
         }
         null
     } catch (e: Exception) {
         "心愿：${e.message}"
     }
 
-    /** MOB-P1-37：山川足迹（整表对账，保护发件箱引用的本地行） */
-    private suspend fun pullFootprintsDataset(): String? = try {
-        // 同项目：先快照再拉取，避免误删拉取期间刚换绑出的新行。
-        val localIdsBeforePull = database.footprintDao().getAllIds()
-        val remoteFootprints = apiClient.fetchFootprints()
+    /** OPT-02：山川足迹（支持 since 增量与软删墓碑对齐，保护发件箱引用的本地行） */
+    private suspend fun pullFootprintsDataset(forceFull: Boolean): String? = try {
+        val cursor = syncPrefs.getString(KEY_FOOTPRINTS_CURSOR, null)
+        val useIncremental = !forceFull && database.footprintDao().hasAny() && !cursor.isNullOrBlank()
+        val localIdsBeforePull = if (!useIncremental) database.footprintDao().getAllIds() else emptyList()
+        val meta = ResponseMeta()
+        val remoteFootprints = apiClient.fetchFootprints(
+            since = if (useIncremental) cursorForRequest(cursor) else null,
+            meta = meta
+        )
+        val updatedCandidates = mutableListOf<String?>()
+        val serverCursor = meta.syncCursor
+        if (!serverCursor.isNullOrBlank()) {
+            updatedCandidates += serverCursor
+        } else {
+            updatedCandidates += remoteFootprints.map { it.updatedAt }
+            updatedCandidates += remoteFootprints.map { it.deletedAt }
+        }
+
         database.withTransaction {
-            val remoteIds = remoteFootprints.mapTo(HashSet()) { it.id }
             val protectedIds = database.outboxDao()
                 .getProtectedServerTargetIds(SimpleEntitySync.FOOTPRINT)
                 .toHashSet()
-            val toDelete = SimpleEntitySync.staleServerIdsToDelete(
-                localIdsBeforePull, remoteIds, protectedIds
-            )
-            if (toDelete.isNotEmpty()) {
-                toDelete.chunked(500).forEach { database.footprintDao().deleteByIds(it) }
+
+            if (useIncremental) {
+                val tombstones = remoteFootprints.filter { it.deletedAt != null && it.id !in protectedIds }
+                if (tombstones.isNotEmpty()) {
+                    tombstones.map { it.id }.chunked(500).forEach { database.footprintDao().deleteByIds(it) }
+                }
+                val active = remoteFootprints.filter { it.deletedAt == null && it.id !in protectedIds }
+                if (active.isNotEmpty()) {
+                    database.footprintDao().insertAll(active.map { it.toCacheEntity(json) })
+                }
+            } else {
+                val remoteIds = remoteFootprints.mapTo(HashSet()) { it.id }
+                val toDelete = SimpleEntitySync.staleServerIdsToDelete(
+                    localIdsBeforePull, remoteIds, protectedIds
+                )
+                if (toDelete.isNotEmpty()) {
+                    toDelete.chunked(500).forEach { database.footprintDao().deleteByIds(it) }
+                }
+                database.footprintDao().insertAll(
+                    remoteFootprints.filter { it.deletedAt == null && it.id !in protectedIds }.map { it.toCacheEntity(json) }
+                )
             }
-            database.footprintDao().insertAll(
-                remoteFootprints.filter { it.id !in protectedIds }.map { it.toCacheEntity(json) }
-            )
+        }
+
+        val maxUpdated = maxUpdatedCursor(updatedCandidates)
+        if (maxUpdated != null) {
+            syncPrefs.edit().putString(KEY_FOOTPRINTS_CURSOR, maxUpdated).apply()
         }
         null
     } catch (e: Exception) {

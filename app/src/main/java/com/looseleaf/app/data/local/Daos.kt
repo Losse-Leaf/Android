@@ -617,6 +617,9 @@ interface ProjectDao {
     @Query("SELECT * FROM cached_projects WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): CachedProjectEntity?
 
+    @Query("SELECT EXISTS(SELECT 1 FROM cached_projects LIMIT 1)")
+    suspend fun hasAny(): Boolean
+
     /** P0-3：整表拉取对账用，包含负数临时行。 */
     @Query("SELECT id FROM cached_projects")
     suspend fun getAllIds(): List<Long>
@@ -645,6 +648,9 @@ interface WishDao {
     @Query("SELECT * FROM cached_wishes WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): CachedWishEntity?
 
+    @Query("SELECT EXISTS(SELECT 1 FROM cached_wishes LIMIT 1)")
+    suspend fun hasAny(): Boolean
+
     /** P0-3：整表拉取对账用，包含负数临时行。 */
     @Query("SELECT id FROM cached_wishes")
     suspend fun getAllIds(): List<Long>
@@ -672,6 +678,9 @@ interface FootprintDao {
 
     @Query("SELECT * FROM cached_footprints WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): CachedFootprintEntity?
+
+    @Query("SELECT EXISTS(SELECT 1 FROM cached_footprints LIMIT 1)")
+    suspend fun hasAny(): Boolean
 
     /** P0-3：整表拉取对账用，包含负数临时行。 */
     @Query("SELECT id FROM cached_footprints")
