@@ -2709,12 +2709,35 @@ class SyncManager private constructor(private val context: Context) {
                         }
                         val sentPayload = event.payload
                         val req = json.decodeFromString<CreateProjectRequest>(sentPayload)
-                        val created = apiClient.createProject(req)
+                        val meta = ResponseMeta()
+                        val created = try {
+                            apiClient.createProject(req, meta = meta)
+                        } catch (e: APIException) {
+                            if (e.code == 410) {
+                                // OPT-08：软删重放契约——服务端该记录已被软删除，删除本地临时行并丢弃本 CREATE 事件
+                                database.withTransaction {
+                                    database.projectDao().deleteById(event.localTargetId)
+                                    database.outboxDao().delete(event)
+                                }
+                                return
+                            }
+                            throw e
+                        }
+
+                        // 软删墓碑兜底保护：若服务端返回已软删记录，删除本地临时行并消费事件
+                        if (created.deletedAt != null) {
+                            database.withTransaction {
+                                database.projectDao().deleteById(event.localTargetId)
+                                database.outboxDao().delete(event)
+                            }
+                            return
+                        }
+
                         val outcome = finalizeSimpleCreate(
                             event = event,
                             sentPayload = sentPayload,
                             serverId = created.id,
-                            serverMatchesSentPayload = req.matchesServer(created),
+                            serverMatchesSentPayload = !meta.isIdempotentReplay && req.matchesServer(created),
                             onPayloadUnchanged = {
                                 database.projectDao().deleteById(event.localTargetId)
                                 database.projectDao().insert(created.toCacheEntity())
@@ -2815,12 +2838,35 @@ class SyncManager private constructor(private val context: Context) {
                         }
                         val sentPayload = event.payload
                         val req = json.decodeFromString<CreateWishRequest>(sentPayload)
-                        val created = apiClient.createWish(req)
+                        val meta = ResponseMeta()
+                        val created = try {
+                            apiClient.createWish(req, meta = meta)
+                        } catch (e: APIException) {
+                            if (e.code == 410) {
+                                // OPT-08：软删重放契约——服务端该记录已被软删除，删除本地临时行并丢弃本 CREATE 事件
+                                database.withTransaction {
+                                    database.wishDao().deleteById(event.localTargetId)
+                                    database.outboxDao().delete(event)
+                                }
+                                return
+                            }
+                            throw e
+                        }
+
+                        // 软删墓碑兜底保护：若服务端返回已软删记录，删除本地临时行并消费事件
+                        if (created.deletedAt != null) {
+                            database.withTransaction {
+                                database.wishDao().deleteById(event.localTargetId)
+                                database.outboxDao().delete(event)
+                            }
+                            return
+                        }
+
                         val outcome = finalizeSimpleCreate(
                             event = event,
                             sentPayload = sentPayload,
                             serverId = created.id,
-                            serverMatchesSentPayload = req.matchesServer(created),
+                            serverMatchesSentPayload = !meta.isIdempotentReplay && req.matchesServer(created),
                             onPayloadUnchanged = {
                                 // 飞行期间用户可能已经归册：服务端响应仍是 wanting，
                                 // 不能把它盖到本地 fulfilled / relinquished 状态上。
@@ -2958,12 +3004,35 @@ class SyncManager private constructor(private val context: Context) {
                         }
                         val sentPayload = event.payload
                         val req = json.decodeFromString<CreateFootprintRequest>(sentPayload)
-                        val created = apiClient.createFootprint(req)
+                        val meta = ResponseMeta()
+                        val created = try {
+                            apiClient.createFootprint(req, meta = meta)
+                        } catch (e: APIException) {
+                            if (e.code == 410) {
+                                // OPT-08：软删重放契约——服务端该记录已被软删除，删除本地临时行并丢弃本 CREATE 事件
+                                database.withTransaction {
+                                    database.footprintDao().deleteById(event.localTargetId)
+                                    database.outboxDao().delete(event)
+                                }
+                                return
+                            }
+                            throw e
+                        }
+
+                        // 软删墓碑兜底保护：若服务端返回已软删记录，删除本地临时行并消费事件
+                        if (created.deletedAt != null) {
+                            database.withTransaction {
+                                database.footprintDao().deleteById(event.localTargetId)
+                                database.outboxDao().delete(event)
+                            }
+                            return
+                        }
+
                         val outcome = finalizeSimpleCreate(
                             event = event,
                             sentPayload = sentPayload,
                             serverId = created.id,
-                            serverMatchesSentPayload = req.matchesServer(created),
+                            serverMatchesSentPayload = !meta.isIdempotentReplay && req.matchesServer(created),
                             onPayloadUnchanged = {
                                 database.footprintDao().deleteById(event.localTargetId)
                                 database.footprintDao().insert(created.toCacheEntity(json))

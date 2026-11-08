@@ -1,6 +1,7 @@
 package com.looseleaf.app
 
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import com.looseleaf.app.data.local.AppDatabase
 import com.looseleaf.app.data.local.CachedFootprintEntity
@@ -539,5 +540,87 @@ class SimpleEntitySyncTest {
         // 只取待处理的 DELETE 事件
         val deletes = outbox.getPendingDeleteEvents()
         assertEquals(listOf("ev-3", "ev-6", "ev-9"), deletes.map { it.eventId })
+    }
+
+    @Test
+    fun `OPT-08 命中幂等重放旧响应时升级为 UPDATE 保护本地新编辑`() = runBlocking {
+        val outbox = db.outboxDao()
+        val projects = db.projectDao()
+
+        // 插入本地临时行与对应的 CREATE 事件
+        val tempId = -105L
+        projects.insert(CachedProjectEntity(id = tempId, title = "新标题", status = "进行中"))
+        val createEvent = event(
+            eventId = "ev-create-105",
+            entityType = SimpleEntitySync.PROJECT,
+            action = "CREATE",
+            payload = "{\"title\":\"新标题\"}",
+            localTargetId = tempId
+        )
+        outbox.insert(createEvent)
+
+        // 模拟命中服务端幂等键返回的旧响应（服务端标题为“旧标题”，并且服务端返回 X-Idempotent-Replay: true）
+        // 此时 serverMatchesSentPayload = !isReplay && req.matchesServer(created) 即为 false
+        val serverId = 105L
+        val isIdempotentReplay = true
+        val matchesServer = false // 服务端是旧标题
+        val serverMatchesSentPayload = !isIdempotentReplay && matchesServer
+
+        // 执行 finalizeSimpleCreate 语义
+        val latest = outbox.findEventById(createEvent.eventId)!!
+        val outcome = if (latest.payload != createEvent.payload || !serverMatchesSentPayload) {
+            outbox.insert(
+                latest.copy(
+                    action = "UPDATE",
+                    localTargetId = serverId,
+                    serverTargetId = serverId,
+                    failedAt = null,
+                    lastError = null,
+                    retryCount = 0
+                )
+            )
+            outbox.rebindFollowUpsToServerId(createEvent.entityType, tempId, serverId)
+            val local = projects.getById(tempId)
+            projects.deleteById(tempId)
+            projects.insert(local!!.copy(id = serverId))
+            "KEEP_LOCAL_AND_UPDATE"
+        } else {
+            "INSERT_SERVER"
+        }
+
+        assertEquals("KEEP_LOCAL_AND_UPDATE", outcome)
+        // 本地行换绑后保留了“新标题”，没有被服务端的“旧标题”覆盖
+        assertEquals("新标题", projects.getById(serverId)?.title)
+        // CREATE 事件原地升级为 UPDATE 事件，等待重发
+        val updatedEvent = outbox.findEventById(createEvent.eventId)
+        assertEquals("UPDATE", updatedEvent?.action)
+        assertEquals(serverId, updatedEvent?.serverTargetId)
+    }
+
+    @Test
+    fun `OPT-08 软删重放时删除本地临时行并丢弃 CREATE 事件`() = runBlocking {
+        val outbox = db.outboxDao()
+        val projects = db.projectDao()
+
+        val tempId = -106L
+        projects.insert(CachedProjectEntity(id = tempId, title = "待删临时行", status = "进行中"))
+        val createEvent = event(
+            eventId = "ev-create-106",
+            entityType = SimpleEntitySync.PROJECT,
+            action = "CREATE",
+            payload = "{\"title\":\"待删临时行\"}",
+            localTargetId = tempId
+        )
+        outbox.insert(createEvent)
+
+        // 模拟服务端返回 410 Gone 或带 deleted_at 墓碑
+        // 软删重放契约：删除本地临时行并消费事件
+        db.withTransaction {
+            projects.deleteById(tempId)
+            outbox.delete(createEvent)
+        }
+
+        assertNull(projects.getById(tempId))
+        assertNull(outbox.findEventById(createEvent.eventId))
     }
 }

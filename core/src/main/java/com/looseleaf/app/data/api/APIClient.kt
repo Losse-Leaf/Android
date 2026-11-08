@@ -46,6 +46,7 @@ internal fun humanizeNetworkError(e: IOException): String = when (e) {
  * 客户端可以把它原样塞回 ?since=，不必再在本地把每条记录的时间戳解析一遍。
  */
 const val SYNC_CURSOR_HEADER = "X-Sync-Cursor"
+const val IDEMPOTENT_REPLAY_HEADER = "X-Idempotent-Replay"
 
 /**
  * MOB-P1-36：一次请求的响应元信息。
@@ -57,6 +58,10 @@ class ResponseMeta {
     /** 服务端权威增量游标；老服务端不返回时为 null */
     @Volatile
     var syncCursor: String? = null
+
+    /** OPT-08：服务端是否命中 client_request_id 幂等键重放 */
+    @Volatile
+    var isIdempotentReplay: Boolean = false
 }
 
 /**
@@ -299,6 +304,8 @@ class APIClient private constructor(private val context: Context) {
 
                 // MOB-P1-36：抓取服务端权威增量游标（老服务端没有这个头，meta 保持 null）
                 meta?.syncCursor = resp.header(SYNC_CURSOR_HEADER)
+                // OPT-08：抓取幂等重放标识
+                meta?.isIdempotentReplay = resp.header(IDEMPOTENT_REPLAY_HEADER).equals("true", ignoreCase = true)
 
                 val bodyString = resp.body?.string() ?: ""
 
@@ -446,9 +453,9 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/almanac/summary", "GET", queryParams = params)
     }
 
-    suspend fun createEntry(req: CreateEntryRequest): LifeEntry {
+    suspend fun createEntry(req: CreateEntryRequest, meta: ResponseMeta? = null): LifeEntry {
         val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/entries", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/entries", "POST", body = body, meta = meta)
     }
 
     suspend fun updateEntry(id: Long, req: CreateEntryRequest): LifeEntry {
@@ -488,9 +495,9 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/transactions/summary", "GET", queryParams = params)
     }
 
-    suspend fun createTransaction(req: CreateTransactionRequest): Transaction {
+    suspend fun createTransaction(req: CreateTransactionRequest, meta: ResponseMeta? = null): Transaction {
         val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/transactions", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/transactions", "POST", body = body, meta = meta)
     }
 
     suspend fun updateTransaction(id: Long, req: CreateTransactionRequest): Transaction {
@@ -658,9 +665,9 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/projects", "GET", queryParams = params.ifEmpty { null }, meta = meta)
     }
 
-    suspend fun createProject(req: CreateProjectRequest): Project {
+    suspend fun createProject(req: CreateProjectRequest, meta: ResponseMeta? = null): Project {
         val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/projects", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/projects", "POST", body = body, meta = meta)
     }
 
     suspend fun updateProject(id: Long, req: CreateProjectRequest): Project {
@@ -692,9 +699,9 @@ class APIClient private constructor(private val context: Context) {
         return resp.wishes
     }
 
-    suspend fun createWish(req: CreateWishRequest): Wish {
+    suspend fun createWish(req: CreateWishRequest, meta: ResponseMeta? = null): Wish {
         val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/wishes", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/wishes", "POST", body = body, meta = meta)
     }
 
     suspend fun updateWish(id: Long, req: CreateWishRequest): Wish {
@@ -723,9 +730,9 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/footprints", "GET", queryParams = params.ifEmpty { null }, meta = meta)
     }
 
-    suspend fun createFootprint(req: CreateFootprintRequest): Footprint {
+    suspend fun createFootprint(req: CreateFootprintRequest, meta: ResponseMeta? = null): Footprint {
         val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/footprints", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/footprints", "POST", body = body, meta = meta)
     }
 
     suspend fun updateFootprint(id: Long, req: CreateFootprintRequest): Footprint {
