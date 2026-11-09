@@ -504,8 +504,7 @@ fun ProjectsWishesScreen(
                             onValueChange = { inputTitle = it },
                             label = "造物名称",
                             placeholder = "输入造物名称…",
-                            singleLine = true,
-                            errorMessage = if (inputTitle.isBlank()) "请输入造物名称" else null
+                            singleLine = true
                         )
                         ArchiveField(
                             value = inputSubtitle,
@@ -540,8 +539,7 @@ fun ProjectsWishesScreen(
                             onValueChange = { inputTitle = it },
                             label = "心愿标题",
                             placeholder = "输入心愿标题…",
-                            singleLine = true,
-                            errorMessage = if (inputTitle.isBlank()) "请输入心愿标题" else null
+                            singleLine = true
                         )
                         if (wishKind == "travel") {
                             ArchiveCityPickerField(
@@ -574,8 +572,7 @@ fun ProjectsWishesScreen(
                             selectedCityName = fpCityName,
                             onCitySelected = { c, n -> fpCityCode = c; fpCityName = n },
                             label = "到访城市",
-                            placeholder = "选择城市",
-                            errorMessage = if (fpCityName.isBlank()) "请选择城市" else null
+                            placeholder = "选择城市"
                         )
                         ArchiveDateTimeSplitRow(
                             selectedDateTime = fpVisitedAt,
@@ -748,16 +745,10 @@ fun ProjectsWishesScreen(
                             onValueChange = { costInput = it },
                             label = stringResource(R.string.projects_wishes_screen_label_05),
                             placeholder = "0.00",
+                            trailingText = if (costInvalid) "请输入有效数字" else "元",
                             isNumeric = true,
                             singleLine = true
                         )
-                        if (costInvalid) {
-                            Text(
-                                text = "金额格式不正确，请输入有效数字",
-                                fontSize = ArchiveTypeScale.caption,
-                                color = colors.alertRed
-                            )
-                        }
 
                         Row(
                             modifier = Modifier

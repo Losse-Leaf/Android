@@ -163,7 +163,7 @@ fun ArchiveCityPickerField(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 32.dp),
+                                .height(320.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -177,7 +177,7 @@ fun ArchiveCityPickerField(
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 320.dp)
+                                .height(320.dp)
                         ) {
                             items(filteredCities, key = { it.code }) { city ->
                                 Row(

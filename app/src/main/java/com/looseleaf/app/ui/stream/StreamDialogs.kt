@@ -915,26 +915,31 @@ internal fun GlobalSearchDialog(
                                 },
                                 modifier = Modifier.weight(1f)
                             )
-                            if (isSearching) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = colors.accentWarm
-                                )
-                            } else if (searchQuery.isNotEmpty()) {
-                                IconButton(
-                                    onClick = {
-                                        searchQuery = ""
-                                        searchResult = null
-                                    },
-                                    modifier = Modifier.size(20.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Close,
-                                        contentDescription = "清除",
-                                        tint = colors.inkMuted,
-                                        modifier = Modifier.size(14.dp)
+                            Box(
+                                modifier = Modifier.size(20.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSearching) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = colors.accentWarm
                                     )
+                                } else if (searchQuery.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            searchQuery = ""
+                                            searchResult = null
+                                        },
+                                        modifier = Modifier.size(20.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Close,
+                                            contentDescription = "清除",
+                                            tint = colors.inkMuted,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -947,7 +952,7 @@ internal fun GlobalSearchDialog(
                 if (res == null || (res.entries.isEmpty() && res.footprints.isEmpty() && res.wishes.isEmpty() && res.projects.isEmpty())) {
                     Box(
                         contentAlignment = Alignment.Center,
-                        modifier = Modifier.fillMaxWidth().height(160.dp)
+                        modifier = Modifier.fillMaxWidth().height(360.dp)
                     ) {
                         Text(
                             text = if (searchQuery.isBlank()) "输入关键词检索所有归册记忆" else "未找到匹配的生活碎片",
@@ -958,7 +963,7 @@ internal fun GlobalSearchDialog(
                     }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                        modifier = Modifier.fillMaxWidth().height(360.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         if (res.entries.isNotEmpty()) {

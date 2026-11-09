@@ -887,7 +887,7 @@ private fun QuickNoteSheetBody(
                     onValueChange = { noteContent = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 90.dp, max = 220.dp),
+                        .height(132.dp),
                     textStyle = TextStyle(
                         fontFamily = ArchiveFontFamilies.BodySans,
                         fontSize = 15.sp,
@@ -1047,7 +1047,7 @@ private fun QuickNoteSheetBody(
                     onValueChange = { noteContent = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 90.dp, max = 220.dp),
+                        .height(132.dp),
                     textStyle = TextStyle(
                         fontFamily = ArchiveFontFamilies.BodySans,
                         fontSize = 15.sp,
@@ -1191,7 +1191,7 @@ private fun QuickNoteSheetBody(
                             onValueChange = { noteContent = it },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 90.dp, max = 220.dp),
+                                .height(132.dp),
                             textStyle = TextStyle(
                                 fontFamily = ArchiveFontFamilies.BodySans,
                                 fontSize = 15.sp,

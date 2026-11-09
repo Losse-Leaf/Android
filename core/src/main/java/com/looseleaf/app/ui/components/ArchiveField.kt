@@ -37,7 +37,7 @@ fun ArchiveField(
     isNumeric: Boolean = false,
     singleLine: Boolean = true,
     minLines: Int = 1,
-    maxLines: Int = if (singleLine) 1 else Int.MAX_VALUE,
+    maxLines: Int = if (singleLine) 1 else minLines,
     trailingText: String? = null,
     trailingContent: (@Composable () -> Unit)? = null,
     readOnly: Boolean = false,
@@ -135,9 +135,16 @@ fun ArchiveField(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (isFocused) 2.dp else 1.dp)
-                .background(if (isFocused) colors.accentWarm else colors.borderSubtle)
-        )
+                .height(2.dp),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(if (isFocused) 2.dp else 1.dp)
+                    .background(if (isFocused) colors.accentWarm else colors.borderSubtle)
+            )
+        }
 
         if (!errorMessage.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(4.dp))

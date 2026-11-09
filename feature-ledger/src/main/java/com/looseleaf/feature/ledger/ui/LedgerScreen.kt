@@ -1332,32 +1332,38 @@ fun LedgerScreen(
                         }
                     }
 
-                    // 实时试算单行预览（未输入金额时隐藏）
+                    // 实时试算单行预览（常驻占位，不因金额输入跳动）
                     val pCents = FormatUtils.yuanStringToCents(gearPrice)
                     val approxMo = if (effectivePeriods > 0) pCents / effectivePeriods else 0L
                     val endYm = runCatching {
                         firstDueYearMonth.plusMonths((effectivePeriods - 1).toLong().coerceAtLeast(0L)).toString()
                     }.getOrDefault("----")
 
-                    AnimatedVisibility(visible = pCents > 0) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(ArchiveShapes.small)
-                                .background(colors.surfaceElevated)
-                                .border(ArchiveLines.hairline, colors.accent.copy(alpha = 0.45f), ArchiveShapes.small)
-                                .padding(horizontal = 12.dp, vertical = 9.dp)
-                        ) {
-                            Text(
-                                text = "每期约 ${LedgerFormat.formatMoney(approxMo)} · 共 $effectivePeriods 期 · 末期 $endYm",
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = ArchiveTypeScale.caption,
-                                fontWeight = FontWeight.Medium,
-                                color = colors.accent,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(ArchiveShapes.small)
+                            .background(colors.surfaceElevated)
+                            .border(
+                                ArchiveLines.hairline,
+                                if (pCents > 0) colors.accent.copy(alpha = 0.45f) else colors.borderSubtle,
+                                ArchiveShapes.small
                             )
-                        }
+                            .padding(horizontal = 12.dp, vertical = 9.dp)
+                    ) {
+                        Text(
+                            text = if (pCents > 0) {
+                                "每期约 ${LedgerFormat.formatMoney(approxMo)} · 共 $effectivePeriods 期 · 末期 $endYm"
+                            } else {
+                                "输入购入价格后将实时试算各期还款额"
+                            },
+                            fontFamily = if (pCents > 0) ArchiveFontFamilies.MonoScale else LedgerTheme.typography.serif,
+                            fontSize = ArchiveTypeScale.caption,
+                            fontWeight = if (pCents > 0) FontWeight.Medium else FontWeight.Normal,
+                            color = if (pCents > 0) colors.accent else colors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
 

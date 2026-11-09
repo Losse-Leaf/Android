@@ -371,15 +371,15 @@ fun ShowcaseHeatmap(
                     )
                 }
 
-                // 点选状态反馈行
-                if (selectedDate != null) {
-                    val count = dayCounts[selectedDateKey] ?: 0
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                // 点选状态反馈行（常驻固定单行占位，防止点击热力图方格时改变卡片高度）
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (selectedDate != null) {
+                        val count = dayCounts[selectedDateKey] ?: 0
                         Text(
                             text = "${selectedDate!!.monthValue}月${selectedDate!!.dayOfMonth}日 · $count 篇",
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
@@ -387,15 +387,14 @@ fun ShowcaseHeatmap(
                             fontWeight = FontWeight.Medium,
                             color = colors.inkPrimary
                         )
+                    } else {
+                        Text(
+                            text = if (totalCount == 0) "还没有手记" else "轻触方格查看当日归册详情",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = ArchiveTypeScale.caption,
+                            color = colors.inkSecondary
+                        )
                     }
-                } else if (totalCount == 0) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "还没有手记",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = ArchiveTypeScale.caption,
-                        color = colors.inkSecondary
-                    )
                 }
             }
         }

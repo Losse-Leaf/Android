@@ -960,7 +960,29 @@ object LedgerRepository {
                 when (event.action) {
                     "CREATE" -> {
                         val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
-                        val created = api.createTransaction(req)
+                        val createMeta = ResponseMeta()
+                        val created = try {
+                            api.createTransaction(req, meta = createMeta)
+                        } catch (e: APIException) {
+                            if (e.code == 410) {
+                                // OPT-08：client_request_id 命中服务端已软删记录（墓碑）
+                                db.withTransaction {
+                                    db.transactionDao().deleteByLocalId(event.localTargetId)
+                                    db.outboxDao().deleteByLocalTarget(event.localTargetId)
+                                }
+                                hasPushed = true
+                                continue
+                            }
+                            throw e
+                        }
+                        if (created.deletedAt != null) {
+                            db.withTransaction {
+                                db.transactionDao().deleteByLocalId(event.localTargetId)
+                                db.outboxDao().deleteByLocalTarget(event.localTargetId)
+                            }
+                            hasPushed = true
+                            continue
+                        }
                         db.withTransaction {
                             val latest = db.outboxDao().findActiveEventById(event.eventId)
                             if (latest == null) {
@@ -991,14 +1013,20 @@ object LedgerRepository {
                                 promoteCreateToUpdate(db, latest, created.id, latest.payload)
                             } else if (localEntity != null &&
                                 localEntity.syncStatus != "SYNCED" &&
-                                !transactionsHaveSameContent(localEntity.toDomainModel(), created)
+                                (createMeta.isIdempotentReplay || !transactionsHaveSameContent(localEntity.toDomainModel(), created))
                             ) {
-                                // P0-1：重试命中幂等键，服务端返回的是旧载荷落库结果，
+                                // P0-1 / OPT-08：重试命中幂等键或内容不一致，服务端返回的是旧载荷落库结果，
                                 // 而本地在重试前已有新编辑 ⇒ 保留本地内容并升级为 UPDATE
-                                db.transactionDao().bindServerId(event.localTargetId, created.id)
-                                db.transactionDao().updateSyncStatus(event.localTargetId, "PENDING_UPDATE")
-                                db.outboxDao().bindServerId(event.localTargetId, created.id)
-                                promoteCreateToUpdate(db, latest, created.id, latest.payload)
+                                if (!transactionsHaveSameContent(localEntity.toDomainModel(), created)) {
+                                    db.transactionDao().bindServerId(event.localTargetId, created.id)
+                                    db.transactionDao().updateSyncStatus(event.localTargetId, "PENDING_UPDATE")
+                                    db.outboxDao().bindServerId(event.localTargetId, created.id)
+                                    promoteCreateToUpdate(db, latest, created.id, latest.payload)
+                                } else {
+                                    db.transactionDao().markSynced(event.localTargetId, created.id, created.updatedAt)
+                                    db.outboxDao().bindServerId(event.localTargetId, created.id)
+                                    db.outboxDao().deleteByEventId(event.eventId)
+                                }
                             } else {
                                 db.transactionDao().markSynced(event.localTargetId, created.id, created.updatedAt)
                                 db.outboxDao().bindServerId(event.localTargetId, created.id)
@@ -1016,7 +1044,9 @@ object LedgerRepository {
                             val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
                             val updated = try {
                                 api.updateTransaction(serverId, req)
-                            } catch (e: Exception) {
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
                                 val apiEx = e as? APIException
                                 val msg = e.message ?: ""
                                 if (apiEx?.code == 404 || msg.contains("404") || msg.contains("不存在")) {
@@ -1057,7 +1087,9 @@ object LedgerRepository {
                         if (serverId != null && serverId > 0) {
                             try {
                                 api.deleteTransaction(serverId)
-                            } catch (e: Exception) {
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
                                 val msg = e.message ?: ""
                                 if (msg.contains("404") || msg.contains("不存在") || msg.contains("已被删除")) {
                                     // 远端已删除或不存在，视为成功
@@ -1078,6 +1110,8 @@ object LedgerRepository {
                         }
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 val apiEx = e as? APIException
                 val code = apiEx?.code ?: -1

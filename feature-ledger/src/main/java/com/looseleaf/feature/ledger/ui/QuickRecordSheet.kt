@@ -313,13 +313,18 @@ internal fun QuickRecordSheet(
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (inputAmountString != "0") {
-                            TextButton(
-                                onClick = { clearAll() },
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                            ) {
-                                Text("重置", color = colors.textSecondary, fontFamily = LedgerTheme.typography.serif, fontSize = 13.sp)
-                            }
+                        val canReset = inputAmountString != "0"
+                        TextButton(
+                            onClick = { clearAll() },
+                            enabled = canReset,
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                        ) {
+                            Text(
+                                text = "重置",
+                                color = if (canReset) colors.textSecondary else Color.Transparent,
+                                fontFamily = LedgerTheme.typography.serif,
+                                fontSize = 13.sp
+                            )
                         }
                         TextButton(
                             onClick = onDismiss,

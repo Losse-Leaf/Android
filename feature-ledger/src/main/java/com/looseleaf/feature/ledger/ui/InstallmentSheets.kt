@@ -433,26 +433,28 @@ fun CreateInstallmentSheet(
                 singleLine = true
             )
 
-            // 7. 实时预览卡片（未输入金额时隐藏，不占空行）
-            AnimatedVisibility(visible = hasValidPreview) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(ArchiveShapes.small)
-                        .background(colors.surfaceElevated)
-                        .border(ArchiveLines.hairline, colors.accent.copy(alpha = 0.45f), ArchiveShapes.small)
-                        .padding(horizontal = 12.dp, vertical = 9.dp)
-                ) {
-                    Text(
-                        text = livePreviewText,
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = ArchiveTypeScale.caption,
-                        color = colors.accent,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+            // 7. 实时预览卡片（常驻单行占位，不随金额输入跳动布局）
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(ArchiveShapes.small)
+                    .background(colors.surfaceElevated)
+                    .border(
+                        ArchiveLines.hairline,
+                        if (hasValidPreview) colors.accent.copy(alpha = 0.45f) else colors.borderSubtle,
+                        ArchiveShapes.small
                     )
-                }
+                    .padding(horizontal = 12.dp, vertical = 9.dp)
+            ) {
+                Text(
+                    text = if (hasValidPreview) livePreviewText else "输入金额与期数后将实时试算各期还款额",
+                    fontFamily = if (hasValidPreview) ArchiveFontFamilies.MonoScale else LedgerTheme.typography.serif,
+                    fontSize = ArchiveTypeScale.caption,
+                    color = if (hasValidPreview) colors.accent else colors.textSecondary,
+                    fontWeight = if (hasValidPreview) FontWeight.Medium else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
             Spacer(modifier = Modifier.height(4.dp))
