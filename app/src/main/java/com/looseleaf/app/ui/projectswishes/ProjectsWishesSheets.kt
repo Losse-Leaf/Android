@@ -140,7 +140,8 @@ internal fun EditWishSheetDialog(
                 label = stringResource(R.string.projects_wishes_sheets_label_01),
                 placeholder = "输入心愿标题…",
                 singleLine = true,
-                errorMessage = if (title.isBlank()) "请输入心愿标题" else null
+                errorMessage = if (title.isBlank()) "请输入心愿标题" else null,
+                reservesErrorSlot = true
             )
 
             // 类型专属字段共用固定高度槽：切换「好物/旅程/里程碑」时下方字段不跳动
@@ -177,7 +178,8 @@ internal fun EditWishSheetDialog(
                 placeholder = "0.00",
                 isNumeric = true,
                 singleLine = true,
-                errorMessage = if (budgetInvalid) "金额格式不正确，请输入有效数字" else null
+                errorMessage = if (budgetInvalid) "金额格式不正确，请输入有效数字" else null,
+                reservesErrorSlot = true
             )
 
             ArchiveField(

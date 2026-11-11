@@ -46,7 +46,8 @@ fun ArchiveField(
     onClick: (() -> Unit)? = null,
     errorMessage: String? = null,
     keyboardOptions: KeyboardOptions = if (isNumeric) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    reservesErrorSlot: Boolean = false
 ) {
     val colors = LooseLeafTheme.colors
     var isFocused by remember { mutableStateOf(false) }
@@ -147,15 +148,30 @@ fun ArchiveField(
             )
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = errorMessage ?: "",
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontSize = ArchiveTypeScale.caption,
-            color = colors.alertRed,
-            maxLines = 1,
-            modifier = Modifier.alpha(if (errorMessage.isNullOrBlank()) 0f else 1f)
-        )
+        if (reservesErrorSlot) {
+            // 常驻错误槽：占位不跳动，空文案时以 alpha 隐藏
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = errorMessage ?: "",
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontSize = ArchiveTypeScale.caption,
+                color = colors.alertRed,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.alpha(if (errorMessage.isNullOrBlank()) 0f else 1f)
+            )
+        } else if (!errorMessage.isNullOrBlank()) {
+            // 按需渲染：无错误时不占空间
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = errorMessage,
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontSize = ArchiveTypeScale.caption,
+                color = colors.alertRed,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
