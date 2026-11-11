@@ -123,7 +123,7 @@ internal fun FailedEventsSheet(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(120.dp),
+                        .heightIn(min = 200.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator(
@@ -136,7 +136,7 @@ internal fun FailedEventsSheet(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 32.dp),
+                        .heightIn(min = 200.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -149,6 +149,7 @@ internal fun FailedEventsSheet(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 200.dp)
                         .weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {

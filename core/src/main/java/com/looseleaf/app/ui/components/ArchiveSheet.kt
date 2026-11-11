@@ -84,7 +84,7 @@ internal fun ArchiveSheetContent(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = maxSheetHeight)
+                .heightIn(min = 240.dp.coerceAtMost(maxSheetHeight), max = maxSheetHeight)
                 .navigationBarsPadding()
                 .imePadding()
         ) {

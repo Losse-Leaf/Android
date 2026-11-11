@@ -14,7 +14,7 @@ import org.junit.Test
  * 背景：后端把 `is_installment` 从「普通布尔」改成了三态：
  * - **省略该字段** = 本次不携带 → 服务端**保持原值**
  * - `is_installment: false` **且**不带 `clear_installment` → 服务端**也保持原值**
- *   （这是为了保护老客户端：它们的字段不可选，必定会发 false）
+ *   （三态契约：只有 `clear_installment: true` 才表达「降级」）
  * - `is_installment: false` **且** `clear_installment: true` → 服务端**才真的降级**为
  *   一次性支出并清空账期字段
  *

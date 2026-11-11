@@ -143,24 +143,31 @@ internal fun EditWishSheetDialog(
                 errorMessage = if (title.isBlank()) "请输入心愿标题" else null
             )
 
-            if (kind == "travel") {
-                ArchiveCityPickerField(
-                    selectedCityCode = cityCode,
-                    selectedCityName = cityName,
-                    onCitySelected = { c, n -> cityCode = c; cityName = n },
-                    label = "目的地城市",
-                    placeholder = "选择城市"
-                )
-            }
+            // 类型专属字段共用固定高度槽：切换「好物/旅程/里程碑」时下方字段不跳动
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 80.dp)
+            ) {
+                if (kind == "travel") {
+                    ArchiveCityPickerField(
+                        selectedCityCode = cityCode,
+                        selectedCityName = cityName,
+                        onCitySelected = { c, n -> cityCode = c; cityName = n },
+                        label = "目的地城市",
+                        placeholder = "选择城市"
+                    )
+                }
 
-            if (kind == "item") {
-                ArchiveField(
-                    value = spec,
-                    onValueChange = { spec = it },
-                    label = stringResource(R.string.projects_wishes_sheets_label_02),
-                    placeholder = "规格/型号（选填）",
-                    singleLine = true
-                )
+                if (kind == "item") {
+                    ArchiveField(
+                        value = spec,
+                        onValueChange = { spec = it },
+                        label = stringResource(R.string.projects_wishes_sheets_label_02),
+                        placeholder = "规格/型号（选填）",
+                        singleLine = true
+                    )
+                }
             }
 
             ArchiveField(

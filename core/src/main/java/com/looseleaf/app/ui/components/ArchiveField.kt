@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.Role
@@ -146,15 +147,15 @@ fun ArchiveField(
             )
         }
 
-        if (!errorMessage.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = errorMessage,
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = ArchiveTypeScale.caption,
-                color = colors.alertRed
-            )
-        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = errorMessage ?: "",
+            fontFamily = ArchiveFontFamilies.EditorialSerif,
+            fontSize = ArchiveTypeScale.caption,
+            color = colors.alertRed,
+            maxLines = 1,
+            modifier = Modifier.alpha(if (errorMessage.isNullOrBlank()) 0f else 1f)
+        )
     }
 }
 
