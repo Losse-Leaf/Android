@@ -2,8 +2,6 @@ package com.looseleaf.feature.ledger.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -16,6 +14,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.looseleaf.app.theme.ArchiveColors
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
@@ -23,6 +22,7 @@ import com.looseleaf.app.theme.ArchiveSpacing
 import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.DarkArchiveColors
 import com.looseleaf.app.theme.LightArchiveColors
+import com.looseleaf.app.theme.archiveColorScheme
 import java.util.Locale
 
 /**
@@ -38,54 +38,36 @@ import java.util.Locale
  * 7. 圆角严格收敛为 4dp (radiusSmall) 与 全圆 (radiusFull) 两档。
  * 8. 间距只用 4/8/12/16/24/32dp (ArchiveSpacing)。
  */
+/**
+ * 账本视觉令牌 (LedgerColors)
+ *
+ * 【第 1 批去重】原先这里是一整套独立的 13 字段色盘，取值虽已趋近全局
+ * `ArchiveColors`，但字段名不同、结构重复，两套色盘随时会各自漂移。
+ * 现在改成 [ArchiveColors] 的一层**只读语义投影**：
+ * - 全账本 33 处 `LedgerTheme.colors.xxx` 的字段名一个都不变（本轮零改动调用点）；
+ * - 色彩真源只有 `LightArchiveColors` / `DarkArchiveColors` 一份，
+ *   全局改色（例如 inkMuted 对比度修复）自动传导到账本，不会再漏。
+ * 真正的字段名清理（background → archivePaper 等）留到第 3 批。
+ */
 @Immutable
-data class LedgerColors(
-    val background: Color,
-    val surface: Color,
-    val surfaceElevated: Color,
-    val textPrimary: Color,
-    val textSecondary: Color,
-    val textMuted: Color,
-    val border: Color,
-    val borderSubtle: Color,
-    val accent: Color,
-    val expense: Color,
-    val income: Color,
-    val alertRed: Color,
-    val isDark: Boolean
-)
+data class LedgerColors(val archive: ArchiveColors) {
+    val background: Color get() = archive.archivePaper
+    val surface: Color get() = archive.archivePaper
+    val surfaceElevated: Color get() = archive.archiveSubtle
+    val textPrimary: Color get() = archive.inkPrimary
+    val textSecondary: Color get() = archive.inkSecondary
+    val textMuted: Color get() = archive.inkMuted
+    val border: Color get() = archive.borderSubtle
+    val borderSubtle: Color get() = archive.borderSubtle
+    val accent: Color get() = archive.accentWarm
+    val expense: Color get() = archive.inkPrimary
+    val income: Color get() = archive.accentMoss
+    val alertRed: Color get() = archive.alertRed
+    val isDark: Boolean get() = archive.isDark
+}
 
-val LightLedgerColors = LedgerColors(
-    background = LightArchiveColors.archivePaper,      // 暖米色纸底 #F6F0E4
-    surface = LightArchiveColors.archivePaper,         // 与背景同一张纸
-    surfaceElevated = LightArchiveColors.archiveSubtle,// 暖米微纸层 #F0ECE3
-    textPrimary = LightArchiveColors.inkPrimary,       // 碳素深棕黑 #1D1B18
-    textSecondary = LightArchiveColors.inkSecondary,   // 暖木炭灰 #5C574F
-    textMuted = LightArchiveColors.inkMuted,           // 次要暖灰 #787268
-    border = LightArchiveColors.borderSubtle,          // 1dp 淡暖灰实线 0x183A2E1C
-    borderSubtle = LightArchiveColors.borderSubtle,
-    accent = LightArchiveColors.accentWarm,            // 赤陶色 #A24F2B
-    expense = LightArchiveColors.inkPrimary,           // 支出 = 正文色
-    income = LightArchiveColors.accentMoss,            // 收入 = 低饱和苔绿 #4A6753
-    alertRed = LightArchiveColors.alertRed,            // 低饱和砖红（异常/透支/逾期）
-    isDark = false
-)
-
-val DarkLedgerColors = LedgerColors(
-    background = DarkArchiveColors.archivePaper,       // 暗房深棕纸底 #141312
-    surface = DarkArchiveColors.archivePaper,
-    surfaceElevated = DarkArchiveColors.archiveSubtle, // 暗房微纸层 #1B1A18
-    textPrimary = DarkArchiveColors.inkPrimary,        // 碳素纸白 #ECE7DE
-    textSecondary = DarkArchiveColors.inkSecondary,    // 暖浅炭灰 #99948A
-    textMuted = DarkArchiveColors.inkMuted,            // 暗调灰 #8A8377
-    border = DarkArchiveColors.borderSubtle,           // 1dp 淡暖灰实线 0x1CEEE6D8
-    borderSubtle = DarkArchiveColors.borderSubtle,
-    accent = DarkArchiveColors.accentWarm,             // 提亮赤陶 #D0603D
-    expense = DarkArchiveColors.inkPrimary,            // 支出 = 正文色
-    income = DarkArchiveColors.accentMoss,             // 收入 = 提亮苔绿 #6E9479
-    alertRed = DarkArchiveColors.alertRed,             // 提亮低饱和砖红
-    isDark = true
-)
+val LightLedgerColors = LedgerColors(LightArchiveColors)
+val DarkLedgerColors = LedgerColors(DarkArchiveColors)
 
 /**
  * 8 个低饱和度分类色（严格避开赤陶），只用于 6dp/8dp 色点与分类占比条
@@ -229,35 +211,30 @@ object LedgerTheme {
     val typography: LedgerTypography = LedgerTypography
 }
 
+/**
+ * 账本主题 (LedgerTheme)
+ *
+ * 【第 1 批修复 P0「变天」Bug】此前 `darkTheme` 默认取 `isSystemInDarkTheme()`，
+ * 而 `LedgerEntry` 调用时没有传参 —— 于是用户选了「暖色棉纸」但系统是深色时，
+ * 一切到账本整页变黑。现在由 `MainActivity` 已解析好的三态 `isDarkTheme` 显式透传进来。
+ *
+ * 【第 1 批修复「一页紫」】此前这里只映射了 6 个 M3 角色，其余（surfaceVariant /
+ * onSurfaceVariant / outline / outlineVariant / error / onError ...）全部退回 M3
+ * 基线的薰衣草紫。现在直接复用全局 `archiveColorScheme()`，全仓只有一份映射。
+ */
 @Composable
 fun LedgerTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
+    val archiveColors = remember(darkTheme) {
+        if (darkTheme) DarkArchiveColors else LightArchiveColors
+    }
     val ledgerColors = remember(darkTheme) {
         if (darkTheme) DarkLedgerColors else LightLedgerColors
     }
-
-    val materialColors = remember(darkTheme, ledgerColors) {
-        if (darkTheme) {
-            darkColorScheme(
-                primary = ledgerColors.accent,
-                onPrimary = ledgerColors.background,
-                background = ledgerColors.background,
-                surface = ledgerColors.surface,
-                onBackground = ledgerColors.textPrimary,
-                onSurface = ledgerColors.textPrimary
-            )
-        } else {
-            lightColorScheme(
-                primary = ledgerColors.accent,
-                onPrimary = ledgerColors.background,
-                background = ledgerColors.background,
-                surface = ledgerColors.surface,
-                onBackground = ledgerColors.textPrimary,
-                onSurface = ledgerColors.textPrimary
-            )
-        }
+    val materialColors = remember(archiveColors, darkTheme) {
+        archiveColorScheme(archiveColors, darkTheme)
     }
 
     CompositionLocalProvider(

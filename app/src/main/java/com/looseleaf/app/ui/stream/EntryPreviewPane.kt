@@ -65,7 +65,7 @@ internal fun EntryPreviewPane(
         modifier = modifier
             .fillMaxSize()
             .background(colors.archivePaper.copy(alpha = 0.55f))
-            .border(0.5.dp, colors.borderDivider.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+            .border(0.5.dp, colors.borderDivider.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
             .padding(horizontal = 18.dp, vertical = 16.dp)
     ) {
         if (entry == null) {
@@ -109,7 +109,7 @@ internal fun EntryPreviewPane(
             Box(
                 modifier = Modifier
                     .size(34.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(4.dp))
                     .clickable(onClick = onEdit),
                 contentAlignment = Alignment.Center
             ) {
@@ -124,7 +124,7 @@ internal fun EntryPreviewPane(
             Box(
                 modifier = Modifier
                     .size(34.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(4.dp))
                     .clickable(onClick = onDelete),
                 contentAlignment = Alignment.Center
             ) {
@@ -188,7 +188,7 @@ internal fun EntryPreviewPane(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(4f / 3f)
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(4.dp))
                                 .clickable { onPhotoClick(att.url, att.mimeType) }
                         )
                     }

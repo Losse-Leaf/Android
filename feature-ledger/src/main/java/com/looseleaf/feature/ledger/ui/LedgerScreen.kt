@@ -701,9 +701,12 @@ fun LedgerScreen(
                         onValueChange = {},
                         label = "金额 (元)",
                         isNumeric = true,
-                        readOnly = true,
-                        singleLine = true,
-                        onClick = {}
+                        // 这里不是「点开选择」而是「根本不能改」：
+                        // 用 enabled = false 走禁用态（灰字、无赤陶、无 chevron），
+                        // 不能写成 readOnly —— readOnly 在 ArchiveField 里表示"选择器"，
+                        // 会在右边画一个暗示可点的箭头。
+                        enabled = false,
+                        singleLine = true
                     )
                     Text(
                         text = "分期还款金额由还款期次决定，不可直接修改",

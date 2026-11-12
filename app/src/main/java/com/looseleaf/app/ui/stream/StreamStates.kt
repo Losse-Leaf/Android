@@ -196,7 +196,7 @@ internal fun StreamLoadingSkeleton(
             Box(
                 modifier = Modifier
                     .size(width = 32.dp, height = 24.dp)
-                    .clip(RoundedCornerShape(3.dp))
+                    .clip(RoundedCornerShape(4.dp))
                     .background(colors.inkPrimary.copy(alpha = pencilAlpha))
             )
             Box(

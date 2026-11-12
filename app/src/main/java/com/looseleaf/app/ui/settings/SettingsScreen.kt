@@ -115,9 +115,11 @@ internal fun SettingsScreen(
     Scaffold(
         topBar = {
             Row(
+                // 本页挂在外层 Scaffold 的 innerPadding 之内（MainActivity 已让过状态栏），
+                // 这里的 padding 不会被"消费"窗口 inset，再加 statusBarsPadding() 等于
+                // 让两次位 —— 顶部会多出一条状态栏高的空白。故此处不再加。
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
                     .height(56.dp)
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically

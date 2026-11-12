@@ -44,7 +44,13 @@ fun ArchiveSegmentedTabs(
             val count = counts?.getOrNull(index) ?: 0
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                // 热区修复（第 1 批）：此前 clickable 只包住文字列，可视高约 32dp，
+                // 手指点偏一点就落空。外层 heightIn(44dp) + 垂直居中，保证热区 ≥44dp，
+                // 同时不改变文字与下划线的相对位置（内容整体居中）。
                 modifier = Modifier
+                    .width(IntrinsicSize.Max)
+                    .heightIn(min = 44.dp)
                     .clickable(role = Role.Tab) {
                         if (!isSelected) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -52,7 +58,6 @@ fun ArchiveSegmentedTabs(
                         onTabSelected(index)
                     }
                     .padding(vertical = 4.dp)
-                    .width(IntrinsicSize.Max)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(

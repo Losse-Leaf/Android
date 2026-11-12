@@ -546,7 +546,7 @@ internal fun GlobalSearchDialog(
 
                 // 便签纸条搜索栏 (Sticky Memo Note Search Bar)
                 Surface(
-                    shape = RoundedCornerShape(3.dp),
+                    shape = RoundedCornerShape(4.dp),
                     color = colors.archivePaper,
                     border = BorderStroke(1.dp, colors.borderSubtle),
                     shadowElevation = ArchiveShadows.stickerElevation,
@@ -559,7 +559,7 @@ internal fun GlobalSearchDialog(
                                 .align(Alignment.TopCenter)
                                 .width(46.dp)
                                 .height(4.dp)
-                                .clip(RoundedCornerShape(bottomStart = 1.dp, bottomEnd = 1.dp))
+                                .clip(RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp))
                                 .background(colors.accentWarm.copy(alpha = 0.35f))
                         )
 

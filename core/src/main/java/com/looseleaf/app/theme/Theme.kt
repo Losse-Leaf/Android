@@ -3,6 +3,7 @@ package com.looseleaf.app.theme
 import android.app.Activity
 import android.graphics.drawable.ColorDrawable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -40,6 +41,98 @@ object LooseLeafTheme {
     val spacing: ArchiveSpacing = ArchiveSpacing
 }
 
+/**
+ * 把散页大地色盘映射成完整的 Material3 ColorScheme。
+ *
+ * MOB-P1-74：原先只覆写了 7 个角色，其余全部沿用 Material3 基线 ——
+ * surfaceVariant 是薰衣草紫 (#E7E0EC)、onSurfaceVariant 是紫灰 (#49454F)，
+ * 于是 Switch 的未选中轨道、Checkbox 的未选中描边、原生 AlertDialog 的正文
+ * 全都带上了 M3 默认紫调，与「宣纸 + 朱砂」的纸张美学完全冲突。
+ *
+ * 这里把整套角色映射到大地色盘，并且**只保留这一份映射**：
+ * 全局 [LooseLeafTheme] 与账本 `LedgerTheme` 都调用它，
+ * 免得账本自己再映射一遍、又退回 M3 基线变成一页紫。
+ */
+fun archiveColorScheme(colors: ArchiveColors, darkTheme: Boolean): ColorScheme = if (darkTheme) {
+    darkColorScheme(
+        primary = colors.accentWarm,
+        onPrimary = colors.archivePaper,
+        primaryContainer = colors.accentWarm.copy(alpha = 0.22f),
+        onPrimaryContainer = colors.accentWarm,
+        inversePrimary = colors.accentWarm,
+        secondary = colors.accentMoss,
+        onSecondary = colors.archivePaper,
+        secondaryContainer = colors.accentMoss.copy(alpha = 0.22f),
+        onSecondaryContainer = colors.accentMoss,
+        tertiary = IndigoTertiary,
+        onTertiary = colors.archivePaper,
+        tertiaryContainer = IndigoTertiary.copy(alpha = 0.22f),
+        onTertiaryContainer = IndigoTertiary,
+        background = colors.archivePaper,
+        onBackground = colors.inkPrimary,
+        surface = colors.archiveSubtle,
+        onSurface = colors.inkPrimary,
+        surfaceVariant = colors.archiveSubtle,
+        onSurfaceVariant = colors.inkSecondary,
+        surfaceTint = colors.accentWarm,
+        inverseSurface = colors.inkPrimary,
+        inverseOnSurface = colors.archivePaper,
+        error = colors.accentWarm,
+        onError = colors.archivePaper,
+        errorContainer = colors.accentWarm.copy(alpha = 0.18f),
+        onErrorContainer = colors.inkPrimary,
+        outline = colors.inkMuted,
+        outlineVariant = colors.inkMuted.copy(alpha = 0.45f),
+        scrim = Color.Black,
+        surfaceBright = colors.archiveSubtle,
+        surfaceContainer = colors.archiveSubtle,
+        surfaceContainerHigh = colors.archiveSubtle,
+        surfaceContainerHighest = colors.archiveSubtle,
+        surfaceContainerLow = colors.archivePaper,
+        surfaceContainerLowest = colors.archivePaper,
+        surfaceDim = colors.archivePaper
+    )
+} else {
+    lightColorScheme(
+        primary = colors.accentWarm,
+        onPrimary = colors.archivePaper,
+        primaryContainer = colors.accentWarm.copy(alpha = 0.12f),
+        onPrimaryContainer = colors.accentWarm,
+        inversePrimary = colors.accentWarm,
+        secondary = colors.accentMoss,
+        onSecondary = colors.archivePaper,
+        secondaryContainer = colors.accentMoss.copy(alpha = 0.12f),
+        onSecondaryContainer = colors.accentMoss,
+        tertiary = IndigoTertiary,
+        onTertiary = colors.archivePaper,
+        tertiaryContainer = IndigoTertiary.copy(alpha = 0.12f),
+        onTertiaryContainer = IndigoTertiary,
+        background = colors.archivePaper,
+        onBackground = colors.inkPrimary,
+        surface = colors.archiveSubtle,
+        onSurface = colors.inkPrimary,
+        surfaceVariant = colors.archiveSubtle,
+        onSurfaceVariant = colors.inkSecondary,
+        surfaceTint = colors.accentWarm,
+        inverseSurface = colors.inkPrimary,
+        inverseOnSurface = colors.archivePaper,
+        error = colors.accentWarm,
+        onError = colors.archivePaper,
+        errorContainer = colors.accentWarm.copy(alpha = 0.12f),
+        onErrorContainer = colors.inkPrimary,
+        outline = colors.inkMuted,
+        outlineVariant = colors.inkMuted.copy(alpha = 0.45f),
+        scrim = Color.Black,
+        surfaceBright = colors.archivePaper,
+        surfaceContainer = colors.archiveSubtle,
+        surfaceContainerHigh = colors.archiveSubtle,
+        surfaceContainerHighest = colors.archiveSubtle,
+        surfaceContainerLow = colors.archivePaper,
+        surfaceContainerLowest = colors.archivePaper,
+        surfaceDim = colors.archiveSubtle
+    )
+}
+
 @Suppress("DEPRECATION")
 @Composable
 fun LooseLeafTheme(
@@ -63,91 +156,8 @@ fun LooseLeafTheme(
         }
     }
 
-    // MOB-P1-74：原先只覆写了 7 个角色，其余全部沿用 Material3 基线 ——
-    // surfaceVariant 是薰衣草紫 (#E7E0EC)、onSurfaceVariant 是紫灰 (#49454F)，
-    // 于是 Switch 的未选中轨道、Checkbox 的未选中描边、原生 AlertDialog 的正文
-    // 全都带上了 M3 默认紫调，与「宣纸 + 朱砂」的纸张美学完全冲突。
-    // 这里把整套角色映射到大地色盘。
     val materialColorScheme = remember(darkTheme, highContrast, archiveColors) {
-        if (darkTheme) {
-        darkColorScheme(
-            primary = archiveColors.accentWarm,
-            onPrimary = archiveColors.archivePaper,
-            primaryContainer = archiveColors.accentWarm.copy(alpha = 0.22f),
-            onPrimaryContainer = archiveColors.accentWarm,
-            inversePrimary = archiveColors.accentWarm,
-            secondary = archiveColors.accentMoss,
-            onSecondary = archiveColors.archivePaper,
-            secondaryContainer = archiveColors.accentMoss.copy(alpha = 0.22f),
-            onSecondaryContainer = archiveColors.accentMoss,
-            tertiary = IndigoTertiary,
-            onTertiary = archiveColors.archivePaper,
-            tertiaryContainer = IndigoTertiary.copy(alpha = 0.22f),
-            onTertiaryContainer = IndigoTertiary,
-            background = archiveColors.archivePaper,
-            onBackground = archiveColors.inkPrimary,
-            surface = archiveColors.archiveSubtle,
-            onSurface = archiveColors.inkPrimary,
-            surfaceVariant = archiveColors.archiveSubtle,
-            onSurfaceVariant = archiveColors.inkSecondary,
-            surfaceTint = archiveColors.accentWarm,
-            inverseSurface = archiveColors.inkPrimary,
-            inverseOnSurface = archiveColors.archivePaper,
-            error = archiveColors.accentWarm,
-            onError = archiveColors.archivePaper,
-            errorContainer = archiveColors.accentWarm.copy(alpha = 0.18f),
-            onErrorContainer = archiveColors.inkPrimary,
-            outline = archiveColors.inkMuted,
-            outlineVariant = archiveColors.inkMuted.copy(alpha = 0.45f),
-            scrim = Color.Black,
-            surfaceBright = archiveColors.archiveSubtle,
-            surfaceContainer = archiveColors.archiveSubtle,
-            surfaceContainerHigh = archiveColors.archiveSubtle,
-            surfaceContainerHighest = archiveColors.archiveSubtle,
-            surfaceContainerLow = archiveColors.archivePaper,
-            surfaceContainerLowest = archiveColors.archivePaper,
-            surfaceDim = archiveColors.archivePaper
-        )
-    } else {
-        lightColorScheme(
-            primary = archiveColors.accentWarm,
-            onPrimary = archiveColors.archivePaper,
-            primaryContainer = archiveColors.accentWarm.copy(alpha = 0.12f),
-            onPrimaryContainer = archiveColors.accentWarm,
-            inversePrimary = archiveColors.accentWarm,
-            secondary = archiveColors.accentMoss,
-            onSecondary = archiveColors.archivePaper,
-            secondaryContainer = archiveColors.accentMoss.copy(alpha = 0.12f),
-            onSecondaryContainer = archiveColors.accentMoss,
-            tertiary = IndigoTertiary,
-            onTertiary = archiveColors.archivePaper,
-            tertiaryContainer = IndigoTertiary.copy(alpha = 0.12f),
-            onTertiaryContainer = IndigoTertiary,
-            background = archiveColors.archivePaper,
-            onBackground = archiveColors.inkPrimary,
-            surface = archiveColors.archiveSubtle,
-            onSurface = archiveColors.inkPrimary,
-            surfaceVariant = archiveColors.archiveSubtle,
-            onSurfaceVariant = archiveColors.inkSecondary,
-            surfaceTint = archiveColors.accentWarm,
-            inverseSurface = archiveColors.inkPrimary,
-            inverseOnSurface = archiveColors.archivePaper,
-            error = archiveColors.accentWarm,
-            onError = archiveColors.archivePaper,
-            errorContainer = archiveColors.accentWarm.copy(alpha = 0.12f),
-            onErrorContainer = archiveColors.inkPrimary,
-            outline = archiveColors.inkMuted,
-            outlineVariant = archiveColors.inkMuted.copy(alpha = 0.45f),
-            scrim = Color.Black,
-            surfaceBright = archiveColors.archivePaper,
-            surfaceContainer = archiveColors.archiveSubtle,
-            surfaceContainerHigh = archiveColors.archiveSubtle,
-            surfaceContainerHighest = archiveColors.archiveSubtle,
-            surfaceContainerLow = archiveColors.archivePaper,
-            surfaceContainerLowest = archiveColors.archivePaper,
-            surfaceDim = archiveColors.archiveSubtle
-        )
-    }
+        archiveColorScheme(archiveColors, darkTheme)
     }
 
     val view = LocalView.current

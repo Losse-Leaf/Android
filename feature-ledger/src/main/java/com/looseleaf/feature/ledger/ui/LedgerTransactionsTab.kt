@@ -232,7 +232,7 @@ internal fun TransactionsLedgerTab(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp))
+                                .clip(RoundedCornerShape(50))
                         ) {
                             categoryTotals.forEach { (cat, amt) ->
                                 val weight = (amt.toFloat() / totalExpense.toFloat()).coerceAtLeast(0.01f)

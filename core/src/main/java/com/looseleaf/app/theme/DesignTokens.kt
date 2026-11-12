@@ -1,8 +1,6 @@
 package com.looseleaf.app.theme
 
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.SpringSpec
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.unit.Dp
@@ -32,31 +30,46 @@ object ArchiveLines {
 
 /**
  * 散页手账圆角体系 (Archive Shapes)
- * 严格收敛为三档：small 4dp（输入框 / 标签 / 按钮）、medium 12dp（卡片 / 抽屉 / 弹窗）、full（可选胶囊 / 圆点）
+ * 严格收敛为四档，全仓不再允许出现其它数值：
+ * - xs  2dp：热力图格子、进度条、内嵌微块（"几乎不圆"的物理裁切感）
+ * - sm  4dp：输入框 / 标签 / 紧凑按钮 / 配图
+ * - md 12dp：卡片 / 抽屉 / 弹窗 / 浮层
+ * - full     ：胶囊 / 圆点 / FAB / 状态徽标
  */
 object ArchiveShapes {
+    /** 微圆角 2dp（热力图格子、进度条、内嵌徽标底） */
+    val xs: RoundedCornerShape = RoundedCornerShape(2.dp)
+
     /** 小圆角 4dp（输入框、标签、紧凑按钮、配图） */
-    val small: RoundedCornerShape = RoundedCornerShape(4.dp)
+    val sm: RoundedCornerShape = RoundedCornerShape(4.dp)
 
     /** 中圆角 12dp（弹层卡片、汇总卡片） */
-    val medium: RoundedCornerShape = RoundedCornerShape(12.dp)
-
-    /** 底部抽屉顶边圆角 12dp */
-    val sheetTop: RoundedCornerShape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+    val md: RoundedCornerShape = RoundedCornerShape(12.dp)
 
     /** 全圆角（可选胶囊、FAB、分类色点、状态徽标） */
     val full: RoundedCornerShape = RoundedCornerShape(50)
 
+    // ——— 语义别名（第 2/3 批清理前保持兼容，数值一律指向上面四档）———
+
+    /** @deprecated 用 [sm]；保留仅为避免本轮批量重命名 30+ 处调用 */
+    val small: RoundedCornerShape = sm
+
+    /** @deprecated 用 [md] */
+    val medium: RoundedCornerShape = md
+
+    /** 底部抽屉顶边圆角 12dp（只有上两角，属 md 的变体） */
+    val sheetTop: RoundedCornerShape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+
     /** 兼容语义别名 */
-    val radiusSmall: RoundedCornerShape = small
-    val radiusMedium: RoundedCornerShape = medium
+    val radiusSmall: RoundedCornerShape = sm
+    val radiusMedium: RoundedCornerShape = md
     val radiusFull: RoundedCornerShape = full
-    val paperCut: RoundedCornerShape = small
-    val tagEar: RoundedCornerShape = small
+    val paperCut: RoundedCornerShape = sm
+    val tagEar: RoundedCornerShape = sm
     val pill: RoundedCornerShape = full
-    val dialogLayer: RoundedCornerShape = medium
-    val washiTape: RoundedCornerShape = small
-    val bookmark: RoundedCornerShape = small
+    val dialogLayer: RoundedCornerShape = md
+    val washiTape: RoundedCornerShape = sm
+    val bookmark: RoundedCornerShape = sm
 }
 
 /**
@@ -72,7 +85,8 @@ object ArchiveShadows {
 
 /**
  * 散页手账动效节奏 (Archive Motion)
- * 全站动效严格 ≤ 300ms，统一经典纸张翻动缓动曲线
+ * 全站动效严格 ≤ 300ms，统一经典纸张翻动缓动曲线。
+ * 纸是刚性材料，不做回弹（spring）—— 所有过渡必须是 tween + 缓动曲线。
  */
 object ArchiveMotion {
     const val DurationFast: Int = 120   // 微交互（按压下沉、标签凸起）
@@ -80,7 +94,6 @@ object ArchiveMotion {
     const val DurationSlow: Int = 300   // 展开抽屉、卡片落纸
 
     val EaseInOutBook: CubicBezierEasing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
-    val SpringGentle: SpringSpec<Float> = spring(dampingRatio = 0.75f, stiffness = 400f)
 }
 
 /**

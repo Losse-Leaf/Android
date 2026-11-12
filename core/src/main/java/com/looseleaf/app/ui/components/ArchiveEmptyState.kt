@@ -100,7 +100,7 @@ fun ArchiveEmptyState(
             Spacer(modifier = Modifier.height(18.dp))
             Box(
                 modifier = Modifier
-                    .defaultMinSize(minHeight = 40.dp)
+                    .defaultMinSize(minHeight = 48.dp)
                     .clip(ArchiveShapes.small)
                     .background(colors.accentWarm)
                     .clickable(

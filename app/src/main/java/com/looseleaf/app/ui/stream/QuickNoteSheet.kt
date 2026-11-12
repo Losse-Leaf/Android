@@ -837,7 +837,7 @@ private fun QuickNoteSheetBody(
                                 contentColor = colors.inkPrimary
                             ),
                             border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(colors.borderDivider)),
-                            shape = RoundedCornerShape(3.dp),
+                            shape = RoundedCornerShape(4.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                             modifier = Modifier.fillMaxWidth().height(34.dp)
                         ) {
@@ -970,9 +970,9 @@ private fun QuickNoteSheetBody(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(colors.archiveSubtle.copy(alpha = 0.5f))
-                        .border(0.8.dp, colors.accentWarm.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                        .border(0.8.dp, colors.accentWarm.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
                         .padding(12.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1157,9 +1157,9 @@ private fun QuickNoteSheetBody(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(12.dp))
                                 .background(colors.archiveSubtle)
-                                .border(0.5.dp, colors.borderDivider, RoundedCornerShape(6.dp))
+                                .border(0.5.dp, colors.borderDivider, RoundedCornerShape(12.dp))
                                 .padding(16.dp),
                             contentAlignment = Alignment.Center
                         ) {

@@ -3,12 +3,10 @@ package com.looseleaf.app.theme
 import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
-import com.looseleaf.core.R
 
 /**
  * 散页统一字阶令牌 (Archive Type Scale)
@@ -21,6 +19,10 @@ import com.looseleaf.core.R
  * - h2 (22sp)：次级大字、滚轮焦点、子页标题
  * - h1 (28sp)：页面主标题、核心汇总金额
  * - display (32sp)：净资产 / 封面展示大字
+ *
+ * 【待办 · 第 2 批】本阶梯外仍散落 22 处裸字面量（10 / 13 / 15 / 17 / 20 / 26sp）。
+ * 它们必须跟布局一起改（字号一改，行高、固定高度、卡片密度全部连带），
+ * 故第 1 批只在此登记、不批量替换。
  */
 object ArchiveTypeScale {
     val micro: TextUnit = 11.sp
@@ -37,10 +39,9 @@ object ArchiveTypeScale {
  * 散页排版字体栈映射 (Typography Mapping)
  * 严格遵循 docs/ecosystem.md §4.3 与 docs/web.md §2.4 规范
  * Android 平台倾向：
- * - 古典衬线体 (Serif Editorial): Noto Serif SC -> 系统衬线
- * - 现代无衬线 (Sans Body): Roboto -> Noto Sans SC -> 系统无衬线
- * - 等宽刻度 (Monospace Scale): JetBrains Mono -> 系统等宽
- * - 手写体点缀 (Handwritten Script): Caveat (SIL OFL) -> 系统 Cursive
+ * - 古典衬线体 (Serif Editorial): Noto Serif SC -> 系统衬线 —— **只用于标题与大字**
+ * - 现代无衬线 (Sans Body): Roboto -> Noto Sans SC -> 系统无衬线 —— **正文一律无衬线**
+ * - 等宽刻度 (Monospace Scale): JetBrains Mono -> 系统等宽 —— 数字与金额
  *
  * 注意：在 Compose Material3 中，Typography 样式不应硬编码 color（应保持 Color.Unspecified），
  * 这样可让 Text 自动继承组件层级的 LocalContentColor（如 Button、Surface 的前景文字颜色），
@@ -50,13 +51,6 @@ object ArchiveFontFamilies {
     val EditorialSerif: FontFamily = FontFamily.Serif
     val BodySans: FontFamily = FontFamily.SansSerif
     val MonoScale: FontFamily = FontFamily.Monospace
-    /**
-     * 手写体点缀：采用 SIL OFL 开源协议的 Caveat 字体，并以系统 Cursive 为 fallback。
-     * 严格限制：每屏仅用于日期星期、卡片角落小批注、空状态诗意文案（每屏 <= 10 字）。
-     */
-    val Handwritten: FontFamily = FontFamily(
-        Font(R.font.caveat_semibold, FontWeight.SemiBold)
-    )
 }
 
 fun createArchiveTypography(colors: ArchiveColors): Typography {
@@ -118,21 +112,21 @@ fun createArchiveTypography(colors: ArchiveColors): Typography {
             color = Color.Unspecified
         ),
         bodyLarge = TextStyle(
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
+            fontFamily = ArchiveFontFamilies.BodySans,
             fontWeight = FontWeight.Normal,
             fontSize = ArchiveTypeScale.bodyLarge,
             lineHeight = 24.sp,
             color = Color.Unspecified
         ),
         bodyMedium = TextStyle(
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
+            fontFamily = ArchiveFontFamilies.BodySans,
             fontWeight = FontWeight.Normal,
             fontSize = ArchiveTypeScale.body,
             lineHeight = 21.sp,
             color = Color.Unspecified
         ),
         bodySmall = TextStyle(
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
+            fontFamily = ArchiveFontFamilies.BodySans,
             fontWeight = FontWeight.Normal,
             fontSize = ArchiveTypeScale.caption,
             lineHeight = 18.sp,

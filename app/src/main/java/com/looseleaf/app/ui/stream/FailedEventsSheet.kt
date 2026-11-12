@@ -341,7 +341,7 @@ private fun FailedEventItemRow(
     }
 
     Surface(
-        shape = RoundedCornerShape(6.dp),
+        shape = RoundedCornerShape(12.dp),
         color = colors.archiveCard,
         border = androidx.compose.foundation.BorderStroke(0.6.dp, colors.borderDivider),
         modifier = Modifier.fillMaxWidth()

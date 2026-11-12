@@ -211,9 +211,9 @@ fun PairingScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(colors.archiveSubtle)
-                        .border(0.5.dp, colors.borderDivider, RoundedCornerShape(18.dp))
+                        .border(0.5.dp, colors.borderDivider, RoundedCornerShape(12.dp))
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
@@ -224,7 +224,7 @@ fun PairingScreen(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(14.dp))
+                                .clip(RoundedCornerShape(4.dp))
                                 .background(if (isSelected) colors.archivePaper else androidx.compose.ui.graphics.Color.Transparent)
                                 .clickable {
                                     selectedMethodTab = index

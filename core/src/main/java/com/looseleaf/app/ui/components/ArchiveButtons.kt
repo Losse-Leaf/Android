@@ -36,7 +36,7 @@ fun ArchiveTextButton(
 ) {
     val colors = LooseLeafTheme.colors
     val finalTextColor = textColor ?: when {
-        !enabled -> colors.inkMuted
+        !enabled -> colors.inkDisabled
         isDestructive -> colors.alertRed
         else -> colors.accentWarm
     }
@@ -80,7 +80,7 @@ fun ArchiveSheetActionButton(
         isDestructive -> colors.alertRed
         else -> colors.accentWarm
     }
-    val contentColor = if (enabled) colors.archivePaper else colors.inkMuted.copy(alpha = 0.55f)
+    val contentColor = if (enabled) colors.archivePaper else colors.inkDisabled
 
     Box(
         modifier = modifier
@@ -119,6 +119,8 @@ fun ArchiveSheetActionButton(
 /**
  * 散页统一主按钮 (ArchivePrimaryButton)
  * - 实心赤陶底色、4dp 圆角、48dp 高度、纸白衬线文字 + 轻触感
+ * - 禁用态：**不再是「赤陶 38% alpha + 纸白字」**（那是 ~2:1 对比，按钮像糊了一块脏色），
+ *   改为「纸面底 + inkDisabled 字」—— 一眼看出"按不了"，且禁用时页面上不再出现赤陶。
  */
 @Composable
 fun ArchivePrimaryButton(
@@ -134,7 +136,7 @@ fun ArchivePrimaryButton(
             .fillMaxWidth()
             .height(48.dp)
             .clip(ArchiveShapes.small)
-            .background(if (enabled) colors.accentWarm else colors.accentWarm.copy(alpha = 0.38f))
+            .background(if (enabled) colors.accentWarm else colors.archiveSubtle)
             .clickable(
                 enabled = enabled,
                 role = Role.Button,
@@ -152,7 +154,7 @@ fun ArchivePrimaryButton(
             fontSize = ArchiveTypeScale.bodyLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            color = colors.archivePaper
+            color = if (enabled) colors.archivePaper else colors.inkDisabled
         )
     }
 }

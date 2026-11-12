@@ -34,8 +34,8 @@ fun ArchiveReleaseDialog(
     onDownloadAndInstall: () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
-    val cardShape = RoundedCornerShape(18.dp)
-    val buttonShape = RoundedCornerShape(10.dp)
+    val cardShape = RoundedCornerShape(12.dp)
+    val buttonShape = RoundedCornerShape(4.dp)
 
     Dialog(
         onDismissRequest = onDismiss,

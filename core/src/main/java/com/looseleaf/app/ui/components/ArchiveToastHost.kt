@@ -122,7 +122,7 @@ fun ArchiveToastHost(
             exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 2 })
         ) {
             currentMessage?.let { msg ->
-                val shape = RoundedCornerShape(20.dp)
+                val shape = RoundedCornerShape(12.dp)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -141,7 +141,7 @@ fun ArchiveToastHost(
                     Box(
                         modifier = Modifier
                             .size(7.dp)
-                            .clip(RoundedCornerShape(3.5.dp))
+                            .clip(RoundedCornerShape(50))
                             .background(if (msg.isError) colors.accentWarm else colors.accentMoss)
                     )
                     Spacer(modifier = Modifier.width(8.dp))

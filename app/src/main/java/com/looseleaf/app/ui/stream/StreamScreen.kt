@@ -570,9 +570,9 @@ fun StreamScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(3.dp))
+                        .clip(RoundedCornerShape(4.dp))
                         .background(colors.accentWarm.copy(alpha = 0.08f))
-                        .border(0.5.dp, colors.accentWarm, RoundedCornerShape(3.dp))
+                        .border(0.5.dp, colors.accentWarm, RoundedCornerShape(4.dp))
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -944,7 +944,7 @@ fun StreamScreen(
                             ) {
                                 Row(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
+                                        .clip(RoundedCornerShape(4.dp))
                                         .clickable {
                                             loadMoreFailed = false
                                             scope.launch {

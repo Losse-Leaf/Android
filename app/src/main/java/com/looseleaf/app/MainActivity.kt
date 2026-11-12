@@ -622,6 +622,9 @@ class MainActivity : FragmentActivity() {
                                     onContentFilterConsumed = { pendingContentFilter = null }
                                 )
                                 "ledger" -> LedgerEntry(
+                                    // P0「变天」修复：账本必须跟随应用内三态外观，
+                                    // 不能自己去问 isSystemInDarkTheme()。
+                                    isDarkTheme = isDarkTheme,
                                     focusGearId = pendingGearId,
                                     onFocusConsumed = { pendingGearId = null }
                                 )

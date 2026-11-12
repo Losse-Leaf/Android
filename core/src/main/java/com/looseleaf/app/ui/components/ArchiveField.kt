@@ -6,13 +6,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
@@ -23,14 +26,24 @@ import androidx.compose.ui.unit.dp
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
+import com.looseleaf.core.R
 
 /**
  * 散页统一底线式输入框 (ArchiveField)
  * - 标签在上方（小字、次要色）
- * - 仅底部 1dp 淡线，聚焦时变为 2dp 赤陶下划线
+ * - 仅底部一条线：聚焦时 2dp 赤陶，错误时 2dp 砖红，其余 1dp 淡线
  * - 数字类输入自动采用等宽字体 (ArchiveFontFamilies.MonoScale)
  * - 占位符单行省略
  * - 支持 trailingText 与 trailingContent 插槽
+ *
+ * 【第 1 批补全输入三态】此前 `enabled = false` 只是透传给 BasicTextField，
+ * 文字颜色和下划线完全不变，用户会反复去点一个点不动的格子；`readOnly`
+ * 与普通输入框长得一模一样，用户以为可以打字；`errorMessage` 只有文字没有视觉分支。
+ * 现在四种形态各有明确视觉语言：
+ * - 普通 / 聚焦：1dp 淡线 → 2dp 赤陶
+ * - 禁用：字 inkDisabled、线 lineEdge 60%、标签 inkDisabled，**绝不出现赤陶**
+ * - 只读（日期/类别等选择器）：不画线，右侧 12dp chevron，暗示"点开选择"
+ * - 错误：2dp 砖红下划线 + 下方 12sp 砖红说明
  */
 @Composable
 fun ArchiveField(
@@ -60,6 +73,24 @@ fun ArchiveField(
 ) {
     val colors = LooseLeafTheme.colors
     var isFocused by remember { mutableStateOf(false) }
+    val hasError = !errorMessage.isNullOrBlank()
+    // 只读输入框是"选择器"，不是文本框：不画下划线，靠右侧箭头表达可点
+    val underlineColor = when {
+        !enabled -> colors.lineEdge.copy(alpha = 0.6f)
+        hasError -> colors.alertRed
+        readOnly -> Color.Transparent
+        isFocused -> colors.accentWarm
+        else -> colors.borderSubtle
+    }
+    val underlineHeight = if (hasError || (isFocused && enabled && !readOnly)) 2.dp else 1.dp
+    val labelColor = when {
+        !enabled -> colors.inkDisabled
+        hasError -> colors.alertRed
+        isFocused -> colors.accentWarm
+        else -> colors.inkSecondary
+    }
+    val textColor = if (enabled) colors.inkPrimary else colors.inkDisabled
+    val placeholderColor = if (enabled) colors.inkMuted else colors.inkDisabled
 
     Column(
         modifier = modifier
@@ -71,7 +102,7 @@ fun ArchiveField(
                 text = label,
                 fontSize = ArchiveTypeScale.caption,
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
-                color = if (isFocused) colors.accentWarm else colors.inkSecondary,
+                color = labelColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -90,7 +121,7 @@ fun ArchiveField(
                         text = placeholder,
                         fontFamily = if (isNumeric) ArchiveFontFamilies.MonoScale else ArchiveFontFamilies.EditorialSerif,
                         fontSize = ArchiveTypeScale.bodyLarge,
-                        color = colors.inkMuted,
+                        color = placeholderColor,
                         maxLines = if (singleLine) 1 else maxLines,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -104,7 +135,7 @@ fun ArchiveField(
                     textStyle = TextStyle(
                         fontFamily = if (isNumeric) ArchiveFontFamilies.MonoScale else ArchiveFontFamilies.EditorialSerif,
                         fontSize = ArchiveTypeScale.bodyLarge,
-                        color = colors.inkPrimary
+                        color = textColor
                     ),
                     singleLine = singleLine,
                     minLines = minLines,
@@ -141,6 +172,17 @@ fun ArchiveField(
                 Spacer(modifier = Modifier.width(6.dp))
                 it()
             }
+
+            // 只读选择器：右侧 12dp 右尖角，暗示"点开选择"而不是"这里能打字"
+            if (readOnly && enabled) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    painter = painterResource(R.drawable.ic_chevron_right),
+                    contentDescription = null,
+                    tint = colors.inkMuted,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(2.dp))
@@ -153,8 +195,8 @@ fun ArchiveField(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(if (isFocused) 2.dp else 1.dp)
-                    .background(if (isFocused) colors.accentWarm else colors.borderSubtle)
+                    .height(underlineHeight)
+                    .background(underlineColor)
             )
         }
 
