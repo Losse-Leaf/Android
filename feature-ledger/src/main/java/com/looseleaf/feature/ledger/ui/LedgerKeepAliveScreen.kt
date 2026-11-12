@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import com.looseleaf.app.theme.ArchiveLines
+import com.looseleaf.app.ui.components.ArchivePageHeader
 import com.looseleaf.feature.ledger.service.LedgerNotificationListenerService
 import com.looseleaf.feature.ledger.theme.LedgerTheme
 import kotlinx.coroutines.launch
@@ -59,7 +60,7 @@ fun LedgerKeepAliveScreen(
         // 内层不清零 contentWindowInsets 会再吃一条导航栏高度。
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            LedgerTopAppBar(
+            ArchivePageHeader(
                 title = "自动记账与保活检查",
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {

@@ -43,7 +43,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveColors
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
@@ -62,72 +61,6 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.YearMonth
 import java.util.Locale
-
-@Composable
-fun LedgerTopAppBar(
-    title: String,
-    subtitle: String? = null,
-    /** 副标题可点（如账本的月份选择器），传 null 则退化为纯文本 */
-    onSubtitleClick: (() -> Unit)? = null,
-    navigationIcon: @Composable (() -> Unit)? = null,
-    actions: @Composable RowScope.() -> Unit = {},
-    windowInsets: WindowInsets = WindowInsets(0, 0, 0, 0),
-    modifier: Modifier = Modifier
-) {
-    val colors = LedgerTheme.colors
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.weight(1f, fill = false)
-        ) {
-            navigationIcon?.invoke()
-            Column {
-                Text(
-                    text = title,
-                    style = LedgerTheme.typography.title,
-                    fontFamily = LedgerTheme.typography.serif,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = ArchiveTypeScale.h2,
-                    letterSpacing = 1.sp,
-                    color = colors.textPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (!subtitle.isNullOrBlank()) {
-                    Text(
-                        text = subtitle,
-                        style = LedgerTheme.typography.caption,
-                        fontFamily = LedgerTheme.typography.serif,
-                        color = colors.textSecondary,
-                        maxLines = 1,
-                        modifier = if (onSubtitleClick != null) {
-                            Modifier
-                                .clip(ArchiveShapes.small)
-                                .clickable(role = Role.Button, onClick = onSubtitleClick)
-                                .padding(vertical = 2.dp, horizontal = 2.dp)
-                        } else {
-                            Modifier
-                        }
-                    )
-                }
-            }
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            actions()
-        }
-    }
-}
 
 /**
  * 视图切换（账单明细 / 资产大盘）：纯文字标签，选中项加粗 + 2dp 赤陶下划线，无框无底色

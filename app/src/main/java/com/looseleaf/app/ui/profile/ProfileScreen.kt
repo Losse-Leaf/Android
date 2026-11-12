@@ -325,7 +325,7 @@ fun ProfileScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // 展台顶栏：标题与独立 ⋮ 菜单入口 (与账本、工坊同一规格)
-                ArchiveTopAppBar(
+                ArchivePageHeader(
                     title = "展台",
                     subtitle = null,
                     actions = {

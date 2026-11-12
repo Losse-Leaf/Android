@@ -57,6 +57,7 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.ArchiveTypeScale
+import com.looseleaf.app.ui.components.ArchivePageHeader
 import com.looseleaf.app.ui.components.ArchiveToastManager
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.core.R
@@ -230,7 +231,7 @@ fun LedgerScreen(
         Scaffold(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                LedgerTopAppBar(
+                ArchivePageHeader(
                     title = "账本",
                     subtitle = if (selectedTab == 0) {
                         "${selectedYearMonth.year} 年 ${selectedYearMonth.monthValue} 月 ▾"

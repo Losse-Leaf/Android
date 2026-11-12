@@ -295,7 +295,7 @@ fun ProjectsWishesScreen(
                     .widthIn(max = 680.dp)
             ) {
                 // 顶栏：标题"工坊"与账本、时间流同一规格，右上角不再放"+ 新建…"文字
-                ArchiveTopAppBar(
+                ArchivePageHeader(
                     title = stringResource(R.string.projects_wishes_screen_text_01),
                     subtitle = null,
                     actions = {}
