@@ -999,13 +999,21 @@ fun StreamScreen(
         // 「写一页」悬浮操作按钮：空状态已有主按钮时自动隐藏，避免同屏双入口
         val isStreamCurrentlyEmpty = (loadedEntries.isEmpty() && (!filterCriteria.isActive && onThisDayEntries.isEmpty())) ||
             (loadedEntries.isEmpty() && filterCriteria.isActive)
-        FountainPenFab(
-            isExpanded = isFabExpanded && !isStreamCurrentlyEmpty,
+        ArchiveFab(
+            visible = isFabExpanded && !isStreamCurrentlyEmpty,
             onClick = { showQuickNoteDialog = true },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 // MOB-P2-40：宽屏时右侧有详情栏，浮动印章让到列表列里
-                .padding(end = if (isWideLayout) (paneWidthDp + 20).dp else 20.dp, bottom = 20.dp)
+                .padding(end = if (isWideLayout) (paneWidthDp + 20).dp else 20.dp, bottom = 20.dp),
+            icon = {
+                Icon(
+                    painter = painterResource(R.drawable.ic_fountain_pen),
+                    contentDescription = "写一页",
+                    tint = colors.archivePaper,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         )
 
         // MOB-P2-40：宽屏右侧详情栏

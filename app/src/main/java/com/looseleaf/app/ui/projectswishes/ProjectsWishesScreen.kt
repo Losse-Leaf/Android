@@ -1,11 +1,6 @@
 package com.looseleaf.app.ui.projectswishes
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,7 +12,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -410,23 +404,14 @@ fun ProjectsWishesScreen(
                 label = "fab_offset"
             )
 
-            AnimatedVisibility(
+            ArchiveFab(
                 visible = isFabVisible && currentTabHasItems,
-                enter = fadeIn() + scaleIn(),
-                exit = fadeOut() + scaleOut(),
+                onClick = { showCreateDialog = true },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 16.dp, bottom = 16.dp)
-                    .offset(y = fabOffset)
-            ) {
-                FloatingActionButton(
-                    onClick = { showCreateDialog = true },
-                    containerColor = colors.accentWarm,
-                    contentColor = colors.archivePaper,
-                    shape = CircleShape,
-                    elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
-                    modifier = Modifier.size(56.dp)
-                ) {
+                    .offset(y = fabOffset),
+                icon = {
                     Icon(
                         imageVector = Icons.Outlined.Add,
                         contentDescription = when (pagerState.currentPage) {
@@ -435,10 +420,10 @@ fun ProjectsWishesScreen(
                             else -> "点亮足迹"
                         },
                         tint = colors.archivePaper,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
-            }
+            )
 
             // 撤销删除 Snackbar
             snackbarData?.let { data ->

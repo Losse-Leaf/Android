@@ -18,7 +18,6 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import kotlinx.coroutines.CancellationException
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -68,7 +67,6 @@ import androidx.compose.ui.res.stringResource
 import com.looseleaf.app.R
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.graphics.painter.Painter
 
 class MainActivity : FragmentActivity() {
 
@@ -706,37 +704,9 @@ class MainActivity : FragmentActivity() {
  */
 data class WorkshopTarget(val kind: String, val id: Long)
 
-@Immutable
-data class NavigationTabItem(
-    val route: String,
-    val label: String,
-    // MOB-P2-54：图标改用项目内本地矢量（Painter），不再依赖 material-icons-extended
-    val icon: Painter
-)
-
-/**
- * 底栏页签列表。
- *
- * MOB-P1-28：原先每次重组都新建 List，导致底栏永远无法跳过重组 —— 提升为顶层常量。
- * MOB-P2-54：图标改成本地矢量后，`painterResource` 只能在组合上下文调用，
- * 因此列表改为 **remember 缓存**（painter 本身是稳定的，键不会变），
- * 既保住了「只创建一次」的初衷，又不必把 extended 图标依赖留在包里。
- */
-@Composable
-private fun rememberBottomTabs(): List<NavigationTabItem> {
-    val streamIcon = painterResource(R.drawable.ic_auto_stories)
-    val ledgerIcon = painterResource(R.drawable.ic_calculate)
-    val workshopIcon = painterResource(R.drawable.ic_all_inclusive)
-    val profileIcon = painterResource(R.drawable.ic_account_circle)
-    return remember(streamIcon, ledgerIcon, workshopIcon, profileIcon) {
-        listOf(
-            NavigationTabItem("stream", "时间流", streamIcon),
-            NavigationTabItem("ledger", "账本", ledgerIcon),
-            NavigationTabItem("workshop", "工坊", workshopIcon),
-            NavigationTabItem("profile", "展台", profileIcon)
-        )
-    }
-}
+// 底栏页签由 SpineBottomBar 内部的 SpineNavigationItem 持有并 remember 缓存。
+// 这里曾有一套 NavigationTabItem + rememberBottomTabs()，但 LooseLeafBottomBar
+// 调用 SpineBottomBar 时从未传过它，属于零调用死代码，第 2 批删除。
 
 /**
  * MOB-P1-85：全局离线与同步异常横幅。

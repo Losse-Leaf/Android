@@ -5,8 +5,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -18,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -57,6 +54,7 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.ArchiveTypeScale
+import com.looseleaf.app.ui.components.ArchiveFab
 import com.looseleaf.app.ui.components.ArchivePageHeader
 import com.looseleaf.app.ui.components.ArchiveToastManager
 import com.looseleaf.app.utils.FormatUtils
@@ -326,24 +324,19 @@ fun LedgerScreen(
                     targetValue = if (snackbarData != null) (-56).dp else 0.dp,
                     label = "fab_offset"
                 )
-                AnimatedVisibility(
+                ArchiveFab(
                     visible = isFabVisible,
-                    enter = fadeIn() + scaleIn(),
-                    exit = fadeOut() + scaleOut()
-                ) {
-                    FloatingActionButton(
-                        onClick = { showQuickRecordSheet = true },
-                        containerColor = colors.accent,
-                        contentColor = colors.background,
-                        shape = CircleShape,
-                        elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
-                        modifier = Modifier
-                            .offset(y = fabOffset)
-                            .size(56.dp)
-                    ) {
-                        Icon(imageVector = Icons.Outlined.Add, contentDescription = "记一笔")
+                    onClick = { showQuickRecordSheet = true },
+                    modifier = Modifier.offset(y = fabOffset),
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Outlined.Add,
+                            contentDescription = "记一笔",
+                            tint = colors.background,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
-                }
+                )
             },
             containerColor = colors.background
         ) { innerPadding ->
