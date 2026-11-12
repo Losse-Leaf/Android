@@ -27,7 +27,10 @@ object ArchiveSpacing {
  * 颜色四档由淡到浓，语义令牌定义在 Color.kt，禁止在组件里散写 alpha：
  * - 1dp 墨 12%  lineDivider   ：列表行分隔（borderSubtle / borderDivider）
  * - 1dp 墨 16%  lineEdge      ：输入框常态下划线、卡片轮廓
- * - 1dp 墨 32%  lineDisabled  ：禁用控件轮廓（只表形状，WCAG 1.4.11 豁免对比度）
+ * - 1dp 墨 32%  lineDisabled  ：禁用**按钮这类整块可点区域**的轮廓
+ *   （只表形状，WCAG 1.4.11 豁免对比度）。输入框禁用态是另一档：
+ *   `lineEdge.copy(alpha = 0.6f)`（约 9.6% 墨），它有标签和占位符提供形状线索，
+ *   不需要 32% 那么重；两者不是同一个语义，别互相"统一"。
  * - 2dp 赤陶/砖红 状态下划线   ：聚焦 accentWarm、错误 alertRed
  *
  * 禁止 0.5 / 0.6 / 0.8 / 1.5 / 3dp 等非标准宽度，禁止虚线。

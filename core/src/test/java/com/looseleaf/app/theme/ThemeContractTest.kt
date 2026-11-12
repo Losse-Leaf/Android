@@ -226,4 +226,52 @@ class ThemeContractTest {
         archiveColorScheme(DarkArchiveColors, darkTheme = true).secondaryContainer.alpha,
         0.002f
     )
+
+    // ========== ColorScheme 容器前景色：钉对比度，不钉色值 ==========
+    // 第 1 批最终收口把 4 行 onXxxContainer 从原色换成高对比色，
+    // 但当时只加了 alpha 断言 —— 把前景色改回 accentWarm / IndigoTertiary，
+    // 测试照样全绿。这里断言「淡底合成到 canvas 后的实际观感」达 AA：
+    // 纸 primary 会从 5.25 掉回 4.27、暗 tertiary 从 6.41 掉回 1.92，必然变红；
+    // 同时不锁死具体色值，将来按设计合理调色仍有余地。
+
+    private fun assertContainerAa(
+        label: String,
+        container: Color,
+        onContainer: Color,
+        canvas: Color
+    ) = assertAa(
+        label,
+        onContainer,
+        composite(container, container.alpha, canvas)
+    )
+
+    @Test fun paper_primaryContainer_onColor_meetsAa() {
+        val s = archiveColorScheme(LightArchiveColors, darkTheme = false)
+        assertContainerAa("纸 primaryContainer 前景", s.primaryContainer, s.onPrimaryContainer, LightArchiveColors.archivePaper)
+    }
+
+    @Test fun paper_secondaryContainer_onColor_meetsAa() {
+        val s = archiveColorScheme(LightArchiveColors, darkTheme = false)
+        assertContainerAa("纸 secondaryContainer 前景", s.secondaryContainer, s.onSecondaryContainer, LightArchiveColors.archivePaper)
+    }
+
+    @Test fun paper_tertiaryContainer_onColor_meetsAa() {
+        val s = archiveColorScheme(LightArchiveColors, darkTheme = false)
+        assertContainerAa("纸 tertiaryContainer 前景", s.tertiaryContainer, s.onTertiaryContainer, LightArchiveColors.archivePaper)
+    }
+
+    @Test fun dark_primaryContainer_onColor_meetsAa() {
+        val s = archiveColorScheme(DarkArchiveColors, darkTheme = true)
+        assertContainerAa("暗 primaryContainer 前景", s.primaryContainer, s.onPrimaryContainer, DarkArchiveColors.archivePaper)
+    }
+
+    @Test fun dark_secondaryContainer_onColor_meetsAa() {
+        val s = archiveColorScheme(DarkArchiveColors, darkTheme = true)
+        assertContainerAa("暗 secondaryContainer 前景", s.secondaryContainer, s.onSecondaryContainer, DarkArchiveColors.archivePaper)
+    }
+
+    @Test fun dark_tertiaryContainer_onColor_meetsAa() {
+        val s = archiveColorScheme(DarkArchiveColors, darkTheme = true)
+        assertContainerAa("暗 tertiaryContainer 前景", s.tertiaryContainer, s.onTertiaryContainer, DarkArchiveColors.archivePaper)
+    }
 }
