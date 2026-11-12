@@ -167,6 +167,16 @@ internal fun QuickRecordSheet(
     }
     val useParsedNote = parsedNote != null && effectiveCents == 0L
 
+    /**
+     * 本次提交实际采用的金额（分）—— 速记弹层唯一的「金额事实源」。
+     *
+     * 此前按钮 enabled / 分期试算 / 提交金额各算各的：enabled 只看 effectiveCents，
+     * handleSubmit 却会采纳 parsedNote.amountCents。于是备注里写「42.5 午餐」时，
+     * 界面提示「点『记下』自动采纳」，按钮却是灰的、根本点不动（RG-27 接线遗漏）。
+     * 现在所有判定都读这一个值，不会再出现「UI 说能提交、按钮不让提交」。
+     */
+    val submitCents = FormatUtils.resolveQuickRecordCents(effectiveCents, parsedNote?.amountCents)
+
     // 解析出收入（如「+5000 工资」）时把类型切过去，保证界面与提交一致；
     // 依赖 useParsedNote 而不是 selectedType，避免用户手动改回支出后被反复纠正。
     LaunchedEffect(useParsedNote, parsedNote?.type) {
@@ -176,7 +186,7 @@ internal fun QuickRecordSheet(
     }
 
     val isInstallment = (selectedType == "expense" && payMethodChoice == "installment")
-    val approxMonthly = if (effectivePeriods > 0) effectiveCents / effectivePeriods else 0L
+    val approxMonthly = if (effectivePeriods > 0) submitCents / effectivePeriods else 0L
 
     // 金额写入只走 FormatUtils.AmountInput：金额行是纯展示，系统键盘/粘贴无法绕过校验
     fun appendDigit(digit: String) {
@@ -203,7 +213,7 @@ internal fun QuickRecordSheet(
 
     val handleSubmit: () -> Unit = handleSubmit@{
         val parsed = if (useParsedNote) parsedNote else null
-        val cents = parsed?.amountCents ?: calculateEffectiveCents()
+        val cents = submitCents
         if (cents > 0 && !isSubmitting) {
             val submitType = parsed?.type ?: selectedType
             val submitCategory = parsed?.category ?: selectedCategory
@@ -598,7 +608,7 @@ internal fun QuickRecordSheet(
                                 .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
                                 .padding(horizontal = 10.dp, vertical = 8.dp)
                         ) {
-                            val previewText = if (effectiveCents <= 0) {
+                            val previewText = if (submitCents <= 0) {
                                 "输入金额后将实时试算各期还款额"
                             } else {
                                 "每期约 ${LedgerFormat.formatMoney(approxMonthly)} · 共 $effectivePeriods 期 · 末期 $endYm"
@@ -867,7 +877,7 @@ internal fun QuickRecordSheet(
             if (isInstallment) {
                 ArchivePrimaryButton(
                     text = if (isSubmitting) "记账中…" else "分期记下",
-                    enabled = effectiveCents > 0 && !isSubmitting && selectedChannel != null && effectivePeriods in 1..60,
+                    enabled = submitCents > 0 && !isSubmitting && selectedChannel != null && effectivePeriods in 1..60,
                     onClick = handleSubmit,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -902,7 +912,7 @@ internal fun QuickRecordSheet(
                     onPlusClick = { appendPlus() },
                     onClearAll = { clearAll() },
                     confirmText = if (isSubmitting) "记账中…" else "记下",
-                    isConfirmEnabled = effectiveCents > 0 && !isSubmitting,
+                    isConfirmEnabled = submitCents > 0 && !isSubmitting,
                     onConfirm = handleSubmit,
                     showPlus = true,
                     keyHeight = 46.dp
@@ -912,9 +922,8 @@ internal fun QuickRecordSheet(
 
             // 主按钮禁用时把「为什么点不了」写在按钮外，而不是让按钮可点再弹 toast：
             // 后者会破坏 a11y 语义（读屏会播报「按钮」而不是「按钮，已禁用」）。
-            // 只在「既没敲金额、备注也没解析出金额」时提示，避免与上方
-            // 「识别到 ¥42.50 · 点「记下」自动采纳」自相矛盾。
-            if (effectiveCents <= 0 && parsedNote == null && !isSubmitting && !isNoteEditing) {
+            // 用 submitCents 判定：语义解析已给出金额时按钮可点，这句不再出现。
+            if (submitCents <= 0 && !isSubmitting && !isNoteEditing) {
                 Text(
                     text = "填好金额后可记下",
                     fontSize = 12.sp,

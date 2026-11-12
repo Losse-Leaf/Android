@@ -333,6 +333,22 @@ object FormatUtils {
     )
 
     /**
+     * 速记提交金额的唯一裁决规则（RG-27 回归护栏）。
+     *
+     * 手输金额优先：用户一旦敲了数字键盘，就表示已明确表达金额，备注里解析出的
+     * 金额让位，避免「我明明输了 30，却被 42.5 覆盖」。只有手输为空时才采纳语义
+     * 解析结果；两者都空或无效则返回 0（不可提交）。
+     *
+     * 按钮 enabled、分期试算、提交金额必须全部读这个返回值 —— 此前三者各算各的，
+     * 导致「备注写 42.5 午餐」时界面提示「点记下自动采纳」、按钮却是灰的。
+     */
+    fun resolveQuickRecordCents(inputCents: Long, parsedCents: Long?): Long = when {
+        inputCents > 0 -> inputCents
+        parsedCents != null && parsedCents > 0 -> parsedCents
+        else -> 0L
+    }
+
+    /**
      * 自然语言记账解析 (如输入 "42.5 午餐手冲咖啡" 自动拆解)
      *
      * @param knownCategories 用户动态分类字典；命中时优先返回字典里的原名，
