@@ -519,7 +519,7 @@ internal fun FootprintsList(
                     if (full.length >= 10 && full[4] == '.') full.substring(5) else full
                 }
 
-                // 山川条目第二行：显示手记标题或首行内容（单行省略），没有手记就不显示这一行；去掉固定的"行旅手记"前缀
+                // 足迹条目第二行：显示手记标题或首行内容（单行省略），没有手记就不显示这一行；去掉固定的"行旅手记"前缀
                 val rawTitle = foot.title?.trim()
                     ?.removePrefix("${foot.cityName} · ")
                     ?.removePrefix("${foot.cityName}·")

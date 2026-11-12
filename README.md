@@ -39,7 +39,7 @@
 | :--- | :--- |
 | `core/` | 实体模型、主题令牌、通用组件、`APIClient`、`CredentialStore`、`FormatUtils`、城市字典 |
 | `feature-ledger/` | 账本域全部数据与 UI：独立 `looseleaf_ledger.db`、记账键盘、资产/分期/信贷、通知监听 |
-| `app/` | 应用壳：单 Activity、路由、时间流 / 工坊 / 展台 / 配对、`SyncManager`、更新器 |
+| `app/` | 应用壳：单 Activity、路由、时间流 / 工坊 / 展台 / 设置 / 配对、`SyncManager`、更新器 |
 | `benchmark/` | Baseline Profile 生成（需真机，手动跑，不进 CI 门禁） |
 
 依赖方向严格单向：`app → feature-ledger → core`。

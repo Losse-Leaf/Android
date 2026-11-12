@@ -218,7 +218,7 @@ internal fun AlmanacDialog(
 
                     ArchiveDivider()
 
-                    // 第二幕：山川行迹
+                    // 第二幕：足迹
                     AlmanacChapterSection(
                         chapterNumber = "第二幕",
                         title = stringResource(R.string.stream_dialogs_title_tpl_01, data.atlas.totalCities)

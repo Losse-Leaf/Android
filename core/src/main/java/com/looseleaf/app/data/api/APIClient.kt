@@ -645,7 +645,7 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/installment-items/upcoming", "GET")
     }
 
-    // MARK: - 6. 造物、心愿与山川足迹 (Projects, Wishes & Footprints)
+    // MARK: - 6. 造物、心愿与足迹 (Projects, Wishes & Footprints)
 
     suspend fun fetchProjects(
         limit: Int? = 0,

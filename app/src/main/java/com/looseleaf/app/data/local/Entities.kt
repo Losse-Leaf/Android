@@ -150,7 +150,7 @@ data class CachedWishEntity(
 )
 
 /**
- * 离线山川足迹缓存表 (CachedFootprint)
+ * 离线足迹缓存表 (CachedFootprint)
  */
 @Entity(tableName = "cached_footprints")
 data class CachedFootprintEntity(

@@ -641,7 +641,7 @@ class SyncManager private constructor(private val context: Context) {
             }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
     }
 
-    // 观察全量山川足迹 (离线缓存即时上屏)
+    // 观察全量足迹 (离线缓存即时上屏)
     val footprintsFlow: StateFlow<List<Footprint>> by lazy {
         flow { emitAll(database.footprintDao().getAllFootprintsFlow()) }
             .catch { emit(emptyList()) }
@@ -1466,7 +1466,7 @@ class SyncManager private constructor(private val context: Context) {
         "心愿：${e.message}"
     }
 
-    /** OPT-02：山川足迹（支持 since 增量与软删墓碑对齐，保护发件箱引用的本地行） */
+    /** OPT-02：足迹（支持 since 增量与软删墓碑对齐，保护发件箱引用的本地行） */
     private suspend fun pullFootprintsDataset(forceFull: Boolean): String? = try {
         val cursor = syncPrefs.getString(KEY_FOOTPRINTS_CURSOR, null)
         val useIncremental = !forceFull && database.footprintDao().hasAny() && !cursor.isNullOrBlank()

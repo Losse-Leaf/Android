@@ -178,7 +178,7 @@ internal fun OtherDevicesSheet(
                 .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
             Text(
-                text = "这些跨端设备已通过散页端到端中枢建立受信任配对，共享同步手稿、账本与山川印记。",
+                text = "这些跨端设备已通过散页端到端中枢建立受信任配对，共享同步手稿、账本与足迹印记。",
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                 fontSize = 13.sp,
                 color = colors.inkSecondary,
