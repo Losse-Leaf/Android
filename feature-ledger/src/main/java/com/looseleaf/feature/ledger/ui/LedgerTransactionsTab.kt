@@ -7,6 +7,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -24,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -35,6 +38,7 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.ArchiveTypeScale
+import com.looseleaf.app.theme.LooseLeafTheme
 import androidx.compose.ui.text.TextStyle
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.core.R
@@ -529,10 +533,23 @@ private fun TransactionRowItem(
         }
     }
 
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    // 与 ArchiveItemRow / StreamEntryCard 同一套纸张按压语言：换一档纸面，不画 Material 涟漪。
+    // 底色取全局纸面色盘的 archiveCard —— LedgerColors 只是 ArchiveColors 的投影，
+    // 两者由同一个三态 isDarkTheme 推导，取值一致。
+    val pressedBg = if (isPressed) LooseLeafTheme.colors.archiveCard else Color.Transparent
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .background(pressedBg)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick
+            )
             .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
