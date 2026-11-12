@@ -113,7 +113,7 @@ fun ProfileScreen(
     var isBiometricsEnabled by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
     var enableDecorations by remember { mutableStateOf(credentialStore.enableDecorations) }
     var isInstallmentReminderEnabled by remember { mutableStateOf(credentialStore.isInstallmentReminderEnabled) }
-    var showSettingsSheet by remember { mutableStateOf(false) }
+    var showSettingsScreen by remember { mutableStateOf(false) }
     var showUnpairDialog by remember { mutableStateOf(false) }
     var showStorageBackupDialog by remember { mutableStateOf(false) }
     var showOtherDevicesSheet by remember { mutableStateOf(false) }
@@ -332,7 +332,7 @@ fun ProfileScreen(
                         // 展台只负责「看」（档案 / 统计 / 热力图 / 装备）；
                         // 外观、安全、设备、存储灾备、更新、解绑这些「改」的动作
                         // 全部收进设置页，不再用 ⋮ 菜单和设置抽屉重复三份入口。
-                        IconButton(onClick = { showSettingsSheet = true }) {
+                        IconButton(onClick = { showSettingsScreen = true }) {
                             Icon(
                                 imageVector = Icons.Outlined.Settings,
                                 contentDescription = "设置",
@@ -691,7 +691,7 @@ fun ProfileScreen(
             // ==========================================
 
             // 偏好设置与系统运维独立抽屉 (Atelier vs Settings 分流)
-            if (showSettingsSheet) {
+            if (showSettingsScreen) {
                 SettingsScreen(
                     appearanceMode = appearanceMode,
                     onAppearanceModeChanged = { mode ->
@@ -749,7 +749,7 @@ fun ProfileScreen(
                     // 与 ⋮ 菜单共用同一个动作，避免两处各写一遍检查逻辑
                     onCheckUpdate = checkUpdate,
                     onUnpair = { showUnpairDialog = true },
-                    onBack = { showSettingsSheet = false }
+                    onBack = { showSettingsScreen = false }
                 )
             }
 
