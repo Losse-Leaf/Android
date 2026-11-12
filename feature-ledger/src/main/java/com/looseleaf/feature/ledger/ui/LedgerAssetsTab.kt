@@ -49,10 +49,25 @@ internal fun AssetsAndGearTab(
     onManageChannelsClick: () -> Unit,
     onNewInstallmentClick: () -> Unit = {},
     onPlanClick: (InstallmentPlanItemSummary) -> Unit = {},
+    /** 从展台「随行装备」跳进来时要定位的器物（RG-30） */
+    focusGearId: String? = null,
+    onFocusConsumed: (() -> Unit)? = null,
     listState: LazyListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() },
     modifier: Modifier = Modifier
 ) {
     val colors = LedgerTheme.colors
+
+    // 装备区是本列表最后一个 section（前面是净资产、信贷渠道）；
+    // 首帧 totalItemsCount 还是 0，等一帧再滚，滚不到也不影响主流程。
+    LaunchedEffect(focusGearId) {
+        if (focusGearId == null) return@LaunchedEffect
+        androidx.compose.runtime.withFrameNanos { }
+        runCatching {
+            val last = listState.layoutInfo.totalItemsCount - 1
+            if (last >= 0) listState.animateScrollToItem(last)
+        }
+        onFocusConsumed?.invoke()
+    }
 
     if (isLoading && overview == null) {
         Box(
@@ -342,17 +357,31 @@ internal fun AssetsAndGearTab(
                         if (idx > 0) {
                             LedgerDivider()
                         }
-                        ArchiveGearRow(
-                            gear = gear,
-                            trailingText = if (isPrivacyMasked) {
-                                "••••"
-                            } else {
-                                gear.priceCents?.let { LedgerFormat.formatMoney(it) } ?: "—"
-                            },
-                            trailingColor = colors.textPrimary,
-                            showShortDateInSubtitle = true,
-                            onClick = { onSellGearClick(gear) }
-                        )
+                        // 从展台跳进来时高亮目标器物，用户滚到装备区一眼能看到
+                        val isFocused = focusGearId != null && gear.id == focusGearId
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (isFocused) {
+                                        Modifier.background(colors.accent.copy(alpha = 0.08f))
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                        ) {
+                            ArchiveGearRow(
+                                gear = gear,
+                                trailingText = if (isPrivacyMasked) {
+                                    "••••"
+                                } else {
+                                    gear.priceCents?.let { LedgerFormat.formatMoney(it) } ?: "—"
+                                },
+                                trailingColor = colors.textPrimary,
+                                showShortDateInSubtitle = true,
+                                onClick = { onSellGearClick(gear) }
+                            )
+                        }
                     }
                 }
             }

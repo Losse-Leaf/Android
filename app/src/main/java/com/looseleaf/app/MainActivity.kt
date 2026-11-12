@@ -333,6 +333,19 @@ class MainActivity : FragmentActivity() {
             }
         }
 
+        // 跨页跳转意图（RG-30 / RG-31）：一次性消费，消费方负责回调清空，
+        // 否则用户切走再切回会被反复拽回同一条记录。
+        var pendingWorkshopTarget by remember { mutableStateOf<WorkshopTarget?>(null) }
+        var pendingContentFilter by remember { mutableStateOf<Set<String>?>(null) }
+        var pendingGearId by remember { mutableStateOf<String?>(null) }
+
+        val openWorkshopTarget: (String, Long) -> Unit = remember(onRouteSelected) {
+            { kind: String, id: Long ->
+                pendingWorkshopTarget = WorkshopTarget(kind, id)
+                onRouteSelected("workshop")
+            }
+        }
+
         val pendingShortcut by requestedRouteState
         LaunchedEffect(pendingShortcut) {
             val target = pendingShortcut
@@ -603,11 +616,20 @@ class MainActivity : FragmentActivity() {
                         }
                         saveableStateHolder.SaveableStateProvider(stateKey) {
                             when (currentRoute) {
-                                "stream" -> StreamScreen()
-                                "ledger" -> LedgerEntry()
+                                "stream" -> StreamScreen(
+                                    onOpenWorkshopTarget = openWorkshopTarget,
+                                    initialContentFilter = pendingContentFilter,
+                                    onContentFilterConsumed = { pendingContentFilter = null }
+                                )
+                                "ledger" -> LedgerEntry(
+                                    focusGearId = pendingGearId,
+                                    onFocusConsumed = { pendingGearId = null }
+                                )
                                 "workshop" -> ProjectsWishesScreen(
                                     initialTab = null,
-                                    onTabChanged = onSubTabChanged
+                                    onTabChanged = onSubTabChanged,
+                                    initialTarget = pendingWorkshopTarget,
+                                    onTargetConsumed = { pendingWorkshopTarget = null }
                                 )
                                 "projects" -> ProjectsWishesScreen(
                                     initialTab = 0,
@@ -630,7 +652,15 @@ class MainActivity : FragmentActivity() {
                                     },
                                     onAppearanceModeChanged = onAppearanceModeChanged,
                                     onEnableDecorationsChanged = onEnableDecorationsChanged,
-                                    onNavigateToRoute = onRouteSelected
+                                    onNavigateToRoute = onRouteSelected,
+                                    onOpenImageEntries = {
+                                        pendingContentFilter = setOf("has_image")
+                                        onRouteSelected("stream")
+                                    },
+                                    onOpenGear = { gearId ->
+                                        pendingGearId = gearId
+                                        onRouteSelected("ledger")
+                                    }
                                 )
                                 // MOB-P0-11：未知路由兜底 —— 任何脏数据 / 过期快捷方式
                                 // 都不再渲染成空白页，而是回到时间流并给出提示。
@@ -665,6 +695,13 @@ class MainActivity : FragmentActivity() {
         }
     }
 }
+
+/**
+ * 跨页面跳转目标（RG-31）：从全局搜索命中一条足迹 / 心愿 / 造物时，
+ * 带上类型与主键跳到工坊对应分段并直接打开详情。
+ * kind ∈ { project, wish, footprint }；id 为服务端主键。
+ */
+data class WorkshopTarget(val kind: String, val id: Long)
 
 @Immutable
 data class NavigationTabItem(

@@ -11,9 +11,16 @@ import com.looseleaf.feature.ledger.ui.LedgerScreen
  */
 @Composable
 fun LedgerEntry(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** 需要定位并高亮的装备 id（展台「随行装备」跳转用），消费后由调用方清空 */
+    focusGearId: String? = null,
+    onFocusConsumed: (() -> Unit)? = null
 ) {
     LedgerTheme {
-        LedgerScreen(modifier = modifier)
+        LedgerScreen(
+            modifier = modifier,
+            focusGearId = focusGearId,
+            onFocusConsumed = onFocusConsumed
+        )
     }
 }

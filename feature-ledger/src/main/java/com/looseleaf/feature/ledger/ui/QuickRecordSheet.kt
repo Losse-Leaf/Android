@@ -150,6 +150,30 @@ internal fun QuickRecordSheet(
 
     val effectiveCents = remember(inputAmountString) { calculateEffectiveCents() }
 
+    /**
+     * 自然语义记账（RG-27）：备注里写「42.5 午餐手冲咖啡」时实时解析出金额 + 分类 + 标题。
+     *
+     * 只在用户**还没敲金额**时采纳 —— 一旦敲了数字键盘，说明他已经明确表达金额，
+     * 此时解析结果让位，避免「我明明输了 30，却被备注里的 42.5 覆盖」。
+     */
+    val parsedNote = remember(noteText, activeCategories) {
+        if (noteText.isBlank()) {
+            null
+        } else {
+            FormatUtils.parseNaturalTransactionInput(noteText, activeCategories)
+                .takeIf { it.amountCents > 0 }
+        }
+    }
+    val useParsedNote = parsedNote != null && effectiveCents == 0L
+
+    // 解析出收入（如「+5000 工资」）时把类型切过去，保证界面与提交一致；
+    // 依赖 useParsedNote 而不是 selectedType，避免用户手动改回支出后被反复纠正。
+    LaunchedEffect(useParsedNote, parsedNote?.type) {
+        if (useParsedNote && parsedNote?.type == "income" && selectedType != "income") {
+            selectedType = "income"
+        }
+    }
+
     val isInstallment = (selectedType == "expense" && payMethodChoice == "installment")
     val approxMonthly = if (effectivePeriods > 0) effectiveCents / effectivePeriods else 0L
 
@@ -177,9 +201,14 @@ internal fun QuickRecordSheet(
     }
 
     val handleSubmit: () -> Unit = handleSubmit@{
-        val cents = calculateEffectiveCents()
+        val parsed = if (useParsedNote) parsedNote else null
+        val cents = parsed?.amountCents ?: calculateEffectiveCents()
         if (cents > 0 && !isSubmitting) {
-            if (isInstallment) {
+            val submitType = parsed?.type ?: selectedType
+            val submitCategory = parsed?.category ?: selectedCategory
+            // 分期只对支出生效：语义解析可能把类型切成收入，这里再兜一次底
+            val submitInstallment = isInstallment && submitType == "expense"
+            if (submitInstallment) {
                 if (selectedChannel == null) {
                     ArchiveToastManager.show("请选择分期渠道", isError = true)
                     return@handleSubmit
@@ -194,10 +223,11 @@ internal fun QuickRecordSheet(
             sp.edit().putString("last_payment_method", selectedPaymentMethod).apply()
 
             val trimmedNote = noteText.trim()
-            val title = if (trimmedNote.isNotBlank()) {
-                trimmedNote.lineSequence().firstOrNull()?.take(20)?.ifBlank { selectedCategory } ?: selectedCategory
-            } else selectedCategory
-            val note = trimmedNote.takeIf { it.isNotBlank() && it != title }
+            val title = parsed?.title ?: if (trimmedNote.isNotBlank()) {
+                trimmedNote.lineSequence().firstOrNull()?.take(20)?.ifBlank { submitCategory } ?: submitCategory
+            } else submitCategory
+            // 解析路径下备注已被拆成金额与标题，再存一份原文只会重复
+            val note = if (parsed != null) null else trimmedNote.takeIf { it.isNotBlank() && it != title }
 
             val targetDay = (selectedChannel?.repaymentDay ?: 10).coerceAtMost(firstDueYearMonth.lengthOfMonth())
             val firstDueDateStr = String.format(Locale.US, "%04d-%02d-%02d", firstDueYearMonth.year, firstDueYearMonth.monthValue, targetDay)
@@ -206,24 +236,24 @@ internal fun QuickRecordSheet(
                 try {
                     val req = CreateTransactionRequest(
                         amount = cents,
-                        type = selectedType,
-                        category = selectedCategory,
+                        type = submitType,
+                        category = submitCategory,
                         title = title,
                         note = note,
-                        paymentMethod = if (isInstallment) (selectedChannel?.name ?: "分期付款") else selectedPaymentMethod,
+                        paymentMethod = if (submitInstallment) (selectedChannel?.name ?: "分期付款") else selectedPaymentMethod,
                         occurredAt = FormatUtils.toBeijingIsoString(txOccurredAt),
-                        isInstallment = if (isInstallment) true else null,
-                        installmentChannelCode = if (isInstallment) selectedChannel?.code else null,
-                        installmentTotalAmount = if (isInstallment) cents else null,
-                        installmentMonths = if (isInstallment) effectivePeriods else null,
-                        installmentMonthlyPay = if (isInstallment) approxMonthly else null,
-                        installmentRemainMonths = if (isInstallment) effectivePeriods else null,
-                        repaymentDay = if (isInstallment) (selectedChannel?.repaymentDay ?: 10) else null,
-                        installmentFeeMode = if (isInstallment) "none" else null,
-                        installmentFeeValue = if (isInstallment) 0L else null,
-                        firstDueDate = if (isInstallment) firstDueDateStr else null,
-                        linkGearAsset = isInstallment && linkGearAsset,
-                        gearCategory = if (isInstallment && linkGearAsset) selectedCategory else null
+                        isInstallment = if (submitInstallment) true else null,
+                        installmentChannelCode = if (submitInstallment) selectedChannel?.code else null,
+                        installmentTotalAmount = if (submitInstallment) cents else null,
+                        installmentMonths = if (submitInstallment) effectivePeriods else null,
+                        installmentMonthlyPay = if (submitInstallment) approxMonthly else null,
+                        installmentRemainMonths = if (submitInstallment) effectivePeriods else null,
+                        repaymentDay = if (submitInstallment) (selectedChannel?.repaymentDay ?: 10) else null,
+                        installmentFeeMode = if (submitInstallment) "none" else null,
+                        installmentFeeValue = if (submitInstallment) 0L else null,
+                        firstDueDate = if (submitInstallment) firstDueDateStr else null,
+                        linkGearAsset = submitInstallment && linkGearAsset,
+                        gearCategory = if (submitInstallment && linkGearAsset) submitCategory else null
                     )
                     ledgerRepository.createTransactionOptimistic(req)
                     onTransactionCreated()
@@ -709,6 +739,31 @@ internal fun QuickRecordSheet(
 
             Spacer(modifier = Modifier.height(6.dp))
 
+            // 语义识别提示（RG-27）：金额还没敲时，明确告诉用户备注里那串数字会被采纳
+            if (useParsedNote && parsedNote != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "识别到 ${LedgerFormat.formatMoney(parsedNote.amountCents)} · ${parsedNote.category}",
+                        fontFamily = LedgerTheme.typography.serif,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.accent
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        text = "点「记下」自动采纳",
+                        fontFamily = LedgerTheme.typography.serif,
+                        fontSize = 11.sp,
+                        color = colors.textSecondary
+                    )
+                }
+            }
+
             // "备注 / 商户 / 时间 / 账户" 折叠在"更多"里，默认不展开
             Row(
                 modifier = Modifier
@@ -757,7 +812,7 @@ internal fun QuickRecordSheet(
                     LedgerTextField(
                         value = noteText,
                         onValueChange = { noteText = it },
-                        placeholder = "商户或备注（可选）",
+                        placeholder = "商户或备注，可写「42.5 午餐」",
                         singleLine = true,
                         modifier = Modifier.onFocusChanged { isNoteEditing = it.isFocused }
                     )

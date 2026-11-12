@@ -75,7 +75,10 @@ fun ProjectsWishesScreen(
      * 底栏「足迹」「造物」共用本页，必须同步 currentRoute 才不会出现
      * 「内容已切换、底栏还高亮在旧项」的错位。
      */
-    onTabChanged: ((Int) -> Unit)? = null
+    onTabChanged: ((Int) -> Unit)? = null,
+    /** 从全局搜索命中一条记录时带过来的目标（RG-31），消费后回调清空 */
+    initialTarget: com.looseleaf.app.WorkshopTarget? = null,
+    onTargetConsumed: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -211,6 +214,46 @@ fun ProjectsWishesScreen(
     // MOB-P0-14：破坏性删除必须二次确认（造物 / 足迹此前是「一点即删」）
     var projectToDelete by remember { mutableStateOf<Project?>(null) }
     var footprintToDelete by remember { mutableStateOf<Pair<Footprint, Int>?>(null) }
+
+    // 全局搜索命中（RG-31）：先切到对应分段，再等列表数据到位后打开详情。
+    // 列表可能还在首拉，直接取会扑空；这里靠 (projects/wishes/footprints) 变化重试。
+    var pendingOpenTarget by remember(initialTarget) { mutableStateOf(initialTarget) }
+
+    LaunchedEffect(initialTarget) {
+        val target = initialTarget ?: return@LaunchedEffect
+        val page = when (target.kind) {
+            "project" -> 0
+            "wish" -> 1
+            else -> 2
+        }
+        hasUserInteractedWithTab = true
+        uiPrefs.edit().putInt("workshop_last_sub_tab", page).apply()
+        if (pagerState.currentPage != page) pagerState.scrollToPage(page)
+    }
+
+    LaunchedEffect(pendingOpenTarget, projects, wishes, footprints) {
+        val target = pendingOpenTarget ?: return@LaunchedEffect
+        val opened: Any? = when (target.kind) {
+            "project" -> projects.firstOrNull { it.id == target.id }?.also { editingProject = it }
+            "wish" -> wishes.firstOrNull { it.id == target.id }?.also { editingWish = it }
+            else -> footprints.firstOrNull { it.id == target.id }?.also { selectedDrawerFootprint = it }
+        }
+        if (opened != null) {
+            pendingOpenTarget = null
+            onTargetConsumed?.invoke()
+        }
+    }
+
+    // 目标已被删除 / 数据一直没到：3 秒后放手，只保留分段切换，避免意图永久挂着
+    LaunchedEffect(pendingOpenTarget) {
+        if (pendingOpenTarget == null) return@LaunchedEffect
+        kotlinx.coroutines.delay(3_000)
+        if (pendingOpenTarget != null) {
+            ArchiveToastManager.show("没找到这条记录，可能已被删除", isError = true)
+            pendingOpenTarget = null
+            onTargetConsumed?.invoke()
+        }
+    }
 
     suspend fun reloadAll(forceLoading: Boolean = false) {
         if (forceLoading || (projects.isEmpty() && wishes.isEmpty() && footprints.isEmpty())) {

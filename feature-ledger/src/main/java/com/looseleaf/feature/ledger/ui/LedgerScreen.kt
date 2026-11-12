@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -58,6 +59,7 @@ import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.ui.components.ArchiveToastManager
 import com.looseleaf.app.utils.FormatUtils
+import com.looseleaf.core.R
 import com.looseleaf.feature.ledger.data.LedgerRepository
 import com.looseleaf.feature.ledger.data.MonthlyTotalsRow
 import com.looseleaf.feature.ledger.data.monthRangeOf
@@ -86,7 +88,9 @@ import java.util.Locale
 fun LedgerScreen(
     apiClient: APIClient = APIClient.getInstance(LocalContext.current),
     credentialStore: CredentialStore = CredentialStore.getInstance(LocalContext.current),
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focusGearId: String? = null,
+    onFocusConsumed: (() -> Unit)? = null
 ) {
     val colors = LedgerTheme.colors
     val context = LocalContext.current
@@ -111,6 +115,12 @@ fun LedgerScreen(
     val isLoadingAssets = ledgerSnapshot.isLoadingAssets
 
     var selectedTab by rememberSaveable { mutableStateOf(0) }
+
+    // 从展台点某件装备进来：落到资产大盘分段，由 AssetsAndGearTab 负责滚动与高亮。
+    // 不去动「无跳转时」的 selectedTab，否则用户上次停留的分段会被重置。
+    LaunchedEffect(focusGearId) {
+        if (focusGearId != null) selectedTab = 1
+    }
     var showQuickRecordSheet by rememberSaveable { mutableStateOf(false) }
     var isPrivacyMasked by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -223,6 +233,16 @@ fun LedgerScreen(
                 LedgerTopAppBar(
                     title = "账本",
                     actions = {
+                        // 自动记账从「更多」菜单提上来（RG-28）：它是 Android 端独有的能力，
+                        // 埋在三级菜单里等于没做。点进去是权限状态 + 保活检查 + 模拟测试页。
+                        IconButton(onClick = { showKeepAliveScreen = true }) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_auto_record),
+                                contentDescription = "自动记账与保活",
+                                tint = colors.textPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                         Box {
                             IconButton(onClick = { showMoreMenu = true }) {
                                 Icon(
@@ -283,20 +303,6 @@ fun LedgerScreen(
                                     onClick = {
                                         showMoreMenu = false
                                         showCategoriesManagerDialog = true
-                                    }
-                                )
-
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = "自动记账与保活",
-                                            fontFamily = LedgerTheme.typography.serif,
-                                            color = colors.textPrimary
-                                        )
-                                    },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showKeepAliveScreen = true
                                     }
                                 )
                             }
@@ -483,6 +489,8 @@ fun LedgerScreen(
                                         }
                                     }
                                 },
+                                focusGearId = focusGearId,
+                                onFocusConsumed = onFocusConsumed,
                                 listState = assetsListState,
                                 modifier = Modifier.fillMaxSize()
                             )

@@ -87,7 +87,11 @@ fun ProfileScreen(
     modifier: Modifier = Modifier,
     onAppearanceModeChanged: (AppearanceMode) -> Unit = {},
     onEnableDecorationsChanged: ((Boolean) -> Unit)? = null,
-    onNavigateToRoute: ((String) -> Unit)? = null
+    onNavigateToRoute: ((String) -> Unit)? = null,
+    /** 「有图手记」：跳时间流并只看带图记录（RG-30） */
+    onOpenImageEntries: (() -> Unit)? = null,
+    /** 「随行装备」：跳账本资产大盘并定位该器物（RG-30） */
+    onOpenGear: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -387,19 +391,8 @@ fun ProfileScreen(
                                         showStorageBackupDialog = true
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = "检测新版本",
-                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                            color = colors.inkPrimary
-                                        )
-                                    },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        checkUpdate()
-                                    }
-                                )
+                                // 「检测新版本」只保留设置页里那一个入口（时间流首屏卡片负责被动提示），
+                                // 这里不再重复一份（RG-30 同类问题：同一动作三处入口）。
                                 DropdownMenuItem(
                                     text = {
                                         Text(
@@ -627,15 +620,15 @@ fun ProfileScreen(
                                     }
                                 )
                                 StatColumnItem(
-                                    label = "暗房底片",
+                                    label = "有图手记",
                                     value = filmsCountText,
-                                    contentDesc = "暗房底片共 $filmsCountText 张",
+                                    contentDesc = "有图手记共 $filmsCountText 篇，点击只看带图记录",
                                     modifier = Modifier
                                         .weight(1f)
                                         .defaultMinSize(minHeight = 48.dp),
                                     onClick = {
-                                        ArchiveToastManager.show("暗房底片已整合至时间流手记")
-                                        onNavigateToRoute?.invoke("stream")
+                                        if (onOpenImageEntries != null) onOpenImageEntries()
+                                        else onNavigateToRoute?.invoke("stream")
                                     }
                                 )
                                 StatColumnItem(
@@ -740,7 +733,12 @@ fun ProfileScreen(
                                         trailingColor = colors.inkSecondary,
                                         showShortDateInSubtitle = false,
                                         onClick = {
-                                            onNavigateToRoute?.invoke("ledger")
+                                            val gearId = gear.id
+                                            if (gearId != null && onOpenGear != null) {
+                                                onOpenGear(gearId)
+                                            } else {
+                                                onNavigateToRoute?.invoke("ledger")
+                                            }
                                         }
                                     )
                                 }
@@ -816,23 +814,8 @@ fun ProfileScreen(
                     },
                     onOpenStorageBackup = { showStorageBackupDialog = true },
                     isCheckingUpdate = isCheckingUpdate,
-                    onCheckUpdate = {
-                        scope.launch {
-                            isCheckingUpdate = true
-                            when (val result = UpdateChecker.checkForUpdates()) {
-                                is UpdateCheckResult.HasUpdate -> {
-                                    availableUpdate = result.release
-                                }
-                                is UpdateCheckResult.AlreadyLatest -> {
-                                    ArchiveToastManager.show("当前已是最新版本 (v${UpdateChecker.currentVersionName})")
-                                }
-                                is UpdateCheckResult.Error -> {
-                                    ArchiveToastManager.show("检测更新失败: ${result.message}", isError = true)
-                                }
-                            }
-                            isCheckingUpdate = false
-                        }
-                    },
+                    // 与 ⋮ 菜单共用同一个动作，避免两处各写一遍检查逻辑
+                    onCheckUpdate = checkUpdate,
                     onUnpair = { showUnpairDialog = true },
                     onDismiss = { showSettingsSheet = false }
                 )

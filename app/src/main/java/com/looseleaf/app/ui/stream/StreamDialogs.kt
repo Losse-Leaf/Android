@@ -789,7 +789,13 @@ internal fun AlmanacChapterSection(
 internal fun GlobalSearchDialog(
     apiClient: APIClient,
     onDismiss: () -> Unit,
-    onSelectEntry: (LifeEntry) -> Unit
+    onSelectEntry: (LifeEntry) -> Unit,
+    /**
+     * 足迹 / 心愿 / 造物结果跳转（RG-31）。
+     *
+     * 传 null 时退回旧行为（弹只读文本），保留给尚未接入路由的调用方。
+     */
+    onOpenTarget: ((String, Long) -> Unit)? = null
 ) {
     val colors = LooseLeafTheme.colors
     var searchQuery by remember { mutableStateOf("") }
@@ -1019,11 +1025,15 @@ internal fun GlobalSearchDialog(
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(colors.archiveSubtle)
                                         .clickable {
-                                            viewingDetail = "山川足迹 · ${foot.cityName}" to listOfNotNull(
-                                                foot.title?.takeIf { it.isNotBlank() },
-                                                "到访时刻: ${FormatUtils.formatDisplayDate(foot.visitedAt)}",
-                                                foot.note?.takeIf { it.isNotBlank() }
-                                            ).joinToString("\n\n")
+                                            if (onOpenTarget != null) {
+                                                onOpenTarget("footprint", foot.id)
+                                            } else {
+                                                viewingDetail = "山川足迹 · ${foot.cityName}" to listOfNotNull(
+                                                    foot.title?.takeIf { it.isNotBlank() },
+                                                    "到访时刻: ${FormatUtils.formatDisplayDate(foot.visitedAt)}",
+                                                    foot.note?.takeIf { it.isNotBlank() }
+                                                ).joinToString("\n\n")
+                                            }
                                         }
                                         .padding(8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1052,12 +1062,16 @@ internal fun GlobalSearchDialog(
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(colors.archiveSubtle)
                                         .clickable {
-                                            viewingDetail = "心愿清单 · ${wish.title}" to listOfNotNull(
-                                                "心愿类别: ${if (wish.kind == "travel") "山川旅程" else if (wish.kind == "milestone") "里程碑" else "好物"}",
-                                                if (wish.budget > 0) "意向预算: ${FormatUtils.centsToYuanString(wish.budget)}" else null,
-                                                wish.cityName?.takeIf { it.isNotBlank() }?.let { "目的地: $it" },
-                                                wish.note?.takeIf { it.isNotBlank() }?.let { "手记备忘: $it" }
-                                            ).joinToString("\n\n")
+                                            if (onOpenTarget != null) {
+                                                onOpenTarget("wish", wish.id)
+                                            } else {
+                                                viewingDetail = "心愿清单 · ${wish.title}" to listOfNotNull(
+                                                    "心愿类别: ${if (wish.kind == "travel") "山川旅程" else if (wish.kind == "milestone") "里程碑" else "好物"}",
+                                                    if (wish.budget > 0) "意向预算: ${FormatUtils.centsToYuanString(wish.budget)}" else null,
+                                                    wish.cityName?.takeIf { it.isNotBlank() }?.let { "目的地: $it" },
+                                                    wish.note?.takeIf { it.isNotBlank() }?.let { "手记备忘: $it" }
+                                                ).joinToString("\n\n")
+                                            }
                                         }
                                         .padding(8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1088,13 +1102,17 @@ internal fun GlobalSearchDialog(
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(colors.archiveSubtle)
                                         .clickable {
-                                            viewingDetail = "造物项目 · ${proj.title}" to listOfNotNull(
-                                                proj.subtitle?.takeIf { it.isNotBlank() }?.let { "副标题: $it" },
-                                                proj.status?.takeIf { it.isNotBlank() }?.let { "状态: $it" },
-                                                proj.description?.takeIf { it.isNotBlank() }?.let { "描述: $it" },
-                                                proj.story?.takeIf { it.isNotBlank() }?.let { "造物故事: $it" },
-                                                proj.githubUrl?.takeIf { it.isNotBlank() }?.let { "源码仓库: $it" }
-                                            ).joinToString("\n\n")
+                                            if (onOpenTarget != null) {
+                                                onOpenTarget("project", proj.id)
+                                            } else {
+                                                viewingDetail = "造物项目 · ${proj.title}" to listOfNotNull(
+                                                    proj.subtitle?.takeIf { it.isNotBlank() }?.let { "副标题: $it" },
+                                                    proj.status?.takeIf { it.isNotBlank() }?.let { "状态: $it" },
+                                                    proj.description?.takeIf { it.isNotBlank() }?.let { "描述: $it" },
+                                                    proj.story?.takeIf { it.isNotBlank() }?.let { "造物故事: $it" },
+                                                    proj.githubUrl?.takeIf { it.isNotBlank() }?.let { "源码仓库: $it" }
+                                                ).joinToString("\n\n")
+                                            }
                                         }
                                         .padding(8.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,

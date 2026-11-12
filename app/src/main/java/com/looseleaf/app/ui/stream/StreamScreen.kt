@@ -147,7 +147,12 @@ private const val WIDE_LAYOUT_MIN_WIDTH_DP = 840
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun StreamScreen(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** 搜索结果跳转到工坊（RG-31）：kind = project / wish / footprint，id 为服务端主键 */
+    onOpenWorkshopTarget: ((String, Long) -> Unit)? = null,
+    /** 外部指定初始内容筛选（RG-30）：如展台「有图手记」跳进来时带上 has_image */
+    initialContentFilter: Set<String>? = null,
+    onContentFilterConsumed: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -172,6 +177,15 @@ fun StreamScreen(
         mutableStateOf(StreamFilterCriteria())
     }
     var showFilterSheet by remember { mutableStateOf(false) }
+
+    // 外部带筛选进来（展台「有图手记」）：应用一次后立即回调清空，
+    // 否则用户手动清掉筛选、切走再切回时会被重新加回来。
+    LaunchedEffect(initialContentFilter) {
+        val contents = initialContentFilter ?: return@LaunchedEffect
+        filterCriteria = filterCriteria.copy(contents = contents)
+        onContentFilterConsumed?.invoke()
+        listState.scrollToItem(0)
+    }
     var isRefreshing by remember { mutableStateOf(false) }
     // 更新横幅走 JSON 持久化（ReleaseInfo 含非 Saveable 字段）：旋转后不再永久消失
     var cloudUpdateJson by rememberSaveable { mutableStateOf<String?>(null) }
@@ -1145,7 +1159,14 @@ fun StreamScreen(
             GlobalSearchDialog(
                 apiClient = apiClient,
                 onDismiss = { showSearchDialog = false },
-                onSelectEntry = { selectEntry(it) }
+                onSelectEntry = { selectEntry(it) },
+                onOpenTarget = onOpenWorkshopTarget?.let { open ->
+                    { kind, id ->
+                        // 先关搜索框再跳转，否则抽屉会盖在工坊页上
+                        showSearchDialog = false
+                        open(kind, id)
+                    }
+                }
             )
         }
 
