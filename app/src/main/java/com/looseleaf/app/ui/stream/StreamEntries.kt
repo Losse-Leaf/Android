@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -447,6 +448,8 @@ internal fun StreamEntryCard(
                 .combinedClickable(
                     interactionSource = interactionSource,
                     indication = null,
+                    role = Role.Button,
+                    onLongClickLabel = "删除这一页",
                     onClick = { onClick(entry) },
                     onLongClick = {
                         view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)

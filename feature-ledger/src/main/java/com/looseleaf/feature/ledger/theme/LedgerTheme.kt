@@ -1,6 +1,5 @@
 package com.looseleaf.feature.ledger.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -218,13 +217,17 @@ object LedgerTheme {
  * 而 `LedgerEntry` 调用时没有传参 —— 于是用户选了「暖色棉纸」但系统是深色时，
  * 一切到账本整页变黑。现在由 `MainActivity` 已解析好的三态 `isDarkTheme` 显式透传进来。
  *
+ * 【第 2 批收口】`darkTheme` 改为**必填**，不再保留 `= isSystemInDarkTheme()` 兜底：
+ * 默认值本身就是一条旁路 —— 将来若有人直接调 `LedgerTheme { }`，会静默退回原 Bug。
+ * 改成必填后漏传直接编译失败；全仓唯一调用点 `LedgerEntry` 已显式传参。
+ *
  * 【第 1 批修复「一页紫」】此前这里只映射了 6 个 M3 角色，其余（surfaceVariant /
  * onSurfaceVariant / outline / outlineVariant / error / onError ...）全部退回 M3
  * 基线的薰衣草紫。现在直接复用全局 `archiveColorScheme()`，全仓只有一份映射。
  */
 @Composable
 fun LedgerTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean,
     content: @Composable () -> Unit
 ) {
     val archiveColors = remember(darkTheme) {
