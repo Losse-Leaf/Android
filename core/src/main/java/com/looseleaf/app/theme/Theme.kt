@@ -57,17 +57,22 @@ fun archiveColorScheme(colors: ArchiveColors, darkTheme: Boolean): ColorScheme =
     darkColorScheme(
         primary = colors.accentWarm,
         onPrimary = colors.archivePaper,
+        // 暗房容器底色刻意用 22%：浅字压深底时 12% 淡底与纸面几乎同亮，选中态读不出来。
+        // 纸面只用 12%（见下方 lightColorScheme）—— 两套透明度不对称是有意的，
+        // 由 ThemeContractTest 的 4 条 alpha 分支断言钉死，不要「顺手统一」。
         primaryContainer = colors.accentWarm.copy(alpha = 0.22f),
-        onPrimaryContainer = colors.accentWarm,
+        // 22% 赤陶淡底上 accentWarm 只有 3.24:1，必须换成对比度更高的 accentSmallText。
+        onPrimaryContainer = colors.accentSmallText,
         inversePrimary = colors.accentWarm,
         secondary = colors.accentMoss,
         onSecondary = colors.archivePaper,
         secondaryContainer = colors.accentMoss.copy(alpha = 0.22f),
-        onSecondaryContainer = colors.accentMoss,
+        onSecondaryContainer = Color(0xFF8CB79A),
         tertiary = IndigoTertiary,
         onTertiary = colors.archivePaper,
         tertiaryContainer = IndigoTertiary.copy(alpha = 0.22f),
-        onTertiaryContainer = IndigoTertiary,
+        // IndigoTertiary 是单值双主题，压在暗房 22% 靛青淡底上只有 1.72:1。
+        onTertiaryContainer = Color(0xFF8FA6C4),
         background = colors.archivePaper,
         onBackground = colors.inkPrimary,
         surface = colors.archiveSubtle,
@@ -98,8 +103,10 @@ fun archiveColorScheme(colors: ArchiveColors, darkTheme: Boolean): ColorScheme =
     lightColorScheme(
         primary = colors.accentWarm,
         onPrimary = colors.archivePaper,
+        // 纸面只用 12%：暖纸底上 12% 赤陶已能读出选中，22% 会把小字压到 4.5 以下。
+        // 与暗房 22% 的不对称是刻意设计，改动前先看 ThemeContractTest 的 alpha 断言。
         primaryContainer = colors.accentWarm.copy(alpha = 0.12f),
-        onPrimaryContainer = colors.accentWarm,
+        onPrimaryContainer = colors.accentSmallText,
         inversePrimary = colors.accentWarm,
         secondary = colors.accentMoss,
         onSecondary = colors.archivePaper,

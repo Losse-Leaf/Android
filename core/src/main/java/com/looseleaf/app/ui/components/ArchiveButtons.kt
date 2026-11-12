@@ -123,8 +123,9 @@ fun ArchiveSheetActionButton(
  * - 禁用态：**不再是「赤陶 38% alpha + 纸白字」**（那是 ~2:1 对比，按钮像糊了一块脏色），
  *   改为「纸面底 + inkDisabled 字」—— 一眼看出"按不了"，且禁用时页面上不再出现赤陶。
  * - 禁用态仍需可见轮廓：`archiveSubtle` 与页面底 `archivePaper` 只差 1.04:1，
- *   只换填色等于"按钮凭空消失"。故补一条 1dp `lineEdge` 描边 —— 禁用控件的可辨识度
- *   靠**轮廓**而不是填色，与本批输入框禁用态（同样用 lineEdge 画线）语言一致；
+ *   只换填色等于"按钮凭空消失"。故补一条 1dp `lineDisabled`（墨 32%）描边 ——
+ *   禁用控件的可辨识度靠**轮廓**而不是填色。它比输入框禁用下划线（lineEdge 60%，
+ *   约 9.6% 墨）重一档：按钮是整块可点区域，需要更强的形状提示；
  *   若改成 borderDivider 那一档填色，48dp 高的灰板会被读成"已按下的深色按钮"，
  *   与启用态的赤陶实心语义打架。
  */
@@ -145,7 +146,7 @@ fun ArchivePrimaryButton(
             .background(if (enabled) colors.accentWarm else colors.archiveSubtle)
             .then(
                 if (enabled) Modifier
-                else Modifier.border(1.dp, colors.lineEdge, ArchiveShapes.small)
+                else Modifier.border(1.dp, colors.lineDisabled, ArchiveShapes.small)
             )
             .clickable(
                 enabled = enabled,

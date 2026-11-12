@@ -49,6 +49,12 @@ data class ArchiveColors(
      * 用于输入框下划线、卡片轮廓等「需要被看见」的边界。
      */
     val lineEdge: Color = inkPrimary.copy(alpha = 0.16f),
+    /**
+     * 禁用态轮廓：32% 墨，只表「这里有个控件」，不表达层级与可点性。
+     * WCAG 1.4.11 明确豁免禁用控件，故不追求 4.5:1；但必须比 [lineEdge]（16%）重一档，
+     * 否则 48dp 的 `archiveSubtle` 灰板在纸面上（1.04:1）等于凭空消失。
+     */
+    val lineDisabled: Color = inkPrimary.copy(alpha = 0.32f),
     /** 全屏遮罩（弹窗/抽屉背后），黑 32% */
     val scrim: Color = Color(0x52000000),
     /**
@@ -106,7 +112,8 @@ val LightArchiveColors = ArchiveColors(
     accentSmallText = Color(0xFF8E4423),
     inkDisabled = Color(0xFF9A9389),    // 禁用态：与 inkMuted 肉眼可辨，WCAG 豁免
     pressOverlay = Color(0xFF1D1B18).copy(alpha = 0.06f),
-    lineEdge = Color(0xFF1D1B18).copy(alpha = 0.16f)
+    lineEdge = Color(0xFF1D1B18).copy(alpha = 0.16f),
+    lineDisabled = Color(0xFF1D1B18).copy(alpha = 0.32f)
 )
 
 // 暗房安全灯模式 (Darkroom Mode)
@@ -147,7 +154,8 @@ val DarkArchiveColors = ArchiveColors(
     accentSmallText = Color(0xFFE28A63), // 6.97:1 / surface 6.29 / 12% 淡底 5.82
     inkDisabled = Color(0xFF6B655B),
     pressOverlay = Color(0xFFFFFFFF).copy(alpha = 0.06f),
-    lineEdge = Color(0xFFFFFFFF).copy(alpha = 0.16f)
+    lineEdge = Color(0xFFFFFFFF).copy(alpha = 0.16f),
+    lineDisabled = Color(0xFFFFFFFF).copy(alpha = 0.32f)
 )
 
 // 支出类目光谱色 (Earthy Spectrum) - docs/web.md §2.3

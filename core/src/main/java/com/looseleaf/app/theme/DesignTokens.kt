@@ -22,7 +22,15 @@ object ArchiveSpacing {
 
 /**
  * 散页统一线型 (Archive Lines)
- * 全页只允许一种线 —— 1dp 极淡暖灰实线。删除所有虚线
+ *
+ * 宽度只有两档：1dp 结构线、2dp 状态下划线（ArchiveField 聚焦 / 错误）。
+ * 颜色四档由淡到浓，语义令牌定义在 Color.kt，禁止在组件里散写 alpha：
+ * - 1dp 墨 12%  lineDivider   ：列表行分隔（borderSubtle / borderDivider）
+ * - 1dp 墨 16%  lineEdge      ：输入框常态下划线、卡片轮廓
+ * - 1dp 墨 32%  lineDisabled  ：禁用控件轮廓（只表形状，WCAG 1.4.11 豁免对比度）
+ * - 2dp 赤陶/砖红 状态下划线   ：聚焦 accentWarm、错误 alertRed
+ *
+ * 禁止 0.5 / 0.6 / 0.8 / 1.5 / 3dp 等非标准宽度，禁止虚线。
  */
 object ArchiveLines {
     val hairline: Dp = 1.dp

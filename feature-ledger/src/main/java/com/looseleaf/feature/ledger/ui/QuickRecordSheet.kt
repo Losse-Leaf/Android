@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -907,6 +908,22 @@ internal fun QuickRecordSheet(
                     keyHeight = 46.dp
                 )
                 Spacer(modifier = Modifier.height(6.dp))
+            }
+
+            // 主按钮禁用时把「为什么点不了」写在按钮外，而不是让按钮可点再弹 toast：
+            // 后者会破坏 a11y 语义（读屏会播报「按钮」而不是「按钮，已禁用」）。
+            // 只在「既没敲金额、备注也没解析出金额」时提示，避免与上方
+            // 「识别到 ¥42.50 · 点「记下」自动采纳」自相矛盾。
+            if (effectiveCents <= 0 && parsedNote == null && !isSubmitting && !isNoteEditing) {
+                Text(
+                    text = "填好金额后可记下",
+                    fontSize = 12.sp,
+                    color = colors.textMuted,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                )
             }
         }
     }

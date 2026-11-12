@@ -1,6 +1,7 @@
 package com.looseleaf.app.theme
 
 import androidx.compose.ui.graphics.Color
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -178,5 +179,51 @@ class ThemeContractTest {
         "暗房 按下态按钮文字/底色",
         DarkArchiveColors.archivePaper,
         composite(DarkArchiveColors.accentPress, DarkArchiveColors.accentPress.alpha, DarkArchiveColors.archivePaper)
+    )
+
+    // ========== 选中态小字：accentSmallText 压在自身 14% 淡底上 ==========
+    // ArchiveTabs 的分段计数徽标用 14% 赤陶淡底，比 12% 更浓，单独钉一条。
+
+    @Test fun paper_accentSmallText_onOwn14pctTint_meetsAa() = assertAa(
+        "纸 accentSmallText/自身 14% 淡底",
+        LightArchiveColors.accentSmallText,
+        composite(LightArchiveColors.accentSmallText, 0.14f, LightArchiveColors.archivePaper)
+    )
+
+    @Test fun dark_accentSmallText_onOwn14pctTint_meetsAa() = assertAa(
+        "暗房 accentSmallText/自身 14% 淡底",
+        DarkArchiveColors.accentSmallText,
+        composite(DarkArchiveColors.accentSmallText, 0.14f, DarkArchiveColors.archivePaper)
+    )
+
+    // ========== ColorScheme 容器透明度：纸 12% / 暗 22% 刻意不对称 ==========
+    // 这两套数值曾被读反（以为暗房是 12%），据此发出过「纸面不用改」的错误结论。
+    // 断言把分支钉死：谁再把透明度统一成同一个数，先解释清楚为什么可以。
+    // delta 取 0.002f 而非 0.001f：Compose Color 的 alpha 底层是 8-bit 通道，
+    // 0.12f 会被量化成 31/255 = 0.12156863（差 0.0016），0.22f 量化成 56/255（差 0.0004）。
+    // 两分支相差 0.1，这个容差仍能可靠区分，不会放过「顺手统一」。
+
+    @Test fun paper_primaryContainer_is12pct() = assertEquals(
+        0.12f,
+        archiveColorScheme(LightArchiveColors, darkTheme = false).primaryContainer.alpha,
+        0.002f
+    )
+
+    @Test fun dark_primaryContainer_is22pct() = assertEquals(
+        0.22f,
+        archiveColorScheme(DarkArchiveColors, darkTheme = true).primaryContainer.alpha,
+        0.002f
+    )
+
+    @Test fun paper_secondaryContainer_is12pct() = assertEquals(
+        0.12f,
+        archiveColorScheme(LightArchiveColors, darkTheme = false).secondaryContainer.alpha,
+        0.002f
+    )
+
+    @Test fun dark_secondaryContainer_is22pct() = assertEquals(
+        0.22f,
+        archiveColorScheme(DarkArchiveColors, darkTheme = true).secondaryContainer.alpha,
+        0.002f
     )
 }
