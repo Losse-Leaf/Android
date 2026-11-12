@@ -20,7 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -49,7 +50,7 @@ internal fun FountainPenFab(
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
-    val view = LocalView.current
+    val haptic = LocalHapticFeedback.current
     var showQuickMenu by remember { mutableStateOf(false) }
 
     Box(
@@ -107,7 +108,7 @@ internal fun FountainPenFab(
                     .background(colors.accentWarm)
                     .combinedClickable(
                         onClick = {
-                            view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             if (showQuickMenu) {
                                 showQuickMenu = false
                             } else {
@@ -115,7 +116,7 @@ internal fun FountainPenFab(
                             }
                         },
                         onLongClick = {
-                            view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             showQuickMenu = !showQuickMenu
                         }
                     ),

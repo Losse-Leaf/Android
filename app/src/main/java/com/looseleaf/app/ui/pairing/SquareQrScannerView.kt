@@ -2,10 +2,12 @@ package com.looseleaf.app.ui.pairing
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.Settings
 import android.util.Size
 import com.looseleaf.app.ui.components.ArchiveToastManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,6 +42,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.zxing.*
 import com.google.zxing.common.GlobalHistogramBinarizer
@@ -83,10 +86,19 @@ fun SquareQrScannerView(
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    // EV-16：相机权限被永久拒绝后，「授权相机」按钮改为「去设置」直达应用详情页。
+    var cameraPermanentlyDenied by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasCameraPermission = granted
+        if (granted) {
+            cameraPermanentlyDenied = false
+        } else {
+            val activity = context as? android.app.Activity
+            cameraPermanentlyDenied = activity != null &&
+                !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA)
+        }
     }
 
     // 相册选取二维码图片解码器
@@ -133,14 +145,28 @@ fun SquareQrScannerView(
                 )
                 Spacer(modifier = Modifier.height(14.dp))
                 Button(
-                    onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                    onClick = {
+                        if (cameraPermanentlyDenied) {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                            )
+                        } else {
+                            permissionLauncher.launch(Manifest.permission.CAMERA)
+                        }
+                    },
                     shape = RoundedCornerShape(2.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.accentWarm,
                         contentColor = colors.archivePaper
                     )
                 ) {
-                    Text(stringResource(R.string.scanner_grant_permission), fontFamily = ArchiveFontFamilies.EditorialSerif)
+                    Text(
+                        text = if (cameraPermanentlyDenied) "去设置" else stringResource(R.string.scanner_grant_permission),
+                        fontFamily = ArchiveFontFamilies.EditorialSerif
+                    )
                 }
             }
         }

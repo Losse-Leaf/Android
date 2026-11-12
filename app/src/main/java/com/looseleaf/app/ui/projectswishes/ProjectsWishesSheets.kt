@@ -75,6 +75,7 @@ internal fun EditWishSheetDialog(
 
     ArchiveSheet(
         onDismissRequest = onDismiss,
+        dismissEnabled = { !isSubmitting },
         title = stringResource(R.string.projects_wishes_sheets_title_tpl_01, wish.title),
         actionText = if (isSubmitting) "保存中…" else "保存",
         isActionEnabled = title.isNotBlank() && !budgetInvalid && !isSubmitting,
@@ -228,6 +229,7 @@ internal fun EditFootprintSheetDialog(
 
     ArchiveSheet(
         onDismissRequest = onDismiss,
+        dismissEnabled = { !isSubmitting },
         title = stringResource(R.string.projects_wishes_sheets_title_tpl_02, footprint.cityName),
         actionText = if (isSubmitting) "保存中…" else "保存",
         isActionEnabled = cityName.isNotBlank() && !isSubmitting,

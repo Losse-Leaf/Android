@@ -139,10 +139,10 @@ fun LedgerScreen(
 
     var snackbarData by remember { mutableStateOf<LedgerSnackbarData?>(null) }
 
-    // 5 秒自动消失
+    // 8 秒自动消失（撤销类提示留足操作时间；key 仍为 snackbarData，保持「新消息替换旧消息」语义）
     LaunchedEffect(snackbarData) {
         if (snackbarData != null) {
-            delay(5000)
+            delay(8000)
             snackbarData = null
         }
     }
@@ -492,7 +492,7 @@ fun LedgerScreen(
             }
         }
 
-        // 浮动在底部的 LedgerSnackbar（在底栏上方，停留 5 秒）
+        // 浮动在底部的 LedgerSnackbar（在底栏上方，停留 8 秒）
         AnimatedVisibility(
             visible = snackbarData != null,
             enter = fadeIn() + slideInVertically { it },
@@ -500,7 +500,8 @@ fun LedgerScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(bottom = 68.dp, start = 16.dp, end = 16.dp)
+                // FAB 56dp + 默认 16dp 下边距 = 上沿 72dp，再留 16dp 余量避开遮挡
+                .padding(bottom = 88.dp, start = 16.dp, end = 16.dp)
         ) {
             snackbarData?.let { data ->
                 LedgerSnackbar(
@@ -719,7 +720,8 @@ fun LedgerScreen(
                         label = "金额 (元)",
                         isNumeric = true,
                         readOnly = true,
-                        singleLine = true
+                        singleLine = true,
+                        onClick = {}
                     )
                     Text(
                         text = "分期还款金额由还款期次决定，不可直接修改",
@@ -732,6 +734,7 @@ fun LedgerScreen(
                         onValueChange = { editAmount = it },
                         label = "金额 (元)",
                         isNumeric = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true
                     )
                 }

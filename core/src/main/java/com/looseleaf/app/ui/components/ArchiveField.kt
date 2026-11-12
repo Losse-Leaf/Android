@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -14,6 +15,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,7 +48,13 @@ fun ArchiveField(
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
     errorMessage: String? = null,
-    keyboardOptions: KeyboardOptions = if (isNumeric) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
+    keyboardOptions: KeyboardOptions = KeyboardOptions(
+        autoCorrect = false,
+        capitalization = KeyboardCapitalization.None,
+        keyboardType = if (isNumeric) KeyboardType.Number else KeyboardType.Text
+    ),
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    imeAction: ImeAction = ImeAction.Default,
     modifier: Modifier = Modifier,
     reservesErrorSlot: Boolean = false
 ) {
@@ -102,7 +111,8 @@ fun ArchiveField(
                     maxLines = maxLines,
                     enabled = enabled,
                     readOnly = readOnly,
-                    keyboardOptions = keyboardOptions,
+                    keyboardOptions = keyboardOptions.copy(imeAction = imeAction),
+                    keyboardActions = keyboardActions,
                     cursorBrush = SolidColor(colors.accentWarm)
                 )
 

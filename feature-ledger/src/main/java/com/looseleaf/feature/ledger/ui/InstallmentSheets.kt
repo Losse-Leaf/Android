@@ -778,6 +778,7 @@ fun PayInstallmentSheet(
                 label = "实付金额",
                 isNumeric = true,
                 trailingText = "元",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 singleLine = true
             )
             if (!isValid) {
@@ -892,6 +893,7 @@ fun SettleInstallmentSheet(
                 label = "实付结清总额",
                 isNumeric = true,
                 trailingText = "元",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 singleLine = true
             )
 

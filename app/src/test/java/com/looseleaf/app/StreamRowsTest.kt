@@ -107,4 +107,28 @@ class StreamRowsTest {
         assertEquals(8L, added.first().gapDays)
         assertTrue(added.first().previousKey == "2")
     }
+
+    @Test
+    fun `混合刷新与翻页时重复 id 的 key 始终全局唯一`() {
+        // LazyColumn 的 key 一旦重复就会抛 "Key ... was already used"。
+        // replace() 重置次序号、append() 续编号，两条路径都必须保证唯一。
+        val builder = StreamRowsBuilder()
+        val first = builder.replace(
+            listOf(entry(7, day = 21), entry(8, day = 20), entry(7, day = 19))
+        )
+        val appended = builder.append(
+            listOf(entry(7, day = 18), entry(9, day = 17), entry(8, day = 16))
+        )
+        assertEquals(listOf("7#2", "9", "8#1"), appended.map { it.localKey })
+        val allKeys = first.map { it.localKey } + appended.map { it.localKey }
+        assertEquals("replace + append 后出现重复 key", allKeys.size, allKeys.toSet().size)
+
+        // 同步把本地负 id 换成服务端 id、窗口内顺序变化后重建，仍不能重复
+        val refreshed = builder.replace(
+            listOf(entry(7, day = 19), entry(9, day = 18), entry(7, day = 17), entry(8, day = 16))
+        )
+        val refreshedKeys = refreshed.map { it.localKey }
+        assertEquals("全量重建后出现重复 key", refreshedKeys.size, refreshedKeys.toSet().size)
+        assertEquals(listOf("7", "9", "7#1", "8"), refreshedKeys)
+    }
 }

@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -39,6 +40,10 @@ fun LedgerKeepAliveScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 该页是在账本内 `return` 出来的全屏子页，不在 MainActivity 的路由栈里。
+    // 不拦截系统返回键的话，按返回会直接跳到时间流甚至退出应用（左上角箭头却正常）。
+    BackHandler(onBack = onNavigateBack)
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val colors = LedgerTheme.colors

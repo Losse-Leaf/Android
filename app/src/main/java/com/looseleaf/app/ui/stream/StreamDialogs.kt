@@ -93,7 +93,7 @@ internal fun EntryDetailSheetDialog(
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = // MOB-P2-68：统一走系统照片选择器（与全局策略一致，无需任何存储权限）
-        ActivityResultContracts.PickMultipleVisualMedia()
+        ActivityResultContracts.PickMultipleVisualMedia(maxItems = 9)
     ) { uris ->
         if (uris.isNotEmpty()) {
             coroutineScope.launch {

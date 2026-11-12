@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -20,11 +19,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -77,6 +77,21 @@ internal fun QuickRecordSheet(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val colors = LedgerTheme.colors
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
+    // 备注等文本输入获得焦点时，系统 IME 与自定义数字键盘不得同屏（KB-03）。
+    // 此时小键盘让位给等高占位条，输入结束后再切回。
+    var isNoteEditing by remember { mutableStateOf(false) }
+    var isSubmitting by remember { mutableStateOf(false) }
+    val dismissSheet: () -> Unit = {
+        // 提交进行中不允许关闭（含下滑手势）：否则提交协程随组合销毁被取消
+        if (!isSubmitting) {
+            keyboardController?.hide()
+            focusManager.clearFocus()
+            onDismiss()
+        }
+    }
 
     // 记住上次使用的支付方式
     val sp = remember { context.getSharedPreferences("ledger_prefs", Context.MODE_PRIVATE) }
@@ -130,66 +145,33 @@ internal fun QuickRecordSheet(
         )
     }
 
-    // 简单累加计算（使用 FormatUtils.yuanStringToCents 整数分运算，杜绝浮点精度丢失）
-    fun calculateEffectiveCents(): Long {
-        return if (inputAmountString.contains("+")) {
-            inputAmountString.split("+")
-                .map { FormatUtils.yuanStringToCents(it.trim()) }
-                .sum()
-        } else {
-            FormatUtils.yuanStringToCents(inputAmountString)
-        }
-    }
+    // 简单累加计算统一走 FormatUtils.AmountInput.toCents（整数分运算，杜绝浮点尾差）
+    fun calculateEffectiveCents(): Long = FormatUtils.AmountInput.toCents(inputAmountString)
 
     val effectiveCents = remember(inputAmountString) { calculateEffectiveCents() }
 
     val isInstallment = (selectedType == "expense" && payMethodChoice == "installment")
     val approxMonthly = if (effectivePeriods > 0) effectiveCents / effectivePeriods else 0L
 
-    var isSubmitting by remember { mutableStateOf(false) }
-
+    // 金额写入只走 FormatUtils.AmountInput：金额行是纯展示，系统键盘/粘贴无法绕过校验
     fun appendDigit(digit: String) {
-        if (inputAmountString == "0") {
-            inputAmountString = digit
-        } else {
-            val lastSegment = inputAmountString.substringAfterLast("+")
-            if (lastSegment.contains(".")) {
-                val decimals = lastSegment.substringAfter(".")
-                if (decimals.length < 2) {
-                    inputAmountString += digit
-                }
-            } else if (lastSegment.length < 8) {
-                inputAmountString += digit
-            }
-        }
+        inputAmountString = FormatUtils.AmountInput.digit(inputAmountString, digit)
     }
 
     fun appendDot() {
-        val lastSegment = inputAmountString.substringAfterLast("+")
-        if (!lastSegment.contains(".")) {
-            inputAmountString += "."
-        }
+        inputAmountString = FormatUtils.AmountInput.dot(inputAmountString)
     }
 
     fun appendPlus() {
-        if (!inputAmountString.endsWith("+") && inputAmountString != "0") {
-            inputAmountString += "+"
-        }
+        inputAmountString = FormatUtils.AmountInput.plus(inputAmountString)
     }
 
     fun backspace() {
-        if (inputAmountString.length > 1) {
-            inputAmountString = inputAmountString.dropLast(1)
-            if (inputAmountString.isEmpty()) {
-                inputAmountString = "0"
-            }
-        } else {
-            inputAmountString = "0"
-        }
+        inputAmountString = FormatUtils.AmountInput.backspace(inputAmountString)
     }
 
     fun clearAll() {
-        inputAmountString = "0"
+        inputAmountString = FormatUtils.AmountInput.clear()
         noteText = ""
         txOccurredAtMillis = System.currentTimeMillis()
     }
@@ -259,7 +241,7 @@ internal fun QuickRecordSheet(
     val maxSheetHeight = (screenHeight - statusBarTop - 16.dp).coerceAtLeast(200.dp)
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = dismissSheet,
         sheetState = sheetState,
         containerColor = colors.surface,
         shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
@@ -272,6 +254,7 @@ internal fun QuickRecordSheet(
                 .fillMaxWidth()
                 .heightIn(max = maxSheetHeight)
                 .navigationBarsPadding()
+                .imePadding()
                 .padding(horizontal = 20.dp, vertical = 6.dp)
         ) {
             Column(
@@ -327,7 +310,7 @@ internal fun QuickRecordSheet(
                             )
                         }
                         TextButton(
-                            onClick = onDismiss,
+                            onClick = dismissSheet,
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                         ) {
                             Text("取消", color = colors.textSecondary, fontFamily = LedgerTheme.typography.serif, fontSize = 13.sp)
@@ -337,7 +320,9 @@ internal fun QuickRecordSheet(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // 大金额展示行（等宽数字，支持点击直接调起手机软键盘输入）
+                // 大金额展示行（等宽数字）。
+                // 金额是**纯展示**：唯一写入口是下方自定义数字键盘，
+                // 若这里挂可编辑输入框，点击会同时唤起系统 IME 与自定义键盘造成叠屏。
                 Row(
                     verticalAlignment = Alignment.Bottom,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
@@ -351,33 +336,14 @@ internal fun QuickRecordSheet(
                         modifier = Modifier.padding(bottom = 6.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    BasicTextField(
-                        value = if (inputAmountString == "0") "" else inputAmountString,
-                        onValueChange = { newVal ->
-                            val sanitized = newVal.filter { it.isDigit() || it == '.' || it == '+' }
-                            inputAmountString = if (sanitized.isEmpty()) "0" else sanitized
-                        },
-                        textStyle = TextStyle(
-                            fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontSize = 36.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.textPrimary
-                        ),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        singleLine = true,
-                        cursorBrush = SolidColor(colors.accent),
-                        decorationBox = { innerTextField ->
-                            if (inputAmountString == "0") {
-                                Text(
-                                    text = "0.00",
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 36.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = colors.textMuted
-                                )
-                            }
-                            innerTextField()
-                        }
+                    Text(
+                        text = if (inputAmountString == FormatUtils.AmountInput.EMPTY) "0.00" else inputAmountString,
+                        fontFamily = ArchiveFontFamilies.MonoScale,
+                        fontSize = 36.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (inputAmountString == FormatUtils.AmountInput.EMPTY) colors.textMuted else colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -747,7 +713,17 @@ internal fun QuickRecordSheet(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { showMoreDetails = !showMoreDetails }
+                    .clickable {
+                        val expanded = !showMoreDetails
+                        showMoreDetails = expanded
+                        // 收起「更多」时若备注框仍有焦点，必须一并收键盘，
+                        // 否则节点移除后 isNoteEditing 会残留，数字键盘再也回不来。
+                        if (!expanded) {
+                            keyboardController?.hide()
+                            focusManager.clearFocus()
+                            isNoteEditing = false
+                        }
+                    }
                     .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -782,7 +758,8 @@ internal fun QuickRecordSheet(
                         value = noteText,
                         onValueChange = { noteText = it },
                         placeholder = "商户或备注（可选）",
-                        singleLine = true
+                        singleLine = true,
+                        modifier = Modifier.onFocusChanged { isNoteEditing = it.isFocused }
                     )
 
                     // 支付账户选择行
@@ -840,6 +817,27 @@ internal fun QuickRecordSheet(
                         .fillMaxWidth()
                         .padding(bottom = 12.dp)
                 )
+            } else if (isNoteEditing) {
+                // 文本输入期间系统 IME 是唯一键盘：小键盘让位给等高占位条
+                //（4 行 × 46dp + 3 × 6dp = 202dp），布局高度不变、两套键盘不再叠屏。
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp)
+                        .height(202.dp)
+                ) {
+                    ArchivePrimaryButton(
+                        text = "完成输入，返回数字键盘",
+                        onClick = {
+                            keyboardController?.hide()
+                            focusManager.clearFocus()
+                            isNoteEditing = false
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
             } else {
                 TactileKeypad(
                     onDigitClick = { appendDigit(it) },
@@ -888,7 +886,10 @@ internal fun QuickRecordSheet(
             },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .imePadding()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     LedgerField(

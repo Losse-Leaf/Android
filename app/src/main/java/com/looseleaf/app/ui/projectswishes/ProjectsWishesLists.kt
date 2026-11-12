@@ -192,10 +192,11 @@ internal fun WishesList(
     onEditClick: (Wish) -> Unit,
     onDeleteClick: (Wish) -> Unit,
     onNewWishClick: () -> Unit = {},
-    listState: LazyListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() },
+    listState: LazyListState? = null,
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
+    val actualListState = listState ?: rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
     if (wishes.isEmpty()) {
         ArchiveEmptyState(
@@ -215,7 +216,7 @@ internal fun WishesList(
     var isRelinquishedExpanded by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
-        state = listState,
+        state = actualListState,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = 8.dp, bottom = 88.dp)
     ) {

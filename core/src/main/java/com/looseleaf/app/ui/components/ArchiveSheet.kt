@@ -26,6 +26,8 @@ import com.looseleaf.app.theme.LooseLeafTheme
 fun ArchiveSheet(
     onDismissRequest: () -> Unit,
     title: String,
+    /** 提交进行中传 { !isSubmitting }：下滑手势 / 遮罩 / 取消按钮统一走这道闸。 */
+    dismissEnabled: () -> Boolean = { true },
     onCancel: () -> Unit = onDismissRequest,
     cancelText: String = "取消",
     actionText: String? = null,
@@ -37,9 +39,9 @@ fun ArchiveSheet(
     content: @Composable ColumnScope.() -> Unit
 ) {
     ArchiveSheetContent(
-        onDismissRequest = onDismissRequest,
+        onDismissRequest = { if (dismissEnabled()) onDismissRequest() },
         title = title,
-        onCancel = onCancel,
+        onCancel = { if (dismissEnabled()) onCancel() },
         cancelText = cancelText,
         actionText = actionText,
         onAction = onAction,

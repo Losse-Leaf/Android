@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -118,17 +119,20 @@ internal fun TransactionsLedgerTab(
     }
 
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
-    val monthSwipeModifier = Modifier.pointerInput(selectedYearMonth) {
+    // 阈值按 dp 换算成像素，避免不同密度屏幕上「轻碰即翻月 / 需大幅拖」的差异
+    val monthSwipeThresholdPx = with(LocalDensity.current) { 140.dp.toPx() }
+    val monthSwipeModifier = Modifier.pointerInput(selectedYearMonth, monthSwipeThresholdPx) {
         detectHorizontalDragGestures(
             onDragEnd = {
-                if (dragOffsetX > 140f) {
+                if (dragOffsetX > monthSwipeThresholdPx) {
                     onMonthChange(selectedYearMonth.minusMonths(1))
-                } else if (dragOffsetX < -140f) {
+                } else if (dragOffsetX < -monthSwipeThresholdPx) {
                     onMonthChange(selectedYearMonth.plusMonths(1))
                 }
                 dragOffsetX = 0f
             },
-            onHorizontalDrag = { _, dragAmount ->
+            onHorizontalDrag = { change, dragAmount ->
+                change.consume()
                 dragOffsetX += dragAmount
             }
         )

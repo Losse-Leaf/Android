@@ -167,6 +167,68 @@ object FormatUtils {
     }
 
     /**
+     * 自定义数字键盘的金额输入唯一入口。
+     *
+     * 金额行是纯展示（不再挂可编辑输入框），系统键盘与剪贴板无法直接写入金额串；
+     * 所有按键、草稿恢复都经由这里的纯字符串变换，保证落库前不会出现多个小数点、
+     * 超 2 位小数或超长整数 —— yuanStringToCents 因此不会静默归零。
+     * 纯函数，便于回归测试直接断言。
+     */
+    object AmountInput {
+        const val EMPTY = "0"
+        private const val MAX_SEGMENT_DIGITS = 8
+        private const val MAX_DECIMAL_DIGITS = 2
+
+        private fun lastSegment(current: String): String = current.substringAfterLast("+")
+
+        fun digit(current: String, digit: String): String {
+            if (digit.length != 1 || !digit[0].isDigit()) return current
+            val base = if (current == EMPTY) "" else current
+            val segment = lastSegment(base)
+            return when {
+                segment.contains('.') -> {
+                    val decimals = segment.substringAfter('.')
+                    if (decimals.length < MAX_DECIMAL_DIGITS) base + digit else current
+                }
+                segment.length < MAX_SEGMENT_DIGITS -> base + digit
+                else -> current
+            }
+        }
+
+        fun dot(current: String): String {
+            val segment = lastSegment(current)
+            return if (segment.contains('.') || segment.isEmpty()) current else "$current."
+        }
+
+        fun plus(current: String): String =
+            if (current != EMPTY && !current.endsWith("+")) "$current+" else current
+
+        fun backspace(current: String): String {
+            if (current.length <= 1) return EMPTY
+            return current.dropLast(1).ifEmpty { EMPTY }
+        }
+
+        fun clear(): String = EMPTY
+
+        /** 任意外部串（草稿 / 历史值 / 粘贴）都按按键规则重放，产出合法金额串。 */
+        fun sanitize(raw: String): String = raw.fold(EMPTY) { acc, c ->
+            when {
+                c.isDigit() -> digit(acc, c.toString())
+                c == '.' -> dot(acc)
+                c == '+' -> plus(acc)
+                else -> acc
+            }
+        }
+
+        /** 金额串 → 分。含「+」时按段求和，与自定义键盘的累加语义一致。 */
+        fun toCents(current: String): Long = if (current.contains("+")) {
+            current.split("+").sumOf { FormatUtils.yuanStringToCents(it.trim()) }
+        } else {
+            FormatUtils.yuanStringToCents(current)
+        }
+    }
+
+    /**
      * 当前北京时间日期字符串 (YYYY.MM.DD)
      */
     fun beijingTodayDateString(): String {
