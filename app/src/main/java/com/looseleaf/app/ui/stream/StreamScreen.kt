@@ -571,8 +571,10 @@ fun StreamScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(colors.accentWarm.copy(alpha = 0.08f))
-                        .border(0.5.dp, colors.accentWarm, RoundedCornerShape(4.dp))
+                        // 升级提示整组（淡底 / 描边 / 进度条 / 标题）统一用 accentSmallText，
+                        // 避免 #8E4423 文字旁边出现 #A24F2B描边，两种赤陶并排
+                        .background(colors.accentSmallText.copy(alpha = 0.08f))
+                        .border(0.5.dp, colors.accentSmallText, RoundedCornerShape(4.dp))
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -583,15 +585,15 @@ fun StreamScreen(
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontWeight = FontWeight.Medium,
                             fontSize = 12.sp,
-                            color = colors.accentWarm
+                            color = colors.accentSmallText
                         )
                         if (isDownloading) {
                             Spacer(modifier = Modifier.height(4.dp))
                             LinearProgressIndicator(
                                 progress = { downloadProgress },
                                 modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                                color = colors.accentWarm,
-                                trackColor = colors.accentWarm.copy(alpha = 0.2f)
+                                color = colors.accentSmallText,
+                                trackColor = colors.accentSmallText.copy(alpha = 0.2f)
                             )
                             Text(
                                 text = stringResource(R.string.stream_screen_text_tpl_04, (downloadProgress * 100).toInt()),
@@ -639,7 +641,7 @@ fun StreamScreen(
                             text = stringResource(R.string.stream_screen_text_tpl_05, (downloadProgress * 100).toInt()),
                             fontSize = 12.sp,
                             fontFamily = ArchiveFontFamilies.MonoScale,
-                            color = colors.accentWarm,
+                            color = colors.accentSmallText,
                             modifier = Modifier.padding(start = 8.dp)
                         )
                     } else {

@@ -347,7 +347,7 @@ fun ArchiveDatePickerSheet(
                                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                             fontSize = 14.sp,
-                                            color = if (isSelected) colors.accentWarm else colors.inkPrimary
+                                            color = if (isSelected) colors.accentSmallText else colors.inkPrimary
                                         )
                                         if (isSelected) {
                                             Spacer(modifier = Modifier.height(2.dp))
@@ -429,7 +429,7 @@ fun ArchiveDatePickerSheet(
                                                 fontSize = 13.sp,
                                                 color = when {
                                                     isSelected -> colors.archivePaper
-                                                    isToday -> colors.accentWarm
+                                                    isToday -> colors.accentSmallText
                                                     else -> colors.inkPrimary
                                                 }
                                             )
@@ -993,7 +993,7 @@ fun <T> ArchiveSelectField(
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontSize = 14.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) colors.accentWarm else colors.inkPrimary
+                            color = if (isSelected) colors.accentSmallText else colors.inkPrimary
                         )
                         if (isSelected) {
                             Text(
@@ -1001,7 +1001,7 @@ fun <T> ArchiveSelectField(
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = colors.accentWarm
+                                color = colors.accentSmallText
                             )
                         }
                     }

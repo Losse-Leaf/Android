@@ -154,7 +154,8 @@ internal fun ProjectsList(
                                 Icon(
                                     painter = painterResource(R.drawable.ic_link),
                                     contentDescription = "代码仓库链接",
-                                    tint = colors.accentWarm,
+                                    // 与右侧 displayUrl 同组同色
+                                    tint = colors.accentSmallText,
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -162,7 +163,7 @@ internal fun ProjectsList(
                                     text = displayUrl,
                                     fontFamily = ArchiveFontFamilies.MonoScale,
                                     fontSize = 12.sp,
-                                    color = colors.accentWarm,
+                                    color = colors.accentSmallText,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )

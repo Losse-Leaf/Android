@@ -113,6 +113,9 @@ internal fun SettingsScreen(
     }
 
     Scaffold(
+        // 本页挂在外层 Scaffold 的 innerPadding 之内，外层已经让过状态栏与导航栏。
+        // 内层 Scaffold 若不把 contentWindowInsets 清零，内容区会再吃一条导航栏高度。
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             Row(
                 // 本页挂在外层 Scaffold 的 innerPadding 之内（MainActivity 已让过状态栏），

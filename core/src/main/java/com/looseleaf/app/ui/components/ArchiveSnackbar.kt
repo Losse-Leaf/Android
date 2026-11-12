@@ -81,7 +81,7 @@ fun ArchiveSnackbar(
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 14.sp,
-                color = colors.accentWarm,
+                color = colors.accentSmallText,
                 modifier = Modifier
                     .clip(ArchiveShapes.radiusSmall)
                     .clickable(role = Role.Button, onClick = onActionClick)

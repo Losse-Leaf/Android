@@ -384,7 +384,7 @@ internal fun ProvinceMemoryDrawerBottomSheet(
                         text = stringResource(R.string.projects_wishes_sheets_text_tpl_02, d.visitedCities.size, d.footprints.size),
                         fontFamily = ArchiveFontFamilies.MonoScale,
                         fontSize = 13.sp,
-                        color = colors.accentWarm
+                        color = colors.accentSmallText
                     )
                     if (d.ledgerSummary.totalSpent > 0) {
                         Text(

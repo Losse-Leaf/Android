@@ -329,7 +329,9 @@ fun PairingScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(
-                            color = colors.accentWarm,
+                            // 与同一行的说明文字同色：图标属非文本（3:1 即可），
+                            // 但同组一深一浅会比"两个都略低"更难看
+                            color = colors.accentSmallText,
                             modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp
                         )
@@ -338,7 +340,7 @@ fun PairingScreen(
                             text = stringResource(R.string.pairing_screen_text_05),
                             fontFamily = ArchiveFontFamilies.BodySans,
                             fontSize = 13.sp,
-                            color = colors.accentWarm
+                            color = colors.accentSmallText
                         )
                     }
                 }
@@ -400,7 +402,7 @@ fun PairingScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(stringResource(R.string.pairing_screen_device_id), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
-                            Text(pairedDeviceId, fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 12.sp, color = colors.accentWarm)
+                            Text(pairedDeviceId, fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 12.sp, color = colors.accentSmallText)
                         }
                     }
                 }

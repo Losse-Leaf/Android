@@ -294,7 +294,7 @@ internal fun EntryDetailSheetDialog(
                                         text = stringResource(R.string.stream_dialogs_text_01),
                                         fontFamily = ArchiveFontFamilies.MonoScale,
                                         fontSize = 11.sp,
-                                        color = colors.accentWarm
+                                        color = colors.accentSmallText
                                     )
                                 }
                             } else {
@@ -313,7 +313,7 @@ internal fun EntryDetailSheetDialog(
                                         text = stringResource(R.string.stream_dialogs_text_02),
                                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                                         fontSize = 12.sp,
-                                        color = colors.accentWarm
+                                        color = colors.accentSmallText
                                     )
                                 }
                             }
@@ -778,7 +778,7 @@ internal fun GlobalSearchDialog(
                                         color = colors.inkPrimary
                                     )
                                     if (wish.budget > 0) {
-                                        Text(FormatUtils.centsToYuanString(wish.budget), fontSize = 11.sp, color = colors.accentWarm)
+                                        Text(FormatUtils.centsToYuanString(wish.budget), fontSize = 11.sp, color = colors.accentSmallText)
                                     }
                                 }
                             }

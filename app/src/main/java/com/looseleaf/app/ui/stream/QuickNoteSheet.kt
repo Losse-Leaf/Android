@@ -722,11 +722,12 @@ private fun QuickNoteSheetBody(
                                     Icon(
                                         painter = painterResource(R.drawable.ic_photo_library),
                                         contentDescription = "装裱相纸",
-                                        tint = colors.accentWarm,
+                                        // 与右侧「装裱相纸」文字同组同色
+                                        tint = colors.accentSmallText,
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Spacer(modifier = Modifier.width(3.dp))
-                                    Text(stringResource(R.string.quick_note_mount_paper), fontSize = 12.sp, color = colors.accentWarm)
+                                    Text(stringResource(R.string.quick_note_mount_paper), fontSize = 12.sp, color = colors.accentSmallText)
                                 }
                             }
                         }
@@ -981,7 +982,7 @@ private fun QuickNoteSheetBody(
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
-                            color = colors.accentWarm
+                            color = colors.accentSmallText
                         )
 
                         PaperCityPickerField(

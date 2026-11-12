@@ -77,9 +77,11 @@ fun archiveColorScheme(colors: ArchiveColors, darkTheme: Boolean): ColorScheme =
         surfaceTint = colors.accentWarm,
         inverseSurface = colors.inkPrimary,
         inverseOnSurface = colors.archivePaper,
-        error = colors.accentWarm,
+        // 破坏性/异常 = 砖红（alertRed），不是赤陶。赤陶是"当前/可操作/主按钮"，
+        // 若把 error 也映射成赤陶，Snackbar 报错与"确认"按钮会同一个颜色。
+        error = colors.alertRed,
         onError = colors.archivePaper,
-        errorContainer = colors.accentWarm.copy(alpha = 0.18f),
+        errorContainer = colors.alertRed.copy(alpha = 0.18f),
         onErrorContainer = colors.inkPrimary,
         outline = colors.inkMuted,
         outlineVariant = colors.inkMuted.copy(alpha = 0.45f),
@@ -116,9 +118,11 @@ fun archiveColorScheme(colors: ArchiveColors, darkTheme: Boolean): ColorScheme =
         surfaceTint = colors.accentWarm,
         inverseSurface = colors.inkPrimary,
         inverseOnSurface = colors.archivePaper,
-        error = colors.accentWarm,
+        // 破坏性/异常 = 砖红（alertRed），不是赤陶。赤陶是"当前/可操作/主按钮"，
+        // 若把 error 也映射成赤陶，Snackbar 报错与"确认"按钮会同一个颜色。
+        error = colors.alertRed,
         onError = colors.archivePaper,
-        errorContainer = colors.accentWarm.copy(alpha = 0.12f),
+        errorContainer = colors.alertRed.copy(alpha = 0.12f),
         onErrorContainer = colors.inkPrimary,
         outline = colors.inkMuted,
         outlineVariant = colors.inkMuted.copy(alpha = 0.45f),

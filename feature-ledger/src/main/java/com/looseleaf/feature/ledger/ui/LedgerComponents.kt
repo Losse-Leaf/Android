@@ -300,19 +300,6 @@ fun LedgerTextButton(
 )
 
 @Composable
-fun LedgerPrimaryButton(
-    text: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier
-) = ArchivePrimaryButton(
-    text = text,
-    onClick = onClick,
-    enabled = enabled,
-    modifier = modifier
-)
-
-@Composable
 fun LedgerChoiceItem(
     text: String,
     isSelected: Boolean,

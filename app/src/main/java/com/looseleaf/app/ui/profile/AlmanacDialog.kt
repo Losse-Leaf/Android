@@ -166,7 +166,7 @@ internal fun AlmanacDialog(
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = 12.sp,
                                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (isSelected) colors.accentWarm else colors.inkPrimary
+                                color = if (isSelected) colors.accentSmallText else colors.inkPrimary
                             )
                         }
                     }
@@ -188,7 +188,7 @@ internal fun AlmanacDialog(
                         text = stringResource(R.string.stream_dialogs_text_tpl_04, errorMsg.orEmpty()),
                         fontFamily = ArchiveFontFamilies.BodySans,
                         fontSize = 13.sp,
-                        color = colors.accentWarm
+                        color = colors.alertRed
                     )
                 } else if (summary != null) {
                     val data = summary ?: AlmanacSummaryResponse()

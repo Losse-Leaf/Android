@@ -7,5 +7,8 @@
   这里让系统深色时直接以暗房底色启动。
 -->
 <resources>
-    <color name="archive_paper">#FF141312</color>
+    <!-- 与 theme/Color.kt 的 DarkArchiveColors.archivePaper (#181512) 严格同值。
+         已知限制：窗口底色只能跟随系统深浅，应用内三态无法在此生效，
+         属窗口层动态取色问题（需 SplashScreen API），不要当 bug 改回去。 -->
+    <color name="archive_paper">#FF181512</color>
 </resources>

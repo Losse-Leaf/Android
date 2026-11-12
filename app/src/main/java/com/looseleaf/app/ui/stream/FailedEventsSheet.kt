@@ -369,7 +369,9 @@ private fun FailedEventItemRow(
                         text = "重试 ${event.retryCount} 次",
                         fontFamily = ArchiveFontFamilies.MonoScale,
                         fontSize = 11.sp,
-                        color = colors.accentWarm
+                        // 失败计数属于"错误/失败"语义，不是"主操作/选中"，
+                        // 用赤陶会让用户以为这里可以点。故用砖红。
+                        color = colors.alertRed
                     )
                 }
 

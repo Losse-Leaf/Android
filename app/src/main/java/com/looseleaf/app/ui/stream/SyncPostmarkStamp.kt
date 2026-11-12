@@ -52,7 +52,9 @@ internal fun SyncPostmarkStamp(
     }
 
     if (totalPending > 0) {
-        val stampColor = colors.accentWarm
+        // 印章的底/描边/数字共用一个颜色，整枚章只有一种赤陶 ——
+        // 数字是 10–11sp，必须用 accentSmallText（纸 5.33 / 暗 5.49 量级）。
+        val stampColor = colors.accentSmallText
         val targetClick = if (failedCount > 0) onFailedClick else onPendingClick
 
         Box(

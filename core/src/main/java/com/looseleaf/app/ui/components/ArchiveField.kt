@@ -73,7 +73,9 @@ fun ArchiveField(
 ) {
     val colors = LooseLeafTheme.colors
     var isFocused by remember { mutableStateOf(false) }
-    val hasError = !errorMessage.isNullOrBlank()
+    // 禁用态优先级最高：一个点不动的格子不该再喊"你填错了"，
+    // 也不该画红色下划线（会让人以为改一改就能提交）。故 hasError 在禁用时直接为 false。
+    val hasError = enabled && !errorMessage.isNullOrBlank()
     // 只读输入框是"选择器"，不是文本框：不画下划线，靠右侧箭头表达可点
     val underlineColor = when {
         !enabled -> colors.lineEdge.copy(alpha = 0.6f)
@@ -86,7 +88,9 @@ fun ArchiveField(
     val labelColor = when {
         !enabled -> colors.inkDisabled
         hasError -> colors.alertRed
-        isFocused -> colors.accentWarm
+        // 只读选择器被点开时不该把标签染成赤陶：赤陶＝"可输入/当前焦点"，
+        // 而这里根本没有可输入的东西。
+        isFocused && !readOnly -> colors.accentWarm
         else -> colors.inkSecondary
     }
     val textColor = if (enabled) colors.inkPrimary else colors.inkDisabled
@@ -144,7 +148,13 @@ fun ArchiveField(
                     readOnly = readOnly,
                     keyboardOptions = keyboardOptions.copy(imeAction = imeAction),
                     keyboardActions = keyboardActions,
-                    cursorBrush = SolidColor(colors.accentWarm)
+                    // 只读选择器仍可获得焦点：不换透明光标就会在"点开选择"时闪一下赤陶竖线，
+                    // 暗示这里能打字。
+                    cursorBrush = if (readOnly) {
+                        SolidColor(Color.Transparent)
+                    } else {
+                        SolidColor(colors.accentWarm)
+                    }
                 )
 
                 if (onClick != null) {
@@ -173,8 +183,9 @@ fun ArchiveField(
                 it()
             }
 
-            // 只读选择器：右侧 12dp 右尖角，暗示"点开选择"而不是"这里能打字"
-            if (readOnly && enabled) {
+            // 只读选择器：右侧 12dp 右尖角，暗示"点开选择"而不是"这里能打字"。
+            // 必须同时有 onClick 才画 —— 「只读且不可点」的字段画个箭头等于骗用户去点。
+            if (readOnly && enabled && onClick != null) {
                 Spacer(modifier = Modifier.width(4.dp))
                 Icon(
                     painter = painterResource(R.drawable.ic_chevron_right),
@@ -204,19 +215,19 @@ fun ArchiveField(
             // 常驻错误槽：占位不跳动，空文案时以 alpha 隐藏
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = errorMessage ?: "",
+                text = errorMessage.orEmpty(),
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                 fontSize = ArchiveTypeScale.caption,
                 color = colors.alertRed,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.alpha(if (errorMessage.isNullOrBlank()) 0f else 1f)
+                modifier = Modifier.alpha(if (hasError) 1f else 0f)
             )
-        } else if (!errorMessage.isNullOrBlank()) {
+        } else if (hasError) {
             // 按需渲染：无错误时不占空间
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = errorMessage,
+                text = errorMessage.orEmpty(),
                 fontFamily = ArchiveFontFamilies.EditorialSerif,
                 fontSize = ArchiveTypeScale.caption,
                 color = colors.alertRed,

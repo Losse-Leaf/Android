@@ -150,7 +150,7 @@ internal fun StreamEmptyState(
                             text = "清除筛选",
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontSize = 14.sp,
-                            color = colors.accentWarm
+                            color = colors.accentSmallText
                         )
                     }
                 }

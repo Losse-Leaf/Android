@@ -55,6 +55,9 @@ fun LedgerKeepAliveScreen(
     val scrollState = rememberScrollState()
 
     Scaffold(
+        // 本页挂在账本 Scaffold 的 innerPadding 之内，外层已让过系统栏；
+        // 内层不清零 contentWindowInsets 会再吃一条导航栏高度。
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             LedgerTopAppBar(
                 title = "自动记账与保活检查",

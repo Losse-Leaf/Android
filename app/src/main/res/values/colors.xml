@@ -7,5 +7,11 @@
   仅对 API < 35 生效；edge-to-edge 托底由 Theme.kt 的窗口背景接管。
 -->
 <resources>
-    <color name="archive_paper">#FFF9F8F5</color>
+    <!-- 与 theme/Color.kt 的 LightArchiveColors.archivePaper (#F6F0E4) 严格同值：
+         冷启动第一帧用的就是这个值，差一点就会在启动瞬间闪一帧色差。
+         注意（已知限制）：窗口底色只能跟随系统深浅（values-night），
+         应用内「暖色棉纸 / 暗房」三态无法在此生效——那是窗口层动态取色问题，
+         需要 SplashScreen API 或延迟启动才能解决，不在本轮范围。
+         看到此处与设置里的外观不一致时，请不要当成 bug 改回去。 -->
+    <color name="archive_paper">#FFF6F0E4</color>
 </resources>

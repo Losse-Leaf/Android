@@ -133,7 +133,9 @@ fun ArchiveToastHost(
                         .background(colors.archivePaper)
                         .border(
                             width = 0.5.dp,
-                            color = if (msg.isError) colors.accentWarm else colors.borderDivider,
+                            // 错误 toast 的边框/圆点走"异常"语义（砖红），
+                            // 与成功态苔绿区分；用赤陶会与"主操作"同色。
+                            color = if (msg.isError) colors.alertRed else colors.borderDivider,
                             shape = shape
                         )
                         .padding(horizontal = 16.dp, vertical = 9.dp)
@@ -142,7 +144,7 @@ fun ArchiveToastHost(
                         modifier = Modifier
                             .size(7.dp)
                             .clip(RoundedCornerShape(50))
-                            .background(if (msg.isError) colors.accentWarm else colors.accentMoss)
+                            .background(if (msg.isError) colors.alertRed else colors.accentMoss)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
@@ -166,7 +168,7 @@ fun ArchiveToastHost(
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontWeight = FontWeight.Medium,
                             fontSize = 13.sp,
-                            color = colors.accentWarm,
+                            color = colors.accentSmallText,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
                                 .clickable {

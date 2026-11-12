@@ -324,7 +324,9 @@ fun ProjectsWishesScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 4.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(colors.accentWarm.copy(alpha = 0.10f))
+                            // 同步失败重试入口：整组走"错误"语义色（砖红），
+                            // 不用赤陶 —— 赤陶在本产品里专指主操作/选中。
+                            .background(colors.alertRed.copy(alpha = 0.10f))
                             .clickable(role = Role.Button) {
                                 scope.launch { reloadAll(forceLoading = true) }
                             }
@@ -333,7 +335,7 @@ fun ProjectsWishesScreen(
                         Icon(
                             painter = painterResource(R.drawable.ic_error_outline),
                             contentDescription = null,
-                            tint = colors.accentWarm,
+                            tint = colors.alertRed,
                             modifier = Modifier.size(13.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -341,7 +343,7 @@ fun ProjectsWishesScreen(
                             text = stringResource(R.string.projects_wishes_screen_text_tpl_01, message),
                             fontFamily = ArchiveFontFamilies.BodySans,
                             fontSize = 11.sp,
-                            color = colors.accentWarm,
+                            color = colors.alertRed,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )

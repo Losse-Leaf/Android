@@ -76,7 +76,9 @@ fun ArchiveSegmentedTabs(
                                 .defaultMinSize(minWidth = 18.dp)
                                 .clip(ArchiveShapes.full)
                                 .background(
-                                    if (isSelected) colors.accentWarm.copy(alpha = 0.14f)
+                                    // 底与数字同族（accentSmallText），否则选中徽标会出现
+                                    // 「深字压浅赤陶底」两种赤陶并排
+                                    if (isSelected) colors.accentSmallText.copy(alpha = 0.14f)
                                     else colors.archiveSubtle
                                 )
                                 .padding(horizontal = 5.dp),
@@ -88,7 +90,7 @@ fun ArchiveSegmentedTabs(
                                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                 fontSize = ArchiveTypeScale.micro,
                                 lineHeight = ArchiveTypeScale.micro,
-                                color = if (isSelected) colors.accentWarm else colors.inkMuted,
+                                color = if (isSelected) colors.accentSmallText else colors.inkMuted,
                                 style = TextStyle(
                                     platformStyle = PlatformTextStyle(includeFontPadding = false),
                                     fontFeatureSettings = "tnum"

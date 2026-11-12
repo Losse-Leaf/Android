@@ -301,7 +301,7 @@ fun StorageBackupSheetDialog(
                                                     text = if (b.storageType == "r2") "R2 云端" else "本地",
                                                     fontSize = 11.sp,
                                                     fontFamily = ArchiveFontFamilies.MonoScale,
-                                                    color = if (b.storageType == "r2") colors.accentWarm else colors.inkSecondary
+                                                    color = if (b.storageType == "r2") colors.accentSmallText else colors.inkSecondary
                                                 )
                                             }
                                         }
@@ -334,7 +334,7 @@ fun StorageBackupSheetDialog(
                                             text = stringResource(R.string.storage_backup_sheet_dialog_text_03),
                                             fontSize = 12.sp,
                                             fontFamily = ArchiveFontFamilies.BodySans,
-                                            color = colors.accentWarm,
+                                            color = colors.accentSmallText,
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(2.dp))
                                                 .clickable { backupToRestore = b }
@@ -532,7 +532,7 @@ fun StorageBackupSheetDialog(
                             },
                             enabled = isConfigured && !isOperating
                         ) {
-                            Text(stringResource(R.string.storage_backup_sync_r2), fontSize = 11.sp, color = if (isConfigured) colors.accentWarm else colors.inkMuted)
+                            Text(stringResource(R.string.storage_backup_sync_r2), fontSize = 11.sp, color = if (isConfigured) colors.accentSmallText else colors.inkMuted)
                         }
 
                         TextButton(

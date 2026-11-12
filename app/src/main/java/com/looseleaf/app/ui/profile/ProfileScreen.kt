@@ -485,7 +485,7 @@ fun ProfileScreen(
                                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = colors.accentWarm
+                                        color = colors.accentSmallText
                                     )
                                 }
                             }

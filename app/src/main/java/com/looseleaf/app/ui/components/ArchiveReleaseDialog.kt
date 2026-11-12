@@ -137,7 +137,7 @@ fun ArchiveReleaseDialog(
                         text = if (downloadProgress != null) "正在装载新版底片... ${(downloadProgress * 100).toInt()}%" else "正在装载新版底片...",
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontSize = 12.sp,
-                        color = colors.accentWarm
+                        color = colors.accentSmallText
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     if (downloadProgress != null) {

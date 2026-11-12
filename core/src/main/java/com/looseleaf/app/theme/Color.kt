@@ -51,14 +51,18 @@ data class ArchiveColors(
     val lineEdge: Color = inkPrimary.copy(alpha = 0.16f),
     /** 全屏遮罩（弹窗/抽屉背后），黑 32% */
     val scrim: Color = Color(0x52000000),
-    /** 主色按压态：主按钮按下时比 [accentWarm] 深一档，不做回弹、只做颜色下沉 */
-    val accentPress: Color = accentWarm,
     /**
-     * 小字号赤陶（11–12sp 标签、角标）。
-     * 暗房里 [accentWarm] 在 surface 上只有 4.24:1，小字余量太薄，故单列一档更亮的赤陶。
-     * 纸色模式下与 [accentWarm] 同值。
+     * 主色按压态：主按钮按下时的底色。
+     * **必填**——它不能靠 alpha 叠加推导：浅底主题按下要更深、深底主题按下要更亮，
+     * 一律 alpha 会让深底主题按下瞬间文字对比度崩到 3.72:1。
      */
-    val accentSmallText: Color = accentWarm,
+    val accentPress: Color,
+    /**
+     * 小字号赤陶（11–14sp 标签、角标、选中态小字）。
+     * **必填**——纸面不能用 [accentWarm]：赤陶小字最常见的落点是「12% 赤陶淡底」，
+     * 同值时只有 4.28:1 不达标。纸 #8E4423 / 暗房 #E28A63。
+     */
+    val accentSmallText: Color,
     /**
      * 禁用态前景：只表达「不可用」，不追求 4.5:1 —— WCAG 明确豁免禁用控件。
      * 但必须与「正常次要文字」[inkMuted] 有肉眼可辨的落差，否则用户会反复点击。
@@ -95,6 +99,11 @@ val LightArchiveColors = ArchiveColors(
     // 异常/警告/破坏性：原 #B35C5C 只有 4.02:1，改后 5.26:1（10% 淡底 4.58:1）
     alertRed = Color(0xFFA04848),
     accentPress = Color(0xFF8B4022),    // 主色按压：canvas 6.48:1
+    // 11–14sp 小字赤陶。**不能等于 accentWarm**：全站最常见的选中表达是
+    // 「12% 赤陶淡底 + 赤陶小字」（年份 chip、分段计数徽标、筛选胶囊），
+    // #A24F2B 压在 12% 淡底 #EADBCD 上只有 4.28:1，不达标；
+    // #8E4423 在 canvas 6.17 / surface 5.93 / 12% 淡底 5.17 / 8% 淡底 5.49，全过。
+    accentSmallText = Color(0xFF8E4423),
     inkDisabled = Color(0xFF9A9389),    // 禁用态：与 inkMuted 肉眼可辨，WCAG 豁免
     pressOverlay = Color(0xFF1D1B18).copy(alpha = 0.06f),
     lineEdge = Color(0xFF1D1B18).copy(alpha = 0.16f)
@@ -129,9 +138,13 @@ val DarkArchiveColors = ArchiveColors(
     tagWish = Color(0xFFC27878),        // 心愿：枯茶红（5.41:1，10% 淡底 4.78:1）
     isDark = true,
     alertRed = Color(0xFFD08888),       // 6.55:1，10% 淡底 5.71:1
-    accentPress = Color(0xFFD0603D).copy(alpha = 0.85f),
+    // 按下态规则：**相对亮度必须朝"与文字相反方向"移动** ——
+    // 浅底主题按下要更深（文字仍是纸白），深底主题按下要更亮（文字是深纸色）。
+    // 原先这里写 accentWarm.copy(alpha = 0.85f)，合成到 #181512 上得到 #B45537，
+    // 按下瞬间文字 #181512 压上去只有 3.72:1，字会糊。改成不透明的 #E28A63（6.97:1）。
+    accentPress = Color(0xFFE28A63),
     // 11–12sp 小字赤陶：accentWarm 在 surface 上只有 4.24:1，小字余量太薄
-    accentSmallText = Color(0xFFE28A63), // 6.97:1
+    accentSmallText = Color(0xFFE28A63), // 6.97:1 / surface 6.29 / 12% 淡底 5.82
     inkDisabled = Color(0xFF6B655B),
     pressOverlay = Color(0xFFFFFFFF).copy(alpha = 0.06f),
     lineEdge = Color(0xFFFFFFFF).copy(alpha = 0.16f)
