@@ -465,7 +465,6 @@
 
     <!-- ProfileScreen -->
     <string name="profile_screen_drafts">散页手稿</string>
-    <string name="profile_screen_films">暗房底片</string>
     <string name="profile_screen_projects">造物项目</string>
     <string name="profile_screen_expense">当月支出</string>
     <string name="profile_screen_pair_new_device">+ 配对新设备</string>
