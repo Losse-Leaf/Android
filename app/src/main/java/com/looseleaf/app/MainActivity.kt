@@ -314,7 +314,7 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
-        // 二级 Tab（造物 / 心愿 / 山川）切换时同步路由状态，底栏「工坊」保持常亮高亮
+        // 二级 Tab（造物 / 心愿 / 足迹）切换时同步路由状态，底栏「工坊」保持常亮高亮
         val onSubTabChanged: (Int) -> Unit = remember(currentRouteState) {
             { tab: Int ->
                 val target = when (tab) {

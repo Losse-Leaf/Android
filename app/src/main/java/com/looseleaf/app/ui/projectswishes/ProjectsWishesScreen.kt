@@ -62,7 +62,7 @@ import androidx.compose.ui.res.stringResource
 import com.looseleaf.app.R
 import androidx.compose.ui.res.painterResource
 /**
- * 造物、心愿与山川足迹视界 (ProjectsWishesScreen)
+ * 造物、心愿与足迹视界 (ProjectsWishesScreen)
  * 严格遵从 docs/README.md §三.8 记录为一切的母体原则
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,7 +71,7 @@ fun ProjectsWishesScreen(
     modifier: Modifier = Modifier,
     initialTab: Int? = null,
     /**
-     * 内部 tab 切换回传（0 造物 / 1 心愿 / 2 山川）：
+     * 内部 tab 切换回传（0 造物 / 1 心愿 / 2 足迹）：
      * 底栏「足迹」「造物」共用本页，必须同步 currentRoute 才不会出现
      * 「内容已切换、底栏还高亮在旧项」的错位。
      */
@@ -301,9 +301,9 @@ fun ProjectsWishesScreen(
                     actions = {}
                 )
 
-                // Tab 切换器：纯文字标签 造物 · 心愿 · 山川，选中加粗 + 2dp 赤陶下划线，无框无底色，后跟等宽数字
+                // Tab 切换器：纯文字标签 造物 · 心愿 · 足迹，选中加粗 + 2dp 赤陶下划线，无框无底色，后跟等宽数字
                 ArchiveSegmentedTabs(
-                    tabs = listOf("造物", "心愿", "山川"),
+                    tabs = listOf("造物", "心愿", "足迹"),
                     selectedIndex = pagerState.currentPage,
                     onTabSelected = { index ->
                         hasUserInteractedWithTab = true

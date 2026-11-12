@@ -414,7 +414,7 @@ private fun WishItemRow(
 }
 
 /**
- * 散页工坊 · 山川足迹列表
+ * 散页工坊 · 足迹列表
  * 规则：
  * - 顶部概览（无卡片）：大号等宽数字 N + "座城市已点亮"，下一行次要色"M 个省份"
  * - 列表按年份分组（分组标题"2026"，次要色小字）
@@ -435,7 +435,7 @@ internal fun FootprintsList(
 
     if (footprints.isEmpty()) {
         ArchiveEmptyState(
-            title = "山川足迹还空着",
+            title = "足迹还空着",
             actionText = "点亮足迹",
             onActionClick = onNewFootprintClick,
             modifier = modifier.fillMaxSize()

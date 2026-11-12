@@ -203,7 +203,6 @@
 
     <!-- projects_wishes_screen -->
     <string name="projects_wishes_screen_text_01">工坊</string>
-    <string name="projects_wishes_screen_text_02">造物 · 心愿 · 山川 · 真实心迹与行迹</string>
     <string name="projects_wishes_screen_text_03">确认保存</string>
     <string name="projects_wishes_screen_placeholder_01">选择行政区划城市…</string>
     <string name="projects_wishes_screen_label_01">启程/到访时刻</string>
@@ -394,7 +393,7 @@
     <string name="stream_dialogs_text_tpl_04">获取年鉴失败: %1$s</string>
     <string name="stream_dialogs_text_tpl_05">全年共落笔 %1$s 篇散页，累计 %2$s 字，点亮 %3$s 个真实日子。</string>
     <string name="stream_dialogs_text_tpl_06">起止刻度: %1$s — %2$s</string>
-    <string name="stream_dialogs_title_tpl_01">山川行迹 · 步履所至 (%1$s 城)</string>
+    <string name="stream_dialogs_title_tpl_01">足迹 · 步履所至 (%1$s 城)</string>
     <string name="stream_dialogs_text_tpl_07">圆满达成 %1$s 项心愿 · 仍有 %2$s 项向往中</string>
     <string name="stream_dialogs_text_tpl_08">心愿兑现投入: %1$s</string>
     <string name="stream_dialogs_title_tpl_02">浮光掠影 · 四季相纸 (%1$s 帧)</string>
@@ -498,7 +497,6 @@
     <string name="projects_wishes_empty_projects">暂无造物记录</string>
     <string name="projects_wishes_empty_wishes">暂无匹配的心愿记录</string>
     <string name="projects_wishes_achieve">达成归册</string>
-    <string name="projects_wishes_empty_footprints">暂无山川足迹记录</string>
 
     <!-- ProjectsWishesScreen -->
     <string name="projects_wishes_cancel">取消</string>
@@ -525,7 +523,7 @@
     <string name="stream_dialogs_untitled">无题随笔</string>
     <string name="stream_dialogs_footprint_default">足迹</string>
     <string name="stream_dialogs_entries_count">生活印记 (%1$d)</string>
-    <string name="stream_dialogs_footprints_count">山川足迹 (%1$d)</string>
+    <string name="stream_dialogs_footprints_count">足迹 (%1$d)</string>
     <string name="stream_dialogs_wishes_count">心愿清单 (%1$d)</string>
     <string name="stream_dialogs_projects_count">造物项目 (%1$d)</string>
 

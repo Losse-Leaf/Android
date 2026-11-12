@@ -1000,9 +1000,6 @@ fun StreamScreen(
         FountainPenFab(
             isExpanded = isFabExpanded && !isStreamCurrentlyEmpty,
             onClick = { showQuickNoteDialog = true },
-            onQuickText = { showQuickNoteDialog = true },
-            onQuickPhoto = { showQuickNoteDialog = true },
-            onQuickVoice = { showQuickNoteDialog = true },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 // MOB-P2-40：宽屏时右侧有详情栏，浮动印章让到列表列里

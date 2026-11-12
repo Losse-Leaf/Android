@@ -232,6 +232,16 @@ fun LedgerScreen(
             topBar = {
                 LedgerTopAppBar(
                     title = "账本",
+                    subtitle = if (selectedTab == 0) {
+                        "${selectedYearMonth.year} 年 ${selectedYearMonth.monthValue} 月 ▾"
+                    } else {
+                        "截至今天"
+                    },
+                    onSubtitleClick = if (selectedTab == 0) {
+                        { showMonthPickerSheet = true }
+                    } else {
+                        null
+                    },
                     actions = {
                         // 自动记账从「更多」菜单提上来（RG-28）：它是 Android 端独有的能力，
                         // 埋在三级菜单里等于没做。点进去是权限状态 + 保活检查 + 模拟测试页。
@@ -341,44 +351,8 @@ fun LedgerScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                // 2. 副标题区：固定高度 34dp，切换「账单明细 / 资产大盘」时绝不跳动
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(34.dp)
-                        .padding(horizontal = 16.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    if (selectedTab == 0) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(ArchiveShapes.small)
-                                .clickable(role = Role.Button) { showMonthPickerSheet = true }
-                                .padding(vertical = 4.dp, horizontal = 2.dp)
-                        ) {
-                            Text(
-                                text = "${selectedYearMonth.year} 年 ${selectedYearMonth.monthValue} 月 ▾",
-                                fontFamily = LedgerTheme.typography.serif,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = ArchiveTypeScale.bodyLarge,
-                                color = colors.textPrimary,
-                                maxLines = 1
-                            )
-                        }
-                    } else {
-                        Text(
-                            text = "截至今天",
-                            fontFamily = LedgerTheme.typography.serif,
-                            fontWeight = FontWeight.Normal,
-                            fontSize = ArchiveTypeScale.body,
-                            color = colors.textSecondary,
-                            maxLines = 1,
-                            modifier = Modifier.padding(horizontal = 2.dp)
-                        )
-                    }
-                }
-
+                // 月份 / 「截至今天」并入顶栏副标题，省掉原先独占 34dp 的一行，
+                // 首屏多出约一条账目的高度。
                 // 3. 视图切换（账单明细 / 资产大盘）
                 Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                     LedgerSegmentedTabs(

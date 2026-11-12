@@ -63,7 +63,7 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
-import com.looseleaf.app.ui.stream.AlmanacDialog
+import com.looseleaf.app.ui.settings.SettingsScreen
 import com.looseleaf.app.updater.ReleaseInfo
 import com.looseleaf.app.updater.UpdateCheckResult
 import com.looseleaf.app.updater.UpdateChecker
@@ -290,7 +290,6 @@ fun ProfileScreen(
         }
     }
 
-    var showMoreMenu by remember { mutableStateOf(false) }
 
     val checkUpdate: () -> Unit = {
         scope.launch {
@@ -330,83 +329,16 @@ fun ProfileScreen(
                     title = "展台",
                     subtitle = null,
                     actions = {
-                        Box {
-                            IconButton(
-                                onClick = { showMoreMenu = true }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.MoreVert,
-                                    contentDescription = "更多选项",
-                                    tint = colors.inkPrimary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-
-                            DropdownMenu(
-                                expanded = showMoreMenu,
-                                onDismissRequest = { showMoreMenu = false },
-                                modifier = Modifier
-                                    .background(colors.archiveCard)
-                                    .border(1.dp, colors.borderSubtle, RoundedCornerShape(4.dp)),
-                                shape = RoundedCornerShape(4.dp),
-                                tonalElevation = 0.dp,
-                                shadowElevation = 0.dp
-                            ) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = "偏好与安全",
-                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                            color = colors.inkPrimary
-                                        )
-                                    },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showSettingsSheet = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = "受信任设备",
-                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                            color = colors.inkPrimary
-                                        )
-                                    },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showOtherDevicesSheet = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = "存储配置与灾备",
-                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                            color = colors.inkPrimary
-                                        )
-                                    },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showStorageBackupDialog = true
-                                    }
-                                )
-                                // 「检测新版本」只保留设置页里那一个入口（时间流首屏卡片负责被动提示），
-                                // 这里不再重复一份（RG-30 同类问题：同一动作三处入口）。
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = "解除本机配对",
-                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                            color = colors.alertRed
-                                        )
-                                    },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showUnpairDialog = true
-                                    }
-                                )
-                            }
+                        // 展台只负责「看」（档案 / 统计 / 热力图 / 装备）；
+                        // 外观、安全、设备、存储灾备、更新、解绑这些「改」的动作
+                        // 全部收进设置页，不再用 ⋮ 菜单和设置抽屉重复三份入口。
+                        IconButton(onClick = { showSettingsSheet = true }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Settings,
+                                contentDescription = "设置",
+                                tint = colors.inkPrimary,
+                                modifier = Modifier.size(24.dp)
+                            )
                         }
                     }
                 )
@@ -760,7 +692,7 @@ fun ProfileScreen(
 
             // 偏好设置与系统运维独立抽屉 (Atelier vs Settings 分流)
             if (showSettingsSheet) {
-                SettingsSheet(
+                SettingsScreen(
                     appearanceMode = appearanceMode,
                     onAppearanceModeChanged = { mode ->
                         appearanceMode = mode
@@ -817,7 +749,7 @@ fun ProfileScreen(
                     // 与 ⋮ 菜单共用同一个动作，避免两处各写一遍检查逻辑
                     onCheckUpdate = checkUpdate,
                     onUnpair = { showUnpairDialog = true },
-                    onDismiss = { showSettingsSheet = false }
+                    onBack = { showSettingsSheet = false }
                 )
             }
 
