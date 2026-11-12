@@ -900,7 +900,6 @@ fun StreamScreen(
                                 onClick = onEntryClick,
                                 onDelete = onEntryDelete,
                                 onPhotoClick = onPhotoClick,
-                                washiTapeText = null,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }

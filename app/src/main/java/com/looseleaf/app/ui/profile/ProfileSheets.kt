@@ -1,8 +1,12 @@
 package com.looseleaf.app.ui.profile
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.app.ActivityCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -231,8 +235,6 @@ internal fun SettingsSheet(
     onAppearanceModeChanged: (AppearanceMode) -> Unit,
     isBiometricsEnabled: Boolean,
     onBiometricsChanged: (Boolean) -> Unit,
-    showBinderHoles: Boolean = true,
-    onShowBinderHolesChanged: ((Boolean) -> Unit)? = null,
     enableDecorations: Boolean = true,
     onEnableDecorationsChanged: ((Boolean) -> Unit)? = null,
     isInstallmentReminderEnabled: Boolean = true,
@@ -254,6 +256,29 @@ internal fun SettingsSheet(
     onDismiss: () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
+    // EV-08：通知权限 launcher 提到无条件作用域，避免随 onInstallmentReminderChanged
+    // 空/非空变化反复注册注销；永久拒绝时给 Toast 并展示「去设置」入口。
+    val context = LocalContext.current
+    var notifPermanentlyDenied by remember { mutableStateOf(false) }
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            notifPermanentlyDenied = false
+            onInstallmentReminderChanged?.invoke(true)
+        } else {
+            val activity = context as? android.app.Activity
+            val permanentlyDenied = activity != null &&
+                !ActivityCompat.shouldShowRequestPermissionRationale(
+                    activity, android.Manifest.permission.POST_NOTIFICATIONS
+                )
+            if (permanentlyDenied) {
+                notifPermanentlyDenied = true
+                ArchiveToastManager.show("通知权限已被永久拒绝，请到系统设置开启", isError = true)
+            }
+            onInstallmentReminderChanged?.invoke(false)
+        }
+    }
 
     ArchiveSheet(
         onDismissRequest = onDismiss,
@@ -338,42 +363,6 @@ internal fun SettingsSheet(
                     )
                 }
 
-                if (onShowBinderHolesChanged != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    ArchiveDivider()
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                            Text(
-                                text = "活页打孔装订线",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 14.sp,
-                                color = colors.inkPrimary
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "在时间流左边缘呈现真实活页冲孔装订纹理",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 12.sp,
-                                color = colors.inkSecondary
-                            )
-                        }
-                        Switch(
-                            checked = showBinderHoles,
-                            onCheckedChange = onShowBinderHolesChanged,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = colors.accentWarm,
-                                checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f)
-                            )
-                        )
-                    }
-                }
-
                 if (onEnableDecorationsChanged != null) {
                     Spacer(modifier = Modifier.height(12.dp))
                     ArchiveDivider()
@@ -414,13 +403,6 @@ internal fun SettingsSheet(
                     Spacer(modifier = Modifier.height(12.dp))
                     ArchiveDivider()
                     Spacer(modifier = Modifier.height(12.dp))
-
-                    val context = LocalContext.current
-                    val notifPermissionLauncher = rememberLauncherForActivityResult(
-                        ActivityResultContracts.RequestPermission()
-                    ) { isGranted ->
-                        onInstallmentReminderChanged(isGranted)
-                    }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -464,6 +446,20 @@ internal fun SettingsSheet(
                                 checkedThumbColor = colors.accentWarm,
                                 checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f)
                             )
+                        )
+                    }
+                    if (notifPermanentlyDenied) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        ArchiveTextButton(
+                            text = "去设置",
+                            onClick = {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.parse("package:${context.packageName}")
+                                    )
+                                )
+                            }
                         )
                     }
                 }

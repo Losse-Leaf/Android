@@ -21,7 +21,7 @@ import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.LooseLeafTheme
-import com.looseleaf.app.ui.components.ArchiveBottomSheet
+import com.looseleaf.app.ui.components.ArchiveSheet
 import com.looseleaf.app.ui.components.ArchiveToastManager
 import com.looseleaf.feature.ledger.data.LedgerDatabase
 import com.looseleaf.feature.ledger.data.LedgerRepository
@@ -101,7 +101,7 @@ internal fun FailedEventsSheet(
         reload()
     }
 
-    ArchiveBottomSheet(
+    ArchiveSheet(
         onDismissRequest = onDismiss,
         title = "发件箱待重验 (${failedList.size})"
     ) {

@@ -17,25 +17,6 @@ import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.LooseLeafTheme
 
 /**
- * 纸色容器（无投影、无白卡片，平铺在纸面上）
- */
-@Composable
-fun ArchiveCard(
-    modifier: Modifier = Modifier,
-    cornerRadius: Dp = 4.dp,
-    contentPadding: PaddingValues = PaddingValues(0.dp),
-    content: @Composable () -> Unit
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(contentPadding)
-    ) {
-        content()
-    }
-}
-
-/**
  * 散页统一纸面呼吸骨架屏 (ArchiveSkeleton)
  */
 @Composable

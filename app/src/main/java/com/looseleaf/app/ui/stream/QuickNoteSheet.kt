@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.ActivityCompat
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
@@ -36,7 +37,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import android.Manifest
+import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import com.looseleaf.app.darkroom.ImagePipeline
 import com.looseleaf.app.darkroom.ProcessedImageResult
 import com.looseleaf.app.data.api.APIClient
@@ -50,8 +53,6 @@ import com.looseleaf.app.model.Project
 import com.looseleaf.app.model.Wish
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
-import com.looseleaf.app.ui.components.LocalArchiveSheetHost
-import com.looseleaf.app.ui.components.ArchiveSheetHostState
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
@@ -297,24 +298,26 @@ private fun QuickNoteSheetBody(
         }
     }
 
+    // EV-07：抽屉不再自动弹定位权限框；定位一律由用户点「使用当前定位」触发。
+    // 权限被永久拒绝（勾选「不再询问」）时给出 Toast 并把入口切成「去设置」。
+    var locationPermanentlyDenied by remember { mutableStateOf(false) }
+
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions.values.any { it }) {
+            locationPermanentlyDenied = false
             fetchCurrentLocation()
-        }
-    }
-
-    LaunchedEffect(noteType) {
-        if (LocationHelper.hasLocationPermission(context)) {
-            fetchCurrentLocation()
-        } else if (noteType == "travel") {
-            locationPermissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
+        } else {
+            val activity = context as? android.app.Activity
+            val permanentlyDenied = activity != null &&
+                !ActivityCompat.shouldShowRequestPermissionRationale(
+                    activity, Manifest.permission.ACCESS_FINE_LOCATION
                 )
-            )
+            if (permanentlyDenied) {
+                locationPermanentlyDenied = true
+                ArchiveToastManager.show("定位权限已被永久拒绝，请到系统设置开启", isError = true)
+            }
         }
     }
 
@@ -650,7 +653,10 @@ private fun QuickNoteSheetBody(
     }
 
     ArchiveSheet(
+        // 提交中禁止下滑/点遮罩/取消关闭：组合销毁会取消 rememberCoroutineScope 里的落库协程，
+        // 相纸已清理但记录未入库，界面却毫无提示（EV-20）。
         onDismissRequest = onDismiss,
+        dismissEnabled = { !isSubmitting },
         title = headerTitle,
         cancelText = stringResource(R.string.quick_note_cancel),
         actionText = submitText,
@@ -986,6 +992,40 @@ private fun QuickNoteSheetBody(
                                 noteCityName = name
                             },
                             placeholder = if (isLocating) "正在定位到访城市…" else "选择到访城市 (必选) *"
+                        )
+
+                        // EV-07：定位改为显式点击触发；永久拒绝时按钮变「去设置」直达应用详情页，
+                        // 并常驻一行说明，避免 canSave 因缺城市永久灰着却无任何提示。
+                        ArchiveTextButton(
+                            text = when {
+                                isLocating -> "正在定位…"
+                                locationPermanentlyDenied -> "去设置"
+                                else -> "使用当前定位"
+                            },
+                            enabled = !isLocating,
+                            onClick = {
+                                when {
+                                    locationPermanentlyDenied -> context.startActivity(
+                                        Intent(
+                                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                            Uri.parse("package:${context.packageName}")
+                                        )
+                                    )
+                                    LocationHelper.hasLocationPermission(context) -> fetchCurrentLocation()
+                                    else -> locationPermissionLauncher.launch(
+                                        arrayOf(
+                                            Manifest.permission.ACCESS_FINE_LOCATION,
+                                            Manifest.permission.ACCESS_COARSE_LOCATION
+                                        )
+                                    )
+                                }
+                            }
+                        )
+                        Text(
+                            text = "可手动选择到访城市，或点「使用当前定位」自动回填",
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 11.sp,
+                            color = colors.inkMuted
                         )
 
                         PaperLocationField(

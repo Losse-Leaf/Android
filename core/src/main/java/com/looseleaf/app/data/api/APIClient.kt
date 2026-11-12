@@ -488,13 +488,6 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/transactions", "GET", queryParams = params, meta = meta)
     }
 
-    suspend fun fetchTransactionSummary(year: Int? = null, month: Int? = null): TransactionSummary {
-        val params = mutableMapOf<String, String>()
-        if (year != null) params["year"] = year.toString()
-        if (month != null) params["month"] = month.toString()
-        return executeEnvelopeRequest("/api/v1/transactions/summary", "GET", queryParams = params)
-    }
-
     suspend fun createTransaction(req: CreateTransactionRequest, meta: ResponseMeta? = null): Transaction {
         val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
         return executeEnvelopeRequest("/api/v1/transactions", "POST", body = body, meta = meta)

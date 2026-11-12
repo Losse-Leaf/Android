@@ -136,21 +136,6 @@ fun LedgerSegmentedTabs(
 )
 
 @Composable
-fun LedgerCard(
-    modifier: Modifier = Modifier,
-    backgroundColor: Color? = null,
-    borderColor: Color? = null,
-    cornerRadius: Dp = 4.dp,
-    contentPadding: PaddingValues = PaddingValues(0.dp),
-    content: @Composable () -> Unit
-) = ArchiveCard(
-    modifier = modifier,
-    cornerRadius = cornerRadius,
-    contentPadding = contentPadding,
-    content = content
-)
-
-@Composable
 fun LedgerDivider(
     modifier: Modifier = Modifier,
     color: Color? = null,
@@ -207,6 +192,7 @@ fun LedgerMonthPickerSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                .imePadding()
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp)
         ) {
@@ -398,7 +384,7 @@ fun LedgerField(
     readOnly: Boolean = false,
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
-    keyboardOptions: KeyboardOptions = if (isNumeric) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
+    keyboardOptions: KeyboardOptions = if (isNumeric) KeyboardOptions(keyboardType = KeyboardType.Decimal) else KeyboardOptions.Default,
     modifier: Modifier = Modifier
 ) = ArchiveField(
     value = value,

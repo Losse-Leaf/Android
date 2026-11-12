@@ -92,9 +92,6 @@ jobs:
           path: app/build/reports/lint-results-debug.html
           retention-days: 7
 
-      - name: Compile Desktop Mock Preview Studio (preview only, not a UI self-check)
-        run: GRADLE_RETRY_LOG=gradle_desktop.log ./scripts/gradle-retry.sh :desktop:classes --no-daemon
-
       # MOB-P2-57 / MOB-P2-54：签名密钥与口令都不在仓库里，
       # CI 需要自己从 GitHub Secret 取回（与发布流水线同源）。
       - name: Restore signing keystore from secret

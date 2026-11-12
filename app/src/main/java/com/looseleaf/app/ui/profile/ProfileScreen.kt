@@ -63,7 +63,6 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
-import com.looseleaf.app.ui.stream.LifeActivityHeatmap
 import com.looseleaf.app.ui.stream.AlmanacDialog
 import com.looseleaf.app.updater.ReleaseInfo
 import com.looseleaf.app.updater.UpdateCheckResult
@@ -774,10 +773,6 @@ fun ProfileScreen(
                     onBiometricsChanged = { enabled ->
                         isBiometricsEnabled = enabled
                         credentialStore.isBiometricsEnabled = enabled
-                    },
-                    showBinderHoles = credentialStore.showBinderHoles,
-                    onShowBinderHolesChanged = { enabled ->
-                        credentialStore.showBinderHoles = enabled
                     },
                     enableDecorations = enableDecorations,
                     onEnableDecorationsChanged = { enabled ->

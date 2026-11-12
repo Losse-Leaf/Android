@@ -51,7 +51,6 @@ class CredentialStore private constructor(context: Context) {
         private const val KEY_HIGH_CONTRAST = "high_contrast"
 
         /** 手账装订孔显隐开关 */
-        private const val KEY_SHOW_BINDER_HOLES = "show_binder_holes"
 
         /** 手账质感装饰开关（微旋转、倾角、和纸胶带、按压下沉等） */
         private const val KEY_ENABLE_DECORATIONS = "enable_decorations"
@@ -199,12 +198,6 @@ class CredentialStore private constructor(context: Context) {
             settings.edit().putBoolean(KEY_HIGH_CONTRAST, value).apply()
         }
 
-    /** 手账左侧活页打孔装订线开关（默认开启） */
-    var showBinderHoles: Boolean
-        get() = settings.getBoolean(KEY_SHOW_BINDER_HOLES, true)
-        set(value) {
-            settings.edit().putBoolean(KEY_SHOW_BINDER_HOLES, value).apply()
-        }
 
     /** 手账质感装饰开关（微旋转、倾角、和纸胶带、按压下沉等，默认开启） */
     var enableDecorations: Boolean

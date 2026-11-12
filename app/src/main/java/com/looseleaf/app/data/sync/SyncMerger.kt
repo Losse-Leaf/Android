@@ -101,19 +101,4 @@ internal object SyncMerger {
         return true
     }
 
-    /** MOB-P2-47：撤销一次账目删除（旧主库遗留兼容） */
-    suspend fun undoDeleteTransaction(
-        database: AppDatabase,
-        ticket: DeleteUndoTicket
-    ): Boolean {
-        val entity = ticket.entity as? CachedTransactionEntity ?: return false
-        val deleteEvent = database.outboxDao().findEventByTarget("transaction", entity.localId, "DELETE")
-            ?: return false
-        if (deleteEvent.failedAt != null) return false
-        database.withTransaction {
-            database.outboxDao().deleteById(deleteEvent.eventId)
-            database.transactionDao().insertAll(listOf(entity))
-        }
-        return true
-    }
 }

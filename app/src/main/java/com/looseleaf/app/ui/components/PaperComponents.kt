@@ -1,7 +1,5 @@
 package com.looseleaf.app.ui.components
 
-import android.os.Build
-import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -20,7 +18,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -76,15 +73,10 @@ fun TerracottaStampButton(
 ) {
     val colors = LooseLeafTheme.colors
     val haptics = LocalHapticFeedback.current
-    val view = LocalView.current
 
     Button(
         onClick = {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-            } else {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            }
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             onClick()
         },
         enabled = enabled,
@@ -177,6 +169,7 @@ fun PaperTextField(
     enabled = enabled,
     trailingContent = trailingIcon,
     keyboardOptions = keyboardOptions,
+    keyboardActions = keyboardActions,
     modifier = modifier
 )
 
@@ -202,6 +195,7 @@ fun PaperTextEditor(
     minLines = 3,
     enabled = enabled,
     keyboardOptions = keyboardOptions,
+    keyboardActions = keyboardActions,
     modifier = modifier
 )
 
@@ -232,21 +226,6 @@ fun PaperCityPickerField(
     onCitySelected = onCitySelected,
     label = label,
     placeholder = placeholder,
-    modifier = modifier
-)
-
-@Composable
-fun PaperDateField(
-    selectedDate: LocalDate,
-    onDateSelected: (LocalDate) -> Unit,
-    modifier: Modifier = Modifier,
-    label: String? = null,
-    unselectedText: String? = null
-) = ArchiveDatePickerField(
-    selectedDate = if (unselectedText != null) null else selectedDate,
-    onDateSelected = onDateSelected,
-    label = label,
-    placeholder = unselectedText ?: "选择日期",
     modifier = modifier
 )
 

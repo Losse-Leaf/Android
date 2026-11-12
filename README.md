@@ -1,147 +1,96 @@
-# 《散页》（Loose Leaf）· Android 原生随行客户端
+# 《散页》（Loose Leaf）· Android 随行端
 
-> **第一现场随行暗房与口袋触觉账本 (The Mobile Darkroom & Tactile Ledger)**  
-> 基于 Kotlin + Jetpack Compose 构建的原生 Android 移动端应用程序。  
-> 统筹规范：[`docs/mobile.md`](../docs/mobile.md) ｜ 后端契约：[`docs/backend.md`](../docs/backend.md) ｜ 生态总纲：[`docs/README.md`](../docs/README.md)
+> Kotlin + Jetpack Compose 原生 Android 应用：第一现场速记、口袋触觉账本、随行影像装裱。
+> 工程规范：[`docs/mobile.md`](../docs/mobile.md) ｜ 后端契约：[`docs/backend.md`](../docs/backend.md) ｜ 跨端约定：[`docs/README.md`](../docs/README.md) §四
 
 ---
 
 ## 核心特性
 
-1. **实体纸本与胶片暗房双模态 (`Paper & Darkroom`)**
-   - 严格遵循跨端语义大地色盘（`Earthy Palette`），零硬编码十六进制色值。
-   - **暖色棉纸模式 (`Paper`)**：温润宣纸底色 (`#F9F8F5`) 配合微噪点点阵，单手握持温润松弛。
-   - **胶片暗房模式 (`Darkroom`)**：碳黑重磅相纸底色 (`#141312`) 配以暗房安全灯赤红，适合深宵微光记录。
-   - **银盐装裱相纸框 (`FilmFrame`)**：还原相纸贴在手账本上的物理微隆起，底部自动标注机型、镜头、光圈与曝光等 EXIF 元数据。
+1. **纸本双模态**
+   - 暖色棉纸（`paper`）/ 暗房安全灯（`darkroom`）/ 跟随系统（`system`）三态外观，首帧前读取，冷启动不闪白。
+   - 全部颜色走 `LooseLeafTheme.colors` 语义令牌，代码零硬编码色值；纸面微噪点为 128×128 确定性瓦片平铺。
 
-2. **极速触觉记账小键盘 (`Tactile Ledger Keypad`)**
-   - **单拇指热区与盲打大键位**：4x3 拟物微隆起大键位，单键高度 $\ge 60\text{dp}$。
-   - **按键压印反馈**：按下即变色阶与微压印；物理触觉在 v1.4.5 移除，恢复计划见 `docs/mobile.md` §3.6。
-   - **分位整型存储 (`Cents Standard`)**：货币金额严格以 `Long` 整型“分”流转，彻底告别浮点精度漂移。
-   - **类目光谱横滑栏**：餐饮、交通、购物、娱乐等八大自然大地色谱标签，结合时段智能推荐常用类目。
+2. **极速触觉记账**
+   - 4×3 大键位键盘，单键 ≥ 60dp，按下变色 + 触觉反馈；金额全程 `Long` 整型「分」，不用浮点。
+   - 备注支持自然语义快记（`42.5 午餐手冲咖啡` → 金额 + 分类 + 标题），金额未敲时实时提示「识别到 ¥42.50 · 餐饮」，盖章自动采纳。
+   - 通知监听自动记账：白名单微信 / 支付宝 / 银联 / 主流银行，5 分钟去重窗口，过滤验证码与营销文案。
 
-3. **随行暗房与端侧智能压制管线 (`Image Pipeline & R2 Upload`)**
-   - **EXIF 全自动提取**：自动读取相机机型、镜头、焦距、光圈、快门、ISO 及经纬度，智能匹配地级行政区代码。
-   - **端侧降采样**：最长边约束至 2048px、JPEG 质量 82，将 15MB~25MB 直拍照压到约 0.3MB~0.7MB。
-   - **Cloudflare R2 预签名直传**：预签名凭证直传对象存储桶，零服务器应用带宽占用；无 R2 环境自动回退统一中转通道。
+3. **随行影像**
+   - 选图即读 EXIF（机型 / 镜头 / 光圈 / 快门 / ISO / GPS），按坐标反查城市。
+   - 端侧压到最长边 2048px、JPEG 82，再走预签名直传；离线时先落 `filesDir/outbox_media/` 补传。
 
-4. **离线优先发件箱调度引擎 (`Offline-First Outbox`)**
-   - **0ms 乐观 UI 响应**：断网或弱网环境下新增记录立即写入本地 Room 数据库，附带微小的墨色“待同步”徽标。
-   - **后台静默同步工作器 (`WorkManager`)**：监听系统网络状态，连通后依序自动重放队列上传，静默更新服务端权威 ID。
+4. **离线优先**
+   - 写入先落 Room + 发件箱，界面 0 等待上屏，`WorkManager` 联网补传。
+   - 游标增量拉取、墓碑对齐删除；失败事件不静默丢弃，顶栏邮戳与全局横幅给「同步异常 N 项」入口。
 
-5. **免密设备配对与生物识别隐私保护 (`Pairing & Biometrics`)**
-   - **动态二维码握手配对**：扫描 Web 展厅管理台动态二维码，一键换取独立专属 `Device Token`。
-   - **KeyStore 硬件加密存储**：凭据由 `Android KeyStore` 配合 `EncryptedSharedPreferences` 托管。
-   - **生物识别守护 (`BiometricPrompt`)**：支持面容、指纹与系统凭据保护，敏感财务柱状图默认模糊遮罩。
+5. **配对与门禁**
+   - 扫码或粘贴链接两通道，`HubUrlPolicy` 校验中枢地址（公网强制 https，局域网放行 http）。
+   - 设备令牌存 `EncryptedSharedPreferences`（KeyStore），不可用时**拒绝配对**而非明文降级；生物识别按「应用整体切后台」重锁。
 
-6. **桌面快捷方式（已实现）与小组件（规划中）**
-   - **应用快捷方式**：长按图标直达「记一笔」或「随行暗房」（`res/xml/shortcuts.xml`）。
-   - **主屏 / 锁屏小组件**：尚未实现，见 `docs/mobile.md` §3.5 的 Glance 规划。
-
-7. **无音频依赖**
-   - v1.4.5 起移除了程序化声学与触觉引擎，App 不申请 `VIBRATE`、不持有音频焦点。
+6. **无音频**
+   - 不申请 `VIBRATE`、不持有音频焦点、无音效资源；触觉走 `LocalHapticFeedback`（零权限）。
 
 ---
 
-## 项目工程架构
+## 工程结构
 
-```text
-android/
-├── app/
-│   ├── build.gradle.kts                   # 模块构建配置 (Compose, Room, WorkManager, OkHttp)
-│   ├── src/
-│   │   ├── main/
-│   │   │   ├── AndroidManifest.xml        # 清单声明、权限与深链 intent-filter（无小组件 Receiver）
-│   │   │   ├── java/com/looseleaf/app/
-│   │   │   │   ├── LooseLeafApp.kt        # Application 根实例与后台工作器配置
-│   │   │   │   ├── MainActivity.kt        # FragmentActivity、Edge-to-Edge 沉浸与底部导航
-│   │   │   │   ├── darkroom/              # 端侧图片压制管线与 EXIF 提取 (ImagePipeline)
-│   │   │   │   ├── data/
-│   │   │   │   │   ├── api/               # OkHttp 4 + Kotlinx Serialization 网络客户端 (APIClient)
-│   │   │   │   │   │                      # HubUrlPolicy：公网地址强制 HTTPS
-│   │   │   │   │   ├── local/             # Room 数据库、实体类、DAO 与账本/档案缓存仓储
-│   │   │   │   │   ├── security/          # KeyStore 凭据存储与生物识别守护
-│   │   │   │   │   └── sync/              # 离线发件箱 WorkManager 与同步管理器 (SyncManager)
-│   │   │   │   ├── model/                 # 领域模型与 DTO 信封
-│   │   │   │   ├── theme/                 # 大地色盘 (Color.kt)、排版 (Typography.kt) 与主题
-│   │   │   │   ├── ui/                    # Jetpack Compose 视图层
-│   │   │   │   │   ├── components/        # FilmFrame, NoiseBackground, PaperCard, 岁月留白
-│   │   │   │   │   ├── darkroom/          # 随行暗房视图 (DarkroomScreen)
-│   │   │   │   │   ├── ledger/            # 极速触觉记账小键盘 (LedgerScreen, TactileKeypad)
-│   │   │   │   │   ├── pairing/           # 扫码与凭据入网视图 (PairingScreen)
-│   │   │   │   │   ├── profile/           # 主理人展台与设置 (ProfileScreen)
-│   │   │   │   │   ├── projectswishes/    # 造物、心愿与山川足迹 (ProjectsWishesScreen)
-│   │   │   │   │   └── stream/            # 时光手账时间流 (StreamScreen)
-│   │   │   │   ├── utils/                 # FlexTime 弹性时间、分位整型转换与 375 城市字典
-│   │   │   └── res/                       # values 主题与 xml（FileProvider 路径、快捷方式）、Mipmap 图标
-│   │   └── test/                          # 单元测试 (FormatUtilsTest, CityDictionaryTest 等)
-│   └── proguard-rules.pro
-├── gradle/
-│   └── wrapper/
-│       ├── gradle-wrapper.jar
-│       └── gradle-wrapper.properties
-├── build.gradle.kts                       # 根工程构建插件
-├── settings.gradle.kts                    # 模块引入与仓库源配置
-├── gradle.properties
-├── gradlew / gradlew.bat
-└── README.md
+| 模块 | 职责 |
+| :--- | :--- |
+| `core/` | 实体模型、主题令牌、通用组件、`APIClient`、`CredentialStore`、`FormatUtils`、城市字典 |
+| `feature-ledger/` | 账本域全部数据与 UI：独立 `looseleaf_ledger.db`、记账键盘、资产/分期/信贷、通知监听 |
+| `app/` | 应用壳：单 Activity、路由、时间流 / 工坊 / 展台 / 配对、`SyncManager`、更新器 |
+| `benchmark/` | Baseline Profile 生成（需真机，手动跑，不进 CI 门禁） |
+
+依赖方向严格单向：`app → feature-ledger → core`。
+
+```
+app/src/main/java/com/looseleaf/app/
+├── MainActivity.kt          # 单 Activity、路由栈、生物识别门禁、全局离线横幅
+├── LooseLeafApp.kt          # Application：token 注入、后台预热、发件箱调度
+├── data/{api,local,security,sync}/   # OkHttp 客户端、Room、KeyStore、同步中枢
+├── darkroom/ImagePipeline.kt         # EXIF 提取、降采样、编码、直传
+├── ui/{stream,projectswishes,profile,pairing,components}/
+└── theme/ utils/ updater/ reminder/
+core/ 与 feature-ledger/ 各自独立成模块，结构同理。
 ```
 
 ---
 
-## 本地编译与运行
-
-### 1. 环境需求
-- **JDK**：OpenJDK 17 或 21
-- **Android SDK**：API Level 35 (Compile), API Level 26+ (Min)
-- **开发工具**：Android Studio Ladybug (2024.2.1) 及以上（AGP 8.7 最低要求）或 IntelliJ IDEA
-
-### 2. 命令行构建
+## 本地构建
 
 ```bash
-# 赋予执行权限
-chmod +x gradlew
+# 本机自带 JDK 17（系统默认 java 版本跑不了 AGP）
+export JAVA_HOME="$PWD/.jdk17/Contents/Home"
 
-# 运行单元测试
-./gradlew testDebugUnitTest
-
-# 构建 Debug APK
-./gradlew assembleDebug
-
-# 构建 Release APK
-./gradlew assembleRelease
+./gradlew :app:assemblePublicDebug      # 公网版（只允许 https）
+./gradlew :app:assembleLanDebug         # 局域网版（包名带 .lan）
+./gradlew :app:testPublicDebugUnitTest  # 单测
+./gradlew :app:lintPublicDebug          # 静态检查（0 error 为门禁）
 ```
 
-生成安装包路径：`app/build/outputs/apk/debug/app-debug.apk`。
+- 环境：JDK 17、Android SDK **API 35**（minSdk 26）、AGP 8.7+。
+- 产物：`app/build/outputs/apk/public/debug/`。
+- 包名：`public` → `com.looseleaf.app`；`lan` → `com.looseleaf.app.lan`。两者同一把签名密钥，可并存覆盖升级。
 
-### 3. Mac 桌面免模拟器实时预览 (Compose Multiplatform Desktop)
+---
 
-本项目内置了基于 **Compose Multiplatform Desktop** 的桌面交互预览视窗（`:desktop` 模块）：
-- **零 Android SDK 依赖**：无需安装庞大的 Android SDK 或配置模拟器，只要有 JDK 17 即可秒级在 macOS 原生运行；
-- **全机型拟真边框体验**：内置标准手机（390×844）、超长屏（392×892）、紧凑小屏（360×640）、折叠屏内屏展开（680×840）与平板模式（780×960）；
-- **版式预览（Mock）**：五个预览界面在 `desktop/Main.kt` 中是**独立重写的 Mock**，只用于检查版式与配色，
-  不是 App 真实运行时的 Composable（真实界面依赖 Context / Room / Coil，无法在桌面 JVM 跑）。
+## 连接后端中枢
 
-```bash
-# 在 macOS 终端直接启动桌面预览工坊
-./gradlew :desktop:run
-```
-
-### 4. 连接后端数据中枢
-- **Android 模拟器**：默认访问宿主机地址为 `http://10.0.2.2:8088`。
-- **真机局域网调试**：在 App 首次启动的「设备入网」界面，将中枢 Hub 地址改为局域网 IP（例如 `http://192.168.1.100:8088`）或 Tailscale 节点（例如 `http://100.112.108.52:8088`），使用相机扫描 Web 管理后台的配对二维码即可一键入网。
+- **模拟器**：宿主机地址固定 `http://10.0.2.2:8088`。
+- **真机局域网**：入网页填局域网 IP（如 `http://192.168.1.100:8088`）或 Tailscale 节点，扫 Web 管理台二维码即可入网。
+- 公网部署必须 https；`lan` 变体也只在私有网段 / 回环 / 组网段放行 http。
 
 ---
 
 ## 发布签名
 
-发布包使用仓库内 `app/release.keystore`（alias `looseleaf`），CI 直接以它签名，
-`./gradlew assembleRelease` 产出的就是可覆盖安装的正式包。
+发布包使用仓库内 `app/release.keystore`（alias `looseleaf`），CI 以它签名，`assembleRelease` 产物可直接覆盖安装。
 
-应用内更新会比对下载 APK 与已装应用的签名；不一致时提示「需卸载重装」，避免系统安装器抛裸错误。
+应用内更新会比对下载 APK 与已装应用的签名，不一致时提示「需卸载重装」，避免系统安装器抛裸错误。
 
 ---
 
-## 许可证 (License)
+## 许可证
 
 Loose Leaf Project © 2026. All rights reserved.
