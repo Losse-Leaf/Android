@@ -3,7 +3,6 @@ package com.looseleaf.app.data.sync
 import androidx.room.withTransaction
 import com.looseleaf.app.data.local.AppDatabase
 import com.looseleaf.app.data.local.CachedEntryEntity
-import com.looseleaf.app.data.local.CachedTransactionEntity
 import com.looseleaf.app.data.local.EntrySyncIndex
 import com.looseleaf.app.model.LifeEntry
 import kotlinx.serialization.json.Json

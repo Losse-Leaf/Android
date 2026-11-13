@@ -241,18 +241,6 @@ class LedgerNotificationListenerService : NotificationListenerService() {
             )
         }
 
-        /**
-         * 模拟记一笔 (用于保活检查页和单元测试)
-         */
-        suspend fun simulatePayment(
-            title: String = "微信支付",
-            text: String = "向商家付款 28.50 元",
-            pkg: String = "com.tencent.mm"
-        ): Long? {
-            val req = parseBillFromText("$title $text", pkg) ?: return null
-            return LedgerRepository.createTransactionOptimistic(req)
-        }
-
         fun clearDedupeCache() {
             recentDedupeKeys.clear()
         }

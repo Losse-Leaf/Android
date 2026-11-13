@@ -515,7 +515,7 @@ class MainActivity : FragmentActivity() {
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        painter = painterResource(R.drawable.ic_lock),
+                        painter = painterResource(com.looseleaf.core.R.drawable.ic_lock),
                         contentDescription = stringResource(R.string.main_activity_contentDescription_01),
                         tint = colors.accentWarm,
                         modifier = Modifier.size(40.dp)

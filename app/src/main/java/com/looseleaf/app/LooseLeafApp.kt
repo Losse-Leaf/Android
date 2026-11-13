@@ -42,7 +42,7 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
 
         // 以下三件事都涉及磁盘 IO（SharedPreferences / KeyStore / WorkManager 入队），
         // 统一移到 IO：ProfileRepository.init 会同步读档案 JSON，
-        // getProfile/getSiteConfig 里的「未初始化则 init」兜底保持不变，正常路径已避开主线程。
+        // getProfile 里的「未初始化则 init」兜底保持不变，正常路径已避开主线程。
         appScope.launch {
             runCatching {
                 com.looseleaf.feature.ledger.LedgerModule.init(this@LooseLeafApp)

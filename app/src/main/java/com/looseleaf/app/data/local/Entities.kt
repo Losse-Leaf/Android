@@ -42,43 +42,6 @@ data class CachedEntryEntity(
 )
 
 /**
- * 离线记账明细缓存表 (CachedTransaction) - docs/mobile.md §4
- * 铁律：金额字段严格为 Long 整型分 (Cents)
- */
-@Entity(
-    tableName = "cached_transactions",
-    indices = [
-        Index(value = ["occurred_at"]),
-        Index(value = ["server_id"]),
-        Index(value = ["sync_status"])
-    ]
-)
-data class CachedTransactionEntity(
-    @PrimaryKey(autoGenerate = true)
-    @ColumnInfo(name = "local_id") val localId: Long = 0,
-    @ColumnInfo(name = "server_id") val serverId: Long? = null,
-    @ColumnInfo(name = "amount") val amount: Long, // 单位：分
-    @ColumnInfo(name = "type") val type: String = "expense", // 'expense' | 'income'
-    @ColumnInfo(name = "category") val category: String,
-    @ColumnInfo(name = "title") val title: String,
-    @ColumnInfo(name = "note") val note: String? = null,
-    @ColumnInfo(name = "payment_method") val paymentMethod: String? = null,
-    @ColumnInfo(name = "occurred_at") val occurredAt: String = FormatUtils.beijingNowIsoString(),
-    @ColumnInfo(name = "city_code") val cityCode: String? = null,
-    @ColumnInfo(name = "wish_id") val wishId: Long? = null,
-    @ColumnInfo(name = "footprint_id") val footprintId: Long? = null,
-    @ColumnInfo(name = "is_installment") val isInstallment: Boolean = false,
-    @ColumnInfo(name = "installment_channel_code") val installmentChannelCode: String? = null,
-    @ColumnInfo(name = "installment_total_amount") val installmentTotalAmount: Long? = null,
-    @ColumnInfo(name = "installment_months") val installmentMonths: Int? = null,
-    @ColumnInfo(name = "installment_monthly_pay") val installmentMonthlyPay: Long? = null,
-    @ColumnInfo(name = "installment_remain_months") val installmentRemainMonths: Int? = null,
-    @ColumnInfo(name = "repayment_day") val repaymentDay: Int? = null,
-    @ColumnInfo(name = "sync_status") val syncStatus: String = "SYNCED",
-    @ColumnInfo(name = "created_at") val createdAt: String = FormatUtils.beijingNowIsoString()
-)
-
-/**
  * 发件箱事件日志表 (OutboxEvent) - docs/mobile.md §4
  */
 @Entity(

@@ -16,7 +16,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.looseleaf.app.model.TrustedDevice
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
@@ -49,13 +48,7 @@ internal fun TrustedDeviceRow(
     onRevokeOrUnpair: () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
-    val platformUpper = platform.uppercase()
-    val platformIcon = when {
-        isLocal -> painterResource(R.drawable.ic_smartphone)
-        platformUpper.contains("MAC") || platformUpper.contains("PC") || platformUpper.contains("DESKTOP") -> painterResource(R.drawable.ic_laptop)
-        platformUpper.contains("WEB") -> painterResource(R.drawable.ic_language)
-        else -> painterResource(R.drawable.ic_devices)
-    }
+    val platformIcon = painterResource(R.drawable.ic_smartphone)
 
     Column(
         modifier = Modifier
@@ -97,7 +90,7 @@ internal fun TrustedDeviceRow(
                     .padding(horizontal = 6.dp, vertical = 1.dp)
             ) {
                 Text(
-                    text = if (isLocal) "本机" else platformUpper,
+                    text = if (isLocal) "本机" else platform.uppercase(),
                     fontSize = 11.sp,
                     fontFamily = ArchiveFontFamilies.MonoScale,
                     fontWeight = FontWeight.Medium,

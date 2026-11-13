@@ -167,10 +167,6 @@
     <string name="profile_screen_title_02">重命名此设备</string>
     <string name="profile_screen_label_03">为当前随行设备设置识别别名：</string>
     <string name="profile_screen_confirmText_02">确认更名</string>
-    <string name="profile_screen_title_03">吊销该接入设备？</string>
-    <string name="profile_screen_confirmText_03">确认吊销</string>
-    <string name="profile_screen_title_04">重命名受信任设备</string>
-    <string name="profile_screen_placeholder_01">新设备名称</string>
 
     <!-- profile_sheets -->
     <string name="profile_sheets_title_01">主理人手卷</string>
@@ -179,22 +175,6 @@
     <string name="profile_sheets_placeholder_01">点选所在省市 (375 国标行政区划)…</string>
     <string name="profile_sheets_text_03">写下一句指引你的生活信条…</string>
     <string name="profile_sheets_text_04">关于你自己、关于时间、关于生活的自白散篇…</string>
-
-    <!-- storage_backup_sheet_dialog -->
-    <string name="storage_backup_sheet_dialog_title_01">确认回滚恢复快照？</string>
-    <string name="storage_backup_sheet_dialog_confirmText_01">确认回滚恢复</string>
-    <string name="storage_backup_sheet_dialog_title_02">删除此快照备份？</string>
-    <string name="storage_backup_sheet_dialog_title_03">存储与灾备</string>
-    <string name="storage_backup_sheet_dialog_text_01">服务端全量 ZIP 快照由 SQLite WAL 数据库及本地元数据打包生成，最多自动轮转保留 7 份：</string>
-    <string name="storage_backup_sheet_dialog_text_02">下载</string>
-    <string name="storage_backup_sheet_dialog_text_03">回滚</string>
-    <string name="storage_backup_sheet_dialog_label_01">Bucket Name (存储桶名称)</string>
-    <string name="storage_backup_sheet_dialog_placeholder_01">例如: loose-leaf-media</string>
-    <string name="storage_backup_sheet_dialog_label_02">S3 Endpoint 或 Cloudflare Account ID</string>
-    <string name="storage_backup_sheet_dialog_placeholder_02">https://&lt;account_id&gt;.r2.cloudflarestorage.com</string>
-    <string name="storage_backup_sheet_dialog_label_03">Access Key ID</string>
-    <string name="storage_backup_sheet_dialog_label_04">公开访问域名 (选填，加速相纸加载)</string>
-    <string name="storage_backup_sheet_dialog_placeholder_03">https://media.yourdomain.com</string>
 
     <!-- projects_wishes_lists -->
     <string name="projects_wishes_lists_contentDescription_01">编辑</string>
@@ -353,12 +333,6 @@
     <!-- profile_screen -->
     <string name="profile_screen_text_tpl_01">“ %1$s ”</string>
     <string name="profile_screen_text_tpl_02">随行 EDC 装备 (%1$s)</string>
-    <string name="profile_screen_text_tpl_03">受信任设备组 (%1$s)</string>
-    <string name="profile_screen_text_tpl_04">其他接入端 (%1$s)</string>
-    <string name="profile_screen_label_tpl_01">修改设备「%1$s」的识别别名：</string>
-
-    <!-- storage_backup_sheet_dialog -->
-    <string name="storage_backup_sheet_dialog_text_tpl_01">%1$s · %2$s</string>
 
     <!-- projects_wishes_lists -->
     <string name="projects_wishes_lists_text_tpl_01">预算: %1$s · 实际: %2$s</string>
@@ -483,14 +457,6 @@
     <string name="profile_sheets_identity">头衔与身份</string>
     <string name="profile_sheets_motto">生活格言</string>
     <string name="profile_sheets_confession">自白手记</string>
-
-    <!-- StorageBackupSheetDialog -->
-    <string name="storage_backup_fetching">正在拉取备份清单…</string>
-    <string name="storage_backup_empty">暂无任何快照备份，点击右上角「立即备份」开始初次备份</string>
-    <string name="storage_backup_test">测试连通性</string>
-    <string name="storage_backup_save">保存并生效</string>
-    <string name="storage_backup_sync_r2">一键将本地媒体同步至 R2</string>
-    <string name="storage_backup_restore">恢复本地存储</string>
 
     <!-- ProjectsWishesLists -->
     <string name="projects_wishes_empty_projects">暂无造物记录</string>

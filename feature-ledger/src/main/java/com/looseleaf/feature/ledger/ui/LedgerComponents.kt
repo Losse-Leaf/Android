@@ -352,21 +352,6 @@ fun LedgerTextField(
 )
 
 @Composable
-fun LedgerCityPickerField(
-    selectedCityCode: String?,
-    selectedCityName: String?,
-    onCitySelected: (code: String, name: String) -> Unit,
-    placeholder: String = "选择城市…",
-    modifier: Modifier = Modifier
-) = ArchiveCityPickerField(
-    selectedCityCode = selectedCityCode,
-    selectedCityName = selectedCityName,
-    onCitySelected = onCitySelected,
-    placeholder = placeholder,
-    modifier = modifier
-)
-
-@Composable
 fun LedgerDateTimeSplitRow(
     selectedDateTime: LocalDateTime,
     onDateTimeSelected: (LocalDateTime) -> Unit,
@@ -397,58 +382,6 @@ fun TypeToggleButton(
     isSelected = isSelected,
     onClick = onClick
 )
-
-@Composable
-fun LedgerExtraPill(
-    text: String,
-    onClick: () -> Unit,
-    icon: Painter? = null,
-    imageVector: ImageVector? = null,
-    highlighted: Boolean = false
-) {
-    val colors = LedgerTheme.colors
-    Box(
-        modifier = Modifier
-            .clip(ArchiveShapes.full)
-            .background(if (highlighted) colors.accent.copy(alpha = 0.12f) else colors.surfaceElevated)
-            .border(
-                width = ArchiveLines.hairline,
-                color = if (highlighted) colors.accent else colors.borderSubtle,
-                shape = ArchiveShapes.full
-            )
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            if (imageVector != null) {
-                Icon(
-                    imageVector = imageVector,
-                    contentDescription = null,
-                    modifier = Modifier.size(13.dp),
-                    tint = if (highlighted) colors.accent else colors.textSecondary
-                )
-            } else if (icon != null) {
-                Icon(
-                    painter = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(13.dp),
-                    tint = if (highlighted) colors.accent else colors.textSecondary
-                )
-            }
-            Text(
-                text = text,
-                fontFamily = ArchiveFontFamilies.MonoScale,
-                fontSize = ArchiveTypeScale.caption,
-                color = if (highlighted) colors.accent else colors.textSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
 
 /**
  * 散页统一的左滑露出操作行 (LedgerSwipeRevealRow)

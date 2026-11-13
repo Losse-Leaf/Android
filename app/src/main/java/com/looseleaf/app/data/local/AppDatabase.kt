@@ -12,19 +12,17 @@ import java.io.File
 @Database(
     entities = [
         CachedEntryEntity::class,
-        CachedTransactionEntity::class,
         OutboxEventEntity::class,
         CachedProjectEntity::class,
         CachedWishEntity::class,
         CachedFootprintEntity::class
     ],
-    version = 9,
+    version = 10,
     // 导出 schema 到 app/schemas，后续迁移必须能和它逐字段对齐
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun entryDao(): EntryDao
-    abstract fun transactionDao(): TransactionDao
     abstract fun outboxDao(): OutboxDao
     abstract fun projectDao(): ProjectDao
     abstract fun wishDao(): WishDao
@@ -541,6 +539,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `cached_transactions`")
+            }
+        }
+
         /** MIGRATION_8_9 的单表归一：只回写「归一结果与原文不同」的行，幂等且最小化写放大。 */
         private fun normalizeOccurredAtInPlace(db: SupportSQLiteDatabase, table: String) {
             val pendingUpdates = mutableListOf<Pair<Long, String>>()
@@ -576,7 +580,8 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_5_6,
                     MIGRATION_6_7,
                     MIGRATION_7_8,
-                    MIGRATION_8_9
+                    MIGRATION_8_9,
+                    MIGRATION_9_10
                 )
                 // 只在「降级安装」时清库；版本前进时缺迁移宁可显式失败，也不静默抹掉未同步数据。
                 .fallbackToDestructiveMigrationOnDowngrade()

@@ -28,13 +28,11 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.ui.components.ArchivePageHeader
-import com.looseleaf.feature.ledger.service.LedgerNotificationListenerService
 import com.looseleaf.feature.ledger.theme.LedgerTheme
-import kotlinx.coroutines.launch
 
 /**
  * 账本后台保活与自动记账检查页 (LedgerKeepAliveScreen)
- * 提供通知读取权限、电池优化白名单、国产厂商后台锁检查与一键模拟记账测试。
+ * 提供通知读取权限、电池优化白名单与国产厂商后台锁检查。
  */
 @Composable
 fun LedgerKeepAliveScreen(
@@ -46,12 +44,10 @@ fun LedgerKeepAliveScreen(
     BackHandler(onBack = onNavigateBack)
 
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val colors = LedgerTheme.colors
 
     var isNotificationAccessGranted by remember { mutableStateOf(checkNotificationAccess(context)) }
     var isBatteryOptIgnored by remember { mutableStateOf(checkBatteryOptIgnored(context)) }
-    var simulateStatusMessage by remember { mutableStateOf<String?>(null) }
 
     val scrollState = rememberScrollState()
 
@@ -111,27 +107,6 @@ fun LedgerKeepAliveScreen(
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                         runCatching { context.startActivity(intent) }
-                    }
-                }
-            )
-
-            SimulationTestCard(
-                simulateStatusMessage = simulateStatusMessage,
-                onSimulate = {
-                    scope.launch {
-                        simulateStatusMessage = "正在模拟..."
-                        val id = LedgerNotificationListenerService.simulatePayment(
-                            title = "微信支付",
-                            text = "向商家付款 28.50 元",
-                            pkg = "com.tencent.mm"
-                        )
-                        simulateStatusMessage = if (id != null) {
-                            "已成功记入一笔 28.50 元餐饮支出！"
-                        } else {
-                            "模拟失败，请检查服务配置。"
-                        }
-                        isNotificationAccessGranted = checkNotificationAccess(context)
-                        isBatteryOptIgnored = checkBatteryOptIgnored(context)
                     }
                 }
             )
@@ -243,54 +218,6 @@ private fun CheckCard(
                 text = actionText,
                 enabled = !isPassed,
                 onClick = onAction
-            )
-        }
-    }
-}
-
-@Composable
-private fun SimulationTestCard(
-    simulateStatusMessage: String?,
-    onSimulate: () -> Unit
-) {
-    val colors = LedgerTheme.colors
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(4.dp))
-            .background(colors.surface)
-            .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
-            .padding(14.dp)
-    ) {
-        Column {
-            Text(
-                text = "功能联调：模拟微信记账",
-                style = LedgerTheme.typography.subtitle,
-                fontFamily = LedgerTheme.typography.serif,
-                fontWeight = FontWeight.SemiBold,
-                color = colors.textPrimary
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "无需真实掏出手机付款，点击下方按钮即可模拟一条「微信支付 28.50 元」的通知事件并注入账本。",
-                style = LedgerTheme.typography.caption,
-                fontFamily = LedgerTheme.typography.serif,
-                color = colors.textSecondary
-            )
-            if (simulateStatusMessage != null) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = simulateStatusMessage,
-                    style = LedgerTheme.typography.caption,
-                    fontFamily = LedgerTheme.typography.serif,
-                    color = colors.accent,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            LedgerTextButton(
-                text = "模拟记一笔 (28.50 元)",
-                onClick = onSimulate
             )
         }
     }

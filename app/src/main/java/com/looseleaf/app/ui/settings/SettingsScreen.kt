@@ -35,8 +35,6 @@ import com.looseleaf.app.BuildConfig
 import com.looseleaf.app.R
 import com.looseleaf.app.data.security.AppearanceMode
 import com.looseleaf.app.model.CuratorProfile
-import com.looseleaf.app.model.PairTicketResponse
-import com.looseleaf.app.model.TrustedDevice
 import com.looseleaf.app.model.UpdateProfileRequest
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveTypeScale
@@ -52,7 +50,7 @@ import com.looseleaf.app.utils.CityDictionary
  * 设置中心 (SettingsScreen)
  *
  * 从展台里独立出来（RG-32）：展台负责「看」（档案 / 统计 / 热力图 / 装备），
- * 设置负责「改」（外观 / 安全 / 通知 / 设备 / 存储灾备 / 更新 / 解绑）。
+ * 设置负责「改」（外观 / 安全 / 通知 / 设备 / 更新 / 解绑）。
  * 原先两者挤在一页，同一件事有三个入口：⋮ 菜单、设置抽屉、页面内联。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,14 +67,6 @@ internal fun SettingsScreen(
     localDeviceName: String,
     localDeviceId: String,
     onRenameLocalDevice: () -> Unit,
-    otherDevices: List<TrustedDevice>,
-    onOpenOtherDevices: () -> Unit,
-    isIssuingPairTicket: Boolean,
-    onIssuePairTicket: () -> Unit,
-    issuedPairTicket: PairTicketResponse?,
-    onClosePairTicket: () -> Unit,
-    onCopyPairTicket: (String) -> Unit,
-    onOpenStorageBackup: () -> Unit,
     isCheckingUpdate: Boolean,
     onCheckUpdate: () -> Unit,
     onUnpair: () -> Unit,
@@ -330,78 +320,13 @@ internal fun SettingsScreen(
 
             // 二、受信任设备组
             Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "受信任设备组 (${otherDevices.size + 1})",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
-                        color = colors.inkPrimary
-                    )
-                    ArchiveTextButton(
-                        text = if (isIssuingPairTicket) "签发中…" else "+ 签发配对工单",
-                        onClick = onIssuePairTicket,
-                        enabled = !isIssuingPairTicket
-                    )
-                }
-
-                issuedPairTicket?.let { ticket ->
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(colors.archiveCard)
-                            .border(1.dp, colors.accentWarm.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
-                            .padding(10.dp)
-                    ) {
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "新设备 5 分钟配对凭据",
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = colors.inkPrimary
-                                )
-                                TextButton(
-                                    onClick = onClosePairTicket,
-                                    contentPadding = PaddingValues(0.dp)
-                                ) {
-                                    Text("收起", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 12.sp, color = colors.inkMuted)
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = ticket.qrPayload,
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 10.sp,
-                                color = colors.inkSecondary,
-                                maxLines = 2
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(colors.accentWarm)
-                                    .clickable { onCopyPairTicket(ticket.qrPayload) }
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("复制配对链接", fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 12.sp, color = colors.archivePaper)
-                            }
-                        }
-                    }
-                }
+                Text(
+                    text = "本机设备",
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    color = colors.inkPrimary
+                )
 
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -415,110 +340,11 @@ internal fun SettingsScreen(
                     onRename = onRenameLocalDevice,
                     onRevokeOrUnpair = onUnpair
                 )
-
-                if (otherDevices.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(colors.archiveCard)
-                            .border(1.dp, colors.borderSubtle, RoundedCornerShape(4.dp))
-                            .clickable { onOpenOtherDevices() }
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_devices),
-                                contentDescription = null,
-                                tint = colors.accentWarm,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "其他受信任设备 (${otherDevices.size} 台)",
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 14.sp,
-                                    color = colors.inkPrimary
-                                )
-                                Text(
-                                    text = "Web 伴侣、Mac 桌面端等 · 点击查看与管理",
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 11.sp,
-                                    color = colors.inkSecondary
-                                )
-                            }
-                        }
-                        Icon(
-                            painter = painterResource(R.drawable.ic_chevron_right),
-                            contentDescription = null,
-                            tint = colors.inkMuted,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
             }
 
             ArchiveDivider()
 
-            // 三、存储配置与快照容灾
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(colors.archiveCard)
-                    .border(1.dp, colors.borderSubtle, RoundedCornerShape(4.dp))
-                    .clickable { onOpenStorageBackup() }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_storage),
-                        contentDescription = null,
-                        tint = colors.accentWarm,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "存储配置与快照灾备",
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            color = colors.inkPrimary
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "SQLite WAL 快照全量灾备与对象存储热配置",
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 11.sp,
-                            color = colors.inkSecondary
-                        )
-                    }
-                }
-                Icon(
-                    painter = painterResource(R.drawable.ic_chevron_right),
-                    contentDescription = null,
-                    tint = colors.inkMuted,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            ArchiveDivider()
-
-            // 四、版本信息与检测更新
+            // 三、版本信息与检测更新
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "关于散页随行手账",

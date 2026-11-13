@@ -138,12 +138,6 @@ fun PaperBadge(
     }
 }
 
-@Composable
-fun PaperDivider(
-    modifier: Modifier = Modifier,
-    color: Color? = null
-) = ArchiveDivider(modifier = modifier, color = color)
-
 @Suppress("UNUSED_PARAMETER")
 @Composable
 fun PaperTextField(
@@ -196,19 +190,6 @@ fun PaperTextEditor(
     enabled = enabled,
     keyboardOptions = keyboardOptions,
     keyboardActions = keyboardActions,
-    modifier = modifier
-)
-
-@Composable
-fun PaperFilterPill(
-    selected: Boolean,
-    onClick: () -> Unit,
-    label: String,
-    modifier: Modifier = Modifier
-) = ArchiveSelectableCapsule(
-    text = label,
-    selected = selected,
-    onClick = onClick,
     modifier = modifier
 )
 

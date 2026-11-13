@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   只保留 XML 层真实消费的颜色：冷启动窗口背景与系统栏（themes.xml）。
-  运行期全部色值唯一定义在 theme/Color.kt（SpectrumColors 与 ArchiveColors），
+  运行期全部色值唯一定义在 theme/Color.kt（ArchiveColors），
   这里不再维护第二套色盘——避免 XML 与 Compose 双真相源。
   Android 15 (targetSdk 35) 起 statusBarColor/navigationBarColor 已失效，
   仅对 API < 35 生效；edge-to-edge 托底由 Theme.kt 的窗口背景接管。

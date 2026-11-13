@@ -199,7 +199,7 @@ class InstallmentReminderWorker(
             )
 
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_calculate)
+                .setSmallIcon(com.looseleaf.core.R.drawable.ic_calculate)
                 .setContentTitle("散页 · 分期还款提醒")
                 .setContentText(contentText)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)

@@ -104,18 +104,6 @@ data class Transaction(
     @SerialName("deleted_at") val deletedAt: String? = null
 )
 
-@Immutable
-@Serializable
-data class TransactionSummary(
-    val year: Int = 0,
-    val month: Int = 0,
-    @SerialName("total_expense") val totalExpense: Long = 0,
-    @SerialName("total_income") val totalIncome: Long = 0,
-    val balance: Long = 0,
-    val count: Int = 0,
-    @SerialName("category_breakdown") val categoryBreakdown: Map<String, Long>? = null
-)
-
 /**
  * 主理人档案 (CuratorProfile)
  */
@@ -151,21 +139,6 @@ data class GearItem(
     @SerialName("sold_price_cents") val soldPriceCents: Long? = null,
     @SerialName("sold_date") val soldDate: String? = null,
     val note: String? = null
-)
-
-/**
- * 站点配置 (SiteConfig)
- */
-@Serializable
-data class SiteConfig(
-    val id: Long? = null,
-    @SerialName("site_name") val siteName: String = "散页",
-    @SerialName("site_subtitle") val siteSubtitle: String = "",
-    @SerialName("curator_name") val curatorName: String = "",
-    @SerialName("default_location") val defaultLocation: String = "",
-    @SerialName("site_desc") val siteDesc: String = "",
-    val initialized: Boolean = false,
-    @SerialName("initial_liquid_balance") val initialLiquidBalance: Long = 0
 )
 
 /**
@@ -744,66 +717,6 @@ data class CreateCategoryRequest(
 )
 
 @Serializable
-data class StorageStatus(
-    val provider: String = "local",
-    val configured: Boolean = false,
-    @SerialName("account_id") val accountId: String? = null,
-    val bucket: String? = null,
-    @SerialName("public_domain") val publicDomain: String? = null,
-    val endpoint: String? = null,
-    @SerialName("access_key_id") val accessKeyId: String? = null,
-    @SerialName("has_secret_key") val hasSecretKey: Boolean? = false,
-    @SerialName("local_file_count") val localFileCount: Int? = 0,
-    @SerialName("local_total_bytes") val localTotalBytes: Long? = 0
-)
-
-@Serializable
-data class StorageConfigRequest(
-    @SerialName("account_id") val accountId: String = "",
-    @SerialName("access_key_id") val accessKeyId: String = "",
-    @SerialName("secret_access_key") val secretAccessKey: String = "",
-    @SerialName("bucket_name") val bucketName: String = "",
-    val endpoint: String = "",
-    @SerialName("public_domain") val publicDomain: String = "",
-    @SerialName("presign_expire_seconds") val presignExpireSeconds: Int = 1800
-)
-
-@Serializable
-data class StorageTestResponse(
-    val status: String = "ok",
-    val message: String = "",
-    @SerialName("latency_ms") val latencyMs: Long = 0
-)
-
-@Serializable
-data class StorageMigrateResponse(
-    @SerialName("uploaded_to_r2") val uploadedToR2: Int = 0,
-    @SerialName("downloaded_to_local") val downloadedToLocal: Int = 0,
-    val message: String = ""
-)
-
-@Immutable
-@Serializable
-data class BackupItem(
-    val filename: String,
-    val size: Long = 0,
-    @SerialName("created_at") val createdAt: String = "",
-    @SerialName("storage_type") val storageType: String = "local"
-)
-
-@Serializable
-data class RestoreBackupRequest(
-    val filename: String
-)
-
-@Serializable
-data class RestoreBackupResponse(
-    val message: String = "",
-    val filename: String = "",
-    val size: Long = 0
-)
-
-@Serializable
 data class GlobalSearchResponse(
     val query: String = "",
     val entries: List<LifeEntry> = emptyList(),
@@ -941,28 +854,6 @@ data class DeviceInfo(
     @SerialName("device_id") val deviceId: String = "",
     val name: String = "",
     val platform: String = "android"
-)
-
-@Serializable
-data class TrustedDevice(
-    val id: Long = 0,
-    @SerialName("device_id") val deviceId: String = "",
-    val name: String = "",
-    val platform: String = "android",
-    @SerialName("device_model") val deviceModel: String? = null,
-    val status: String = "active",
-    @SerialName("paired_at") val pairedAt: String = "",
-    @SerialName("last_active_at") val lastActiveAt: String = ""
-)
-
-@Serializable
-data class PairTicketResponse(
-    val ticket: String = "",
-    @SerialName("hub_url") val hubUrl: String = "",
-    @SerialName("expires_at") val expiresAt: String = "",
-    @SerialName("expires_in_seconds") val expiresInSeconds: Int = 300,
-    @SerialName("qr_payload") val qrPayload: String = "",
-    @SerialName("qr_code_data_url") val qrCodeDataUrl: String = ""
 )
 
 @Serializable

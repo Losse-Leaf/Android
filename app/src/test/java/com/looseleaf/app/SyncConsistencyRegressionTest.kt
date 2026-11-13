@@ -4,7 +4,6 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.looseleaf.app.data.local.AppDatabase
 import com.looseleaf.app.data.local.CachedEntryEntity
-import com.looseleaf.app.data.local.CachedTransactionEntity
 import com.looseleaf.app.data.local.OutboxEventEntity
 import com.looseleaf.app.data.sync.OutboxSyncWorker
 import com.looseleaf.app.data.sync.SyncManager
@@ -82,34 +81,6 @@ class SyncConsistencyRegressionTest {
 
         assertNull("本地临时散页必须删除", db.entryDao().getEntryByLocalId(tempId))
         assertNull("CREATE 事件必须消费掉，避免死信反复重试", db.outboxDao().findEventById(create.eventId))
-    }
-
-    @Test
-    fun `410 清理会同时删除本地临时账目与 CREATE 事件`() = runBlocking {
-        val tempId = -402L
-        db.transactionDao().insert(
-            CachedTransactionEntity(
-                localId = tempId,
-                amount = 4250,
-                type = "expense",
-                category = "餐饮",
-                title = "待丢弃账目",
-                syncStatus = "PENDING_CREATE"
-            )
-        )
-        val create = event(
-            eventId = "ev-tx-410",
-            entityType = "transaction",
-            localTargetId = tempId
-        )
-        db.outboxDao().insert(create)
-
-        SyncManager.discardGoneCreate(db, create) {
-            db.transactionDao().deleteByLocalId(tempId)
-        }
-
-        assertNull("本地临时账目必须删除", db.transactionDao().getTransactionByLocalId(tempId))
-        assertNull("CREATE 事件必须消费掉", db.outboxDao().findEventById(create.eventId))
     }
 
     @Test

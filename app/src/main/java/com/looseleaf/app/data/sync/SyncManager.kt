@@ -76,7 +76,7 @@ data class StreamWindowPage(
  * MOB-P2-47：删除撤销票据。
  * 记录被删对象，用于在「已删除」提示上挂一个「撤销」动作。
  */
-enum class DeleteUndoKind { ENTRY, TRANSACTION }
+enum class DeleteUndoKind { ENTRY }
 
 class DeleteUndoTicket(
     val entity: Any,
@@ -303,12 +303,6 @@ class SyncManager private constructor(private val context: Context) {
                 val normalized = FormatUtils.normalizeBeijingIsoOrRaw(row.occurredAt)
                 if (normalized != row.occurredAt) {
                     database.entryDao().updateEntryOccurredAt(row.localId, normalized)
-                }
-            }
-            database.transactionDao().getTransactionTimeRows().forEach { row ->
-                val normalized = FormatUtils.normalizeBeijingIsoOrRaw(row.occurredAt)
-                if (normalized != row.occurredAt) {
-                    database.transactionDao().updateTransactionOccurredAt(row.localId, normalized)
                 }
             }
             syncPrefs.edit().putBoolean(key, true).apply()
@@ -1083,43 +1077,6 @@ class SyncManager private constructor(private val context: Context) {
         outboxMutex.withLock { SyncMerger.undoDeleteEntry(database, ticket) }
 
     /**
-     * 删除单笔记账 (支持已同步正数 serverId 与未同步负数 -localId)
-     */
-    /** MOB-P2-47：删除一笔账目并返回撤销票据（已同步且删除事件尚未上传时可撤销） */
-    suspend fun deleteTransaction(idOrLocalId: Long): DeleteUndoTicket? {
-        val entity = if (idOrLocalId < 0) {
-            database.transactionDao().getTransactionByLocalId(-idOrLocalId)
-        } else {
-            database.transactionDao().getTransactionByServerId(idOrLocalId)
-                ?: database.transactionDao().getTransactionByLocalId(idOrLocalId)
-        } ?: return null
-
-        database.withTransaction {
-            if (entity.serverId != null && entity.serverId > 0) {
-                database.outboxDao().insert(
-                    OutboxEventEntity(
-                        eventId = UUID.randomUUID().toString(),
-                        entityType = "transaction",
-                        action = "DELETE",
-                        payload = "{}",
-                        localTargetId = entity.localId,
-                        serverTargetId = entity.serverId
-                    )
-                )
-            } else {
-                database.outboxDao().deleteByLocalTarget("transaction", entity.localId)
-            }
-            database.transactionDao().deleteByLocalId(entity.localId)
-        }
-        notifyLocalWrite()
-        // MOB-P2-47：同 deleteEntry，删除事件先压一会儿再上传
-        scheduleDelayedSync(DELETE_GRACE_PERIOD_MS)
-
-        val undoable = entity.serverId != null && entity.serverId > 0
-        return if (undoable) DeleteUndoTicket(entity = entity, kind = DeleteUndoKind.TRANSACTION) else null
-    }
-
-    /**
      * 清空本地缓存与待发队列 (设备解绑时调用)
      *
      * 必须在 outboxMutex + pullMutex 双临界区内执行：cancelScheduledSync 只取消
@@ -1133,7 +1090,6 @@ class SyncManager private constructor(private val context: Context) {
             resetSessionPulls()
             database.withTransaction {
                 database.entryDao().clearAll()
-                database.transactionDao().clearAll()
                 database.outboxDao().clearAll()
                 database.projectDao().clearAll()
                 database.wishDao().clearAll()
@@ -1164,8 +1120,6 @@ class SyncManager private constructor(private val context: Context) {
      */
     enum class SyncDataset {
         ENTRIES,
-        @Deprecated("账本已独立至 LedgerRepository/LedgerDatabase")
-        TRANSACTIONS,
         PROJECTS,
         WISHES,
         FOOTPRINTS
@@ -1188,10 +1142,6 @@ class SyncManager private constructor(private val context: Context) {
 
             if (SyncDataset.ENTRIES in datasets) {
                 pullEntriesDataset(forceFull)?.let { failures += it }
-            }
-            if (SyncDataset.TRANSACTIONS in datasets) {
-                val res = com.looseleaf.feature.ledger.data.LedgerRepository.pullLedgerData(force = forceFull)
-                res.exceptionOrNull()?.let { failures += "记账流水：${it.message}" }
             }
             if (SyncDataset.PROJECTS in datasets) {
                 pullProjectsDataset(forceFull)?.let { failures += it }
@@ -1525,11 +1475,6 @@ class SyncManager private constructor(private val context: Context) {
     /** MOB-P1-37：时间流页面专用拉取（只拉生活档案） */
     suspend fun pullStreamData(forceFull: Boolean = false): Result<Unit> =
         pullRemoteData(forceFull, setOf(SyncDataset.ENTRIES))
-
-    /** 账本页面拉取已迁移至 LedgerRepository.pullLedgerData */
-    @Deprecated("请直接使用 LedgerRepository.pullLedgerData", ReplaceWith("com.looseleaf.feature.ledger.data.LedgerRepository.pullLedgerData(force = forceFull)"))
-    suspend fun pullLedgerData(forceFull: Boolean = false): Result<Unit> =
-        com.looseleaf.feature.ledger.data.LedgerRepository.pullLedgerData(force = forceFull)
 
     /** MOB-P1-37：造物 / 心愿 / 足迹页面专用拉取 */
     suspend fun pullProjectsWishesData(forceFull: Boolean = false): Result<Unit> =
@@ -2466,84 +2411,6 @@ class SyncManager private constructor(private val context: Context) {
                     database.outboxDao().delete(event)
                 }
             }
-            "transaction" -> {
-                when (event.action) {
-                    "CREATE" -> {
-                        // 与 entry CREATE 同理：先复核本地行仍在，避免幽灵建档
-                        val stillThere = database.transactionDao().getTransactionByLocalId(event.localTargetId) != null
-                        if (stillThere) {
-                            val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
-                            val serverTx = try {
-                                apiClient.createTransaction(req)
-                            } catch (e: APIException) {
-                                if (e.code == 410) {
-                                    // OPT-08：服务端该记录已被软删后物理清理（purge）。
-                                    discardGoneCreate(database, event) {
-                                        database.transactionDao().deleteByLocalId(event.localTargetId)
-                                    }
-                                    return
-                                }
-                                throw e
-                            }
-                            database.transactionDao().markSynced(event.localTargetId, serverTx.id)
-                            database.outboxDao().bindPendingUpdatesToServerId(
-                                "transaction", event.localTargetId, serverTx.id
-                            )
-                        }
-                        database.outboxDao().delete(event)
-                    }
-                    "UPDATE" -> {
-                        val current = database.outboxDao().findEventById(event.eventId) ?: return
-                        val local = database.transactionDao().getTransactionByLocalId(current.localTargetId)
-                        val targetServerId = current.serverTargetId ?: local?.serverId
-                        if (targetServerId == null || targetServerId <= 0) {
-                            // CREATE 尚未完成：保留 UPDATE，等它拿到服务端 id 后再补发。
-                            if (local == null) database.outboxDao().delete(current)
-                            return
-                        }
-                        try {
-                            val req = json.decodeFromString<CreateTransactionRequest>(current.payload)
-                            apiClient.updateTransaction(targetServerId, req)
-                            // ── check-then-act 收口（P1）：同 entry UPDATE。
-                            // API 往返期间 UI 可能又落了一版编辑（换掉本事件的载荷）。
-                            // 同一事务内按 eventId 重读比对载荷，一致才 markSynced + 删事件；
-                            // 不一致则两者都不做，留给下一轮按新载荷重发——
-                            // 否则旧载荷投递成功后整队清场，用户的新编辑就被静默丢了。
-                            database.withTransaction {
-                                val latest = database.outboxDao().findEventById(current.eventId)
-                                    ?: return@withTransaction
-                                if (latest.payload != current.payload) {
-                                    // 载荷已被并发编辑替换：本次不回写不删事件。
-                                    onPayloadSuperseded?.invoke()
-                                    return@withTransaction
-                                }
-                                database.transactionDao().markSynced(current.localTargetId, targetServerId)
-                                database.outboxDao().delete(latest)
-                            }
-                        } catch (e: APIException) {
-                            if (e.code == 404) {
-                                database.transactionDao().deleteByLocalId(current.localTargetId)
-                                database.outboxDao().delete(current)
-                            } else {
-                                throw e
-                            }
-                        }
-                    }
-                    "DELETE" -> {
-                        val targetServerId = event.serverTargetId
-                        if (targetServerId != null && targetServerId > 0) {
-                            try {
-                                apiClient.deleteTransaction(targetServerId)
-                            } catch (e: APIException) {
-                                if (e.code != 404) throw e
-                            }
-                        }
-                        database.transactionDao().deleteByLocalId(event.localTargetId)
-                        database.outboxDao().delete(event)
-                    }
-                    else -> database.outboxDao().delete(event)
-                }
-            }
             "project" -> {
                 when (event.action) {
                     "CREATE" -> {
@@ -3005,31 +2872,6 @@ fun CachedEntryEntity.toDomainModel(
     )
 }
 
-fun CachedTransactionEntity.toTransaction(): Transaction {
-    return Transaction(
-        id = serverId ?: -localId,
-        amount = amount,
-        type = type,
-        category = category,
-        title = title,
-        note = note,
-        paymentMethod = paymentMethod,
-        occurredAt = occurredAt,
-        cityCode = cityCode,
-        wishId = wishId,
-        footprintId = footprintId,
-        isInstallment = isInstallment,
-        installmentChannelCode = installmentChannelCode,
-        installmentTotalAmount = installmentTotalAmount,
-        installmentMonths = installmentMonths,
-        installmentMonthlyPay = installmentMonthlyPay,
-        installmentRemainMonths = installmentRemainMonths,
-        repaymentDay = repaymentDay,
-        syncStatus = syncStatus,
-        createdAt = createdAt
-    )
-}
-
 fun CachedProjectEntity.toProject(): Project {
     return Project(
         id = id,
@@ -3114,30 +2956,6 @@ fun LifeEntry.toCacheEntity(localId: Long, json: Json): CachedEntryEntity = Cach
     wishId = wishId,
     footprintId = footprintId,
     attachmentsJson = json.encodeToString(attachments),
-    syncStatus = SyncManager.STATUS_SYNCED,
-    createdAt = createdAt ?: occurredAt
-)
-
-fun Transaction.toCacheEntity(localId: Long): CachedTransactionEntity = CachedTransactionEntity(
-    localId = localId,
-    serverId = id,
-    amount = amount,
-    type = type,
-    category = category,
-    title = title,
-    note = note,
-    paymentMethod = paymentMethod,
-    occurredAt = FormatUtils.normalizeBeijingIsoOrRaw(occurredAt),
-    cityCode = cityCode,
-    wishId = wishId,
-    footprintId = footprintId,
-    isInstallment = isInstallment ?: false,
-    installmentChannelCode = installmentChannelCode,
-    installmentTotalAmount = installmentTotalAmount,
-    installmentMonths = installmentMonths,
-    installmentMonthlyPay = installmentMonthlyPay,
-    installmentRemainMonths = installmentRemainMonths,
-    repaymentDay = repaymentDay,
     syncStatus = SyncManager.STATUS_SYNCED,
     createdAt = createdAt ?: occurredAt
 )

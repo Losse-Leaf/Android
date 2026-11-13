@@ -165,11 +165,10 @@ class FeaturedColumnMigrationTest {
         helper.close()
 
         val context = ApplicationProvider.getApplicationContext<Context>()
-        // 用 Room 打开同一个文件：Room 会跑 MIGRATION_7_8（随后接 MIGRATION_8_9
-        // 把 occurred_at 归一为 +08:00），并在迁移后用 9.json 校验真实表结构 ——
-        // 结构对不上会直接抛异常。
+        // 用 Room 打开同一个文件：Room 会跑 MIGRATION_7_8 → MIGRATION_8_9 → MIGRATION_9_10，
+        // 并在迁移后用 10.json 校验真实表结构 —— 结构对不上会直接抛异常。
         val room = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9)
+            .addMigrations(AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10)
             .allowMainThreadQueries()
             .build()
 
@@ -197,9 +196,9 @@ class FeaturedColumnMigrationTest {
             assertTrue(c.moveToNext())
             assertEquals("迁移前的造物", c.getString(0))
         }
-        sqlite.query("SELECT title FROM cached_transactions WHERE local_id = 1").use { c ->
-            assertTrue(c.moveToNext())
-            assertEquals("分期显示器", c.getString(0))
+        // v9 -> v10 移除主库重复的 cached_transactions（账本独立使用 LedgerDatabase）
+        sqlite.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cached_transactions'").use { c ->
+            assertFalse("迁移到 v10 后不应保留 cached_transactions", c.moveToNext())
         }
 
         // 3. 索引仍在
@@ -224,7 +223,7 @@ class FeaturedColumnMigrationTest {
 
         val context = ApplicationProvider.getApplicationContext<Context>()
         val room = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9)
+            .addMigrations(AppDatabase.MIGRATION_7_8, AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10)
             .allowMainThreadQueries()
             .build()
         val sqlite = room.openHelper.writableDatabase

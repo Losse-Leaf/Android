@@ -53,7 +53,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
@@ -141,9 +140,6 @@ private const val STREAM_PAGE_SIZE = 60
  * 生活时间流主展厅 (StreamScreen) - docs/mobile.md §3 & docs/ecosystem.md §4.1
  * 承载生命之流母体记录，支持相纸画廊、那年今日回响、年度生活年鉴、详情查阅与行内修订、岁月留白切线
  */
-/** MOB-P2-40：宽屏双栏断点（与 Material3 的 Expanded 断点一致：840dp） */
-private const val WIDE_LAYOUT_MIN_WIDTH_DP = 840
-
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun StreamScreen(
@@ -243,36 +239,10 @@ fun StreamScreen(
     }
 
     // 单条档案详情与编辑弹窗状态
-    // MOB-P2-40：宽屏（平板 / 折叠屏展开态）走「列表 + 详情」双栏，
-    // 窄屏仍是底部详情弹窗 —— 两份状态分开，展开/折叠切换时才不会互相打架。
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val isWideLayout = screenWidthDp >= WIDE_LAYOUT_MIN_WIDTH_DP
-    // 右侧详情栏占 45%（最多 560dp）——「记随笔」浮动印章要据此让位
-    // MOB-P1-xx：与右栏实际渲染宽度同源（widthIn(max=560) + fillMaxWidth(0.45) 的较小者），
-    // 否则「记随笔」浮动印章的让位宽度会和真实栏宽对不上。
-    val paneWidthDp = (screenWidthDp * 0.45f).coerceAtMost(560f)
-    var selectedEntryForDetail by remember { mutableStateOf<LifeEntry?>(null) }
     var detailDialogEntry by remember { mutableStateOf<LifeEntry?>(null) }
 
-    // 选中入口：宽屏只「选中」（右栏展示），窄屏直接弹详情
-    val selectEntry = remember(isWideLayout) { { entry: LifeEntry ->
-        selectedEntryForDetail = entry
-        if (!isWideLayout) detailDialogEntry = entry
-    } }
+    val selectEntry = remember { { entry: LifeEntry -> detailDialogEntry = entry } }
     var lightboxPhoto by remember { mutableStateOf<Pair<String, String?>?>(null) }
-
-    // MOB-P1-xx：宽屏 / 窄屏切换时收敛。
-    //
-    // 之前是「两套独立状态」：窄屏点条目会同时写 selectedEntryForDetail 与 detailDialogEntry，
-    // 折叠/旋转到宽屏后全屏 Sheet 仍盖在双栏布局上 —— 同一条记录在弹窗和右栏**重复呈现**。
-    // 这里在切到宽屏时关掉全屏 Sheet（宽屏由右栏负责展示），切回窄屏时用右栏的选中项补上弹窗。
-    LaunchedEffect(isWideLayout) {
-        if (isWideLayout) {
-            detailDialogEntry = null
-        } else if (detailDialogEntry == null && selectedEntryForDetail != null) {
-            detailDialogEntry = selectedEntryForDetail
-        }
-    }
 
     // 更新检查：整个进程只查一次，失败静默（避免每次切 Tab 都打 GitHub API）
     LaunchedEffect(Unit) {
@@ -521,13 +491,10 @@ fun StreamScreen(
         ) {
             Column(
                 modifier = Modifier
-                    // MOB-P2-40：宽屏时列表只占 55% 并靠左，把右侧空间让给详情栏
-                    // MOB-P1-xx：同上 —— 上限要写在 fillMaxWidth 之前才有效
-                    .widthIn(max = 620.dp)
-                    .fillMaxWidth(if (isWideLayout) 0.55f else 1f)
+                    .fillMaxWidth()
                     .fillMaxHeight()
-                    .widthIn(max = if (isWideLayout) 620.dp else 680.dp)
-                    .align(if (isWideLayout) Alignment.TopStart else Alignment.TopCenter)
+                    .widthIn(max = 680.dp)
+                    .align(Alignment.TopCenter)
             ) {
             // 顶栏：本子封面条 (Collapsible Book Cover Header)
             StreamCoverHeader(
@@ -684,10 +651,7 @@ fun StreamScreen(
 
             // MOB-P1-24：列表项回调提升为**稳定引用**（放在 items{} 之外），
     // 这样 StreamEntryCard 的参数保持稳定，任意一项状态变化都不会牵连整屏重组。
-    val onEntryClick = remember(isWideLayout) { { entry: LifeEntry ->
-        selectedEntryForDetail = entry
-        if (!isWideLayout) detailDialogEntry = entry
-    } }
+    val onEntryClick = remember { { entry: LifeEntry -> detailDialogEntry = entry } }
     val onEntryDelete = remember { { entry: LifeEntry -> entryToDelete = entry } }
     val onPhotoClick = remember { { url: String, meta: String? -> lightboxPhoto = url to meta } }
 
@@ -1004,8 +968,7 @@ fun StreamScreen(
             onClick = { showQuickNoteDialog = true },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                // MOB-P2-40：宽屏时右侧有详情栏，浮动印章让到列表列里
-                .padding(end = if (isWideLayout) (paneWidthDp + 20).dp else 20.dp, bottom = 20.dp),
+                .padding(end = 20.dp, bottom = 20.dp),
             icon = {
                 Icon(
                     painter = painterResource(R.drawable.ic_fountain_pen),
@@ -1016,26 +979,6 @@ fun StreamScreen(
             }
         )
 
-        // MOB-P2-40：宽屏右侧详情栏
-        // 只读呈现；修订与删除仍复用原有弹窗，避免两套编辑逻辑分叉。
-        if (isWideLayout) {
-            EntryPreviewPane(
-                entry = selectedEntryForDetail,
-                onEdit = { detailDialogEntry = selectedEntryForDetail },
-                onDelete = { selectedEntryForDetail?.let { entryToDelete = it } },
-                onPhotoClick = { url, meta -> lightboxPhoto = url to meta },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    // MOB-P1-xx：widthIn 必须写在 fillMaxWidth **之前** ——
-                    // fillMaxWidth 会用固定宽约束测量子节点，内侧的 widthIn 再也收不窄，
-                    // 于是 560.dp 的上限成了死代码，实际宽度恒为 0.45×屏宽。
-                    .widthIn(max = 560.dp)
-                    .fillMaxWidth(0.45f)
-                    .fillMaxHeight()
-                    .padding(start = 4.dp, end = 20.dp, top = 16.dp, bottom = 16.dp)
-            )
-        }
-
         // 单条记录详情与编辑 Sheet/Dialog
         detailDialogEntry?.let { activeEntry ->
             EntryDetailSheetDialog(
@@ -1043,7 +986,6 @@ fun StreamScreen(
                 apiClient = apiClient,
                 onDismiss = {
                     detailDialogEntry = null
-                    if (!isWideLayout) selectedEntryForDetail = null
                 },
                 onSaveEdit = { req, selectedAttachments ->
                     scope.launch {
@@ -1053,16 +995,10 @@ fun StreamScreen(
                             // 不能假报「已保存」让用户内容凭空消失。
                             ArchiveToastManager.show("该记录已不存在，修订未保存", isError = true)
                             detailDialogEntry = null
-                            if (!isWideLayout) selectedEntryForDetail = null
                             return@launch
                         }
                         ArchiveToastManager.show("已修订归册")
                         detailDialogEntry = null
-                        // MOB-P1-xx：与 onDismiss 的清理规则保持一致 ——
-                        // 宽屏下右栏继续显示这条记录，窄屏下弹窗本身就是详情，清掉选中项。
-                        // 原先无条件清空，导致宽屏保存后右栏退回占位符，
-                        // 而「取消」却会保留选中项，两个出口行为不一致。
-                        if (!isWideLayout) selectedEntryForDetail = null
                     }
                 },
                 onDelete = {
@@ -1109,9 +1045,6 @@ fun StreamScreen(
                             // MOB-P2-47：删除后给一个「撤销」机会
                             val ticket = syncManager.deleteEntry(entry.id)
                             entryToDelete = null
-                            if (selectedEntryForDetail?.id == entry.id) {
-                                selectedEntryForDetail = null
-                            }
                             if (detailDialogEntry?.id == entry.id) {
                                 detailDialogEntry = null
                             }

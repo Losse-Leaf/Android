@@ -38,7 +38,6 @@ class CredentialStore private constructor(context: Context) {
         private const val KEY_DARKROOM_MODE = "darkroom_mode"
         private const val KEY_APPEARANCE_MODE = "appearance_mode"
         private const val KEY_CACHED_PROFILE = "cached_profile_json"
-        private const val KEY_CACHED_SITE_CONFIG = "cached_site_config_json"
 
         /**
          * MOB-P0-10：配对态镜像标记（普通 Prefs，非机密）。
@@ -123,10 +122,6 @@ class CredentialStore private constructor(context: Context) {
         }
         if (!settings.contains(KEY_CACHED_PROFILE) && legacy.contains(KEY_CACHED_PROFILE)) {
             editor.putString(KEY_CACHED_PROFILE, legacy.getString(KEY_CACHED_PROFILE, null))
-            dirty = true
-        }
-        if (!settings.contains(KEY_CACHED_SITE_CONFIG) && legacy.contains(KEY_CACHED_SITE_CONFIG)) {
-            editor.putString(KEY_CACHED_SITE_CONFIG, legacy.getString(KEY_CACHED_SITE_CONFIG, null))
             dirty = true
         }
         if (!settings.contains(KEY_DEVICE_NAME) && legacy.contains(KEY_DEVICE_NAME)) {
@@ -257,12 +252,6 @@ class CredentialStore private constructor(context: Context) {
             settings.edit().putString(KEY_CACHED_PROFILE, value).apply()
         }
 
-    var cachedSiteConfigJson: String?
-        get() = settings.getString(KEY_CACHED_SITE_CONFIG, null)
-        set(value) {
-            settings.edit().putString(KEY_CACHED_SITE_CONFIG, value).apply()
-        }
-
     /**
      * 是否已入网。
      *
@@ -291,7 +280,6 @@ class CredentialStore private constructor(context: Context) {
         settings.edit()
             .remove(KEY_DEVICE_NAME)
             .remove(KEY_CACHED_PROFILE)
-            .remove(KEY_CACHED_SITE_CONFIG)
             .remove(KEY_PAIRED_FLAG)
             .apply()
     }

@@ -53,11 +53,8 @@ import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.model.CuratorProfile
 import com.looseleaf.app.model.GlobalStats
 import com.looseleaf.app.model.LifeEntry
-import com.looseleaf.app.model.SiteConfig
 import com.looseleaf.app.model.UpdateProfileRequest
 import com.looseleaf.app.model.CategoryOption
-import com.looseleaf.app.model.TrustedDevice
-import com.looseleaf.app.model.PairTicketResponse
 import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.app.theme.ArchiveFontFamilies
@@ -106,12 +103,9 @@ fun ProfileScreen(
     val dayCounts by syncManager.dayCountsFlow.collectAsStateWithLifecycle()
 
     val cachedProfile = remember { ProfileRepository.getProfile(context) }
-    val cachedSiteConfig = remember { ProfileRepository.getSiteConfig(context) }
     val repoProfile by ProfileRepository.profileState.collectAsStateWithLifecycle()
-    val repoSiteConfig by ProfileRepository.siteConfigState.collectAsStateWithLifecycle()
 
     var profile by remember(repoProfile) { mutableStateOf(repoProfile ?: cachedProfile) }
-    var siteConfig by remember(repoSiteConfig) { mutableStateOf(repoSiteConfig ?: cachedSiteConfig) }
     var localAvatarPreviewUri by remember { mutableStateOf<Uri?>(null) }
     var appearanceMode by remember { mutableStateOf(credentialStore.appearanceMode) }
     var isBiometricsEnabled by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
@@ -127,8 +121,6 @@ fun ProfileScreen(
         onDispose { onBottomBarVisibilityChanged?.invoke(true) }
     }
     var showUnpairDialog by remember { mutableStateOf(false) }
-    var showStorageBackupDialog by remember { mutableStateOf(false) }
-    var showOtherDevicesSheet by remember { mutableStateOf(false) }
     var showAlmanacDialog by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var availableUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
@@ -137,25 +129,9 @@ fun ProfileScreen(
     var isUploadingAvatar by remember { mutableStateOf(false) }
 
     val clipboardManager = LocalClipboardManager.current
-    var trustedDevices by remember { mutableStateOf<List<TrustedDevice>>(emptyList()) }
-    var isLoadingDevices by remember { mutableStateOf(false) }
-    var deviceToRevoke by remember { mutableStateOf<TrustedDevice?>(null) }
-    var deviceToRename by remember { mutableStateOf<TrustedDevice?>(null) }
-    var issuedPairTicket by remember { mutableStateOf<PairTicketResponse?>(null) }
-    var isIssuingPairTicket by remember { mutableStateOf(false) }
     var globalStats by remember { mutableStateOf<GlobalStats?>(null) }
     var isLoadingInitialStats by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
-
-    val reloadDevices: () -> Unit = {
-        scope.launch {
-            isLoadingDevices = true
-            runCatching {
-                trustedDevices = apiClient.fetchTrustedDevices()
-            }
-            isLoadingDevices = false
-        }
-    }
 
     suspend fun refreshShowcase() {
         isRefreshing = true
@@ -163,11 +139,7 @@ fun ProfileScreen(
             val remoteProfile = apiClient.fetchCuratorProfile()
             ProfileRepository.updateProfile(context, remoteProfile)
             profile = remoteProfile
-            val remoteConfig = apiClient.fetchSiteConfig()
-            ProfileRepository.updateSiteConfig(context, remoteConfig)
-            siteConfig = remoteConfig
             runCatching { globalStats = apiClient.fetchGlobalStats() }
-            reloadDevices()
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
@@ -185,7 +157,6 @@ fun ProfileScreen(
     }
 
     LaunchedEffect(Unit) {
-        launch { reloadDevices() }
         launch {
             isLoadingInitialStats = true
             runCatching {
@@ -198,9 +169,6 @@ fun ProfileScreen(
                 val remoteProfile = apiClient.fetchCuratorProfile()
                 ProfileRepository.updateProfile(context, remoteProfile)
                 profile = remoteProfile
-                val remoteConfig = apiClient.fetchSiteConfig()
-                ProfileRepository.updateSiteConfig(context, remoteConfig)
-                siteConfig = remoteConfig
                 Result.success(Unit)
             } catch (e: CancellationException) {
                 throw e
@@ -735,49 +703,11 @@ fun ProfileScreen(
                     localDeviceName = credentialStore.deviceName,
                     localDeviceId = credentialStore.deviceId ?: "",
                     onRenameLocalDevice = { showRenameDeviceDialog = true },
-                    otherDevices = trustedDevices.filter { it.deviceId != credentialStore.deviceId },
-                    onOpenOtherDevices = { showOtherDevicesSheet = true },
-                    isIssuingPairTicket = isIssuingPairTicket,
-                    onIssuePairTicket = {
-                        scope.launch {
-                            isIssuingPairTicket = true
-                            runCatching {
-                                issuedPairTicket = apiClient.initPairing()
-                                ArchiveToastManager.show("已生成 5 分钟有效配对工单")
-                            }.onFailure { err ->
-                                ArchiveToastManager.show("生成配对失败: ${err.message}", isError = true)
-                            }
-                            isIssuingPairTicket = false
-                        }
-                    },
-                    issuedPairTicket = issuedPairTicket,
-                    onClosePairTicket = { issuedPairTicket = null },
-                    onCopyPairTicket = { link ->
-                        clipboardManager.setText(AnnotatedString(link))
-                        ArchiveToastManager.show("已复制配对链接至剪贴板")
-                    },
-                    onOpenStorageBackup = { showStorageBackupDialog = true },
                     isCheckingUpdate = isCheckingUpdate,
                     // 与 ⋮ 菜单共用同一个动作，避免两处各写一遍检查逻辑
                     onCheckUpdate = checkUpdate,
                     onUnpair = { showUnpairDialog = true },
                     onBack = { showSettingsScreen = false }
-                )
-            }
-
-            // 其他受信任设备组二级管理底抽
-            if (showOtherDevicesSheet) {
-                OtherDevicesSheet(
-                    otherDevices = trustedDevices.filter { it.deviceId != credentialStore.deviceId },
-                    onDismiss = { showOtherDevicesSheet = false },
-                    onRename = { dev ->
-                        showOtherDevicesSheet = false
-                        deviceToRename = dev
-                    },
-                    onRevoke = { dev ->
-                        showOtherDevicesSheet = false
-                        deviceToRevoke = dev
-                    }
                 )
             }
 
@@ -914,91 +844,12 @@ fun ProfileScreen(
                                     apiClient.updateDeviceName(devId, newName)
                                     credentialStore.deviceName = newName
                                     ArchiveToastManager.show("设备名称已更新")
-                                    reloadDevices()
                                 }
                                 showRenameDeviceDialog = false
                             }
                         } else {
                             credentialStore.deviceName = newName
                             showRenameDeviceDialog = false
-                        }
-                    }
-                )
-            }
-
-            deviceToRevoke?.let { dev ->
-                ArchiveConfirmDialog(
-                    title = stringResource(R.string.profile_screen_title_03),
-                    content = "吊销后设备「${dev.name.ifBlank { dev.deviceId }}」将立即失去中枢访问凭据，无法再读取或提交任何档案。此操作不可逆。",
-                    confirmText = stringResource(R.string.profile_screen_confirmText_03),
-                    isDestructive = true,
-                    onConfirm = {
-                        val targetId = dev.deviceId
-                        deviceToRevoke = null
-                        scope.launch {
-                            runCatching {
-                                apiClient.revokeDevice(targetId)
-                                ArchiveToastManager.show("已成功吊销设备「${dev.name}」")
-                                reloadDevices()
-                            }.onFailure { err ->
-                                ArchiveToastManager.show("吊销失败: ${err.message}", isError = true)
-                            }
-                        }
-                    },
-                    onDismiss = { deviceToRevoke = null }
-                )
-            }
-
-            deviceToRename?.let { dev ->
-                ArchivePromptDialog(
-                    title = stringResource(R.string.profile_screen_title_04),
-                    initialValue = dev.name,
-                    placeholder = stringResource(R.string.profile_screen_placeholder_01),
-                    label = stringResource(R.string.profile_screen_label_tpl_01, dev.deviceId),
-                    confirmText = stringResource(R.string.profile_screen_confirmText_02),
-                    onDismiss = { deviceToRename = null },
-                    onConfirm = { newName ->
-                        val targetId = dev.deviceId
-                        deviceToRename = null
-                        scope.launch {
-                            runCatching {
-                                apiClient.updateDeviceName(targetId, newName)
-                                ArchiveToastManager.show("设备名称已更新")
-                                reloadDevices()
-                            }.onFailure { err ->
-                                ArchiveToastManager.show("更名失败: ${err.message}", isError = true)
-                            }
-                        }
-                    }
-                )
-            }
-
-            if (showStorageBackupDialog) {
-                StorageBackupSheetDialog(
-                    apiClient = apiClient,
-                    onDismiss = { showStorageBackupDialog = false },
-                    onRestored = {
-                        scope.launch {
-                            val unsyncedCount = com.looseleaf.app.data.sync.LocalDataResetCoordinator.getUnsyncedCount(context)
-                            if (unsyncedCount > 0) {
-                                ArchiveToastManager.show("检测到本机有 $unsyncedCount 条未同步修改，已保留并开始全量同步")
-                            }
-                            LedgerRepository.clearCursor()
-                            val ledgerResult = LedgerRepository.pullLedgerData(force = true)
-                            val mainResult = syncManager.pullRemoteData(forceFull = true)
-                            if (ledgerResult.isFailure || mainResult.isFailure) {
-                                val errMsg = listOfNotNull(
-                                    mainResult.exceptionOrNull()?.message,
-                                    ledgerResult.exceptionOrNull()?.message
-                                ).joinToString("; ")
-                                ArchiveToastManager.show(
-                                    "恢复完成，但拉取数据失败: $errMsg，请下拉刷新",
-                                    isError = true
-                                )
-                            } else {
-                                ArchiveToastManager.show("数据恢复成功，已全量同步最新数据")
-                            }
-                            reloadDevices()
                         }
                     }
                 )

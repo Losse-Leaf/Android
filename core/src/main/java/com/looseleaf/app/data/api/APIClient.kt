@@ -363,25 +363,7 @@ class APIClient private constructor(private val context: Context) {
         executeEnvelopeRequest<DeleteResponse>("/api/v1/auth/devices/$deviceId", "DELETE")
     }
 
-    suspend fun fetchTrustedDevices(): List<TrustedDevice> {
-        return executeEnvelopeRequest("/api/v1/auth/devices", "GET")
-    }
-
-    suspend fun initPairing(hubUrl: String? = null): PairTicketResponse {
-        val req = buildJsonObject {
-            if (!hubUrl.isNullOrBlank()) {
-                put("hub_url", hubUrl)
-            }
-        }
-        val body = req.toString().toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/auth/pair/init", "POST", body = body)
-    }
-
-    // MARK: - 3. 站点配置与主理人档案
-
-    suspend fun fetchSiteConfig(): SiteConfig {
-        return executeEnvelopeRequest("/api/v1/config", "GET")
-    }
+    // MARK: - 3. 主理人档案
 
     suspend fun fetchCuratorProfile(): CuratorProfile {
         return executeEnvelopeRequest("/api/v1/profile", "GET")
@@ -581,11 +563,6 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/credit-channels", "POST", body = body)
     }
 
-    suspend fun updateCreditChannel(id: Long, req: CreateCreditChannelRequest): CreditChannel {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/credit-channels/$id", "PUT", body = body)
-    }
-
     suspend fun deleteCreditChannel(id: Long) {
         executeEnvelopeRequest<DeleteResponse>("/api/v1/credit-channels/$id", "DELETE")
     }
@@ -760,9 +737,6 @@ class APIClient private constructor(private val context: Context) {
     suspend fun uploadToR2Direct(uploadUrl: String, file: File, mimeType: String) =
         uploadToR2Direct(uploadUrl, fileRequestBody(file, mimeType))
 
-    suspend fun uploadToR2Direct(uploadUrl: String, fileBytes: ByteArray, mimeType: String) =
-        uploadToR2Direct(uploadUrl, fileBytes.toRequestBody(mimeType.toMediaTypeOrNull()))
-
     /** MOB-P0-03：核心直传入口 —— 请求体由调用方决定（内存字节 or 文件流） */
     suspend fun uploadToR2Direct(uploadUrl: String, body: RequestBody) = withContext(Dispatchers.IO) {
         val putRequest = Request.Builder()
@@ -871,79 +845,6 @@ class APIClient private constructor(private val context: Context) {
 
     suspend fun fetchGlobalStats(): GlobalStats {
         return executeEnvelopeRequest("/api/v1/stats", "GET")
-    }
-
-    // MARK: - 8. 对象存储配置与全量快照灾备 (Storage & Backup)
-
-    suspend fun fetchStorageStatus(): StorageStatus {
-        return executeEnvelopeRequest("/api/v1/storage/status", "GET")
-    }
-
-    suspend fun testStorageConfig(req: StorageConfigRequest): StorageTestResponse {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/storage/test", "POST", body = body)
-    }
-
-    suspend fun updateStorageConfig(req: StorageConfigRequest): StorageStatus {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/storage/config", "PUT", body = body)
-    }
-
-    suspend fun resetStorageConfig(): StorageStatus {
-        return executeEnvelopeRequest("/api/v1/storage/config", "DELETE")
-    }
-
-    suspend fun migrateStorageMedia(): StorageMigrateResponse {
-        return executeEnvelopeRequest("/api/v1/storage/migrate", "POST")
-    }
-
-    suspend fun fetchBackupList(): List<BackupItem> {
-        return executeEnvelopeRequest("/api/v1/system/backup/list", "GET")
-    }
-
-    suspend fun createBackupNow(): BackupItem {
-        return executeEnvelopeRequest("/api/v1/system/backup/now", "POST")
-    }
-
-    suspend fun deleteBackup(filename: String): List<BackupItem> {
-        return executeEnvelopeRequest("/api/v1/system/backup/$filename", "DELETE")
-    }
-
-    suspend fun restoreBackup(filename: String): RestoreBackupResponse {
-        val req = RestoreBackupRequest(filename = filename)
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/system/backup/restore", "POST", body = body)
-    }
-
-    /**
-     * 流式下载全量快照到调用方提供的 OutputStream。
-     * 不再把整个 ZIP 读进 ByteArray——大备份（含媒体元数据）会直接把设备打爆。
-     */
-    suspend fun downloadBackupTo(
-        filename: String,
-        outputStream: java.io.OutputStream
-    ): Long = withContext(Dispatchers.IO) {
-        val request = buildRequest("/api/v1/system/backup/download/$filename", "GET")
-        val response = try {
-            downloadClient.newCall(request).execute()
-        } catch (e: IOException) {
-            throw APIException(-1, humanizeNetworkError(e))
-        }
-        try {
-            response.use { res ->
-                if (!res.isSuccessful) {
-                    throw APIException(res.code, "下载备份失败 (HTTP ${res.code})")
-                }
-                val body = res.body ?: throw APIException(-1, "备份文件数据为空")
-                body.byteStream().use { input ->
-                    input.copyTo(outputStream, bufferSize = 64 * 1024)
-                }
-                outputStream.flush()
-                body.contentLength().takeIf { it > 0 } ?: 0L
-            }
-        } catch (e: IOException) {
-            throw APIException(-1, humanizeNetworkError(e))
-        }
     }
 }
 

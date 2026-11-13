@@ -303,7 +303,7 @@ fun ProjectsWishesScreen(
                             .padding(horizontal = 10.dp, vertical = 7.dp)
                     ) {
                         Icon(
-                            painter = painterResource(R.drawable.ic_error_outline),
+                            painter = painterResource(com.looseleaf.core.R.drawable.ic_error_outline),
                             contentDescription = null,
                             tint = colors.alertRed,
                             modifier = Modifier.size(13.dp)

@@ -158,37 +158,3 @@ val DarkArchiveColors = ArchiveColors(
     lineDisabled = Color(0xFFFFFFFF).copy(alpha = 0.32f)
 )
 
-// 支出类目光谱色 (Earthy Spectrum) - docs/web.md §2.3
-object SpectrumColors {
-    val Dining = Color(0xFFA24F2B)      // 餐饮 - 暖赭石
-    val Transit = Color(0xFF4A6B82)     // 交通 - 青石灰
-    val Shopping = Color(0xFF8C6D46)    // 购物 - 旧皮褐
-    val Leisure = Color(0xFF7A5980)     // 娱乐 - 暮紫
-    val Housing = Color(0xFF3F5A4A)     // 住房 - 苔藓绿
-    val Study = Color(0xFF5C6773)       // 学习 - 墨色
-    val Medical = Color(0xFFB35C5C)     // 医疗 - 枯叶红
-    val Other = Color(0xFF8A857B)       // 其他 - 米灰
-
-    // 暗房模式下的同色系提亮版本：深底 (#141312) 上原色对比度不足 3:1
-    private val DiningDark = Color(0xFFC97A52)
-    private val TransitDark = Color(0xFF7C9CB3)
-    private val ShoppingDark = Color(0xFFC0A075)
-    private val LeisureDark = Color(0xFFB08CB8)
-    private val HousingDark = Color(0xFF6F9478)
-    private val StudyDark = Color(0xFF93A2B3)
-    private val MedicalDark = Color(0xFFD08888)
-    private val OtherDark = Color(0xFFB5AFA3)
-
-    fun colorForCategory(category: String, isDark: Boolean = false): Color {
-        return when (category.trim()) {
-            "餐饮" -> if (isDark) DiningDark else Dining
-            "交通" -> if (isDark) TransitDark else Transit
-            "购物", "数码器材" -> if (isDark) ShoppingDark else Shopping
-            "娱乐" -> if (isDark) LeisureDark else Leisure
-            "住房" -> if (isDark) HousingDark else Housing
-            "学习" -> if (isDark) StudyDark else Study
-            "医疗" -> if (isDark) MedicalDark else Medical
-            else -> if (isDark) OtherDark else Other
-        }
-    }
-}
