@@ -590,14 +590,17 @@ class MainActivity : FragmentActivity() {
             }
 
             val saveableStateHolder = rememberSaveableStateHolder()
+            var showBottomBar by remember { mutableStateOf(true) }
 
             Box(modifier = modifier.fillMaxSize()) {
                 Scaffold(
                     bottomBar = {
-                        LooseLeafBottomBar(
-                            currentRoute = currentRoute,
-                            onRouteSelected = onRouteSelected
-                        )
+                        if (showBottomBar) {
+                            LooseLeafBottomBar(
+                                currentRoute = currentRoute,
+                                onRouteSelected = onRouteSelected
+                            )
+                        }
                     }
                 ) { innerPadding ->
                     Box(
@@ -661,6 +664,9 @@ class MainActivity : FragmentActivity() {
                                     onOpenGear = { gearId ->
                                         pendingGearId = gearId
                                         onRouteSelected("ledger")
+                                    },
+                                    onBottomBarVisibilityChanged = { visible ->
+                                        showBottomBar = visible
                                     }
                                 )
                                 // MOB-P0-11：未知路由兜底 —— 任何脏数据 / 过期快捷方式

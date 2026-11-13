@@ -603,6 +603,17 @@ fun LedgerScreen(
         var isCategoriesExpanded by remember { mutableStateOf(false) }
         var isPaymentMethodsExpanded by remember { mutableStateOf(false) }
 
+        val userChannels = remember(creditChannels) {
+            creditChannels.filterNot { it.isBuiltin || it.code in setOf("HUABEI", "BAITIAO", "CUSTOM_INSTALLMENT", "huabei", "baitiao", "custom_installment") }
+        }
+        var editPayChoice by remember(tx.id) { mutableStateOf(if (tx.isInstallment == true) "installment" else "full") }
+        var editPeriodsText by remember(tx.id) {
+            mutableStateOf((tx.installmentMonths ?: 12).takeIf { it > 0 }?.toString() ?: "12")
+        }
+        var editChannelCode by remember(tx.id) {
+            mutableStateOf(tx.installmentChannelCode ?: userChannels.firstOrNull()?.code ?: "")
+        }
+
         val dateStr = remember(txOccurredAt) {
             String.format(Locale.US, "%04d-%02d-%02d", txOccurredAt.year, txOccurredAt.monthValue, txOccurredAt.dayOfMonth)
         }
@@ -617,6 +628,10 @@ fun LedgerScreen(
             onAction = {
                 val cents = if (isInstallmentRepay) tx.amount else FormatUtils.yuanStringToCents(editAmount)
                 if (cents > 0) {
+                    val submitInstallment = !isInstallmentRepay && editType == "expense" && editPayChoice == "installment"
+                    val shouldClearInstallment = tx.isInstallment == true && (!submitInstallment || editType == "income")
+                    val effectivePeriods = (editPeriodsText.toIntOrNull() ?: 12).coerceIn(1, 60)
+                    val selectedChannel = userChannels.firstOrNull { it.code == editChannelCode }
                     scope.launch {
                         val req = CreateTransactionRequest(
                             amount = cents,
@@ -624,16 +639,19 @@ fun LedgerScreen(
                             category = editCategory,
                             title = editTitle.trim().ifBlank { editCategory },
                             note = editNote.trim().ifBlank { null },
-                            paymentMethod = editPaymentMethod,
+                            paymentMethod = if (submitInstallment) (selectedChannel?.name ?: editPaymentMethod) else editPaymentMethod,
                             occurredAt = FormatUtils.toBeijingIsoString(txOccurredAt),
                             cityCode = tx.cityCode,
-                            isInstallment = tx.isInstallment,
-                            installmentChannelCode = tx.installmentChannelCode,
-                            installmentTotalAmount = tx.installmentTotalAmount,
-                            installmentMonths = tx.installmentMonths,
-                            installmentMonthlyPay = tx.installmentMonthlyPay,
-                            installmentRemainMonths = tx.installmentRemainMonths,
-                            repaymentDay = tx.repaymentDay
+                            isInstallment = if (submitInstallment) true else false,
+                            clearInstallment = shouldClearInstallment,
+                            installmentChannelCode = if (submitInstallment) (selectedChannel?.code ?: tx.installmentChannelCode) else null,
+                            installmentTotalAmount = if (submitInstallment) cents else null,
+                            installmentMonths = if (submitInstallment) effectivePeriods else null,
+                            installmentMonthlyPay = if (submitInstallment) (cents / effectivePeriods) else null,
+                            installmentRemainMonths = if (submitInstallment) {
+                                if (tx.isInstallment == true) tx.installmentRemainMonths else effectivePeriods
+                            } else null,
+                            repaymentDay = if (submitInstallment) (selectedChannel?.repaymentDay ?: tx.repaymentDay ?: 10) else null
                         )
                         val success = LedgerRepository.updateTransactionOptimistic(tx.id, req)
                         if (success) {
@@ -809,6 +827,128 @@ fun LedgerScreen(
                         txOccurredAtMillis = newDt.atZone(FormatUtils.BeijingZone).toInstant().toEpochMilli()
                     }
                 )
+
+                // 付款方式（全款 / 分期）与分期计划跳转
+                if (!isInstallmentRepay && editType == "expense") {
+                    Text(
+                        text = "付款方式",
+                        style = LedgerTheme.typography.caption,
+                        fontFamily = LedgerTheme.typography.serif,
+                        color = colors.textSecondary
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        LedgerChoiceItem(
+                            text = "一次付清",
+                            isSelected = editPayChoice == "full",
+                            onClick = { editPayChoice = "full" },
+                            modifier = Modifier.weight(1f)
+                        )
+                        LedgerChoiceItem(
+                            text = "分期付款",
+                            isSelected = editPayChoice == "installment",
+                            onClick = { editPayChoice = "installment" },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    if (editPayChoice == "installment") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            LedgerField(
+                                value = editPeriodsText,
+                                onValueChange = { input ->
+                                    editPeriodsText = input.filter { it.isDigit() }.take(2)
+                                },
+                                label = "期数",
+                                placeholder = "12",
+                                trailingText = "期",
+                                isNumeric = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                modifier = Modifier.width(100.dp)
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf("3", "6", "12", "24", "36").forEach { p ->
+                                    LedgerChoiceItem(
+                                        text = "${p}期",
+                                        isSelected = editPeriodsText == p,
+                                        onClick = { editPeriodsText = p }
+                                    )
+                                }
+                            }
+                        }
+
+                        if (userChannels.isNotEmpty()) {
+                            Text(
+                                text = "还款渠道",
+                                style = LedgerTheme.typography.caption,
+                                fontFamily = LedgerTheme.typography.serif,
+                                color = colors.textSecondary
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                userChannels.forEach { ch ->
+                                    LedgerChoiceItem(
+                                        text = "${ch.name} (${ch.repaymentDay}日)",
+                                        isSelected = editChannelCode == ch.code,
+                                        onClick = { editChannelCode = ch.code }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                tx.installmentPlanId?.let { planId ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(colors.surfaceElevated)
+                            .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
+                            .clickable {
+                                editingTransaction = null
+                                scope.launch {
+                                    runCatching {
+                                        viewingInstallmentPlanDetail = apiClient.fetchInstallmentPlanDetail(planId)
+                                    }.onFailure { err ->
+                                        ArchiveToastManager.show("加载分期计划失败: ${err.message}", isError = true)
+                                    }
+                                }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "已关联分期计划",
+                            fontFamily = LedgerTheme.typography.serif,
+                            fontSize = 13.sp,
+                            color = colors.textPrimary
+                        )
+                        Text(
+                            text = "查看还款计划 ▸",
+                            fontFamily = LedgerTheme.typography.serif,
+                            fontSize = 12.sp,
+                            color = colors.accent
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
                 LedgerDivider()

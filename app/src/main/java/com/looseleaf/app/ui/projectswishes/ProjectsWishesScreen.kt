@@ -40,6 +40,7 @@ import com.looseleaf.app.model.CreateFootprintRequest
 import com.looseleaf.app.model.CreateProjectRequest
 import com.looseleaf.app.model.CreateWishRequest
 import com.looseleaf.app.model.Footprint
+import com.looseleaf.app.model.LifeEntry
 import com.looseleaf.app.model.Project
 import com.looseleaf.app.model.ProvinceMemoryDrawerResponse
 import com.looseleaf.app.model.ResolveWishRequest
@@ -48,9 +49,12 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
+import com.looseleaf.app.ui.stream.EntryDetailSheetDialog
 import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
 import com.looseleaf.app.R
@@ -120,46 +124,6 @@ fun ProjectsWishesScreen(
 
     var snackbarData by remember { mutableStateOf<ArchiveSnackbarData?>(null) }
 
-    val currentListState = when (pagerState.currentPage) {
-        0 -> projectsListState
-        1 -> wishesListState
-        else -> footprintsListState
-    }
-
-    var isScrollingUp by remember { mutableStateOf(true) }
-    var previousIndex by remember { mutableIntStateOf(0) }
-    var previousOffset by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(currentListState) {
-        previousIndex = currentListState.firstVisibleItemIndex
-        previousOffset = currentListState.firstVisibleItemScrollOffset
-        isScrollingUp = true
-        snapshotFlow { currentListState.firstVisibleItemIndex to currentListState.firstVisibleItemScrollOffset }
-            .collect { (idx, off) ->
-                if (idx > previousIndex || (idx == previousIndex && off > previousOffset + 12)) {
-                    isScrollingUp = false
-                } else if (idx < previousIndex || (idx == previousIndex && off < previousOffset - 12)) {
-                    isScrollingUp = true
-                }
-                previousIndex = idx
-                previousOffset = off
-            }
-    }
-
-    val isFabVisible by remember(currentListState) {
-        derivedStateOf {
-            val isAtTop = currentListState.firstVisibleItemIndex == 0 &&
-                currentListState.firstVisibleItemScrollOffset < 24
-            isAtTop || isScrollingUp
-        }
-    }
-
-    val currentTabHasItems = when (selectedTab) {
-        0 -> projects.isNotEmpty()
-        1 -> wishes.isNotEmpty()
-        else -> footprints.isNotEmpty()
-    }
-
     LaunchedEffect(initialTab) {
         if (initialTab != null) {
             val target = initialTab.coerceIn(0, 2)
@@ -208,6 +172,8 @@ fun ProjectsWishesScreen(
     // MOB-P0-14：破坏性删除必须二次确认（造物 / 足迹此前是「一点即删」）
     var projectToDelete by remember { mutableStateOf<Project?>(null) }
     var footprintToDelete by remember { mutableStateOf<Pair<Footprint, Int>?>(null) }
+    var selectedEntryForDetail by remember { mutableStateOf<LifeEntry?>(null) }
+    var entryToDelete by remember { mutableStateOf<LifeEntry?>(null) }
 
     // 全局搜索命中（RG-31）：先切到对应分段，再等列表数据到位后打开详情。
     // 列表可能还在首拉，直接取会扑空；这里靠 (projects/wishes/footprints) 变化重试。
@@ -288,11 +254,21 @@ fun ProjectsWishesScreen(
                     .fillMaxSize()
                     .widthIn(max = 680.dp)
             ) {
-                // 顶栏：标题"工坊"与账本、时间流同一规格，右上角不再放"+ 新建…"文字
+                // 顶栏：标题"工坊"，右侧放随当前 Tab 切换的轻量新建动作，取代右下角悬浮 FAB
                 ArchivePageHeader(
                     title = stringResource(R.string.projects_wishes_screen_text_01),
                     subtitle = null,
-                    actions = {}
+                    actions = {
+                        ArchiveTextButton(
+                            text = when (selectedTab) {
+                                0 -> "+ 立项"
+                                1 -> "+ 许愿"
+                                else -> "+ 足迹"
+                            },
+                            textColor = colors.accentWarm,
+                            onClick = { showCreateDialog = true }
+                        )
+                    }
                 )
 
                 // Tab 切换器：纯文字标签 造物 · 心愿 · 足迹，选中加粗 + 2dp 赤陶下划线，无框无底色，后跟等宽数字
@@ -398,33 +374,6 @@ fun ProjectsWishesScreen(
                 }
             }
 
-            // 新增入口：56dp 赤陶圆形 FAB"＋"，与账本一致，向下滚动收缩淡出
-            val fabOffset by animateDpAsState(
-                targetValue = if (snackbarData != null) (-56).dp else 0.dp,
-                label = "fab_offset"
-            )
-
-            ArchiveFab(
-                visible = isFabVisible && currentTabHasItems,
-                onClick = { showCreateDialog = true },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = 16.dp)
-                    .offset(y = fabOffset),
-                icon = {
-                    Icon(
-                        imageVector = Icons.Outlined.Add,
-                        contentDescription = when (pagerState.currentPage) {
-                            0 -> "新建造物"
-                            1 -> "许下心愿"
-                            else -> "点亮足迹"
-                        },
-                        tint = colors.archivePaper,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            )
-
             // 撤销删除 Snackbar
             snackbarData?.let { data ->
                 ArchiveSnackbar(
@@ -441,7 +390,13 @@ fun ProjectsWishesScreen(
             var inputSubtitle by remember { mutableStateOf("") }
             var inputNote by remember { mutableStateOf("") }
             var inputThird by remember { mutableStateOf("") }
+            var projCategory by remember { mutableStateOf("软件") }
+            var projStatus by remember { mutableStateOf("进行中") }
+            var projStory by remember { mutableStateOf("") }
+            var projGithubUrl by remember { mutableStateOf("") }
             var wishKind by remember { mutableStateOf("item") }
+            var wishSpec by remember { mutableStateOf("") }
+            var wishTargetDate by remember { mutableStateOf<LocalDate?>(null) }
             var fpCityCode by remember { mutableStateOf("") }
             var fpCityName by remember { mutableStateOf("") }
             var wishCityCode by remember { mutableStateOf("") }
@@ -474,7 +429,11 @@ fun ProjectsWishesScreen(
                                         CreateProjectRequest(
                                             title = inputTitle.trim(),
                                             subtitle = inputSubtitle.trim().takeIf { it.isNotBlank() },
-                                            description = inputNote.trim()
+                                            description = inputNote.trim(),
+                                            story = projStory.trim().takeIf { it.isNotBlank() },
+                                            category = projCategory,
+                                            status = projStatus,
+                                            githubUrl = projGithubUrl.trim().takeIf { it.isNotBlank() }
                                         )
                                     )
                                     if (queued) ArchiveToastManager.show("已离线排队创建造物")
@@ -485,10 +444,12 @@ fun ProjectsWishesScreen(
                                         CreateWishRequest(
                                             title = inputTitle.trim(),
                                             kind = wishKind,
+                                            spec = if (wishKind == "item") wishSpec.trim().takeIf { it.isNotBlank() } else null,
                                             note = inputNote.trim().takeIf { it.isNotBlank() },
                                             budget = FormatUtils.yuanStringToCents(inputThird),
-                                            cityCode = wishCityCode.takeIf { it.isNotBlank() },
-                                            cityName = wishCityName.takeIf { it.isNotBlank() }
+                                            cityCode = if (wishKind == "travel") wishCityCode.takeIf { it.isNotBlank() } else null,
+                                            cityName = if (wishKind == "travel") wishCityName.takeIf { it.isNotBlank() } else null,
+                                            targetDate = wishTargetDate?.format(DateTimeFormatter.ISO_LOCAL_DATE)
                                         )
                                     )
                                     if (queued) ArchiveToastManager.show("已离线排队许下心愿")
@@ -543,13 +504,59 @@ fun ProjectsWishesScreen(
                             placeholder = "一句话描述（选填）",
                             singleLine = true
                         )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ArchiveSelectField(
+                                label = "造物分类",
+                                selectedValue = projCategory,
+                                options = listOf(
+                                    "软件" to "软件",
+                                    "硬件" to "硬件",
+                                    "设计" to "设计",
+                                    "手作" to "手作",
+                                    "写作" to "写作",
+                                    "生活" to "生活"
+                                ),
+                                onValueSelected = { projCategory = it },
+                                modifier = Modifier.weight(1f)
+                            )
+                            ArchiveSelectField(
+                                label = "当前状态",
+                                selectedValue = projStatus,
+                                options = listOf(
+                                    "进行中" to "进行中",
+                                    "已完成" to "已完成",
+                                    "维护中" to "维护中",
+                                    "已搁置" to "已搁置"
+                                ),
+                                onValueSelected = { projStatus = it },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                         ArchiveField(
                             value = inputNote,
                             onValueChange = { inputNote = it },
-                            label = "手记与背景",
+                            label = "手记与简介",
                             placeholder = "书写关于造物的构想或记录…",
                             singleLine = false,
-                            minLines = 4
+                            minLines = 3
+                        )
+                        ArchiveField(
+                            value = projStory,
+                            onValueChange = { projStory = it },
+                            label = "缘起故事（选填）",
+                            placeholder = "为何着手做这件造物…",
+                            singleLine = false,
+                            minLines = 2
+                        )
+                        ArchiveField(
+                            value = projGithubUrl,
+                            onValueChange = { projGithubUrl = it },
+                            label = "源码仓库 URL（选填）",
+                            placeholder = "github.com/...",
+                            singleLine = true
                         )
                     } else if (selectedTab == 1) {
                         Row(
@@ -571,7 +578,15 @@ fun ProjectsWishesScreen(
                             placeholder = "输入心愿标题…",
                             singleLine = true
                         )
-                        if (wishKind == "travel") {
+                        if (wishKind == "item") {
+                            ArchiveField(
+                                value = wishSpec,
+                                onValueChange = { wishSpec = it },
+                                label = "规格 / 型号（选填）",
+                                placeholder = "如 银色 256G",
+                                singleLine = true
+                            )
+                        } else if (wishKind == "travel") {
                             ArchiveCityPickerField(
                                 selectedCityCode = wishCityCode,
                                 selectedCityName = wishCityName,
@@ -587,6 +602,13 @@ fun ProjectsWishesScreen(
                             placeholder = "0.00",
                             isNumeric = true,
                             singleLine = true
+                        )
+                        ArchiveDatePickerField(
+                            selectedDate = wishTargetDate,
+                            onDateSelected = { wishTargetDate = it },
+                            label = "期许达成日期",
+                            placeholder = "未设置",
+                            onClear = { wishTargetDate = null }
                         )
                         ArchiveField(
                             value = inputNote,
@@ -982,7 +1004,7 @@ fun ProjectsWishesScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clickable {
-                                                ArchiveToastManager.show("已定位手记《${entry.title.ifBlank { "散页手记" }}》")
+                                                selectedEntryForDetail = entry
                                             }
                                             .padding(vertical = 12.dp)
                                     ) {
@@ -1300,7 +1322,58 @@ fun ProjectsWishesScreen(
                 adcode = adcode,
                 provinceName = provName,
                 apiClient = apiClient,
-                onDismiss = { selectedProvinceDrawerAdcode = null }
+                onDismiss = { selectedProvinceDrawerAdcode = null },
+                onSelectEntry = { entry -> selectedEntryForDetail = entry }
+            )
+        }
+
+        // 属地散页手记详情与编辑抽屉（打通城市/省份抽屉点击断头路）
+        selectedEntryForDetail?.let { activeEntry ->
+            EntryDetailSheetDialog(
+                entry = activeEntry,
+                apiClient = apiClient,
+                onDismiss = { selectedEntryForDetail = null },
+                onSaveEdit = { req, attachments ->
+                    scope.launch {
+                        runCatching {
+                            val written = syncManager.updateEntryOptimistic(activeEntry.id, req, attachments)
+                            if (written) ArchiveToastManager.show("手记已修订")
+                            else ArchiveToastManager.show("未能定位手记", isError = true)
+                            selectedEntryForDetail = null
+                            reloadAll()
+                        }.onFailure { err ->
+                            ArchiveToastManager.show("修订失败: ${err.message}", isError = true)
+                        }
+                    }
+                },
+                onDelete = {
+                    entryToDelete = activeEntry
+                },
+                onPhotoClick = { _, _ -> }
+            )
+        }
+
+        entryToDelete?.let { deleting ->
+            ArchiveConfirmDialog(
+                title = "删除散页手记",
+                content = "确认删除《${deleting.title.ifBlank { "无题随笔" }}》？此操作不可逆。",
+                confirmText = "确认删除",
+                isDestructive = true,
+                onConfirm = {
+                    val id = deleting.id
+                    entryToDelete = null
+                    selectedEntryForDetail = null
+                    scope.launch {
+                        runCatching {
+                            syncManager.deleteEntry(id)
+                            ArchiveToastManager.show("手记已删除")
+                            reloadAll()
+                        }.onFailure { err ->
+                            ArchiveToastManager.show("删除失败: ${err.message}", isError = true)
+                        }
+                    }
+                },
+                onDismiss = { entryToDelete = null }
             )
         }
     }

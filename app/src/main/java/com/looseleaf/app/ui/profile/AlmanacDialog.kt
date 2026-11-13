@@ -62,13 +62,15 @@ import androidx.compose.ui.res.stringResource
 import com.looseleaf.app.R
 import androidx.compose.ui.res.painterResource
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AlmanacDialog(
     apiClient: APIClient,
     // MOB-P1-32：原先传入全量档案只为算「最早年份」—— 分页化后不再有全量列表，
     // 改为直接传入最早年份（由 SQL DISTINCT 查询得到）。
     earliestEntryYear: Int?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSelectEntry: ((LifeEntry) -> Unit)? = null
 ) {
     val colors = LooseLeafTheme.colors
     val currentYear = remember { LocalDate.now(FormatUtils.BeijingZone).year }
@@ -97,52 +99,26 @@ internal fun AlmanacDialog(
         }
     }
 
-    Dialog(
+    ArchiveSheet(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        title = stringResource(R.string.stream_dialogs_text_tpl_02, selectedYear),
+        cancelText = "关闭",
+        actionText = null
     ) {
-        Surface(
+        Column(
             modifier = Modifier
-                .fillMaxWidth(0.94f)
-                .heightIn(max = 700.dp),
-            shape = RoundedCornerShape(4.dp),
-            color = colors.archivePaper,
-            border = androidx.compose.foundation.BorderStroke(1.dp, colors.borderSubtle),
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .verticalScroll(rememberScrollState())
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.stream_dialogs_text_tpl_02, selectedYear),
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 20.sp,
-                            color = colors.inkPrimary
-                        )
-                        Text(
-                            text = stringResource(R.string.stream_dialogs_text_05),
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 12.sp,
-                            color = colors.inkSecondary
-                        )
-                    }
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.paper_components_contentDescription_02), tint = colors.inkMuted)
-                    }
-                }
+            Text(
+                text = stringResource(R.string.stream_dialogs_text_05),
+                fontFamily = ArchiveFontFamilies.EditorialSerif,
+                fontSize = 12.sp,
+                color = colors.inkSecondary
+            )
 
-                Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
                 // 年份切换胶囊 (从刚进入的年份至当前年份，支持横滑)
                 Row(
@@ -267,22 +243,50 @@ internal fun AlmanacDialog(
                         title = stringResource(R.string.stream_dialogs_title_tpl_02, data.highlights.photos.size)
                     ) {
                         val seasonItems = listOfNotNull(
-                            data.highlights.spring?.let { "春 · ${it.title}" },
-                            data.highlights.summer?.let { "夏 · ${it.title}" },
-                            data.highlights.autumn?.let { "秋 · ${it.title}" },
-                            data.highlights.winter?.let { "冬 · ${it.title}" }
+                            data.highlights.spring?.let { "春" to it },
+                            data.highlights.summer?.let { "夏" to it },
+                            data.highlights.autumn?.let { "秋" to it },
+                            data.highlights.winter?.let { "冬" to it }
                         )
                         if (seasonItems.isEmpty()) {
                             Text(stringResource(R.string.stream_dialogs_empty_footprints_desc), fontSize = 12.sp, color = colors.inkMuted)
                         } else {
-                            seasonItems.forEach { line ->
-                                Text(
-                                    text = line,
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 13.sp,
-                                    color = colors.inkPrimary,
-                                    modifier = Modifier.padding(vertical = 2.dp)
-                                )
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                seasonItems.forEach { (season, entry) ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(colors.archiveSubtle.copy(alpha = 0.65f))
+                                            .then(
+                                                if (onSelectEntry != null) {
+                                                    Modifier.clickable { onSelectEntry(entry) }
+                                                } else {
+                                                    Modifier
+                                                }
+                                            )
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "$season · ${entry.title.ifBlank { "散页手记" }}",
+                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                            fontSize = 13.sp,
+                                            color = colors.inkPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        if (onSelectEntry != null) {
+                                            Text(
+                                                text = "阅览 ▸",
+                                                fontSize = 11.sp,
+                                                color = colors.accentWarm
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -333,7 +337,6 @@ internal fun AlmanacDialog(
             }
         }
     }
-}
 
 @Composable
 internal fun AlmanacChapterSection(

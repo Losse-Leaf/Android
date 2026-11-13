@@ -24,6 +24,7 @@ import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.model.CreateFootprintRequest
 import com.looseleaf.app.model.CreateWishRequest
 import com.looseleaf.app.model.Footprint
+import com.looseleaf.app.model.LifeEntry
 import com.looseleaf.app.model.ProvinceMemoryDrawerResponse
 import com.looseleaf.app.model.Wish
 import com.looseleaf.app.theme.ArchiveFontFamilies
@@ -312,7 +313,8 @@ internal fun ProvinceMemoryDrawerBottomSheet(
     adcode: String,
     provinceName: String,
     apiClient: APIClient,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSelectEntry: ((LifeEntry) -> Unit)? = null
 ) {
     val colors = LooseLeafTheme.colors
     val scope = rememberCoroutineScope()
@@ -446,6 +448,13 @@ internal fun ProvinceMemoryDrawerBottomSheet(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(colors.archiveSubtle)
+                                    .then(
+                                        if (onSelectEntry != null) {
+                                            Modifier.clickable { onSelectEntry(entry) }
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
                                     .padding(10.dp)
                             ) {
                                 Text(

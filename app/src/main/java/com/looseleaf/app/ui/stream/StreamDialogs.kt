@@ -61,8 +61,9 @@ import com.looseleaf.app.ui.components.ArchiveConfirmDialog
 import androidx.compose.ui.res.stringResource
 import com.looseleaf.app.R
 import androidx.compose.ui.res.painterResource
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun EntryDetailSheetDialog(
+fun EntryDetailSheetDialog(
     entry: LifeEntry,
     apiClient: APIClient,
     onDismiss: () -> Unit,
@@ -118,367 +119,318 @@ internal fun EntryDetailSheetDialog(
         }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        PaperCard(
-            modifier = Modifier
-                .fillMaxWidth(0.94f)
-                .heightIn(max = 680.dp)
-                .imePadding()
-                .navigationBarsPadding()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-            ) {
-                // 弹窗顶部操作栏
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = if (isEditing) "修订散页档案" else "散页档案阅览",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 18.sp,
-                        color = colors.inkPrimary
-                    )
+    val saveAction: () -> Unit = {
+        val code = editCityCode.trim()
+        val cityName = editCityName.trim().takeIf { it.isNotBlank() }
+        val hadCity = !entry.cityCode.isNullOrBlank()
+        val finalAttachmentIds = editAttachments.mapNotNull { it.id.takeIf { id -> id > 0 } }
+        val req = CreateEntryRequest(
+            type = editType,
+            title = editTitle.trim(),
+            content = editContent.trim(),
+            occurredAt = FormatUtils.toBeijingIsoString(editOccurredAt),
+            location = editLocation.trim(),
+            cityCode = code.takeIf { it.isNotBlank() },
+            cityName = cityName,
+            clearCity = hadCity && code.isBlank(),
+            projectId = if (editType == "project") entry.projectId else null,
+            wishId = if (editType == "wish") entry.wishId else null,
+            footprintId = entry.footprintId,
+            attachmentIds = finalAttachmentIds,
+            clearAttachments = finalAttachmentIds.isEmpty()
+        )
+        onSaveEdit(req, editAttachments)
+    }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { isEditing = !isEditing }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Edit,
-                                contentDescription = stringResource(R.string.projects_wishes_lists_contentDescription_01),
-                                tint = if (isEditing) colors.accentWarm else colors.inkSecondary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        IconButton(onClick = onDelete) {
-                            Icon(
-                                imageVector = Icons.Outlined.Delete,
-                                contentDescription = stringResource(R.string.ledger_transactions_tab_contentDescription_03),
-                                tint = colors.accentWarm,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        IconButton(onClick = onDismiss) {
-                            Icon(
-                                imageVector = Icons.Outlined.Close,
-                                contentDescription = stringResource(R.string.paper_components_contentDescription_02),
-                                tint = colors.inkMuted,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+    ArchiveSheet(
+        onDismissRequest = onDismiss,
+        title = if (isEditing) "修订散页档案" else "散页档案阅览",
+        cancelText = if (isEditing) "取消编辑" else "关闭",
+        onCancel = {
+            if (isEditing) isEditing = false else onDismiss()
+        },
+        actionText = if (isEditing) stringResource(R.string.stream_dialogs_text_03) else "编辑",
+        isActionEnabled = !isEditing || editTitle.isNotBlank() || editContent.isNotBlank(),
+        onAction = {
+            if (isEditing) saveAction() else isEditing = true
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 16.dp)
+        ) {
+            if (isEditing) {
+                // 类型切换
+                val typeOptions = listOf(
+                    "life" to "日常随笔",
+                    "travel" to "游历",
+                    "project" to "造物日志",
+                    "wish" to "心愿印记"
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for ((k, label) in typeOptions) {
+                        ArchiveSelectableCapsule(
+                            text = label,
+                            selected = editType == k,
+                            onClick = { editType = k }
+                        )
                     }
                 }
 
-                PaperDivider()
                 Spacer(modifier = Modifier.height(12.dp))
 
-                if (isEditing) {
-                    // 类型切换
-                    val typeOptions = listOf(
-                        "life" to "日常随笔",
-                        "travel" to "游历",
-                        "project" to "造物日志",
-                        "wish" to "心愿印记"
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        for ((k, label) in typeOptions) {
-                            ArchiveSelectableCapsule(
-                                text = label,
-                                selected = editType == k,
-                                onClick = { editType = k }
-                            )
-                        }
-                    }
+                PaperTextField(
+                    value = editTitle,
+                    onValueChange = { editTitle = it },
+                    placeholder = stringResource(R.string.stream_dialogs_placeholder_01),
+                    isUnderline = true,
+                    textStyle = TextStyle(
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.inkPrimary
+                    ),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                    PaperTextField(
-                        value = editTitle,
-                        onValueChange = { editTitle = it },
-                        placeholder = stringResource(R.string.stream_dialogs_placeholder_01),
-                        isUnderline = true,
-                        textStyle = TextStyle(
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = colors.inkPrimary
-                        ),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                PaperTextEditor(
+                    value = editContent,
+                    onValueChange = { editContent = it },
+                    placeholder = stringResource(R.string.stream_dialogs_placeholder_02),
+                    minHeight = 110.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                    PaperTextEditor(
-                        value = editContent,
-                        onValueChange = { editContent = it },
-                        placeholder = stringResource(R.string.stream_dialogs_placeholder_02),
-                        minHeight = 110.dp,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                PaperDateTimeSplitRow(
+                    selectedDateTime = editOccurredAt,
+                    onDateTimeSelected = { editOccurredAt = it }
+                )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                    PaperDateTimeSplitRow(
-                        selectedDateTime = editOccurredAt,
-                        onDateTimeSelected = { editOccurredAt = it }
-                    )
+                PaperCityPickerField(
+                    selectedCityCode = editCityCode,
+                    selectedCityName = editCityName,
+                    onCitySelected = { code, name ->
+                        editCityCode = code
+                        editCityName = name
+                    },
+                    placeholder = stringResource(R.string.ledger_screen_placeholder_02)
+                )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                    PaperCityPickerField(
-                        selectedCityCode = editCityCode,
-                        selectedCityName = editCityName,
-                        onCitySelected = { code, name ->
-                            editCityCode = code
-                            editCityName = name
-                        },
-                        placeholder = stringResource(R.string.ledger_screen_placeholder_02)
-                    )
+                PaperTextField(
+                    value = editLocation,
+                    onValueChange = { editLocation = it },
+                    placeholder = stringResource(R.string.quick_note_sheet_text_04),
+                    isUnderline = true,
+                    textStyle = TextStyle(
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 13.sp,
+                        color = colors.inkPrimary
+                    ),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                    // 自定义地点文本（城市之外的「西湖边 / 外婆家」）。
-                    // 原先编辑弹窗没有这个输入框，用户手写的地点既改不了也清不掉。
-                    PaperTextField(
-                        value = editLocation,
-                        onValueChange = { editLocation = it },
-                        placeholder = stringResource(R.string.quick_note_sheet_text_04),
-                        isUnderline = true,
-                        textStyle = TextStyle(
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 13.sp,
-                            color = colors.inkPrimary
-                        ),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // 照片附件管理与增删
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = stringResource(R.string.stream_dialogs_text_tpl_01, editAttachments.size),
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = colors.inkPrimary
-                            )
-                            if (isUploadingPhoto) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(12.dp),
-                                        strokeWidth = 1.5.dp,
-                                        color = colors.accentWarm
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = stringResource(R.string.stream_dialogs_text_01),
-                                        fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 11.sp,
-                                        color = colors.accentSmallText
-                                    )
-                                }
-                            } else {
-                                TextButton(
-                                    onClick = {
-                                            // MOB-P2-68：PickMultipleVisualMedia 需要传 Request
-                                            photoPickerLauncher.launch(
-                                                androidx.activity.result.PickVisualMediaRequest(
-                                                    androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
-                                                )
-                                            )
-                                        },
-                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.stream_dialogs_text_02),
-                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                        fontSize = 12.sp,
-                                        color = colors.accentSmallText
-                                    )
-                                }
-                            }
-                        }
-
-                        if (editAttachments.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                for (att in editAttachments) {
-                                    val fullUrl = apiClient.resolveMediaUrl(att.url)
-                                    Box(
-                                        modifier = Modifier
-                                            .size(72.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
-                                    ) {
-                                        AsyncImage(
-                                            model = fullUrl,
-                                            contentDescription = null,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .padding(2.dp)
-                                                .size(18.dp)
-                                                .clip(CircleShape)
-                                                .background(colors.inkPrimary.copy(alpha = 0.7f))
-                                                .clickable {
-                                                    editAttachments = editAttachments.filter { it.id != att.id }
-                                                },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.Close,
-                                                contentDescription = stringResource(R.string.stream_dialogs_contentDescription_01),
-                                                // 深底角标上的撕除图标：取反色语义而非裸白
-                                                tint = colors.archivePaper,
-                                                modifier = Modifier.size(12.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    TerracottaStampButton(
-                        text = stringResource(R.string.stream_dialogs_text_03),
-                        enabled = editTitle.isNotBlank() || editContent.isNotBlank(),
-                        onClick = {
-                            // 契约 A：清空城市时不再用 ifBlank 回退旧值（那会被服务端
-                            // 按「保持原值」忽略、下次拉取又「复活」），改为显式 clear_city。
-                            // MOB 表单审计 #2：clear_city 只在「原条目有城市、用户清空了城市」时
-                            // 才允许发送——原本就没有 city_code 的条目（只写了手写地点）编辑保存时
-                            // 不能携带 clear_city，否则后端会连带清掉 location。
-                            val code = editCityCode.trim()
-                            val cityName = editCityName.trim().takeIf { it.isNotBlank() }
-                            val hadCity = !entry.cityCode.isNullOrBlank()
-                            val finalAttachmentIds = editAttachments.mapNotNull { it.id.takeIf { id -> id > 0 } }
-                            val req = CreateEntryRequest(
-                                type = editType,
-                                // 空串是显式清空，不能把占位文案当内容写进数据库。
-                                title = editTitle.trim(),
-                                content = editContent.trim(),
-                                occurredAt = FormatUtils.toBeijingIsoString(editOccurredAt),
-                                // 始终带上地点：空串 = 显式清空（后端已支持 key 语义）
-                                location = editLocation.trim(),
-                                cityCode = code.takeIf { it.isNotBlank() },
-                                cityName = cityName,
-                                clearCity = hadCity && code.isBlank(),
-                                // MOB 表单审计 #5：归属字段按类型门控——
-                                // 非 project 类型显式发 project_id=null（EncodeDefault(ALWAYS)
-                                // 保证 null 落进请求体），后端「携带即写入」→ null = 解绑；
-                                // 原先恒回传会让「造物日志改成日常随笔」仍挂着 project_id 落库。
-                                projectId = if (editType == "project") entry.projectId else null,
-                                wishId = if (editType == "wish") entry.wishId else null,
-                                footprintId = entry.footprintId,
-                                attachmentIds = finalAttachmentIds,
-                                // 契约 B：删光照片时显式声明解绑——
-                                // 单发 attachment_ids: [] 会被服务端按「保持原值」忽略
-                                clearAttachments = finalAttachmentIds.isEmpty()
-                            )
-                            onSaveEdit(req, editAttachments)
-                        }
-                    )
-                } else {
-                    // 阅览模式
+                // 照片附件管理与增删
+                Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = FormatUtils.formatDisplayDateTime(entry.occurredAt),
-                            fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontSize = 12.sp,
-                            color = colors.inkMuted
+                            text = stringResource(R.string.stream_dialogs_text_tpl_01, editAttachments.size),
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.inkPrimary
                         )
-                    }
-
-                    val detailPlace = listOfNotNull(entry.cityName, entry.location).distinct().filter { it.isNotBlank() }.joinToString(" · ")
-                    if (detailPlace.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Outlined.LocationOn,
-                                contentDescription = null,
-                                tint = colors.accentWarm,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = detailPlace,
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontSize = 12.sp,
-                                color = colors.inkSecondary
-                            )
+                        if (isUploadingPhoto) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    strokeWidth = 1.5.dp,
+                                    color = colors.accentWarm
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = stringResource(R.string.stream_dialogs_text_01),
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    fontSize = 11.sp,
+                                    color = colors.accentSmallText
+                                )
+                            }
+                        } else {
+                            TextButton(
+                                onClick = {
+                                    photoPickerLauncher.launch(
+                                        androidx.activity.result.PickVisualMediaRequest(
+                                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                        )
+                                    )
+                                },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.stream_dialogs_text_02),
+                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                    fontSize = 12.sp,
+                                    color = colors.accentSmallText
+                                )
+                            }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    if (editAttachments.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            for (att in editAttachments) {
+                                val fullUrl = apiClient.resolveMediaUrl(att.url)
+                                Box(
+                                    modifier = Modifier
+                                        .size(72.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
+                                ) {
+                                    AsyncImage(
+                                        model = fullUrl,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(2.dp)
+                                            .size(18.dp)
+                                            .clip(CircleShape)
+                                            .background(colors.inkPrimary.copy(alpha = 0.7f))
+                                            .clickable {
+                                                editAttachments = editAttachments.filter { it.id != att.id }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Close,
+                                            contentDescription = stringResource(R.string.stream_dialogs_contentDescription_01),
+                                            tint = colors.archivePaper,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
-                    Text(
-                        text = entry.title,
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 20.sp,
-                        color = colors.inkPrimary
+                Spacer(modifier = Modifier.height(16.dp))
+                ArchiveDivider()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    ArchiveTextButton(
+                        text = "删除此手记",
+                        isDestructive = true,
+                        onClick = onDelete
                     )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
+                }
+            } else {
+                // 阅览模式
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     Text(
-                        text = entry.content,
-                        fontFamily = ArchiveFontFamilies.BodySans,
-                        fontSize = 15.sp,
-                        lineHeight = 24.sp,
-                        color = colors.inkSecondary
+                        text = FormatUtils.formatDisplayDateTime(entry.occurredAt),
+                        fontFamily = ArchiveFontFamilies.MonoScale,
+                        fontSize = 12.sp,
+                        color = colors.inkMuted
                     )
+                    ArchiveTextButton(
+                        text = "删除",
+                        isDestructive = true,
+                        onClick = onDelete
+                    )
+                }
 
-                    if (entry.attachments.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(14.dp))
-                        EntryAttachmentsGrid(
-                            attachments = entry.attachments,
-                            apiClient = apiClient,
-                            onPhotoClick = onPhotoClick
+                val detailPlace = listOfNotNull(entry.cityName, entry.location).distinct().filter { it.isNotBlank() }.joinToString(" · ")
+                if (detailPlace.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Outlined.LocationOn,
+                            contentDescription = null,
+                            tint = colors.accentWarm,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = detailPlace,
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 12.sp,
+                            color = colors.inkSecondary
                         )
                     }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = entry.title,
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 20.sp,
+                    color = colors.inkPrimary
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = entry.content,
+                    fontFamily = ArchiveFontFamilies.BodySans,
+                    fontSize = 15.sp,
+                    lineHeight = 24.sp,
+                    color = colors.inkSecondary
+                )
+
+                if (entry.attachments.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    EntryAttachmentsGrid(
+                        attachments = entry.attachments,
+                        apiClient = apiClient,
+                        onPhotoClick = onPhotoClick
+                    )
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun GlobalSearchDialog(
     apiClient: APIClient,
@@ -513,45 +465,25 @@ internal fun GlobalSearchDialog(
         )
     }
 
-    Dialog(
+    ArchiveSheet(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        title = stringResource(R.string.stream_dialogs_text_06),
+        cancelText = "关闭",
+        actionText = null
     ) {
-        PaperCard(
+        Column(
             modifier = Modifier
-                .fillMaxWidth(0.94f)
-                .heightIn(max = 680.dp)
-                .imePadding()
-                .navigationBarsPadding()
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = stringResource(R.string.stream_dialogs_text_06),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 18.sp,
-                        color = colors.inkPrimary
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.paper_components_contentDescription_02), tint = colors.inkMuted)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // 便签纸条搜索栏 (Sticky Memo Note Search Bar)
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = colors.archivePaper,
-                    border = BorderStroke(1.dp, colors.borderSubtle),
-                    shadowElevation = ArchiveShadows.stickerElevation,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+            // 便签纸条搜索栏 (Sticky Memo Note Search Bar)
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = colors.archivePaper,
+                border = BorderStroke(1.dp, colors.borderSubtle),
+                shadowElevation = ArchiveShadows.stickerElevation,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         // 便签上沿和纸胶带装饰痕迹
                         Box(
@@ -652,7 +584,7 @@ internal fun GlobalSearchDialog(
                 if (res == null || (res.entries.isEmpty() && res.footprints.isEmpty() && res.wishes.isEmpty() && res.projects.isEmpty())) {
                     Box(
                         contentAlignment = Alignment.Center,
-                        modifier = Modifier.fillMaxWidth().height(360.dp)
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 380.dp)
                     ) {
                         Text(
                             text = if (searchQuery.isBlank()) "输入关键词检索所有归册记忆" else "未找到匹配的生活碎片",
@@ -663,7 +595,7 @@ internal fun GlobalSearchDialog(
                     }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.fillMaxWidth().height(360.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 460.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         if (res.entries.isNotEmpty()) {
@@ -827,7 +759,6 @@ internal fun GlobalSearchDialog(
             }
         }
     }
-}
 
 /**
  * 搜索关键词高亮文本：赤陶色下划线笔痕，绝无刺眼色块底色

@@ -52,6 +52,7 @@ import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.model.CuratorProfile
 import com.looseleaf.app.model.GlobalStats
+import com.looseleaf.app.model.LifeEntry
 import com.looseleaf.app.model.SiteConfig
 import com.looseleaf.app.model.UpdateProfileRequest
 import com.looseleaf.app.model.CategoryOption
@@ -64,6 +65,7 @@ import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.ui.settings.SettingsScreen
+import com.looseleaf.app.ui.stream.EntryDetailSheetDialog
 import com.looseleaf.app.updater.ReleaseInfo
 import com.looseleaf.app.updater.UpdateCheckResult
 import com.looseleaf.app.updater.UpdateChecker
@@ -91,7 +93,9 @@ fun ProfileScreen(
     /** 「有图手记」：跳时间流并只看带图记录（RG-30） */
     onOpenImageEntries: (() -> Unit)? = null,
     /** 「随行装备」：跳账本资产大盘并定位该器物（RG-30） */
-    onOpenGear: ((String) -> Unit)? = null
+    onOpenGear: ((String) -> Unit)? = null,
+    /** 二级设置页显隐通知宿主控制底栏显隐 */
+    onBottomBarVisibilityChanged: ((Boolean) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -114,6 +118,14 @@ fun ProfileScreen(
     var enableDecorations by remember { mutableStateOf(credentialStore.enableDecorations) }
     var isInstallmentReminderEnabled by remember { mutableStateOf(credentialStore.isInstallmentReminderEnabled) }
     var showSettingsScreen by remember { mutableStateOf(false) }
+    var selectedAlmanacEntry by remember { mutableStateOf<LifeEntry?>(null) }
+    var almanacEntryToDelete by remember { mutableStateOf<LifeEntry?>(null) }
+    LaunchedEffect(showSettingsScreen) {
+        onBottomBarVisibilityChanged?.invoke(!showSettingsScreen)
+    }
+    DisposableEffect(Unit) {
+        onDispose { onBottomBarVisibilityChanged?.invoke(true) }
+    }
     var showUnpairDialog by remember { mutableStateOf(false) }
     var showStorageBackupDialog by remember { mutableStateOf(false) }
     var showOtherDevicesSheet by remember { mutableStateOf(false) }
@@ -774,7 +786,53 @@ fun ProfileScreen(
                 AlmanacDialog(
                     apiClient = apiClient,
                     earliestEntryYear = globalStats?.currentYear,
-                    onDismiss = { showAlmanacDialog = false }
+                    onDismiss = { showAlmanacDialog = false },
+                    onSelectEntry = { entry -> selectedAlmanacEntry = entry }
+                )
+            }
+
+            selectedAlmanacEntry?.let { activeEntry ->
+                EntryDetailSheetDialog(
+                    entry = activeEntry,
+                    apiClient = apiClient,
+                    onDismiss = { selectedAlmanacEntry = null },
+                    onSaveEdit = { req, attachments ->
+                        scope.launch {
+                            runCatching {
+                                val written = syncManager.updateEntryOptimistic(activeEntry.id, req, attachments)
+                                if (written) ArchiveToastManager.show("手记已修订")
+                                else ArchiveToastManager.show("未能定位手记", isError = true)
+                                selectedAlmanacEntry = null
+                            }.onFailure { err ->
+                                ArchiveToastManager.show("修订失败: ${err.message}", isError = true)
+                            }
+                        }
+                    },
+                    onDelete = { almanacEntryToDelete = activeEntry },
+                    onPhotoClick = { _, _ -> }
+                )
+            }
+
+            almanacEntryToDelete?.let { deleting ->
+                ArchiveConfirmDialog(
+                    title = "删除散页手记",
+                    content = "确认删除《${deleting.title.ifBlank { "无题随笔" }}》？此操作不可逆。",
+                    confirmText = "确认删除",
+                    isDestructive = true,
+                    onConfirm = {
+                        val id = deleting.id
+                        almanacEntryToDelete = null
+                        selectedAlmanacEntry = null
+                        scope.launch {
+                            runCatching {
+                                syncManager.deleteEntry(id)
+                                ArchiveToastManager.show("手记已删除")
+                            }.onFailure { err ->
+                                ArchiveToastManager.show("删除失败: ${err.message}", isError = true)
+                            }
+                        }
+                    },
+                    onDismiss = { almanacEntryToDelete = null }
                 )
             }
 

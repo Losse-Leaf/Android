@@ -46,11 +46,8 @@ import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.sync.OfflineMediaFileItem
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.model.CreateEntryRequest
-import com.looseleaf.app.model.CreateProjectRequest
-import com.looseleaf.app.model.CreateWishRequest
 import com.looseleaf.app.model.Footprint
 import com.looseleaf.app.model.Project
-import com.looseleaf.app.model.Wish
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
@@ -169,8 +166,9 @@ private fun QuickNoteSheetBody(
     }
 
     var noteType by remember {
-        mutableStateOf(draftPrefs.getString("type", "life") ?: "life")
-    } // "life", "travel", "project", "wish"
+        val saved = draftPrefs.getString("type", "life") ?: "life"
+        mutableStateOf(if (saved in setOf("life", "travel", "project")) saved else "life")
+    } // "life", "travel", "project"
 
     // 日常与通用手记字段
     var noteTitle by remember { mutableStateOf(draftPrefs.getString("title", "").orEmpty()) }
@@ -213,52 +211,12 @@ private fun QuickNoteSheetBody(
     // 游历专属字段
     var selectedFootprintId by rememberSaveable { mutableStateOf<Long?>(null) }
 
-    // 造物专属字段。
-    // MOB 表单审计 #17：状态统一中文四态（进行中/已完成/维护中/已搁置），
-    // 与新建弹窗/编辑抽屉同一套枚举（后端白名单中英全集放行，此处收敛为中文）。
-    var projectMode by rememberSaveable { mutableStateOf("entry") } // "entry" (进展手记) vs "new" (立项新造物)
+    // 造物专属字段
     var selectedProjectId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var projTitle by rememberSaveable { mutableStateOf("") }
-    var projSubtitle by rememberSaveable { mutableStateOf("") }
-    var projCategory by rememberSaveable { mutableStateOf("软件") }
-    var projStatus by rememberSaveable { mutableStateOf("进行中") }
-    var projDescription by rememberSaveable { mutableStateOf("") }
-    var projStory by rememberSaveable { mutableStateOf("") }
-    var projGithubUrl by rememberSaveable { mutableStateOf("") }
-
-    // 心愿专属字段
-    var wishKind by rememberSaveable { mutableStateOf("item") } // "item", "travel", "milestone"
-    var wishTitle by rememberSaveable { mutableStateOf("") }
-    var wishBudgetYuan by rememberSaveable { mutableStateOf("") }
-    var wishSpec by rememberSaveable { mutableStateOf("") }
-    var wishTargetDate by rememberSaveable(stateSaver = run {
-        androidx.compose.runtime.saveable.Saver<LocalDate?, String>(
-            save = { it?.toString() },
-            restore = { if (it.isNullOrBlank()) null else LocalDate.parse(it) }
-        )
-    }) { mutableStateOf<LocalDate?>(null) }
-    var wishNote by rememberSaveable { mutableStateOf("") }
-    // MOB 表单审计 #13：心愿-旅程目的地用独立状态——
-    // 不复用速记共享属地 noteCity*（GPS 定位/上一模式残留会被误预填为「远方旅程」目的地），
-    // 提交也不再借道不可见的 noteLocation 做地名反推。
-    var wishCityCode by rememberSaveable { mutableStateOf("") }
-    var wishCityName by rememberSaveable { mutableStateOf("") }
 
     // 照片装裱状态 (P1-9)：使用 Saver 保护相纸，旋转屏幕不丢失相纸
     var attachedPhotos by rememberSaveable(saver = attachedPhotosSaver) { mutableStateOf<List<AttachedPhotoItem>>(emptyList()) }
     var isProcessingPhoto by remember { mutableStateOf(false) }
-
-    fun clearAttachedPhotos() {
-        attachedPhotos.forEach { photo -> runCatching { photo.savedFile.delete() } }
-        attachedPhotos = emptyList()
-    }
-
-    // 心愿模式不展示装裱区：从其它形态带过来的相纸不能继续被静默上传。
-    LaunchedEffect(noteType) {
-        if (noteType == "wish" && attachedPhotos.isNotEmpty()) {
-            clearAttachedPhotos()
-        }
-    }
 
     // 未提交就关闭速记抽屉：清掉已落盘的压缩图，避免 outbox_media 无限堆积孤儿文件
     // （DarkroomScreen 有同样的 DisposableEffect 清理，这里此前漏了；屏幕旋转等配置变更时不应误删）
@@ -393,30 +351,18 @@ private fun QuickNoteSheetBody(
     val canSave = !isProcessingPhoto && !isSubmitting && when (noteType) {
         "life" -> (noteTitle.isNotBlank() || noteContent.isNotBlank() || attachedPhotos.isNotEmpty())
         "travel" -> noteContent.isNotBlank() && (!noteCityCode.isNullOrBlank() || !noteCityName.isNullOrBlank() || noteLocation.isNotBlank())
-        "project" -> if (projectMode == "entry") {
-            selectedProjectId != null && noteContent.isNotBlank()
-        } else {
-            projTitle.isNotBlank() && projDescription.isNotBlank()
-        }
-        "wish" -> wishTitle.isNotBlank()
+        "project" -> selectedProjectId != null && noteContent.isNotBlank()
         else -> false
     }
 
     val headerTitle = when (noteType) {
         "life" -> "新散页"
         "travel" -> "游历手记"
-        "project" -> if (projectMode == "entry") "造物手记" else "新建造物"
-        "wish" -> "许下心愿"
+        "project" -> "造物手记"
         else -> "新散页"
     }
 
-    val submitText = if (isSubmitting) "提交中…" else when (noteType) {
-        "life" -> "归册"
-        "travel" -> "归册"
-        "project" -> if (projectMode == "entry") "归册" else "立项"
-        "wish" -> "封存"
-        else -> "归册"
-    }
+    val submitText = if (isSubmitting) "提交中…" else "归册"
 
     val onSubmitAction: () -> Unit = onSubmitAction@{
         if (isSubmitting) return@onSubmitAction
@@ -524,115 +470,52 @@ private fun QuickNoteSheetBody(
                     }
 
                     "project" -> {
-                        if (projectMode == "entry") {
-                            val effectiveTitle = noteTitle.ifBlank {
-                                val proj = projects.firstOrNull { it.id == selectedProjectId }
-                                if (proj != null) "${proj.title} · 进展记录" else "造物手记"
-                            }
-                            if (attachedPhotos.isNotEmpty()) {
-                                val primary = attachedPhotos.first()
-                                val extraFiles = attachedPhotos.drop(1).map {
-                                    OfflineMediaFileItem(
-                                        filePath = it.savedFile.absolutePath,
-                                        mimeType = it.processed.mimeType,
-                                        width = it.processed.width,
-                                        height = it.processed.height
-                                    )
-                                }
-                                val req = CreateEntryRequest(
-                                    type = "project",
-                                    title = effectiveTitle,
-                                    content = noteContent.trim(),
-                                    occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                    location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                    cityCode = finalCode,
-                                    cityName = finalCityName,
-                                    projectId = selectedProjectId
+                        val effectiveTitle = noteTitle.ifBlank {
+                            val proj = projects.firstOrNull { it.id == selectedProjectId }
+                            if (proj != null) "${proj.title} · 进展记录" else "造物手记"
+                        }
+                        if (attachedPhotos.isNotEmpty()) {
+                            val primary = attachedPhotos.first()
+                            val extraFiles = attachedPhotos.drop(1).map {
+                                OfflineMediaFileItem(
+                                    filePath = it.savedFile.absolutePath,
+                                    mimeType = it.processed.mimeType,
+                                    width = it.processed.width,
+                                    height = it.processed.height
                                 )
-                                syncManager.createMediaEntryOffline(
-                                    localImageFilePath = primary.savedFile.absolutePath,
-                                    mimeType = primary.processed.mimeType,
-                                    width = primary.processed.width,
-                                    height = primary.processed.height,
-                                    req = req,
-                                    additionalMediaFiles = extraFiles
-                                )
-                                ArchiveToastManager.show("造物进展手记已装裱归册")
-                            } else {
-                                syncManager.createEntryOptimistic(
-                                    type = "project",
-                                    title = effectiveTitle,
-                                    content = noteContent.trim(),
-                                    occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                    location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                    cityCode = finalCode,
-                                    cityName = finalCityName,
-                                    projectId = selectedProjectId
-                                )
-                                ArchiveToastManager.show("造物进展已归册")
                             }
-                        } else {
-                            if (attachedPhotos.isNotEmpty()) {
-                                clearAttachedPhotos()
-                            }
-                            val req = CreateProjectRequest(
-                                title = projTitle.trim(),
-                                subtitle = projSubtitle.trim().takeIf { it.isNotBlank() },
-                                description = projDescription.trim(),
-                                story = projStory.trim().takeIf { it.isNotBlank() },
-                                category = projCategory.trim().takeIf { it.isNotBlank() },
-                                status = projStatus,
-                                githubUrl = projGithubUrl.trim().takeIf { it.isNotBlank() }
+                            val req = CreateEntryRequest(
+                                type = "project",
+                                title = effectiveTitle,
+                                content = noteContent.trim(),
+                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
+                                location = noteLocation.trim().takeIf { it.isNotBlank() },
+                                cityCode = finalCode,
+                                cityName = finalCityName,
+                                projectId = selectedProjectId
                             )
-                            val queued = withContext(Dispatchers.IO) {
-                                syncManager.createProjectOrQueue(req)
-                            }
-                            ArchiveToastManager.show(
-                                if (queued) "当前离线，已排队；联网后自动立项"
-                                else "新造物「${projTitle.trim()}」已成功立项"
+                            syncManager.createMediaEntryOffline(
+                                localImageFilePath = primary.savedFile.absolutePath,
+                                mimeType = primary.processed.mimeType,
+                                width = primary.processed.width,
+                                height = primary.processed.height,
+                                req = req,
+                                additionalMediaFiles = extraFiles
                             )
-                        }
-                    }
-
-                    "wish" -> {
-                        val budgetCents = FormatUtils.yuanStringToCents(wishBudgetYuan)
-                        val targetIso = wishTargetDate?.atStartOfDay()?.let { FormatUtils.toBeijingIsoString(it) }
-                        val attachmentIds = if (attachedPhotos.isEmpty()) {
-                            emptyList()
+                            ArchiveToastManager.show("造物进展手记已装裱归册")
                         } else {
-                            withContext(Dispatchers.IO) {
-                                runCatching {
-                                    attachedPhotos.map { photo ->
-                                        ImagePipeline.uploadImage(
-                                            apiClient = apiClient,
-                                            file = photo.savedFile,
-                                            mimeType = photo.processed.mimeType,
-                                            filename = photo.savedFile.name,
-                                            width = photo.processed.width,
-                                            height = photo.processed.height
-                                        ).id
-                                    }
-                                }.getOrDefault(emptyList())
-                            }
+                            syncManager.createEntryOptimistic(
+                                type = "project",
+                                title = effectiveTitle,
+                                content = noteContent.trim(),
+                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
+                                location = noteLocation.trim().takeIf { it.isNotBlank() },
+                                cityCode = finalCode,
+                                cityName = finalCityName,
+                                projectId = selectedProjectId
+                            )
+                            ArchiveToastManager.show("造物进展已归册")
                         }
-                        val req = CreateWishRequest(
-                            title = wishTitle.trim(),
-                            kind = wishKind,
-                            note = wishNote.trim().takeIf { it.isNotBlank() },
-                            spec = wishSpec.trim().takeIf { it.isNotBlank() && wishKind == "item" },
-                            cityCode = if (wishKind == "travel") wishCityCode.trim().takeIf { it.isNotBlank() } else null,
-                            cityName = if (wishKind == "travel") wishCityName.trim().takeIf { it.isNotBlank() } else null,
-                            budget = budgetCents,
-                            targetDate = targetIso,
-                            attachmentIds = attachmentIds.takeIf { it.isNotEmpty() }
-                        )
-                        val queued = withContext(Dispatchers.IO) {
-                            syncManager.createWishOrQueue(req)
-                        }
-                        ArchiveToastManager.show(
-                            if (queued) "当前离线，已排队；联网后自动封存"
-                            else "心愿「${wishTitle.trim()}」已封存入册"
-                        )
                     }
                 }
                 noteSubmitted = true
@@ -679,8 +562,7 @@ private fun QuickNoteSheetBody(
                 val categoryOptions = listOf(
                     Triple("life", "日常", colors.tagDaily),
                     Triple("travel", "游历", colors.tagTravel),
-                    Triple("project", "造物", colors.tagProject),
-                    Triple("wish", "心愿", colors.tagWish)
+                    Triple("project", "造物", colors.tagProject)
                 )
                 categoryOptions.forEach { (k, label, dotColor) ->
                     ArchiveSelectableCapsule(
@@ -1132,305 +1014,109 @@ private fun QuickNoteSheetBody(
 
             }
 
-            // ==================== 3. 造物 (project) ====================
+            // ==================== 3. 造物进展 (project) ====================
             else if (noteType == "project") {
-                // 子模式切换：撰写已有进展手记 vs 立项新造物
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    PaperFilterPill(
-                        selected = projectMode == "entry",
-                        onClick = { projectMode = "entry" },
-                        label = stringResource(R.string.quick_note_sheet_label_02)
-                    )
-                    PaperFilterPill(
-                        selected = projectMode == "new",
-                        onClick = { projectMode = "new" },
-                        label = stringResource(R.string.quick_note_sheet_label_03)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                if (projectMode == "entry") {
-                    if (projects.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(colors.archiveSubtle)
-                                .border(0.5.dp, colors.borderDivider, RoundedCornerShape(12.dp))
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.quick_note_sheet_text_10),
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 13.sp,
-                                    color = colors.inkSecondary
-                                )
-                                Button(
-                                    onClick = { projectMode = "new" },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = colors.accentWarm,
-                                        contentColor = colors.archivePaper
-                                    ),
-                                    shape = RoundedCornerShape(4.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text(stringResource(R.string.quick_note_create_project), fontSize = 12.sp)
-                                }
-                            }
-                        }
-                    } else {
-                        PaperSelectField(
-                            label = stringResource(R.string.quick_note_sheet_label_04),
-                            selectedValue = selectedProjectId,
-                            options = projects.map { it.id to "${it.title} (${it.status ?: "活跃"})" },
-                            onSelected = { selectedProjectId = it }
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        androidx.compose.foundation.text.BasicTextField(
-                            value = noteTitle,
-                            onValueChange = { noteTitle = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            textStyle = TextStyle(
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 19.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = colors.inkPrimary
-                            ),
-                            cursorBrush = SolidColor(colors.accentWarm),
-                            decorationBox = { innerTextField ->
-                                if (noteTitle.isEmpty()) {
-                                    Text(
-                                        text = stringResource(R.string.quick_note_sheet_text_11),
-                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                        fontSize = 19.sp,
-                                        fontWeight = FontWeight.Normal,
-                                        color = colors.inkMuted.copy(alpha = 0.5f)
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-                        HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        androidx.compose.foundation.text.BasicTextField(
-                            value = noteContent,
-                            onValueChange = { noteContent = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(132.dp),
-                            textStyle = TextStyle(
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontSize = 15.sp,
-                                lineHeight = 24.sp,
-                                color = colors.inkPrimary
-                            ),
-                            cursorBrush = SolidColor(colors.accentWarm),
-                            decorationBox = { innerTextField ->
-                                if (noteContent.isEmpty()) {
-                                    Text(
-                                        text = stringResource(R.string.quick_note_sheet_text_12),
-                                        fontFamily = ArchiveFontFamilies.BodySans,
-                                        fontSize = 15.sp,
-                                        lineHeight = 24.sp,
-                                        color = colors.inkMuted.copy(alpha = 0.45f)
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-                        PhotoMountingSection()
-
-                        HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-                        Spacer(modifier = Modifier.height(12.dp))
-
+                if (projects.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colors.archiveSubtle)
+                            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(12.dp))
+                            .padding(18.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            text = stringResource(R.string.quick_note_sheet_text_13),
+                            text = "暂无造物项目，请前往底部「工坊」页点击右上角「+ 立项」创建新造物后再写进展。",
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 12.sp,
-                            color = colors.inkMuted
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        PaperDateTimeSplitRow(
-                            selectedDateTime = noteOccurredAt,
-                            onDateTimeSelected = { noteOccurredAt = it }
+                            fontSize = 13.sp,
+                            color = colors.inkSecondary
                         )
                     }
                 } else {
-                    // 立项新造物表单
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        PaperTextField(
-                            value = projTitle,
-                            onValueChange = { projTitle = it },
-                            label = stringResource(R.string.quick_note_sheet_label_05),
-                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_03),
-                            singleLine = true
-                        )
-
-                        PaperTextField(
-                            value = projSubtitle,
-                            onValueChange = { projSubtitle = it },
-                            label = stringResource(R.string.quick_note_sheet_label_06),
-                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_04),
-                            singleLine = true
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            PaperSelectField(
-                                label = stringResource(R.string.quick_note_sheet_label_07),
-                                selectedValue = projCategory,
-                                options = listOf(
-                                    "软件" to "软件",
-                                    "硬件" to "硬件",
-                                    "设计" to "设计",
-                                    "手作" to "手作",
-                                    "写作" to "写作",
-                                    "生活" to "生活"
-                                ),
-                                onSelected = { projCategory = it },
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            PaperSelectField(
-                                label = stringResource(R.string.quick_note_sheet_label_08),
-                                selectedValue = projStatus,
-                                options = listOf(
-                                    // MOB 表单审计 #17：统一中文四态（对齐新建弹窗与编辑抽屉）
-                                    "进行中" to "进行中",
-                                    "已完成" to "已完成",
-                                    "维护中" to "维护中",
-                                    "已搁置" to "已搁置"
-                                ),
-                                onSelected = { projStatus = it },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        PaperTextField(
-                            value = projDescription,
-                            onValueChange = { projDescription = it },
-                            label = stringResource(R.string.quick_note_sheet_label_09),
-                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_05)
-                        )
-
-                        PaperTextField(
-                            value = projStory,
-                            onValueChange = { projStory = it },
-                            label = stringResource(R.string.quick_note_sheet_label_10),
-                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_06)
-                        )
-
-                        PaperTextField(
-                            value = projGithubUrl,
-                            onValueChange = { projGithubUrl = it },
-                            label = stringResource(R.string.quick_note_sheet_label_11),
-                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_07),
-                            singleLine = true
-                        )
-                    }
-                }
-            }
-
-            // ==================== 4. 心愿 (wish) ====================
-            else if (noteType == "wish") {
-                // 三维形态切换胶囊
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf("item" to "好物心愿", "travel" to "远方旅程", "milestone" to "阶段里程碑").forEach { (kind, label) ->
-                        PaperFilterPill(
-                            selected = wishKind == kind,
-                            onClick = { wishKind = kind },
-                            label = label
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    PaperTextField(
-                        value = wishTitle,
-                        onValueChange = { wishTitle = it },
-                        label = stringResource(R.string.quick_note_sheet_label_12),
-                        placeholder = when (wishKind) {
-                            "item" -> "期许拥有的物件名称…"
-                            "travel" -> "想要抵达的目的地或旅程…"
-                            else -> "期许实现的里程碑目标…"
-                        },
-                        singleLine = true
+                    PaperSelectField(
+                        label = stringResource(R.string.quick_note_sheet_label_04),
+                        selectedValue = selectedProjectId,
+                        options = projects.map { it.id to "${it.title} (${it.status ?: "活跃"})" },
+                        onSelected = { selectedProjectId = it }
                     )
 
-                    PaperTextField(
-                        value = wishBudgetYuan,
-                        onValueChange = { wishBudgetYuan = it },
-                        label = stringResource(R.string.quick_note_sheet_label_13),
-                        placeholder = stringResource(R.string.quick_note_sheet_placeholder_08),
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = noteTitle,
+                        onValueChange = { noteTitle = it },
+                        modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                        textStyle = TextStyle(
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.inkPrimary
+                        ),
+                        cursorBrush = SolidColor(colors.accentWarm),
+                        decorationBox = { innerTextField ->
+                            if (noteTitle.isEmpty()) {
+                                Text(
+                                    text = stringResource(R.string.quick_note_sheet_text_11),
+                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                                    fontSize = 19.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    color = colors.inkMuted.copy(alpha = 0.5f)
+                                )
+                            }
+                            innerTextField()
+                        }
                     )
 
-                    if (wishKind == "item") {
-                        PaperTextField(
-                            value = wishSpec,
-                            onValueChange = { wishSpec = it },
-                            label = stringResource(R.string.quick_note_sheet_label_14),
-                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_09),
-                            singleLine = true
-                        )
-                    } else if (wishKind == "travel") {
-                        // MOB 表单审计 #13：绑定心愿专属目的地状态
-                        PaperCityPickerField(
-                            selectedCityCode = wishCityCode,
-                            selectedCityName = wishCityName,
-                            onCitySelected = { code, name ->
-                                wishCityCode = code
-                                wishCityName = name
-                            },
-                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_10)
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // MOB 表单审计 #14：未选择目标期时显示「未设置」占位，采用统一底线选择器，无异常字距
-                    ArchiveDatePickerField(
-                        selectedDate = wishTargetDate,
-                        onDateSelected = { wishTargetDate = it },
-                        label = "期许达成日期",
-                        placeholder = "未设置",
-                        onClear = { wishTargetDate = null }
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = noteContent,
+                        onValueChange = { noteContent = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(132.dp),
+                        textStyle = TextStyle(
+                            fontFamily = ArchiveFontFamilies.BodySans,
+                            fontSize = 15.sp,
+                            lineHeight = 24.sp,
+                            color = colors.inkPrimary
+                        ),
+                        cursorBrush = SolidColor(colors.accentWarm),
+                        decorationBox = { innerTextField ->
+                            if (noteContent.isEmpty()) {
+                                Text(
+                                    text = stringResource(R.string.quick_note_sheet_text_12),
+                                    fontFamily = ArchiveFontFamilies.BodySans,
+                                    fontSize = 15.sp,
+                                    lineHeight = 24.sp,
+                                    color = colors.inkMuted.copy(alpha = 0.45f)
+                                )
+                            }
+                            innerTextField()
+                        }
                     )
 
-                    PaperTextField(
-                        value = wishNote,
-                        onValueChange = { wishNote = it },
-                        label = stringResource(R.string.quick_note_sheet_label_16),
-                        placeholder = stringResource(R.string.quick_note_sheet_placeholder_11)
-                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    PhotoMountingSection()
 
-                    // 心愿模式不提供装裱入口：提交分支不携带附件（attachment_ids 未接线），
-                    // 装了也只是既不上传也不清理、留给 outbox_media 变孤儿文件。
-                    // 需要给心愿配图时请先在别处上传后再编辑心愿附件。
-                    // PhotoMountingSection()
+                    HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = stringResource(R.string.quick_note_sheet_text_13),
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 12.sp,
+                        color = colors.inkMuted
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    PaperDateTimeSplitRow(
+                        selectedDateTime = noteOccurredAt,
+                        onDateTimeSelected = { noteOccurredAt = it }
+                    )
                 }
             }
 
