@@ -401,10 +401,10 @@ internal fun AssetsAndGearTab(
                     .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 顶部操作栏：新建分期 & 管理渠道
+                // 顶部操作栏：新建分期
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.Start,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     LedgerTextButton(
@@ -412,13 +412,6 @@ internal fun AssetsAndGearTab(
                         onClick = {
                             showInstallmentOverviewSheet = false
                             onNewInstallmentClick()
-                        }
-                    )
-                    LedgerTextButton(
-                        text = "管理渠道",
-                        onClick = {
-                            showInstallmentOverviewSheet = false
-                            onManageChannelsClick()
                         }
                     )
                 }

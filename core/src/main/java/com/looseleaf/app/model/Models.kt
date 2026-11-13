@@ -41,6 +41,7 @@ data class LifeEntry(
     @SerialName("wish_id") val wishId: Long? = null,
     val wish: Wish? = null,
     @SerialName("footprint_id") val footprintId: Long? = null,
+    @SerialName("is_private") val isPrivate: Boolean = false,
     val attachments: List<Attachment> = emptyList(),
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
@@ -156,6 +157,7 @@ data class Project(
     @SerialName("github_url") val githubUrl: String? = null,
     val status: String? = "进行中",
     val order: Int? = null,
+    @SerialName("is_private") val isPrivate: Boolean = false,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
     @SerialName("deleted_at") val deletedAt: String? = null
@@ -171,6 +173,7 @@ data class CreateProjectRequest(
     val status: String? = "进行中",
     @SerialName("github_url") val githubUrl: String? = null,
     val order: Int = 0,
+    @SerialName("is_private") val isPrivate: Boolean? = null,
     // P1-2：幂等创建标识（契约 B）。离线创建与在线直连共用同一个值，
     // 网络超时后重试不会在服务端落下两条重复记录。
     @SerialName("client_request_id") val clientRequestId: String? = null
@@ -200,6 +203,7 @@ data class Wish(
     @SerialName("life_entry_id") val lifeEntryId: Long? = null,
     @SerialName("footprint_id") val footprintId: Long? = null,
     @SerialName("gear_id") val gearId: String? = null,
+    @SerialName("is_private") val isPrivate: Boolean = false,
     val attachments: List<Attachment> = emptyList(),
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
@@ -226,6 +230,7 @@ data class CreateWishRequest(
     val budget: Long = 0,
     @SerialName("target_date") val targetDate: String? = null,
     @SerialName("attachment_ids") val attachmentIds: List<Long>? = null,
+    @SerialName("is_private") val isPrivate: Boolean? = null,
     // P1-2：幂等创建标识（契约 B），语义同 CreateProjectRequest。
     @SerialName("client_request_id") val clientRequestId: String? = null
 )
@@ -266,6 +271,7 @@ data class Footprint(
     val note: String? = null,
     @SerialName("life_entry_id") val lifeEntryId: Long? = null,
     @SerialName("wish_id") val wishId: Long? = null,
+    @SerialName("is_private") val isPrivate: Boolean = false,
     val attachments: List<Attachment> = emptyList(),
     @SerialName("entries_count") val entriesCount: Int? = null,
     @SerialName("total_spent") val totalSpent: Long? = null,
@@ -284,6 +290,7 @@ data class CreateFootprintRequest(
     @SerialName("departed_at") val departedAt: String? = null,
     val note: String? = null,
     @SerialName("attachment_ids") val attachmentIds: List<Long>? = null,
+    @SerialName("is_private") val isPrivate: Boolean? = null,
     // P1-2：幂等创建标识（契约 B），语义同 CreateProjectRequest。
     @SerialName("client_request_id") val clientRequestId: String? = null
 )
@@ -764,6 +771,7 @@ data class CreateEntryRequest(
     @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     @SerialName("wish_id") val wishId: Long? = null,
     @SerialName("footprint_id") val footprintId: Long? = null,
+    @SerialName("is_private") val isPrivate: Boolean? = null,
     @SerialName("attachment_ids") val attachmentIds: List<Long>? = null,
     // ── 契约 A:显式清空属地 ──────────────────────────────
     // 服务端对省略的 city_code 走「保持原值」;清空城市时必须携带 clear_city: true
@@ -853,7 +861,8 @@ data class UpdateDeviceNameRequest(
 data class DeviceInfo(
     @SerialName("device_id") val deviceId: String = "",
     val name: String = "",
-    val platform: String = "android"
+    val platform: String = "android",
+    @SerialName("is_current") val isCurrent: Boolean = false
 )
 
 @Serializable

@@ -176,6 +176,7 @@ private fun QuickNoteSheetBody(
     var noteCityCode by remember { mutableStateOf(draftPrefs.getString("city_code", null)) }
     var noteCityName by remember { mutableStateOf(draftPrefs.getString("city_name", null)) }
     var noteLocation by remember { mutableStateOf(draftPrefs.getString("location", "").orEmpty()) }
+    var isPrivate by remember { mutableStateOf(false) }
     var isLocating by remember { mutableStateOf(false) }
     // 草稿同样覆盖「发生时刻」（epoch millis）：原先不落草稿，
     // 意外关闭后重开时正文/属地都恢复、唯独时刻被静默重置为现在。
@@ -396,6 +397,7 @@ private fun QuickNoteSheetBody(
                                 location = noteLocation.trim().takeIf { it.isNotBlank() },
                                 cityCode = finalCode,
                                 cityName = finalCityName,
+                                isPrivate = isPrivate,
                             )
                             syncManager.createMediaEntryOffline(
                                 localImageFilePath = primary.savedFile.absolutePath,
@@ -415,6 +417,7 @@ private fun QuickNoteSheetBody(
                                 location = noteLocation.trim().takeIf { it.isNotBlank() },
                                 cityCode = finalCode,
                                 cityName = finalCityName,
+                                isPrivate = isPrivate,
                             )
                             ArchiveToastManager.show("随笔已归册")
                         }
@@ -443,7 +446,8 @@ private fun QuickNoteSheetBody(
                                 location = noteLocation.trim().takeIf { it.isNotBlank() },
                                 cityCode = finalCode,
                                 cityName = finalCityName,
-                                footprintId = selectedFootprintId
+                                footprintId = selectedFootprintId,
+                                isPrivate = isPrivate
                             )
                             syncManager.createMediaEntryOffline(
                                 localImageFilePath = primary.savedFile.absolutePath,
@@ -463,7 +467,8 @@ private fun QuickNoteSheetBody(
                                 location = noteLocation.trim().takeIf { it.isNotBlank() },
                                 cityCode = finalCode,
                                 cityName = finalCityName,
-                                footprintId = selectedFootprintId
+                                footprintId = selectedFootprintId,
+                                isPrivate = isPrivate
                             )
                             ArchiveToastManager.show("游历手记已归册")
                         }
@@ -492,7 +497,8 @@ private fun QuickNoteSheetBody(
                                 location = noteLocation.trim().takeIf { it.isNotBlank() },
                                 cityCode = finalCode,
                                 cityName = finalCityName,
-                                projectId = selectedProjectId
+                                projectId = selectedProjectId,
+                                isPrivate = isPrivate
                             )
                             syncManager.createMediaEntryOffline(
                                 localImageFilePath = primary.savedFile.absolutePath,
@@ -512,7 +518,8 @@ private fun QuickNoteSheetBody(
                                 location = noteLocation.trim().takeIf { it.isNotBlank() },
                                 cityCode = finalCode,
                                 cityName = finalCityName,
-                                projectId = selectedProjectId
+                                projectId = selectedProjectId,
+                                isPrivate = isPrivate
                             )
                             ArchiveToastManager.show("造物进展已归册")
                         }
@@ -572,6 +579,12 @@ private fun QuickNoteSheetBody(
                         leadingDotColor = dotColor
                     )
                 }
+                ArchiveSelectableCapsule(
+                    text = if (isPrivate) "仅自己可见" else "随展厅公开",
+                    selected = isPrivate,
+                    onClick = { isPrivate = !isPrivate },
+                    leadingDotColor = if (isPrivate) colors.accentWarm else colors.inkMuted
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))

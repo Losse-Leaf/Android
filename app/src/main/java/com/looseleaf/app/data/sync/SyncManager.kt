@@ -739,6 +739,7 @@ class SyncManager private constructor(private val context: Context) {
             projectId = idempotentReq.projectId,
             wishId = idempotentReq.wishId,
             footprintId = idempotentReq.footprintId,
+            isPrivate = idempotentReq.isPrivate == true,
             attachmentsJson = json.encodeToString(previewAttachments),
             syncStatus = STATUS_PENDING_CREATE,
             createdAt = FormatUtils.beijingNowIsoString()
@@ -788,7 +789,8 @@ class SyncManager private constructor(private val context: Context) {
         attachments: List<Attachment> = emptyList(),
         projectId: Long? = null,
         wishId: Long? = null,
-        footprintId: Long? = null
+        footprintId: Long? = null,
+        isPrivate: Boolean = false
     ): Long {
         val entryEntity = CachedEntryEntity(
             localId = 0,
@@ -803,6 +805,7 @@ class SyncManager private constructor(private val context: Context) {
             projectId = projectId,
             wishId = wishId,
             footprintId = footprintId,
+            isPrivate = isPrivate,
             attachmentsJson = json.encodeToString(attachments),
             syncStatus = STATUS_PENDING_CREATE,
             createdAt = FormatUtils.beijingNowIsoString()
@@ -820,6 +823,7 @@ class SyncManager private constructor(private val context: Context) {
             projectId = projectId,
             wishId = wishId,
             footprintId = footprintId,
+            isPrivate = isPrivate,
             clientRequestId = UUID.randomUUID().toString()
         )
 
@@ -888,6 +892,7 @@ class SyncManager private constructor(private val context: Context) {
             projectId = if (req.type == "project") (req.projectId ?: entity.projectId) else null,
             wishId = if (req.type == "wish") (req.wishId ?: entity.wishId) else null,
             footprintId = req.footprintId ?: entity.footprintId,
+            isPrivate = req.isPrivate ?: entity.isPrivate,
             // ── 契约 B 的本地落地 ──────────────────────────────
             // attachmentIds 非 null 表示「附件集合就是这份」：删掉的照片立即从本地
             // 消失（原先不重写 attachmentsJson，删掉的照片要等下一次拉取才消失，
@@ -2866,6 +2871,7 @@ fun CachedEntryEntity.toDomainModel(
         projectId = projectId,
         wishId = wishId,
         footprintId = footprintId,
+        isPrivate = isPrivate,
         attachments = atts,
         syncStatus = syncStatus,
         createdAt = createdAt
@@ -2883,6 +2889,7 @@ fun CachedProjectEntity.toProject(): Project {
         status = status,
         githubUrl = githubUrl,
         order = order,
+        isPrivate = isPrivate,
         updatedAt = updatedAt
     )
 }
@@ -2909,6 +2916,7 @@ fun CachedWishEntity.toWish(json: Json): Wish {
         targetDate = targetDate,
         fulfilledAt = fulfilledAt,
         gearId = gearId,
+        isPrivate = isPrivate,
         attachments = atts,
         updatedAt = updatedAt
     )
@@ -2930,6 +2938,7 @@ fun CachedFootprintEntity.toFootprint(json: Json): Footprint {
         note = note,
         lifeEntryId = lifeEntryId,
         wishId = wishId,
+        isPrivate = isPrivate,
         attachments = atts,
         entriesCount = entriesCount,
         totalSpent = totalSpent,
@@ -2955,6 +2964,7 @@ fun LifeEntry.toCacheEntity(localId: Long, json: Json): CachedEntryEntity = Cach
     projectId = projectId,
     wishId = wishId,
     footprintId = footprintId,
+    isPrivate = isPrivate,
     attachmentsJson = json.encodeToString(attachments),
     syncStatus = SyncManager.STATUS_SYNCED,
     createdAt = createdAt ?: occurredAt
@@ -3006,6 +3016,7 @@ fun Wish.toCacheEntity(json: Json): CachedWishEntity = CachedWishEntity(
     targetDate = targetDate,
     fulfilledAt = fulfilledAt,
     gearId = gearId,
+    isPrivate = isPrivate,
     attachmentsJson = json.encodeToString(attachments),
     updatedAt = updatedAt
 )
@@ -3020,6 +3031,7 @@ fun Footprint.toCacheEntity(json: Json): CachedFootprintEntity = CachedFootprint
     note = note,
     lifeEntryId = lifeEntryId,
     wishId = wishId,
+    isPrivate = isPrivate,
     attachmentsJson = json.encodeToString(attachments),
     entriesCount = entriesCount,
     totalSpent = totalSpent,

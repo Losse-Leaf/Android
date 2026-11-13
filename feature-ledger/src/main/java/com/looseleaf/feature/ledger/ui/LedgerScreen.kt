@@ -300,20 +300,6 @@ fun LedgerScreen(
                                         }
                                     }
                                 )
-
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = "分类管理",
-                                            fontFamily = LedgerTheme.typography.serif,
-                                            color = colors.textPrimary
-                                        )
-                                    },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showCategoriesManagerDialog = true
-                                    }
-                                )
                             }
                         }
                     }

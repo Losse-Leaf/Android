@@ -36,6 +36,7 @@ data class CachedEntryEntity(
     @ColumnInfo(name = "project_id") val projectId: Long? = null,
     @ColumnInfo(name = "wish_id") val wishId: Long? = null,
     @ColumnInfo(name = "footprint_id") val footprintId: Long? = null,
+    @ColumnInfo(name = "is_private", defaultValue = "0") val isPrivate: Boolean = false,
     @ColumnInfo(name = "attachments_json") val attachmentsJson: String = "[]",
     @ColumnInfo(name = "sync_status") val syncStatus: String = "SYNCED", // 'SYNCED', 'PENDING_CREATE', 'PENDING_UPDATE', 'PENDING_DELETE'
     @ColumnInfo(name = "created_at") val createdAt: String = FormatUtils.beijingNowIsoString()
@@ -85,6 +86,7 @@ data class CachedProjectEntity(
     @ColumnInfo(name = "status") val status: String? = null,
     @ColumnInfo(name = "github_url") val githubUrl: String? = null,
     @ColumnInfo(name = "order") val order: Int? = 0,
+    @ColumnInfo(name = "is_private", defaultValue = "0") val isPrivate: Boolean = false,
     @ColumnInfo(name = "updated_at") val updatedAt: String? = null
 )
 
@@ -108,6 +110,7 @@ data class CachedWishEntity(
     @ColumnInfo(name = "target_date") val targetDate: String? = null,
     @ColumnInfo(name = "fulfilled_at") val fulfilledAt: String? = null,
     @ColumnInfo(name = "gear_id") val gearId: String? = null,
+    @ColumnInfo(name = "is_private", defaultValue = "0") val isPrivate: Boolean = false,
     @ColumnInfo(name = "attachments_json") val attachmentsJson: String = "[]",
     @ColumnInfo(name = "updated_at") val updatedAt: String? = null
 )
@@ -126,6 +129,7 @@ data class CachedFootprintEntity(
     @ColumnInfo(name = "note") val note: String? = null,
     @ColumnInfo(name = "life_entry_id") val lifeEntryId: Long? = null,
     @ColumnInfo(name = "wish_id") val wishId: Long? = null,
+    @ColumnInfo(name = "is_private", defaultValue = "0") val isPrivate: Boolean = false,
     @ColumnInfo(name = "attachments_json") val attachmentsJson: String = "[]",
     @ColumnInfo(name = "entries_count") val entriesCount: Int? = null,
     @ColumnInfo(name = "total_spent") val totalSpent: Long? = null,

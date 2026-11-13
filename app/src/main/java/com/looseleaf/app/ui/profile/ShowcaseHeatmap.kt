@@ -55,7 +55,6 @@ private data class HeatmapDay(
 fun ShowcaseHeatmap(
     dayCounts: Map<String, Int>,
     totalEntryCount: Int,
-    onOpenAlmanac: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
@@ -97,11 +96,6 @@ fun ShowcaseHeatmap(
                     style = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "tnum")
                 )
             }
-
-            ArchiveTextButton(
-                text = "年度年鉴",
-                onClick = onOpenAlmanac
-            )
         }
 
         Spacer(modifier = Modifier.height(6.dp))

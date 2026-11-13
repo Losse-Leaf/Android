@@ -581,7 +581,6 @@ fun ProfileScreen(
                     ShowcaseHeatmap(
                         dayCounts = dayCounts,
                         totalEntryCount = globalStats?.totalEntries ?: 0,
-                        onOpenAlmanac = { showAlmanacDialog = true },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

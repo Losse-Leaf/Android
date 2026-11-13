@@ -89,6 +89,7 @@ fun EntryDetailSheetDialog(
     var editCityName by remember(entry.id) { mutableStateOf(entry.cityName ?: entry.location ?: "") }
     var editLocation by remember(entry.id) { mutableStateOf(entry.location ?: "") }
     var editOccurredAt by remember(entry.id) { mutableStateOf(FormatUtils.parseToLocalDateTime(entry.occurredAt)) }
+    var editIsPrivate by remember(entry.id) { mutableStateOf(entry.isPrivate) }
     var editAttachments by remember(entry.id) { mutableStateOf(entry.attachments) }
     var isUploadingPhoto by remember { mutableStateOf(false) }
 
@@ -136,6 +137,7 @@ fun EntryDetailSheetDialog(
             projectId = if (editType == "project") entry.projectId else null,
             wishId = if (editType == "wish") entry.wishId else null,
             footprintId = entry.footprintId,
+            isPrivate = editIsPrivate,
             attachmentIds = finalAttachmentIds,
             clearAttachments = finalAttachmentIds.isEmpty()
         )
@@ -245,6 +247,27 @@ fun EntryDetailSheetDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "仅自己可见（私密）",
+                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        fontSize = 13.sp,
+                        color = colors.inkPrimary
+                    )
+                    ArchiveSelectableCapsule(
+                        text = if (editIsPrivate) "已设为私密" else "随展厅公开",
+                        selected = editIsPrivate,
+                        onClick = { editIsPrivate = !editIsPrivate },
+                        leadingDotColor = if (editIsPrivate) colors.accentWarm else colors.inkMuted
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
