@@ -89,6 +89,9 @@ class MainActivity : FragmentActivity() {
     private val syncManager by lazy { SyncManager.getInstance(this) }
     private var requestedRouteState = mutableStateOf<String?>(null)
     private var pendingDeepLinkPayloadState = mutableStateOf<String?>(null)
+    private var ssoPendingHubState = mutableStateOf<String?>(null)
+    private var repairReconnectModeState = mutableStateOf(false)
+    private var expandPairingFallbackState = mutableStateOf(false)
 
     // MOB-P0-09：外观模式提升为 Activity 字段级状态，
     // 这样回调可以做成「稳定引用」，MainContent 才有机会跳过重组。
@@ -457,37 +460,101 @@ class MainActivity : FragmentActivity() {
         }
 
         if (showRepairDialog) {
-            com.looseleaf.app.ui.components.ArchiveConfirmDialog(
-                title = stringResource(R.string.main_activity_title_03),
-                content = "这台设备已被移出受信任设备组（可能在网页端或 Mac 端被撤销）。" +
-                    "需要重新扫码配对；本机尚未同步的记录会保留，配对成功后自动续传。",
-                confirmText = stringResource(R.string.main_activity_confirmText_02),
-                dismissText = stringResource(R.string.main_activity_dismissText_01),
-                onConfirm = {
+            val dialogColors = LooseLeafTheme.colors
+            com.looseleaf.app.ui.components.ArchiveDialog(
+                onDismissRequest = {
                     showRepairDialog = false
-                    repairPromptShown = false
                     apiClient.unauthorizedEvents.resetReplayCache()
-                    isPaired = false
-                    // 彻底清除会话状态
-                    credentialStore.deviceToken = null
-                    syncManager.cancelScheduledSync()
                 },
-                onDismiss = {
-                    showRepairDialog = false
-                    apiClient.unauthorizedEvents.resetReplayCache()
+                title = stringResource(R.string.main_activity_title_03)
+            ) {
+                Text(
+                    text = "这台设备的访问凭据已失效或已被移出受信任设备组。本机尚未同步的记录均已妥善保留，重新接入后会自动续传。",
+                    fontFamily = ArchiveFontFamilies.BodySans,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
+                    color = dialogColors.inkSecondary
+                )
+                Spacer(modifier = Modifier.height(18.dp))
+                com.looseleaf.app.ui.components.TerracottaStampButton(
+                    text = stringResource(R.string.main_activity_sso_reconnect),
+                    onClick = {
+                        val hubCandidate = apiClient.baseUrl.ifBlank {
+                            com.looseleaf.app.data.api.APIClient.DEFAULT_BASE_URL
+                        }
+                        val launchedHub = com.looseleaf.app.ui.pairing.launchVesperAuthBrowser(
+                            this@MainActivity,
+                            hubCandidate
+                        )
+                        if (launchedHub != null) {
+                            ssoPendingHubState.value = launchedHub
+                            repairReconnectModeState.value = true
+                            expandPairingFallbackState.value = false
+                            showRepairDialog = false
+                            repairPromptShown = false
+                            apiClient.unauthorizedEvents.resetReplayCache()
+                            credentialStore.deviceToken = null
+                            syncManager.cancelScheduledSync()
+                            isPaired = false
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    com.looseleaf.app.ui.components.ArchiveTextButton(
+                        text = stringResource(R.string.main_activity_manual_reconnect),
+                        onClick = {
+                            ssoPendingHubState.value = null
+                            repairReconnectModeState.value = true
+                            expandPairingFallbackState.value = true
+                            showRepairDialog = false
+                            repairPromptShown = false
+                            apiClient.unauthorizedEvents.resetReplayCache()
+                            credentialStore.deviceToken = null
+                            syncManager.cancelScheduledSync()
+                            isPaired = false
+                        }
+                    )
+                    com.looseleaf.app.ui.components.ArchiveTextButton(
+                        text = stringResource(R.string.main_activity_dismissText_01),
+                        textColor = dialogColors.inkMuted,
+                        onClick = {
+                            showRepairDialog = false
+                            apiClient.unauthorizedEvents.resetReplayCache()
+                        }
+                    )
                 }
-            )
+            }
         }
 
         if (!isPaired) {
             val deepLinkPayload by pendingDeepLinkPayloadState
+            val ssoPendingHub by ssoPendingHubState
+            val isSessionReconnect by repairReconnectModeState
+            val expandFallbackInitially by expandPairingFallbackState
             PairingScreen(
                 initialPayload = deepLinkPayload,
+                initialSsoHubUrl = ssoPendingHub,
+                isSessionReconnect = isSessionReconnect,
+                expandFallbackInitially = expandFallbackInitially,
+                onPayloadConsumed = {
+                    pendingDeepLinkPayloadState.value = null
+                },
+                onSsoHubInitiated = { initiatedHub ->
+                    ssoPendingHubState.value = initiatedHub
+                },
                 onPairingSuccess = {
                     sessionUnlocked = true
                     isPaired = true
                     isUnlocked = true
                     repairPromptShown = false
+                    ssoPendingHubState.value = null
+                    repairReconnectModeState.value = false
+                    expandPairingFallbackState.value = false
                     apiClient.unauthorizedEvents.resetReplayCache()
                     pendingDeepLinkPayloadState.value = null
                     currentRouteState.value = "stream"

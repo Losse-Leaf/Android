@@ -1,6 +1,8 @@
 package com.looseleaf.app
 
+import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.api.buildHubUrl
+import com.looseleaf.app.data.api.buildOidcLoginUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -56,5 +58,19 @@ class HubUrlBuilderTest {
         assertThrows(IllegalArgumentException::class.java) {
             buildHubUrl("not a url", "/api/health")
         }
+    }
+
+    @Test
+    fun testDefaultBaseUrlAndOidcLoginUrlBuilder() {
+        assertEquals("https://leaf.starryheavens.uk", APIClient.DEFAULT_BASE_URL)
+        val loginUrl = buildOidcLoginUrl(
+            baseUrl = "https://leaf.starryheavens.uk/",
+            platform = "android",
+            deviceModel = "Pixel 8 Pro"
+        )
+        assertEquals(
+            "https://leaf.starryheavens.uk/api/v1/auth/oidc/login?platform=android&device_model=Pixel%208%20Pro",
+            loginUrl
+        )
     }
 }

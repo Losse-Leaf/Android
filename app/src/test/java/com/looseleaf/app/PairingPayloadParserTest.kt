@@ -43,4 +43,13 @@ class PairingPayloadParserTest {
         assertEquals("http://192.168.1.100:8088", parsed!!.hubUrl)
         assertEquals("pair_tk_enc", parsed.ticket)
     }
+
+    @Test
+    fun testParseVesperAuthHttpsCallbackDeepLink() {
+        val raw = "looseleaf://pair?hub=https%3A%2F%2Fleaf.starryheavens.uk&ticket=pair_tk_vesper90s"
+        val parsed = PairingPayloadParser.parse(raw)
+        assertNotNull(parsed)
+        assertEquals("https://leaf.starryheavens.uk", parsed!!.hubUrl)
+        assertEquals("pair_tk_vesper90s", parsed.ticket)
+    }
 }

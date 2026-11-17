@@ -92,7 +92,7 @@ class APIClient private constructor(private val context: Context) {
         private const val TAG = "APIClient"
         private const val PREFS_NAME = "looseleaf_api_prefs"
         private const val KEY_BASE_URL = "hub_base_url"
-        private const val DEFAULT_BASE_URL = "http://10.0.2.2:8088"
+        const val DEFAULT_BASE_URL = "https://leaf.starryheavens.uk"
 
         @Volatile
         private var instance: APIClient? = null
@@ -313,7 +313,7 @@ class APIClient private constructor(private val context: Context) {
                     // 401 全局广播（AOPT-09b）：设备可能在 Web/Mac 端被吊销，
                     // MainActivity 订阅后弹「重新配对」引导；Room 里的 outbox 不清空，重配对后续传
                     unauthorizedEvents.tryEmit(Unit)
-                    throw APIException(401, "设备凭据未授权或已失效，请重新扫码配对")
+                    throw APIException(401, "设备凭据未授权或已失效，请通过 Vesper Auth 通行证或配对深链重新接入")
                 }
 
                 val envelope = try {
@@ -337,6 +337,10 @@ class APIClient private constructor(private val context: Context) {
     }
 
     // MARK: - 1. 鉴权与设备配对
+
+    suspend fun fetchSystemStatus(): SystemStatus {
+        return executeEnvelopeRequest("/api/v1/system/status", "GET")
+    }
 
     suspend fun confirmPairing(
         ticket: String,
@@ -872,4 +876,21 @@ fun buildHubUrl(
         builder.addQueryParameter(k, v)
     }
     return builder.build()
+}
+
+/**
+ * 构建 Vesper Auth OIDC 跨端授权入口完整 URL（顶层纯函数，便于单元测试）。
+ * 形如：{hubURL}/api/v1/auth/oidc/login?platform=android&device_model={Build.MODEL}
+ */
+fun buildOidcLoginUrl(
+    baseUrl: String,
+    platform: String = "android",
+    deviceModel: String = ""
+): String {
+    val params = linkedMapOf("platform" to platform)
+    val cleanModel = deviceModel.trim()
+    if (cleanModel.isNotEmpty()) {
+        params["device_model"] = cleanModel
+    }
+    return buildHubUrl(baseUrl, "/api/v1/auth/oidc/login", params).toString()
 }

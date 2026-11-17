@@ -22,6 +22,15 @@ data class DeleteResponse(
     val purged: Boolean? = null
 )
 
+@Serializable
+data class SystemStatus(
+    val initialized: Boolean = false,
+    @SerialName("site_name") val siteName: String = "",
+    @SerialName("curator_name") val curatorName: String = "",
+    @SerialName("oidc_enabled") val oidcEnabled: Boolean = false,
+    @SerialName("oidc_provider_name") val oidcProviderName: String? = null
+)
+
 /**
  * 生活记录一级母体 (LifeEntry) - docs/backend.md §5.2
  */

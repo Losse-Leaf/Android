@@ -8,6 +8,8 @@
     <string name="main_activity_confirmText_01">我知道了</string>
     <string name="main_activity_title_03">设备凭据已失效</string>
     <string name="main_activity_confirmText_02">重新配对</string>
+    <string name="main_activity_sso_reconnect">通过 Vesper Auth 通行证一键接入</string>
+    <string name="main_activity_manual_reconnect">扫码或手动深链配对</string>
     <string name="main_activity_dismissText_01">稍后</string>
     <string name="main_activity_contentDescription_01">已加锁</string>
     <string name="main_activity_text_01">散页 · 隐私守护中</string>
@@ -121,10 +123,17 @@
 
     <!-- pairing_screen -->
     <string name="pairing_screen_text_01">散页 · 随行入网</string>
-    <string name="pairing_screen_text_02">扫描 Web 展厅管理台的配对二维码，或直接粘贴配对链接</string>
+    <string name="pairing_screen_text_02">通过 Vesper Auth 通行证一键接入，或使用二维码与深链配对</string>
+    <string name="pairing_screen_sso_title">主理人通行证接入</string>
+    <string name="pairing_screen_sso_desc">在系统浏览器中完成 Vesper Auth 通行密钥验证后，将自动唤起散页签发本机受信任凭证。</string>
+    <string name="pairing_screen_sso_hub_label">数据中枢地址</string>
+    <string name="pairing_screen_sso_hub_placeholder">https://leaf.starryheavens.uk</string>
+    <string name="pairing_screen_sso_button">通过 Vesper Auth 通行证一键接入</string>
+    <string name="pairing_screen_sso_launched_hint">已在系统浏览器打开认证页。验证完成后会自动跳回散页；若浏览器拦截唤起，可展开下方兜底通道粘贴授权深链。</string>
+    <string name="pairing_screen_fallback_toggle">扫码或手动输入深链（局域网 / 备用兜底）</string>
     <string name="pairing_screen_text_03">粘贴配对链接</string>
-    <string name="pairing_screen_text_04">粘贴 Web 展厅生成的配对链接：</string>
-    <string name="pairing_screen_placeholder_01">looseleaf://pair?hub=...&amp;ticket=...</string>
+    <string name="pairing_screen_text_04">粘贴 Web 展厅或授权中转页生成的配对链接：</string>
+    <string name="pairing_screen_placeholder_01">looseleaf://pair?hub=https://leaf.starryheavens.uk&amp;ticket=...</string>
     <string name="pairing_screen_text_05">正在握手接入数据中枢，请稍候...</string>
     <string name="pairing_screen_text_06">中枢握手成功！</string>
     <string name="pairing_screen_text_07">本设备已获得专属子钥匙授权，现可自定义展示名称</string>
