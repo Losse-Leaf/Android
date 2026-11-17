@@ -302,23 +302,17 @@ fun PairingScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
 
-                        PaperTextField(
+                        ArchiveField(
                             value = ssoHubInput,
                             onValueChange = { ssoHubInput = it },
                             placeholder = stringResource(R.string.pairing_screen_sso_hub_placeholder),
-                            isUnderline = true,
-                            textStyle = TextStyle(
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 14.sp,
-                                color = colors.inkPrimary
-                            ),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        TerracottaStampButton(
+                        ArchivePrimaryButton(
                             text = stringResource(R.string.pairing_screen_sso_button),
                             enabled = !isConnecting && ssoHubInput.isNotBlank(),
                             onClick = {
@@ -467,11 +461,12 @@ fun PairingScreen(
 
                                 Spacer(modifier = Modifier.height(14.dp))
 
-                                PaperTextEditor(
+                                ArchiveField(
                                     value = pastedLinkInput,
                                     onValueChange = { pastedLinkInput = it },
                                     placeholder = stringResource(R.string.pairing_screen_placeholder_01),
-                                    minHeight = 72.dp,
+                                    singleLine = false,
+                                    minLines = 3,
                                     modifier = Modifier.fillMaxWidth()
                                 )
 
@@ -501,7 +496,7 @@ fun PairingScreen(
 
                                 Spacer(modifier = Modifier.height(16.dp))
 
-                                TerracottaStampButton(
+                                ArchivePrimaryButton(
                                     text = if (isConnecting) "正在解析并连接中枢..." else "确认连接中枢 (CONNECT)",
                                     enabled = !isConnecting && pastedLinkInput.isNotBlank(),
                                     onClick = {
@@ -617,17 +612,10 @@ fun PairingScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        PaperTextField(
+                        ArchiveField(
                             value = customDeviceName,
                             onValueChange = { customDeviceName = it },
                             placeholder = stringResource(R.string.pairing_screen_placeholder_02),
-                            isUnderline = true,
-                            textStyle = TextStyle(
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = colors.inkPrimary
-                            ),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -637,7 +625,7 @@ fun PairingScreen(
                 Spacer(modifier = Modifier.height(28.dp))
 
                 // 完成进入按钮 (同时调用后端 PUT /api/v1/auth/devices/:id 同步自定义设备名称)
-                TerracottaStampButton(
+                ArchivePrimaryButton(
                     text = stringResource(R.string.pairing_screen_text_11),
                     enabled = customDeviceName.isNotBlank(),
                     onClick = {

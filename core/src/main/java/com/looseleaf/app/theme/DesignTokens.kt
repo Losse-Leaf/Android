@@ -2,7 +2,6 @@ package com.looseleaf.app.theme
 
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -106,19 +105,3 @@ object ArchiveMotion {
 
     val EaseInOutBook: CubicBezierEasing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
 }
-
-/**
- * 装饰参数集中管理配置 (Archive Decor Config)
- * 一处调参，支持低配机降级与朴素模式一键对比
- */
-data class ArchiveDecorConfig(
-    val maxCardTiltDeg: Float = 0f,         // 移除卡片旋转
-    val maxCardOffsetDp: Dp = 0.dp,         // 移除卡片错位
-    val washiTiltDeg: Float = 0f,           // 移除和纸倾角
-    val postmarkTiltDeg: Float = 0f,        // 移除邮戳倾角
-    val grainAlphaLight: Float = 0f,        // 浅色宣纸噪点透明度归零
-    val grainAlphaDark: Float = 0f,         // 暗房牛皮纸噪点透明度归零
-    val enableDecorations: Boolean = false  // 装饰质感默认关闭（单一纸面）
-)
-
-val LocalArchiveDecorConfig = compositionLocalOf { ArchiveDecorConfig() }

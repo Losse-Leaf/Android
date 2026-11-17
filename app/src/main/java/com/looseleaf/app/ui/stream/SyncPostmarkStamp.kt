@@ -21,7 +21,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveFontFamilies
-import com.looseleaf.app.theme.LocalArchiveDecorConfig
 import com.looseleaf.app.theme.LooseLeafTheme
 
 /**
@@ -43,7 +42,6 @@ internal fun SyncPostmarkStamp(
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
-    val decorConfig = LocalArchiveDecorConfig.current
 
     val totalPending = failedCount + pendingCount
     if (totalPending <= 0 && !isSyncing) {

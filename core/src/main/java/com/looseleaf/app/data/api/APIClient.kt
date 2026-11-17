@@ -11,10 +11,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import okhttp3.*
-import okhttp3.Dispatcher
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -189,17 +186,6 @@ class APIClient private constructor(private val context: Context) {
         builder.build()
     }
 
-    /**
-     * 备份下载专用客户端：整体 callTimeout 关闭、读超时放宽。
-     * 主客户端 90s 的 callTimeout 会把大体积快照（几百 MB）在慢网下直接掐断。
-     */
-    private val downloadClient: OkHttpClient by lazy {
-        okHttpClient.newBuilder()
-            .callTimeout(0, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
-            .build()
-    }
-
     /** MOB-P1-39：缓存 SharedPreferences 句柄，避免每次读 baseUrl 都重新解析 XML */
     private val prefs: SharedPreferences by lazy {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -218,8 +204,7 @@ class APIClient private constructor(private val context: Context) {
                 is HubUrlPolicy.Verdict.Rejected -> throw IllegalArgumentException(verdict.reason)
             }
             cachedBaseUrl = cleaned
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
+            prefs.edit()
                 .putString(KEY_BASE_URL, cleaned)
                 .apply()
         }
@@ -277,16 +262,20 @@ class APIClient private constructor(private val context: Context) {
         return requestBuilder.build()
     }
 
+    private inline fun <reified B> B.toJsonBody(): RequestBody =
+        json.encodeToString(this).toRequestBody("application/json".toMediaType())
+
     private suspend inline fun <reified T> executeEnvelopeRequest(
         path: String,
         method: String = "GET",
         queryParams: Map<String, String>? = null,
         body: RequestBody? = null,
-        meta: ResponseMeta? = null
+        meta: ResponseMeta? = null,
+        client: OkHttpClient = okHttpClient
     ): T = withContext(Dispatchers.IO) {
         val request = buildRequest(path, method, queryParams, body)
         val response = try {
-            okHttpClient.newCall(request).execute()
+            client.newCall(request).execute()
         } catch (e: IOException) {
             throw APIException(-1, humanizeNetworkError(e))
         }
@@ -338,10 +327,6 @@ class APIClient private constructor(private val context: Context) {
 
     // MARK: - 1. 鉴权与设备配对
 
-    suspend fun fetchSystemStatus(): SystemStatus {
-        return executeEnvelopeRequest("/api/v1/system/status", "GET")
-    }
-
     suspend fun confirmPairing(
         ticket: String,
         deviceName: String,
@@ -353,14 +338,12 @@ class APIClient private constructor(private val context: Context) {
             platform = "android",
             deviceModel = deviceModel
         )
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/auth/pair/confirm", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/auth/pair/confirm", "POST", body = req.toJsonBody())
     }
 
     suspend fun updateDeviceName(deviceId: String, name: String): DeviceInfo {
         val req = UpdateDeviceNameRequest(name = name)
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/auth/devices/$deviceId", "PUT", body = body)
+        return executeEnvelopeRequest("/api/v1/auth/devices/$deviceId", "PUT", body = req.toJsonBody())
     }
 
     suspend fun revokeDevice(deviceId: String) {
@@ -374,8 +357,7 @@ class APIClient private constructor(private val context: Context) {
     }
 
     suspend fun updateCuratorProfile(req: UpdateProfileRequest): CuratorProfile {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/profile", "PUT", body = body)
+        return executeEnvelopeRequest("/api/v1/profile", "PUT", body = req.toJsonBody())
     }
 
     /**
@@ -389,25 +371,12 @@ class APIClient private constructor(private val context: Context) {
         return resp.items
     }
 
-    suspend fun addCategoryOption(scope: String, name: String, sortOrder: Int? = null): CategoryOption {
-        val req = CreateCategoryRequest(scope = scope, name = name, sortOrder = sortOrder)
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/categories", "POST", body = body)
-    }
-
-    // RC-142 分类字典减法：级联重命名（PUT）与重置预设（POST reset）已从全端规格中废除，
-    // 客户端不再保留这两个无调用方的方法
-
-    suspend fun deleteCategoryOption(id: Long) {
-        executeEnvelopeRequest<DeleteResponse>("/api/v1/categories/$id", "DELETE")
-    }
-
     suspend fun searchGlobalArchive(query: String, limit: Int = 20): GlobalSearchResponse {
         val params = mapOf("q" to query.trim(), "limit" to limit.toString())
         return executeEnvelopeRequest("/api/v1/search", "GET", queryParams = params)
     }
 
-    // MARK: - 4. 生活档案 (Entries) & 那年今日 & 年度年鉴
+    // MARK: - 4. 生活档案 (Entries) & 那年今日
 
     suspend fun fetchEntries(
         page: Int = 1,
@@ -434,19 +403,12 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/entries/on-this-day", "GET", queryParams = params.ifEmpty { null })
     }
 
-    suspend fun fetchAlmanacSummary(year: Int): AlmanacSummaryResponse {
-        val params = mapOf("year" to year.toString())
-        return executeEnvelopeRequest("/api/v1/almanac/summary", "GET", queryParams = params)
-    }
-
     suspend fun createEntry(req: CreateEntryRequest, meta: ResponseMeta? = null): LifeEntry {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/entries", "POST", body = body, meta = meta)
+        return executeEnvelopeRequest("/api/v1/entries", "POST", body = req.toJsonBody(), meta = meta)
     }
 
     suspend fun updateEntry(id: Long, req: CreateEntryRequest): LifeEntry {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/entries/$id", "PUT", body = body)
+        return executeEnvelopeRequest("/api/v1/entries/$id", "PUT", body = req.toJsonBody())
     }
 
     suspend fun deleteEntry(id: Long, purge: Boolean = false) {
@@ -475,13 +437,11 @@ class APIClient private constructor(private val context: Context) {
     }
 
     suspend fun createTransaction(req: CreateTransactionRequest, meta: ResponseMeta? = null): Transaction {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/transactions", "POST", body = body, meta = meta)
+        return executeEnvelopeRequest("/api/v1/transactions", "POST", body = req.toJsonBody(), meta = meta)
     }
 
     suspend fun updateTransaction(id: Long, req: CreateTransactionRequest): Transaction {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/transactions/$id", "PUT", body = body)
+        return executeEnvelopeRequest("/api/v1/transactions/$id", "PUT", body = req.toJsonBody())
     }
 
     suspend fun deleteTransaction(id: Long, purge: Boolean = false) {
@@ -495,18 +455,15 @@ class APIClient private constructor(private val context: Context) {
 
     suspend fun updateLiquidBalance(cents: Long): LiquidBalanceResponse {
         val req = SetLiquidBalanceRequest(initialLiquidBalance = cents)
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/assets/liquid-balance", "PUT", body = body)
+        return executeEnvelopeRequest("/api/v1/assets/liquid-balance", "PUT", body = req.toJsonBody())
     }
 
     suspend fun addGearAsset(req: AddGearAssetRequest): GearItem {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/assets/gear", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/assets/gear", "POST", body = req.toJsonBody())
     }
 
     suspend fun sellGearAsset(id: String, req: SellGearRequest): GearItem {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/assets/gear/$id/sell", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/assets/gear/$id/sell", "POST", body = req.toJsonBody())
     }
 
     suspend fun deleteGearAsset(id: String) {
@@ -514,8 +471,7 @@ class APIClient private constructor(private val context: Context) {
     }
 
     suspend fun restoreGearAsset(req: RestoreGearAssetRequest) {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        executeEnvelopeRequest<Map<String, JsonElement>>("/api/v1/assets/gear/restore", "POST", body = body)
+        executeEnvelopeRequest<Map<String, JsonElement>>("/api/v1/assets/gear/restore", "POST", body = req.toJsonBody())
     }
 
     /**
@@ -563,22 +519,16 @@ class APIClient private constructor(private val context: Context) {
     }
 
     suspend fun createCreditChannel(req: CreateCreditChannelRequest): CreditChannel {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/credit-channels", "POST", body = body)
-    }
-
-    suspend fun deleteCreditChannel(id: Long) {
-        executeEnvelopeRequest<DeleteResponse>("/api/v1/credit-channels/$id", "DELETE")
+        return executeEnvelopeRequest("/api/v1/credit-channels", "POST", body = req.toJsonBody())
     }
 
     // MARK: - 5.1 真实分期还款计划体系 (RC-140)
 
     suspend fun fetchInstallmentPlans(status: String? = null, channelCode: String? = null): List<InstallmentPlanItemSummary> {
-        val params = mutableListOf<String>()
-        if (!status.isNullOrBlank()) params.add("status=$status")
-        if (!channelCode.isNullOrBlank()) params.add("channel_code=$channelCode")
-        val qs = if (params.isNotEmpty()) "?" + params.joinToString("&") else ""
-        return executeEnvelopeRequest("/api/v1/installment-plans$qs", "GET")
+        val params = mutableMapOf<String, String>()
+        if (!status.isNullOrBlank()) params["status"] = status
+        if (!channelCode.isNullOrBlank()) params["channel_code"] = channelCode
+        return executeEnvelopeRequest("/api/v1/installment-plans", "GET", queryParams = params.ifEmpty { null })
     }
 
     suspend fun fetchInstallmentPlanDetail(id: Long): InstallmentPlanDetailResponse {
@@ -586,13 +536,11 @@ class APIClient private constructor(private val context: Context) {
     }
 
     suspend fun createInstallmentPlan(req: CreateInstallmentPlanRequest): Map<String, JsonElement> {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/installment-plans", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/installment-plans", "POST", body = req.toJsonBody())
     }
 
     suspend fun updateInstallmentPlan(id: Long, req: Map<String, String>): InstallmentPlan {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/installment-plans/$id", "PUT", body = body)
+        return executeEnvelopeRequest("/api/v1/installment-plans/$id", "PUT", body = req.toJsonBody())
     }
 
     suspend fun deleteInstallmentPlan(id: Long) {
@@ -600,13 +548,11 @@ class APIClient private constructor(private val context: Context) {
     }
 
     suspend fun updateInstallmentItem(id: Long, dueDate: String): InstallmentItem {
-        val body = json.encodeToString(mapOf("due_date" to dueDate)).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/installment-items/$id", "PUT", body = body)
+        return executeEnvelopeRequest("/api/v1/installment-items/$id", "PUT", body = mapOf("due_date" to dueDate).toJsonBody())
     }
 
     suspend fun payInstallmentItem(id: Long, req: PayInstallmentItemRequest): Map<String, JsonElement> {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/installment-items/$id/pay", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/installment-items/$id/pay", "POST", body = req.toJsonBody())
     }
 
     suspend fun unpayInstallmentItem(id: Long): Map<String, JsonElement> {
@@ -614,8 +560,7 @@ class APIClient private constructor(private val context: Context) {
     }
 
     suspend fun settleInstallmentPlan(id: Long, req: SettleInstallmentPlanRequest): Map<String, JsonElement> {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/installment-plans/$id/settle", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/installment-plans/$id/settle", "POST", body = req.toJsonBody())
     }
 
     suspend fun fetchInstallmentSummary(): InstallmentSummary {
@@ -640,13 +585,11 @@ class APIClient private constructor(private val context: Context) {
     }
 
     suspend fun createProject(req: CreateProjectRequest, meta: ResponseMeta? = null): Project {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/projects", "POST", body = body, meta = meta)
+        return executeEnvelopeRequest("/api/v1/projects", "POST", body = req.toJsonBody(), meta = meta)
     }
 
     suspend fun updateProject(id: Long, req: CreateProjectRequest): Project {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/projects/$id", "PUT", body = body)
+        return executeEnvelopeRequest("/api/v1/projects/$id", "PUT", body = req.toJsonBody())
     }
 
     suspend fun deleteProject(id: Long, purge: Boolean = false) {
@@ -674,18 +617,15 @@ class APIClient private constructor(private val context: Context) {
     }
 
     suspend fun createWish(req: CreateWishRequest, meta: ResponseMeta? = null): Wish {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/wishes", "POST", body = body, meta = meta)
+        return executeEnvelopeRequest("/api/v1/wishes", "POST", body = req.toJsonBody(), meta = meta)
     }
 
     suspend fun updateWish(id: Long, req: CreateWishRequest): Wish {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/wishes/$id", "PUT", body = body)
+        return executeEnvelopeRequest("/api/v1/wishes/$id", "PUT", body = req.toJsonBody())
     }
 
     suspend fun resolveWish(id: Long, req: ResolveWishRequest): Wish {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/wishes/$id/resolve", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/wishes/$id/resolve", "POST", body = req.toJsonBody())
     }
 
     suspend fun deleteWish(id: Long, purge: Boolean = false) {
@@ -705,13 +645,11 @@ class APIClient private constructor(private val context: Context) {
     }
 
     suspend fun createFootprint(req: CreateFootprintRequest, meta: ResponseMeta? = null): Footprint {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/footprints", "POST", body = body, meta = meta)
+        return executeEnvelopeRequest("/api/v1/footprints", "POST", body = req.toJsonBody(), meta = meta)
     }
 
     suspend fun updateFootprint(id: Long, req: CreateFootprintRequest): Footprint {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/footprints/$id", "PUT", body = body)
+        return executeEnvelopeRequest("/api/v1/footprints/$id", "PUT", body = req.toJsonBody())
     }
 
     suspend fun deleteFootprint(id: Long, purge: Boolean = false) {
@@ -730,16 +668,8 @@ class APIClient private constructor(private val context: Context) {
     // MARK: - 7. 媒体直传 (R2 Presign & Upload)
 
     suspend fun presignUpload(req: PresignUploadRequest): PresignUploadResponse {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/uploads/presign", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/uploads/presign", "POST", body = req.toJsonBody())
     }
-
-    /**
-     * MOB-P0-03：文件流式直传（推荐路径）。
-     * 照片不再整份进入堆内存，峰值内存与文件大小无关。
-     */
-    suspend fun uploadToR2Direct(uploadUrl: String, file: File, mimeType: String) =
-        uploadToR2Direct(uploadUrl, fileRequestBody(file, mimeType))
 
     /** MOB-P0-03：核心直传入口 —— 请求体由调用方决定（内存字节 or 文件流） */
     suspend fun uploadToR2Direct(uploadUrl: String, body: RequestBody) = withContext(Dispatchers.IO) {
@@ -765,36 +695,8 @@ class APIClient private constructor(private val context: Context) {
     }
 
     suspend fun completeUpload(req: CompleteUploadRequest): Attachment {
-        val body = json.encodeToString(req).toRequestBody("application/json".toMediaType())
-        return executeEnvelopeRequest("/api/v1/uploads/complete", "POST", body = body)
+        return executeEnvelopeRequest("/api/v1/uploads/complete", "POST", body = req.toJsonBody())
     }
-
-    /**
-     * MOB-P0-03：文件流式中转上传（推荐路径）。
-     */
-    suspend fun uploadUnifiedFallback(
-        file: File,
-        filename: String,
-        mimeType: String,
-        folder: String = "entries"
-    ): Attachment = uploadUnifiedFallback(
-        body = fileRequestBody(file, mimeType),
-        filename = filename,
-        mimeType = mimeType,
-        folder = folder
-    )
-
-    suspend fun uploadUnifiedFallback(
-        fileBytes: ByteArray,
-        filename: String,
-        mimeType: String,
-        folder: String = "entries"
-    ): Attachment = uploadUnifiedFallback(
-        body = fileBytes.toRequestBody(mimeType.toMediaTypeOrNull()),
-        filename = filename,
-        mimeType = mimeType,
-        folder = folder
-    )
 
     /** MOB-P0-03：核心中转上传入口 —— 请求体由调用方决定（内存字节 or 文件流） */
     suspend fun uploadUnifiedFallback(
@@ -811,40 +713,23 @@ class APIClient private constructor(private val context: Context) {
         executeUnifiedUpload(multipartBody)
     }
 
-    private suspend fun executeUnifiedUpload(multipartBody: MultipartBody): Attachment = withContext(Dispatchers.IO) {
-
-        val request = buildRequest("/api/v1/files/upload", "POST", body = multipartBody)
-        val response = try {
-            okHttpClient.newCall(request).execute()
-        } catch (e: IOException) {
-            throw APIException(-1, humanizeNetworkError(e))
-        }
-        try {
-            response.use { resp ->
-                val bodyString = resp.body?.string() ?: ""
-                val envelope = try {
-                    json.decodeFromString<APIEnvelope<UnifiedUploadResponse>>(bodyString)
-                } catch (e: Exception) {
-                    throw APIException(resp.code, "文件上传响应解析失败: ${e.message}")
-                }
-                if (!resp.isSuccessful || envelope.code !in 200..299 || envelope.data == null) {
-                    throw APIException(envelope.code, envelope.message)
-                }
-                val res = envelope.data
-                Attachment(
-                    id = res.attachmentId,
-                    objectKey = res.objectKey,
-                    originalFilename = res.filename,
-                    mimeType = res.mimeType,
-                    size = res.size,
-                    width = res.width,
-                    height = res.height,
-                    url = res.url
-                )
-            }
-        } catch (e: IOException) {
-            throw APIException(-1, humanizeNetworkError(e))
-        }
+    private suspend fun executeUnifiedUpload(multipartBody: MultipartBody): Attachment {
+        val res = executeEnvelopeRequest<UnifiedUploadResponse>(
+            "/api/v1/files/upload",
+            "POST",
+            body = multipartBody,
+            client = uploadClient
+        )
+        return Attachment(
+            id = res.attachmentId,
+            objectKey = res.objectKey,
+            originalFilename = res.filename,
+            mimeType = res.mimeType,
+            size = res.size,
+            width = res.width,
+            height = res.height,
+            url = res.url
+        )
     }
 
     suspend fun fetchGlobalStats(): GlobalStats {

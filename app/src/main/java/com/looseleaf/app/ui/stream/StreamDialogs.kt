@@ -45,7 +45,6 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.looseleaf.app.darkroom.ImagePipeline
 import com.looseleaf.app.data.api.APIClient
-import com.looseleaf.app.model.AlmanacSummaryResponse
 import com.looseleaf.app.model.Attachment
 import com.looseleaf.app.model.CreateEntryRequest
 import com.looseleaf.app.model.LifeEntry
@@ -188,62 +187,50 @@ fun EntryDetailSheetDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                PaperTextField(
+                ArchiveField(
                     value = editTitle,
                     onValueChange = { editTitle = it },
                     placeholder = stringResource(R.string.stream_dialogs_placeholder_01),
-                    isUnderline = true,
-                    textStyle = TextStyle(
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.inkPrimary
-                    ),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                PaperTextEditor(
+                ArchiveField(
                     value = editContent,
                     onValueChange = { editContent = it },
                     placeholder = stringResource(R.string.stream_dialogs_placeholder_02),
-                    minHeight = 110.dp,
+                    singleLine = false,
+                    minLines = 3,
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                PaperDateTimeSplitRow(
+                ArchiveDateTimeSplitRow(
                     selectedDateTime = editOccurredAt,
                     onDateTimeSelected = { editOccurredAt = it }
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                PaperCityPickerField(
+                ArchiveCityPickerField(
                     selectedCityCode = editCityCode,
                     selectedCityName = editCityName,
                     onCitySelected = { code, name ->
                         editCityCode = code
                         editCityName = name
                     },
-                    placeholder = stringResource(R.string.ledger_screen_placeholder_02)
+                    placeholder = stringResource(R.string.stream_dialogs_placeholder_select_city)
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                PaperTextField(
+                ArchiveField(
                     value = editLocation,
                     onValueChange = { editLocation = it },
                     placeholder = stringResource(R.string.quick_note_sheet_text_04),
-                    isUnderline = true,
-                    textStyle = TextStyle(
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 13.sp,
-                        color = colors.inkPrimary
-                    ),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )

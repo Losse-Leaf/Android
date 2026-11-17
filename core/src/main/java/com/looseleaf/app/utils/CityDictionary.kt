@@ -848,10 +848,6 @@ object CityDictionary {
         }
     }
 
-    fun nearestCityCodeForCoordinates(lat: Double, lng: Double): String? {
-        return nearestCityForCoordinates(lat, lng)?.first
-    }
-
     // MARK: - 375 个标准行政区划城市条目与检索支持 (供 CityPicker 统一选点)
 
     data class StandardCity(

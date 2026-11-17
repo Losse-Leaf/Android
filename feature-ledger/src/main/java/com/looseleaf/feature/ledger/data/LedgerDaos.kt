@@ -3,27 +3,14 @@ package com.looseleaf.feature.ledger.data
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
-data class MonthlyTotalsRow(
-    @ColumnInfo(name = "total_expense") val totalExpense: Long = 0,
-    @ColumnInfo(name = "total_income") val totalIncome: Long = 0
-)
-
-data class CategoryTotalRow(
-    val category: String = "",
-    val total: Long = 0
-)
-
-data class LedgerSyncIndex(
+internal data class LedgerSyncIndex(
     val localId: Long,
     val serverId: Long?,
     val syncStatus: String
 )
 
 @Dao
-interface TransactionDao {
-    @Query("SELECT * FROM cached_transactions WHERE sync_status != 'PENDING_DELETE' AND deleted_at IS NULL ORDER BY occurred_at DESC")
-    fun getAllTransactionsFlow(): Flow<List<CachedTransactionEntity>>
-
+internal interface TransactionDao {
     @Query("SELECT * FROM cached_transactions WHERE sync_status != 'PENDING_DELETE' AND deleted_at IS NULL ORDER BY occurred_at DESC")
     suspend fun getAllTransactions(): List<CachedTransactionEntity>
 
@@ -43,33 +30,6 @@ interface TransactionDao {
         startIso: String,
         endIso: String
     ): Flow<List<CachedTransactionEntity>>
-
-    /**
-     * AND-4：月度收支汇总下推 SQL。
-     *
-     * 金额是 Long（分），SUM 结果用 COALESCE 兜住空月份。
-     */
-    @Query(
-        "SELECT " +
-            "COALESCE(SUM(CASE WHEN source = 'installment_repay' THEN fee_amount WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS total_expense, " +
-            "COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS total_income " +
-            "FROM cached_transactions WHERE sync_status != 'PENDING_DELETE' AND deleted_at IS NULL " +
-            "AND occurred_at >= :startIso AND occurred_at < :endIso"
-    )
-    fun getMonthlyTotalsFlow(startIso: String, endIso: String): Flow<MonthlyTotalsRow>
-
-    /** AND-4：月度分类支出下推 SQL（GROUP BY category，按金额降序） */
-    @Query(
-        "SELECT category AS category, " +
-            "COALESCE(SUM(CASE WHEN source = 'installment_repay' THEN fee_amount ELSE amount END), 0) AS total " +
-            "FROM cached_transactions WHERE sync_status != 'PENDING_DELETE' AND deleted_at IS NULL AND type = 'expense' " +
-            "AND occurred_at >= :startIso AND occurred_at < :endIso " +
-            "GROUP BY category HAVING total > 0 ORDER BY total DESC"
-    )
-    fun getMonthlyCategoryTotalsFlow(
-        startIso: String,
-        endIso: String
-    ): Flow<List<CategoryTotalRow>>
 
     @Query(
         "SELECT local_id AS localId, server_id AS serverId, sync_status AS syncStatus " +
@@ -124,9 +84,6 @@ interface TransactionDao {
     @Query("UPDATE cached_transactions SET sync_status = 'PENDING_DELETE' WHERE local_id = :localId")
     suspend fun markPendingDelete(localId: Long)
 
-    @Query("UPDATE cached_transactions SET deleted_at = :deletedAt WHERE server_id = :serverId")
-    suspend fun softDeleteByServerId(serverId: Long, deletedAt: String)
-
     @Query("DELETE FROM cached_transactions WHERE local_id = :localId")
     suspend fun deleteByLocalId(localId: Long)
 
@@ -155,7 +112,7 @@ interface TransactionDao {
 }
 
 @Dao
-interface LedgerOutboxDao {
+internal interface LedgerOutboxDao {
     @Query("SELECT COALESCE(MAX(sequence), 0) + 1 FROM ledger_outbox_events")
     suspend fun getNextSequence(): Long
 
@@ -166,6 +123,9 @@ interface LedgerOutboxDao {
         val now = java.time.Instant.now().toString()
         return getAllPendingEvents(now)
     }
+
+    @Query("SELECT * FROM ledger_outbox_events WHERE event_id = :eventId LIMIT 1")
+    suspend fun findEventById(eventId: String): LedgerOutboxEventEntity?
 
     @Query("SELECT * FROM ledger_outbox_events WHERE event_id = :eventId AND failed_at IS NULL LIMIT 1")
     suspend fun findActiveEventById(eventId: String): LedgerOutboxEventEntity?
@@ -209,14 +169,8 @@ interface LedgerOutboxDao {
     @Query("UPDATE ledger_outbox_events SET failed_at = NULL, last_error = NULL, retry_count = 0, next_retry_at = NULL WHERE failed_at IS NOT NULL")
     suspend fun retryAllFailed()
 
-    @Query("DELETE FROM ledger_outbox_events WHERE failed_at IS NOT NULL")
-    suspend fun discardAllFailed()
-
     @Query("DELETE FROM ledger_outbox_events WHERE failed_at IS NOT NULL AND failed_at < :beforeIso")
     suspend fun cleanExpiredFailedEvents(beforeIso: String)
-
-    @Query("DELETE FROM ledger_outbox_events WHERE event_id = :eventId")
-    suspend fun deleteById(eventId: String)
 
     @Query("DELETE FROM ledger_outbox_events WHERE event_id = :eventId")
     suspend fun deleteByEventId(eventId: String)
@@ -227,11 +181,6 @@ interface LedgerOutboxDao {
     @Query("UPDATE ledger_outbox_events SET next_retry_at = :nextRetryAt, retry_count = retry_count + 1, last_error = :error WHERE event_id = :eventId")
     suspend fun scheduleRetry(eventId: String, nextRetryAt: String, error: String)
 
-    @Query("UPDATE ledger_outbox_events SET failed_at = :failedAt, last_error = :lastError WHERE event_id = :eventId")
-    suspend fun markFailed(eventId: String, failedAt: String, lastError: String)
-
-    suspend fun recordFailure(eventId: String, error: String) {
-        val now = java.time.Instant.now().toString()
-        markFailed(eventId, now, error)
-    }
+    @Query("UPDATE ledger_outbox_events SET failed_at = :failedAt, last_error = :lastError, retry_count = retry_count + 1, next_retry_at = NULL WHERE event_id = :eventId")
+    suspend fun markPermanentFailure(eventId: String, failedAt: String, lastError: String)
 }

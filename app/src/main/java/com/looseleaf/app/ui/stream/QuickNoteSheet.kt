@@ -159,30 +159,25 @@ private fun QuickNoteSheetBody(
     val projects by syncManager.projectsFlow.collectAsStateWithLifecycle()
     val footprints by syncManager.footprintsFlow.collectAsStateWithLifecycle()
 
-    // 草稿防丢（AOPT-07b）：标题/正文/类型/属地绑定到 SharedPreferences，
-    // 意外下拉关闭或按返回键后重新打开自动恢复；提交成功才清空
-    val draftPrefs = remember {
-        context.getSharedPreferences("quick_note_draft", android.content.Context.MODE_PRIVATE)
-    }
+    // 草稿防丢（统一走 DraftStore）：标题/正文/类型/属地/发生时刻持久化，提交成功后清空
+    val draftStore = remember { DraftStore.get(context) }
+    val draftPrefix = "quick_note_"
 
     var noteType by remember {
-        val saved = draftPrefs.getString("type", "life") ?: "life"
+        val saved = draftStore.getString("${draftPrefix}type") ?: "life"
         mutableStateOf(if (saved in setOf("life", "travel", "project")) saved else "life")
-    } // "life", "travel", "project"
+    }
 
-    // 日常与通用手记字段
-    var noteTitle by remember { mutableStateOf(draftPrefs.getString("title", "").orEmpty()) }
-    var noteContent by remember { mutableStateOf(draftPrefs.getString("content", "").orEmpty()) }
-    var noteCityCode by remember { mutableStateOf(draftPrefs.getString("city_code", null)) }
-    var noteCityName by remember { mutableStateOf(draftPrefs.getString("city_name", null)) }
-    var noteLocation by remember { mutableStateOf(draftPrefs.getString("location", "").orEmpty()) }
+    var noteTitle by remember { mutableStateOf(draftStore.getString("${draftPrefix}title").orEmpty()) }
+    var noteContent by remember { mutableStateOf(draftStore.getString("${draftPrefix}content").orEmpty()) }
+    var noteCityCode by remember { mutableStateOf(draftStore.getString("${draftPrefix}city_code")) }
+    var noteCityName by remember { mutableStateOf(draftStore.getString("${draftPrefix}city_name")) }
+    var noteLocation by remember { mutableStateOf(draftStore.getString("${draftPrefix}location").orEmpty()) }
     var isPrivate by remember { mutableStateOf(false) }
     var isLocating by remember { mutableStateOf(false) }
-    // 草稿同样覆盖「发生时刻」（epoch millis）：原先不落草稿，
-    // 意外关闭后重开时正文/属地都恢复、唯独时刻被静默重置为现在。
     var noteOccurredAt by remember {
         mutableStateOf(
-            draftPrefs.getString("occurred_at_millis", null)?.toLongOrNull()
+            draftStore.getString("${draftPrefix}occurred_at_millis")?.toLongOrNull()
                 ?.let { millis ->
                     java.time.Instant.ofEpochMilli(millis)
                         .atZone(FormatUtils.BeijingZone)
@@ -195,18 +190,16 @@ private fun QuickNoteSheetBody(
 
     LaunchedEffect(noteType, noteTitle, noteContent, noteCityCode, noteCityName, noteLocation, noteOccurredAt) {
         delay(300)
-        draftPrefs.edit()
-            .putString("type", noteType)
-            .putString("title", noteTitle)
-            .putString("content", noteContent)
-            .putString("city_code", noteCityCode)
-            .putString("city_name", noteCityName)
-            .putString("location", noteLocation)
-            .putString(
-                "occurred_at_millis",
-                noteOccurredAt.atZone(FormatUtils.BeijingZone).toInstant().toEpochMilli().toString()
-            )
-            .apply()
+        draftStore.putString("${draftPrefix}type", noteType)
+        draftStore.putString("${draftPrefix}title", noteTitle)
+        draftStore.putString("${draftPrefix}content", noteContent)
+        draftStore.putString("${draftPrefix}city_code", noteCityCode)
+        draftStore.putString("${draftPrefix}city_name", noteCityName)
+        draftStore.putString("${draftPrefix}location", noteLocation)
+        draftStore.putString(
+            "${draftPrefix}occurred_at_millis",
+            noteOccurredAt.atZone(FormatUtils.BeijingZone).toInstant().toEpochMilli().toString()
+        )
     }
 
     // 游历专属字段
@@ -372,161 +365,87 @@ private fun QuickNoteSheetBody(
             try {
                 val finalCode = noteCityCode ?: CityDictionary.codeForLocation(noteLocation)
                 val finalCityName = noteCityName ?: finalCode?.let { CityDictionary.cityNameForCode(it) }
-
-                when (noteType) {
-                    "life" -> {
-                        val effectiveTitle = noteTitle.ifBlank {
-                            if (attachedPhotos.isNotEmpty()) "现场快门 · " + (attachedPhotos.first().processed.exif.model ?: "胶片相纸")
-                            else "无题随笔"
-                        }
-                        if (attachedPhotos.isNotEmpty()) {
-                            val primary = attachedPhotos.first()
-                            val extraFiles = attachedPhotos.drop(1).map {
-                                OfflineMediaFileItem(
-                                    filePath = it.savedFile.absolutePath,
-                                    mimeType = it.processed.mimeType,
-                                    width = it.processed.width,
-                                    height = it.processed.height
-                                )
-                            }
-                            val req = CreateEntryRequest(
-                                type = "life",
-                                title = effectiveTitle,
-                                content = noteContent.trim(),
-                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                cityCode = finalCode,
-                                cityName = finalCityName,
-                                isPrivate = isPrivate,
-                            )
-                            syncManager.createMediaEntryOffline(
-                                localImageFilePath = primary.savedFile.absolutePath,
-                                mimeType = primary.processed.mimeType,
-                                width = primary.processed.width,
-                                height = primary.processed.height,
-                                req = req,
-                                additionalMediaFiles = extraFiles
-                            )
-                            ArchiveToastManager.show("图文散页已装裱归册")
-                        } else {
-                            syncManager.createEntryOptimistic(
-                                type = "life",
-                                title = effectiveTitle,
-                                content = noteContent.trim(),
-                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                cityCode = finalCode,
-                                cityName = finalCityName,
-                                isPrivate = isPrivate,
-                            )
-                            ArchiveToastManager.show("随笔已归册")
-                        }
-                    }
-
-                    "travel" -> {
-                        val effectiveTitle = noteTitle.ifBlank {
-                            val dest = finalCityName ?: "远方"
-                            "游历 · $dest"
-                        }
-                        if (attachedPhotos.isNotEmpty()) {
-                            val primary = attachedPhotos.first()
-                            val extraFiles = attachedPhotos.drop(1).map {
-                                OfflineMediaFileItem(
-                                    filePath = it.savedFile.absolutePath,
-                                    mimeType = it.processed.mimeType,
-                                    width = it.processed.width,
-                                    height = it.processed.height
-                                )
-                            }
-                            val req = CreateEntryRequest(
-                                type = "travel",
-                                title = effectiveTitle,
-                                content = noteContent.trim(),
-                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                cityCode = finalCode,
-                                cityName = finalCityName,
-                                footprintId = selectedFootprintId,
-                                isPrivate = isPrivate
-                            )
-                            syncManager.createMediaEntryOffline(
-                                localImageFilePath = primary.savedFile.absolutePath,
-                                mimeType = primary.processed.mimeType,
-                                width = primary.processed.width,
-                                height = primary.processed.height,
-                                req = req,
-                                additionalMediaFiles = extraFiles
-                            )
-                            ArchiveToastManager.show("游历图文手记已归册")
-                        } else {
-                            syncManager.createEntryOptimistic(
-                                type = "travel",
-                                title = effectiveTitle,
-                                content = noteContent.trim(),
-                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                cityCode = finalCode,
-                                cityName = finalCityName,
-                                footprintId = selectedFootprintId,
-                                isPrivate = isPrivate
-                            )
-                            ArchiveToastManager.show("游历手记已归册")
-                        }
-                    }
-
-                    "project" -> {
-                        val effectiveTitle = noteTitle.ifBlank {
+                val effectiveTitle = noteTitle.ifBlank {
+                    when (noteType) {
+                        "travel" -> "游历 · ${finalCityName ?: "远方"}"
+                        "project" -> {
                             val proj = projects.firstOrNull { it.id == selectedProjectId }
                             if (proj != null) "${proj.title} · 进展记录" else "造物手记"
                         }
-                        if (attachedPhotos.isNotEmpty()) {
-                            val primary = attachedPhotos.first()
-                            val extraFiles = attachedPhotos.drop(1).map {
-                                OfflineMediaFileItem(
-                                    filePath = it.savedFile.absolutePath,
-                                    mimeType = it.processed.mimeType,
-                                    width = it.processed.width,
-                                    height = it.processed.height
-                                )
+                        else -> {
+                            if (attachedPhotos.isNotEmpty()) {
+                                "现场快门 · " + (attachedPhotos.first().processed.exif.model ?: "胶片相纸")
+                            } else {
+                                "无题随笔"
                             }
-                            val req = CreateEntryRequest(
-                                type = "project",
-                                title = effectiveTitle,
-                                content = noteContent.trim(),
-                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                cityCode = finalCode,
-                                cityName = finalCityName,
-                                projectId = selectedProjectId,
-                                isPrivate = isPrivate
-                            )
-                            syncManager.createMediaEntryOffline(
-                                localImageFilePath = primary.savedFile.absolutePath,
-                                mimeType = primary.processed.mimeType,
-                                width = primary.processed.width,
-                                height = primary.processed.height,
-                                req = req,
-                                additionalMediaFiles = extraFiles
-                            )
-                            ArchiveToastManager.show("造物进展手记已装裱归册")
-                        } else {
-                            syncManager.createEntryOptimistic(
-                                type = "project",
-                                title = effectiveTitle,
-                                content = noteContent.trim(),
-                                occurredAt = FormatUtils.toBeijingIsoString(noteOccurredAt),
-                                location = noteLocation.trim().takeIf { it.isNotBlank() },
-                                cityCode = finalCode,
-                                cityName = finalCityName,
-                                projectId = selectedProjectId,
-                                isPrivate = isPrivate
-                            )
-                            ArchiveToastManager.show("造物进展已归册")
                         }
                     }
                 }
+                val targetFootprintId = if (noteType == "travel") selectedFootprintId else null
+                val targetProjectId = if (noteType == "project") selectedProjectId else null
+                val occurredAtIso = FormatUtils.toBeijingIsoString(noteOccurredAt)
+                val trimmedContent = noteContent.trim()
+                val trimmedLocation = noteLocation.trim().takeIf { it.isNotBlank() }
+
+                if (attachedPhotos.isNotEmpty()) {
+                    val primary = attachedPhotos.first()
+                    val extraFiles = attachedPhotos.drop(1).map {
+                        OfflineMediaFileItem(
+                            filePath = it.savedFile.absolutePath,
+                            mimeType = it.processed.mimeType,
+                            width = it.processed.width,
+                            height = it.processed.height
+                        )
+                    }
+                    val req = CreateEntryRequest(
+                        type = noteType,
+                        title = effectiveTitle,
+                        content = trimmedContent,
+                        occurredAt = occurredAtIso,
+                        location = trimmedLocation,
+                        cityCode = finalCode,
+                        cityName = finalCityName,
+                        projectId = targetProjectId,
+                        footprintId = targetFootprintId,
+                        isPrivate = isPrivate
+                    )
+                    syncManager.createMediaEntryOffline(
+                        localImageFilePath = primary.savedFile.absolutePath,
+                        mimeType = primary.processed.mimeType,
+                        width = primary.processed.width,
+                        height = primary.processed.height,
+                        req = req,
+                        additionalMediaFiles = extraFiles
+                    )
+                    val msg = when (noteType) {
+                        "travel" -> "游历图文手记已归册"
+                        "project" -> "造物进展手记已装裱归册"
+                        else -> "图文散页已装裱归册"
+                    }
+                    ArchiveToastManager.show(msg)
+                } else {
+                    syncManager.createEntryOptimistic(
+                        type = noteType,
+                        title = effectiveTitle,
+                        content = trimmedContent,
+                        occurredAt = occurredAtIso,
+                        location = trimmedLocation,
+                        cityCode = finalCode,
+                        cityName = finalCityName,
+                        projectId = targetProjectId,
+                        footprintId = targetFootprintId,
+                        isPrivate = isPrivate
+                    )
+                    val msg = when (noteType) {
+                        "travel" -> "游历手记已归册"
+                        "project" -> "造物进展已归册"
+                        else -> "随笔已归册"
+                    }
+                    ArchiveToastManager.show(msg)
+                }
+
                 noteSubmitted = true
-                draftPrefs.edit().clear().apply()
+                draftStore.clearPrefix(draftPrefix)
                 onSuccess()
             } catch (e: CancellationException) {
                 isSubmitting = false
@@ -732,7 +651,7 @@ private fun QuickNoteSheetBody(
                                 containerColor = colors.archivePaper,
                                 contentColor = colors.inkPrimary
                             ),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = SolidColor(colors.borderDivider)),
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, colors.borderDivider),
                             shape = RoundedCornerShape(4.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                             modifier = Modifier.fillMaxWidth().height(34.dp)
@@ -752,117 +671,7 @@ private fun QuickNoteSheetBody(
                 }
             }
 
-            // ==================== 1. 日常 (life) ====================
-            if (noteType == "life") {
-                androidx.compose.foundation.text.BasicTextField(
-                    value = noteTitle,
-                    onValueChange = { noteTitle = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    textStyle = TextStyle(
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.inkPrimary
-                    ),
-                    cursorBrush = SolidColor(colors.accentWarm),
-                    decorationBox = { innerTextField ->
-                        if (noteTitle.isEmpty()) {
-                            Text(
-                                text = stringResource(R.string.quick_note_sheet_text_01),
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Normal,
-                                color = colors.inkMuted.copy(alpha = 0.5f)
-                            )
-                        }
-                        innerTextField()
-                    }
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-                Spacer(modifier = Modifier.height(12.dp))
-
-                androidx.compose.foundation.text.BasicTextField(
-                    value = noteContent,
-                    onValueChange = { noteContent = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(132.dp),
-                    textStyle = TextStyle(
-                        fontFamily = ArchiveFontFamilies.BodySans,
-                        fontSize = 15.sp,
-                        lineHeight = 24.sp,
-                        color = colors.inkPrimary
-                    ),
-                    cursorBrush = SolidColor(colors.accentWarm),
-                    decorationBox = { innerTextField ->
-                        if (noteContent.isEmpty()) {
-                            Text(
-                                text = stringResource(R.string.quick_note_sheet_text_02),
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontSize = 15.sp,
-                                lineHeight = 24.sp,
-                                color = colors.inkMuted.copy(alpha = 0.45f)
-                            )
-                        }
-                        innerTextField()
-                    }
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-                PhotoMountingSection()
-
-                HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = stringResource(R.string.quick_note_sheet_text_03),
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 12.sp,
-                    color = colors.inkMuted
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                PaperDateTimeSplitRow(
-                    selectedDateTime = noteOccurredAt,
-                    onDateTimeSelected = { noteOccurredAt = it }
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = stringResource(R.string.quick_note_sheet_text_04),
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 12.sp,
-                    color = colors.inkMuted
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-
-                PaperCityPickerField(
-                    selectedCityCode = noteCityCode,
-                    selectedCityName = noteCityName,
-                    onCitySelected = { code, name ->
-                        noteCityCode = code
-                        noteCityName = name
-                    },
-                    placeholder = if (isLocating) "正在定位…" else "选择城市…"
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                PaperLocationField(
-                    value = noteLocation,
-                    onValueChange = { noteLocation = it }
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-            }
-
-            // ==================== 2. 游历 (travel) ====================
-            else if (noteType == "travel") {
-                // 游历专属顶置卡片：到访城市必选高亮 + 关联足迹
+            if (noteType == "travel") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -880,7 +689,7 @@ private fun QuickNoteSheetBody(
                             color = colors.accentSmallText
                         )
 
-                        PaperCityPickerField(
+                        ArchiveCityPickerField(
                             selectedCityCode = noteCityCode,
                             selectedCityName = noteCityName,
                             onCitySelected = { code, name ->
@@ -890,8 +699,6 @@ private fun QuickNoteSheetBody(
                             placeholder = if (isLocating) "正在定位到访城市…" else "选择到访城市 (必选) *"
                         )
 
-                        // EV-07：定位改为显式点击触发；永久拒绝时按钮变「去设置」直达应用详情页，
-                        // 并常驻一行说明，避免 canSave 因缺城市永久灰着却无任何提示。
                         ArchiveTextButton(
                             text = when {
                                 isLocating -> "正在定位…"
@@ -924,10 +731,12 @@ private fun QuickNoteSheetBody(
                             color = colors.inkMuted
                         )
 
-                        PaperLocationField(
+                        ArchiveField(
                             value = noteLocation,
                             onValueChange = { noteLocation = it },
-                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_01)
+                            label = "具体地点",
+                            placeholder = stringResource(R.string.quick_note_sheet_placeholder_01),
+                            singleLine = true
                         )
 
                         if (footprints.isNotEmpty()) {
@@ -935,18 +744,63 @@ private fun QuickNoteSheetBody(
                                 footprints.map { fp ->
                                     fp.id to (fp.title?.ifBlank { "${fp.cityName}之行" } ?: "${fp.cityName}之行")
                                 }
-                            PaperSelectField(
+                            ArchiveSelectField(
                                 label = stringResource(R.string.quick_note_sheet_label_01),
                                 selectedValue = selectedFootprintId,
                                 options = footprintOptions,
-                                onSelected = { selectedFootprintId = it },
+                                onValueSelected = { selectedFootprintId = it },
                                 placeholder = stringResource(R.string.quick_note_sheet_placeholder_02)
                             )
                         }
                     }
                 }
-
                 Spacer(modifier = Modifier.height(14.dp))
+            } else if (noteType == "project") {
+                if (projects.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colors.archiveSubtle)
+                            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(12.dp))
+                            .padding(18.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "暂无造物项目，请前往底部「工坊」页点击右上角「+ 立项」创建新造物后再写进展。",
+                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            fontSize = 13.sp,
+                            color = colors.inkSecondary
+                        )
+                    }
+                } else {
+                    ArchiveSelectField(
+                        label = stringResource(R.string.quick_note_sheet_label_04),
+                        selectedValue = selectedProjectId,
+                        options = projects.map { it.id to "${it.title} (${it.status ?: "活跃"})" },
+                        onValueSelected = { selectedProjectId = it }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+
+            if (noteType != "project" || projects.isNotEmpty()) {
+                val titleFontSize = if (noteType == "life") 20.sp else 19.sp
+                val titlePlaceholderRes = when (noteType) {
+                    "travel" -> R.string.quick_note_sheet_text_07
+                    "project" -> R.string.quick_note_sheet_text_11
+                    else -> R.string.quick_note_sheet_text_01
+                }
+                val contentPlaceholderRes = when (noteType) {
+                    "travel" -> R.string.quick_note_sheet_text_08
+                    "project" -> R.string.quick_note_sheet_text_12
+                    else -> R.string.quick_note_sheet_text_02
+                }
+                val timeLabelRes = when (noteType) {
+                    "travel" -> R.string.projects_wishes_sheets_label_04
+                    "project" -> R.string.quick_note_sheet_text_13
+                    else -> R.string.quick_note_sheet_text_03
+                }
 
                 androidx.compose.foundation.text.BasicTextField(
                     value = noteTitle,
@@ -955,7 +809,7 @@ private fun QuickNoteSheetBody(
                     singleLine = true,
                     textStyle = TextStyle(
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 19.sp,
+                        fontSize = titleFontSize,
                         fontWeight = FontWeight.Medium,
                         color = colors.inkPrimary
                     ),
@@ -963,9 +817,9 @@ private fun QuickNoteSheetBody(
                     decorationBox = { innerTextField ->
                         if (noteTitle.isEmpty()) {
                             Text(
-                                text = stringResource(R.string.quick_note_sheet_text_07),
+                                text = stringResource(titlePlaceholderRes),
                                 fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 19.sp,
+                                fontSize = titleFontSize,
                                 fontWeight = FontWeight.Normal,
                                 color = colors.inkMuted.copy(alpha = 0.5f)
                             )
@@ -994,7 +848,7 @@ private fun QuickNoteSheetBody(
                     decorationBox = { innerTextField ->
                         if (noteContent.isEmpty()) {
                             Text(
-                                text = stringResource(R.string.quick_note_sheet_text_08),
+                                text = stringResource(contentPlaceholderRes),
                                 fontFamily = ArchiveFontFamilies.BodySans,
                                 fontSize = 15.sp,
                                 lineHeight = 24.sp,
@@ -1012,124 +866,49 @@ private fun QuickNoteSheetBody(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = stringResource(R.string.projects_wishes_sheets_label_04),
+                    text = stringResource(timeLabelRes),
                     fontFamily = ArchiveFontFamilies.EditorialSerif,
                     fontSize = 12.sp,
                     color = colors.inkMuted
                 )
                 Spacer(modifier = Modifier.height(6.dp))
-                PaperDateTimeSplitRow(
+                ArchiveDateTimeSplitRow(
                     selectedDateTime = noteOccurredAt,
                     onDateTimeSelected = { noteOccurredAt = it }
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-            }
-
-            // ==================== 3. 造物进展 (project) ====================
-            else if (noteType == "project") {
-                if (projects.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(colors.archiveSubtle)
-                            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(12.dp))
-                            .padding(18.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "暂无造物项目，请前往底部「工坊」页点击右上角「+ 立项」创建新造物后再写进展。",
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 13.sp,
-                            color = colors.inkSecondary
-                        )
-                    }
-                } else {
-                    PaperSelectField(
-                        label = stringResource(R.string.quick_note_sheet_label_04),
-                        selectedValue = selectedProjectId,
-                        options = projects.map { it.id to "${it.title} (${it.status ?: "活跃"})" },
-                        onSelected = { selectedProjectId = it }
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    androidx.compose.foundation.text.BasicTextField(
-                        value = noteTitle,
-                        onValueChange = { noteTitle = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        textStyle = TextStyle(
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = colors.inkPrimary
-                        ),
-                        cursorBrush = SolidColor(colors.accentWarm),
-                        decorationBox = { innerTextField ->
-                            if (noteTitle.isEmpty()) {
-                                Text(
-                                    text = stringResource(R.string.quick_note_sheet_text_11),
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 19.sp,
-                                    fontWeight = FontWeight.Normal,
-                                    color = colors.inkMuted.copy(alpha = 0.5f)
-                                )
-                            }
-                            innerTextField()
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    androidx.compose.foundation.text.BasicTextField(
-                        value = noteContent,
-                        onValueChange = { noteContent = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(132.dp),
-                        textStyle = TextStyle(
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 15.sp,
-                            lineHeight = 24.sp,
-                            color = colors.inkPrimary
-                        ),
-                        cursorBrush = SolidColor(colors.accentWarm),
-                        decorationBox = { innerTextField ->
-                            if (noteContent.isEmpty()) {
-                                Text(
-                                    text = stringResource(R.string.quick_note_sheet_text_12),
-                                    fontFamily = ArchiveFontFamilies.BodySans,
-                                    fontSize = 15.sp,
-                                    lineHeight = 24.sp,
-                                    color = colors.inkMuted.copy(alpha = 0.45f)
-                                )
-                            }
-                            innerTextField()
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    PhotoMountingSection()
-
-                    HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
+                if (noteType == "life") {
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
-                        text = stringResource(R.string.quick_note_sheet_text_13),
+                        text = stringResource(R.string.quick_note_sheet_text_04),
                         fontFamily = ArchiveFontFamilies.EditorialSerif,
                         fontSize = 12.sp,
                         color = colors.inkMuted
                     )
                     Spacer(modifier = Modifier.height(6.dp))
-                    PaperDateTimeSplitRow(
-                        selectedDateTime = noteOccurredAt,
-                        onDateTimeSelected = { noteOccurredAt = it }
+
+                    ArchiveCityPickerField(
+                        selectedCityCode = noteCityCode,
+                        selectedCityName = noteCityName,
+                        onCitySelected = { code, name ->
+                            noteCityCode = code
+                            noteCityName = name
+                        },
+                        placeholder = if (isLocating) "正在定位…" else "选择城市…"
                     )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    ArchiveField(
+                        value = noteLocation,
+                        onValueChange = { noteLocation = it },
+                        label = "具体地点",
+                        placeholder = "街巷或地标注记（选填）",
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
             }
 

@@ -108,7 +108,7 @@ internal fun TrustedDeviceRow(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             val metaString = if (!isLocal && !lastActiveAt.isNullOrBlank()) {
-                "$deviceId · 活跃于 ${FormatUtils.formatDate(lastActiveAt).takeLast(5)}"
+                "$deviceId · 活跃于 ${FormatUtils.formatDisplayDate(lastActiveAt).takeLast(5)}"
             } else {
                 "标识: $deviceId"
             }

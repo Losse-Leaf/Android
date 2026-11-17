@@ -1,7 +1,6 @@
 package com.looseleaf.feature.ledger.ui
 
-import com.looseleaf.app.ui.components.ArchiveDatePickerSheet
-import com.looseleaf.app.ui.components.ArchiveSelectableCapsule
+import com.looseleaf.app.ui.components.*
 import java.util.Locale
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -30,7 +29,6 @@ import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.utils.FormatUtils
-import com.looseleaf.feature.ledger.theme.LedgerFormat
 import com.looseleaf.feature.ledger.theme.LedgerTheme
 import java.time.LocalDate
 import java.time.YearMonth
@@ -69,52 +67,29 @@ fun CreateInstallmentSheet(
     var periodsText by remember { mutableStateOf("12") }
     val effectivePeriods = periodsText.toIntOrNull() ?: 12
 
-    // 仅保留用户自建还款渠道
-    val userChannels = remember(creditChannels) {
-        creditChannels.filterNot { it.isBuiltin || it.code in BUILTIN_CHANNEL_CODES }
-    }
-    var selectedChannel by remember(userChannels) {
-        mutableStateOf(userChannels.firstOrNull())
-    }
-    var showCreateChannelDialog by remember { mutableStateOf(false) }
-    var showChannelSelectDialog by remember { mutableStateOf(false) }
+    val userChannels = remember(creditChannels) { creditChannels.userCreditChannels() }
+    var selectedChannel by remember(userChannels) { mutableStateOf(userChannels.firstOrNull()) }
 
-    // 首期月份推算（还款日绑定在渠道中，只需选择月份）
     var firstDueYearMonth by remember(selectedChannel) {
-        val now = LocalDate.now()
-        val targetDay = selectedChannel?.repaymentDay ?: 10
-        val ym = if (now.dayOfMonth <= targetDay) YearMonth.from(now) else YearMonth.from(now).plusMonths(1)
-        mutableStateOf(ym)
+        mutableStateOf(defaultFirstDueYearMonth(selectedChannel?.repaymentDay ?: 10))
     }
-    var showMonthPicker by remember { mutableStateOf(false) }
 
-    // 分期类型：asset | expense
-    var selectedKind by remember { mutableStateOf(if (isFromGear) "asset" else "asset") }
+    var selectedKind by remember { mutableStateOf("asset") }
     var selectedGearId by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(expenseCategories.firstOrNull { it == "购物" || it == "数码器材" } ?: expenseCategories.firstOrNull() ?: "购物") }
     var note by remember { mutableStateOf("") }
 
-    // 实时试算（无手续费模式，每期本金均摊）
-    val principalCents = FormatUtils.yuanStringToCents(principalYuan)
-    val approxMonthly = if (effectivePeriods > 0) principalCents / effectivePeriods else 0L
-    val endYm = runCatching {
-        firstDueYearMonth.plusMonths((effectivePeriods - 1).toLong().coerceAtLeast(0L)).toString()
-    }.getOrDefault("----")
-
-    val hasValidPreview = principalCents > 0 && effectivePeriods > 0
-    val livePreviewText = "每期约 ${LedgerFormat.formatMoney(approxMonthly)} · 共 $effectivePeriods 期 · 末期 $endYm"
-
+    val principalCents = FormatUtils.yuanToCents(principalYuan)
     val canSubmit = title.isNotBlank() && principalCents > 0 && effectivePeriods in 1..120
 
-    LedgerSheet(
+    ArchiveSheet(
         onDismissRequest = { if (!isSubmitting) onDismissRequest() },
         title = "新建分期",
         actionText = if (isSubmitting) "创建中…" else "创建",
         isActionEnabled = canSubmit && !isSubmitting,
         onAction = {
             if (canSubmit && !isSubmitting) {
-                val targetDay = (selectedChannel?.repaymentDay ?: 10).coerceAtMost(firstDueYearMonth.lengthOfMonth())
-                val firstDueDateStr = String.format(Locale.US, "%04d-%02d-%02d", firstDueYearMonth.year, firstDueYearMonth.monthValue, targetDay)
+                val firstDueDateStr = formatFirstDueDate(firstDueYearMonth, selectedChannel?.repaymentDay ?: 10)
                 val req = CreateInstallmentPlanRequest(
                     channelId = selectedChannel?.id,
                     channelCode = selectedChannel?.code,
@@ -151,8 +126,7 @@ fun CreateInstallmentSheet(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 1. 计划名称
-            LedgerField(
+            ArchiveField(
                 value = title,
                 onValueChange = { title = it },
                 label = "计划名称",
@@ -160,342 +134,127 @@ fun CreateInstallmentSheet(
                 singleLine = true
             )
 
-            // 2. 分期总额 与 分期期数 并排双列（调用手机原生数字软键盘）
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                LedgerField(
-                    value = principalYuan,
-                    onValueChange = { input ->
-                        val sanitized = input.filter { it.isDigit() || it == '.' }
-                        if (sanitized.count { it == '.' } <= 1) {
-                            val parts = sanitized.split('.')
-                            if (parts.size == 1 || parts[1].length <= 2) {
-                                principalYuan = sanitized
-                            }
-                        }
-                    },
-                    label = "分期总额",
-                    placeholder = "0.00",
-                    trailingText = "元",
-                    isNumeric = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    singleLine = true,
-                    modifier = Modifier.weight(1.2f)
-                )
-
-                LedgerField(
-                    value = periodsText,
-                    onValueChange = { input ->
-                        periodsText = input.filter { it.isDigit() }.take(3)
-                    },
-                    label = "分期期数",
-                    placeholder = "12",
-                    trailingText = "期",
-                    isNumeric = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.weight(0.9f)
-                )
-            }
-
-            // 3. 常见期数快捷胶囊（统一全圆胶囊）
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = "常用",
-                    style = LedgerTheme.typography.caption,
-                    fontFamily = LedgerTheme.typography.serif,
-                    color = colors.textSecondary,
-                    maxLines = 1
-                )
-                listOf("3", "6", "12", "24", "36").forEach { p ->
-                    ArchiveSelectableCapsule(
-                        text = "${p}期",
-                        selected = periodsText == p,
-                        onClick = { periodsText = p }
+            InstallmentConfigSection(
+                periodsText = periodsText,
+                onPeriodsTextChange = { periodsText = it },
+                channels = userChannels,
+                selectedChannel = selectedChannel,
+                onChannelSelected = { selectedChannel = it },
+                showPayMethodToggle = false,
+                leadingAmountField = {
+                    ArchiveField(
+                        value = principalYuan,
+                        onValueChange = { principalYuan = FormatUtils.sanitizeDecimalYuanInput(it) },
+                        label = "分期总额",
+                        placeholder = "0.00",
+                        trailingText = "元",
+                        isNumeric = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier.weight(1.2f)
                     )
-                }
-            }
-
-            // 4. 还款渠道 与 首期月份 并排双列（紧凑合并，不换行）
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                // 还款渠道列（只展示用户自建，带 + 新建）
-                Column(modifier = Modifier.weight(1.2f)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "还款渠道",
-                            style = LedgerTheme.typography.caption,
-                            fontFamily = LedgerTheme.typography.serif,
-                            color = colors.textSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "+ 新建",
-                            style = LedgerTheme.typography.caption,
-                            fontFamily = LedgerTheme.typography.serif,
-                            color = colors.accent,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            modifier = Modifier
-                                .clickable { showCreateChannelDialog = true }
-                                .padding(start = 4.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(ArchiveShapes.small)
-                            .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.small)
-                            .clickable {
-                                if (userChannels.isEmpty()) {
-                                    showCreateChannelDialog = true
-                                } else {
-                                    showChannelSelectDialog = true
-                                }
-                            }
-                            .padding(horizontal = 10.dp, vertical = 9.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = selectedChannel?.name ?: if (userChannels.isEmpty()) "点击新建渠道" else "选择渠道",
-                                fontFamily = LedgerTheme.typography.serif,
-                                fontSize = ArchiveTypeScale.body,
-                                color = if (selectedChannel != null) colors.textPrimary else colors.textMuted,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            Text(
-                                text = selectedChannel?.let { "每月${it.repaymentDay}日" } ?: "▾",
-                                fontFamily = LedgerTheme.typography.serif,
-                                fontSize = ArchiveTypeScale.caption,
-                                color = colors.textSecondary,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-
-                // 首期还款月份列（仅选年月）
-                Column(modifier = Modifier.weight(0.9f)) {
-                    Text(
-                        text = "首期还款月份",
-                        style = LedgerTheme.typography.caption,
-                        fontFamily = LedgerTheme.typography.serif,
-                        color = colors.textSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(ArchiveShapes.small)
-                            .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.small)
-                            .clickable { showMonthPicker = true }
-                            .padding(horizontal = 10.dp, vertical = 9.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = String.format(Locale.US, "%04d-%02d", firstDueYearMonth.year, firstDueYearMonth.monthValue),
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = ArchiveTypeScale.body,
-                                color = colors.textPrimary,
-                                maxLines = 1
-                            )
-                            Text(
-                                text = "▾",
-                                color = colors.textSecondary,
-                                fontSize = ArchiveTypeScale.caption,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 5. 分期类型与可选关联（全部统一使用全圆可选胶囊）
-            if (!isFromGear) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "分期类型",
-                            style = LedgerTheme.typography.caption,
-                            color = colors.textSecondary,
-                            maxLines = 1
-                        )
-                        ArchiveSelectableCapsule(
-                            text = "购入装备",
-                            selected = selectedKind == "asset",
-                            onClick = { selectedKind = "asset" }
-                        )
-                        ArchiveSelectableCapsule(
-                            text = "一笔消费",
-                            selected = selectedKind == "expense",
-                            onClick = { selectedKind = "expense" }
-                        )
-                    }
-
-                    if (selectedKind == "asset" && existingGears.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = "关联装备",
-                                style = LedgerTheme.typography.caption,
-                                color = colors.textSecondary,
-                                maxLines = 1
-                            )
+                },
+                firstDueYearMonth = firstDueYearMonth,
+                onFirstDueYearMonthChange = { firstDueYearMonth = it },
+                principalCents = principalCents,
+                emptyPreviewHint = "输入金额与期数后将实时试算各期还款额",
+                onCreateChannel = onCreateChannel,
+                installmentExtraContent = {
+                    if (!isFromGear) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                ArchiveSelectableCapsule(
-                                    text = "新装备",
-                                    selected = selectedGearId.isBlank(),
-                                    onClick = { selectedGearId = "" }
+                                Text(
+                                    text = "分期类型",
+                                    style = LedgerTheme.typography.caption,
+                                    color = colors.textSecondary,
+                                    maxLines = 1
                                 )
-                                existingGears.forEach { g ->
-                                    val isSelected = selectedGearId == g.id
-                                    ArchiveSelectableCapsule(
-                                        text = g.name,
-                                        selected = isSelected,
-                                        onClick = { selectedGearId = if (isSelected) "" else g.id }
+                                ArchiveSelectableCapsule(
+                                    text = "购入装备",
+                                    selected = selectedKind == "asset",
+                                    onClick = { selectedKind = "asset" }
+                                )
+                                ArchiveSelectableCapsule(
+                                    text = "一笔消费",
+                                    selected = selectedKind == "expense",
+                                    onClick = { selectedKind = "expense" }
+                                )
+                            }
+
+                            if (selectedKind == "asset" && existingGears.isNotEmpty()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = "关联装备",
+                                        style = LedgerTheme.typography.caption,
+                                        color = colors.textSecondary,
+                                        maxLines = 1
                                     )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        ArchiveSelectableCapsule(
+                                            text = "新装备",
+                                            selected = selectedGearId.isBlank(),
+                                            onClick = { selectedGearId = "" }
+                                        )
+                                        existingGears.forEach { g ->
+                                            val isSelected = selectedGearId == g.id
+                                            ArchiveSelectableCapsule(
+                                                text = g.name,
+                                                selected = isSelected,
+                                                onClick = { selectedGearId = if (isSelected) "" else g.id }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (selectedKind == "expense") {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(
+                                        text = "消费分类",
+                                        style = LedgerTheme.typography.caption,
+                                        color = colors.textSecondary,
+                                        maxLines = 1
+                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        expenseCategories.forEach { cat ->
+                                            ArchiveSelectableCapsule(
+                                                text = cat,
+                                                selected = selectedCategory == cat,
+                                                onClick = { selectedCategory = cat }
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
 
-                    if (selectedKind == "expense") {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = "消费分类",
-                                style = LedgerTheme.typography.caption,
-                                color = colors.textSecondary,
-                                maxLines = 1
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                expenseCategories.forEach { cat ->
-                                    ArchiveSelectableCapsule(
-                                        text = cat,
-                                        selected = selectedCategory == cat,
-                                        onClick = { selectedCategory = cat }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 6. 备注（选填）
-            LedgerField(
-                value = note,
-                onValueChange = { note = it },
-                label = "备注",
-                placeholder = "选填",
-                singleLine = true
-            )
-
-            // 7. 实时预览卡片（常驻单行占位，不随金额输入跳动布局）
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(ArchiveShapes.small)
-                    .background(colors.surfaceElevated)
-                    .border(
-                        ArchiveLines.hairline,
-                        if (hasValidPreview) colors.accent.copy(alpha = 0.45f) else colors.borderSubtle,
-                        ArchiveShapes.small
+                    ArchiveField(
+                        value = note,
+                        onValueChange = { note = it },
+                        label = "备注",
+                        placeholder = "选填",
+                        singleLine = true
                     )
-                    .padding(horizontal = 12.dp, vertical = 9.dp)
-            ) {
-                Text(
-                    text = if (hasValidPreview) livePreviewText else "输入金额与期数后将实时试算各期还款额",
-                    fontFamily = if (hasValidPreview) ArchiveFontFamilies.MonoScale else LedgerTheme.typography.serif,
-                    fontSize = ArchiveTypeScale.caption,
-                    color = if (hasValidPreview) colors.accent else colors.textSecondary,
-                    fontWeight = if (hasValidPreview) FontWeight.Medium else FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+                }
+            )
 
             Spacer(modifier = Modifier.height(4.dp))
         }
-    }
-
-    // 月份选择底抽
-    if (showMonthPicker) {
-        LedgerMonthPickerSheet(
-            selectedYearMonth = firstDueYearMonth,
-            onYearMonthSelected = { ym -> firstDueYearMonth = ym },
-            onDismissRequest = { showMonthPicker = false }
-        )
-    }
-
-    // 快捷新建渠道对话框（复用统一 ArchiveDialog 表单）
-    if (showCreateChannelDialog) {
-        CreateCreditChannelDialog(
-            onDismiss = { showCreateChannelDialog = false },
-            confirmText = "创建并选择",
-            onSubmit = { name, day ->
-                val created = onCreateChannel?.invoke(name, day)
-                if (created != null) {
-                    selectedChannel = created
-                    true
-                } else {
-                    false
-                }
-            }
-        )
-    }
-
-    // 渠道选择对话框
-    if (showChannelSelectDialog) {
-        SelectCreditChannelDialog(
-            channels = userChannels,
-            selectedChannelId = selectedChannel?.id,
-            onSelect = { ch -> selectedChannel = ch },
-            onCreateNewClick = { showCreateChannelDialog = true },
-            onDismiss = { showChannelSelectDialog = false }
-        )
     }
 }
 
@@ -517,7 +276,7 @@ fun InstallmentPlanDetailSheet(
     val items = detail.items
     val hasPaid = detail.paidPeriods > 0
 
-    LedgerSheet(
+    ArchiveSheet(
         onDismissRequest = onDismissRequest,
         title = plan.title,
         cancelText = "关闭",
@@ -557,7 +316,7 @@ fun InstallmentPlanDetailSheet(
                         maxLines = 1
                     )
                     Text(
-                        text = LedgerFormat.formatMoney(detail.remainingPrincipal),
+                        text = FormatUtils.formatMoney(detail.remainingPrincipal),
                         fontFamily = ArchiveFontFamilies.MonoScale,
                         fontSize = ArchiveTypeScale.h1,
                         fontWeight = FontWeight.Bold,
@@ -580,7 +339,7 @@ fun InstallmentPlanDetailSheet(
 
             // 次要行：剩余待还期次
             val subText = if (detail.paidFee > 0) {
-                "剩余应还总额 ${LedgerFormat.formatMoney(detail.remainingTotal)} · 已付手续费 ${LedgerFormat.formatMoney(detail.paidFee)}"
+                "剩余应还总额 ${FormatUtils.formatMoney(detail.remainingTotal)} · 已付手续费 ${FormatUtils.formatMoney(detail.paidFee)}"
             } else {
                 "剩余待还 ${detail.plan.periods - detail.paidPeriods} 期 · 已还 ${detail.paidPeriods}/${detail.plan.periods} 期"
             }
@@ -594,7 +353,7 @@ fun InstallmentPlanDetailSheet(
                 modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
             )
 
-            LedgerDivider()
+            ArchiveDivider()
 
             // 还款计划期次列表
             Column(
@@ -605,7 +364,7 @@ fun InstallmentPlanDetailSheet(
             ) {
                 for (itm in items) {
                     val isPaid = itm.status == "paid"
-                    val todayStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+                    val todayStr = LocalDate.now(FormatUtils.BeijingZone).format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
                     val isOverdue = !isPaid && itm.dueDate < todayStr
                     val isDueThisMonth = !isPaid && !isOverdue && itm.dueDate.startsWith(todayStr.take(7))
 
@@ -648,7 +407,7 @@ fun InstallmentPlanDetailSheet(
                             }
                             if (itm.feePart > 0) {
                                 Text(
-                                    text = "本金 ${LedgerFormat.formatMoney(itm.principalPart)} + 手续费 ${LedgerFormat.formatMoney(itm.feePart)}",
+                                    text = "本金 ${FormatUtils.formatMoney(itm.principalPart)} + 手续费 ${FormatUtils.formatMoney(itm.feePart)}",
                                     fontFamily = ArchiveFontFamilies.MonoScale,
                                     fontSize = ArchiveTypeScale.micro,
                                     color = colors.textSecondary,
@@ -661,7 +420,7 @@ fun InstallmentPlanDetailSheet(
                         // 右列：金额与状态文字
                         Column(horizontalAlignment = Alignment.End) {
                             Text(
-                                text = LedgerFormat.formatMoney(itm.principalPart + itm.FeePartSafe()),
+                                text = FormatUtils.formatMoney(itm.principalPart + itm.FeePartSafe()),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = ArchiveTypeScale.body,
                                 fontWeight = FontWeight.Medium,
@@ -695,7 +454,7 @@ fun InstallmentPlanDetailSheet(
                 }
             }
 
-            LedgerDivider()
+            ArchiveDivider()
 
             // 底部操作按钮栏
             Row(
@@ -706,14 +465,14 @@ fun InstallmentPlanDetailSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // 取消计划 (砖红，仅无已还记录时可用)
-                LedgerTextButton(
+                ArchiveTextButton(
                     text = "取消计划",
                     isDestructive = true,
                     onClick = onCancelPlanClick,
                     enabled = !hasPaid && plan.status != "settled"
                 )
 
-                LedgerTextButton(
+                ArchiveTextButton(
                     text = "提前结清",
                     onClick = onSettleClick,
                     enabled = plan.status != "settled" && detail.remainingPrincipal > 0
@@ -742,13 +501,13 @@ fun PayInstallmentSheet(
     val expectedCents = item.principalPart + item.feePart
     var paidAmountYuan by remember { mutableStateOf(FormatUtils.centsToYuanString(expectedCents, includeSymbol = false)) }
     var selectedAccount by remember { mutableStateOf(item.payAccount?.ifBlank { null } ?: paymentMethods.firstOrNull() ?: "银行卡") }
-    var paidDate by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))) }
+    var paidDate by remember { mutableStateOf(LocalDate.now(FormatUtils.BeijingZone).format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))) }
     var showPaidDatePicker by remember { mutableStateOf(false) }
 
     val actualCents = FormatUtils.yuanStringToCents(paidAmountYuan)
     val isValid = actualCents >= item.principalPart
 
-    LedgerSheet(
+    ArchiveSheet(
         onDismissRequest = onDismissRequest,
         title = "标记已还 · 第 ${item.seq} 期",
         actionText = "确认",
@@ -766,13 +525,13 @@ fun PayInstallmentSheet(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                text = "$planTitle · 应还本金 ${LedgerFormat.formatMoney(item.principalPart)}${if (item.feePart > 0) " + 手续费 " + LedgerFormat.formatMoney(item.feePart) else ""}",
+                text = "$planTitle · 应还本金 ${FormatUtils.formatMoney(item.principalPart)}${if (item.feePart > 0) " + 手续费 " + FormatUtils.formatMoney(item.feePart) else ""}",
                 style = LedgerTheme.typography.caption,
                 color = colors.textSecondary
             )
 
             // 实付金额
-            LedgerField(
+            ArchiveField(
                 value = paidAmountYuan,
                 onValueChange = { paidAmountYuan = it },
                 label = "实付金额",
@@ -783,7 +542,7 @@ fun PayInstallmentSheet(
             )
             if (!isValid) {
                 Text(
-                    text = "实付金额不得低于本期本金 ${LedgerFormat.formatMoney(item.principalPart)}",
+                    text = "实付金额不得低于本期本金 ${FormatUtils.formatMoney(item.principalPart)}",
                     style = LedgerTheme.typography.caption,
                     color = colors.alertRed
                 )
@@ -813,7 +572,7 @@ fun PayInstallmentSheet(
             }
 
             // 还款日期
-            LedgerField(
+            ArchiveField(
                 value = paidDate,
                 onValueChange = {},
                 label = "还款日期",
@@ -829,7 +588,7 @@ fun PayInstallmentSheet(
     }
 
     if (showPaidDatePicker) {
-        val initialDate = runCatching { LocalDate.parse(paidDate, DateTimeFormatter.ofPattern("yyyy-MM-dd")) }.getOrDefault(LocalDate.now())
+        val initialDate = runCatching { LocalDate.parse(paidDate, DateTimeFormatter.ofPattern("yyyy-MM-dd")) }.getOrDefault(LocalDate.now(FormatUtils.BeijingZone))
         ArchiveDatePickerSheet(
             selectedDate = initialDate,
             onDateSelected = { newDate ->
@@ -855,14 +614,14 @@ fun SettleInstallmentSheet(
 
     var paidAmountYuan by remember { mutableStateOf(FormatUtils.centsToYuanString(remainingPrincipal, includeSymbol = false)) }
     var selectedAccount by remember { mutableStateOf(paymentMethods.firstOrNull() ?: "银行卡") }
-    var paidDate by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))) }
+    var paidDate by remember { mutableStateOf(LocalDate.now(FormatUtils.BeijingZone).format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))) }
     var showPaidDatePicker by remember { mutableStateOf(false) }
 
     val actualCents = FormatUtils.yuanStringToCents(paidAmountYuan)
     val isValid = actualCents >= remainingPrincipal
     val feeDiff = actualCents - remainingPrincipal
 
-    LedgerSheet(
+    ArchiveSheet(
         onDismissRequest = onDismissRequest,
         title = "提前结清 · ${plan.title}",
         actionText = "结清",
@@ -880,14 +639,14 @@ fun SettleInstallmentSheet(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                text = "剩余待还本金总额：${LedgerFormat.formatMoney(remainingPrincipal)}",
+                text = "剩余待还本金总额：${FormatUtils.formatMoney(remainingPrincipal)}",
                 fontFamily = ArchiveFontFamilies.MonoScale,
                 fontSize = ArchiveTypeScale.body,
                 fontWeight = FontWeight.SemiBold,
                 color = colors.textPrimary
             )
 
-            LedgerField(
+            ArchiveField(
                 value = paidAmountYuan,
                 onValueChange = { paidAmountYuan = it },
                 label = "实付结清总额",
@@ -899,13 +658,13 @@ fun SettleInstallmentSheet(
 
             if (!isValid) {
                 Text(
-                    text = "实付金额不得低于剩余本金 ${LedgerFormat.formatMoney(remainingPrincipal)}",
+                    text = "实付金额不得低于剩余本金 ${FormatUtils.formatMoney(remainingPrincipal)}",
                     style = LedgerTheme.typography.caption,
                     color = colors.alertRed
                 )
             } else {
                 Text(
-                    text = "超出剩余本金的差额 ${LedgerFormat.formatMoney(feeDiff)} 将记为手续费支出",
+                    text = "超出剩余本金的差额 ${FormatUtils.formatMoney(feeDiff)} 将记为手续费支出",
                     style = LedgerTheme.typography.caption,
                     color = colors.textSecondary
                 )
@@ -933,7 +692,7 @@ fun SettleInstallmentSheet(
                 }
             }
 
-            LedgerField(
+            ArchiveField(
                 value = paidDate,
                 onValueChange = {},
                 label = "结清日期",
@@ -949,7 +708,7 @@ fun SettleInstallmentSheet(
     }
 
     if (showPaidDatePicker) {
-        val initialDate = runCatching { LocalDate.parse(paidDate, DateTimeFormatter.ofPattern("yyyy-MM-dd")) }.getOrDefault(LocalDate.now())
+        val initialDate = runCatching { LocalDate.parse(paidDate, DateTimeFormatter.ofPattern("yyyy-MM-dd")) }.getOrDefault(LocalDate.now(FormatUtils.BeijingZone))
         ArchiveDatePickerSheet(
             selectedDate = initialDate,
             onDateSelected = { newDate ->
@@ -971,7 +730,7 @@ fun UpcomingInstallmentsSheet(
 ) {
     val colors = LedgerTheme.colors
 
-    LedgerSheet(
+    ArchiveSheet(
         onDismissRequest = onDismissRequest,
         title = "本月待还与逾期分期",
         cancelText = "关闭"
@@ -1046,7 +805,7 @@ fun UpcomingInstallmentsSheet(
                                 modifier = Modifier.padding(top = 2.dp)
                             )
                             Text(
-                                text = "${itm.channelName} · 应还 ${LedgerFormat.formatMoney(itm.totalPart)}",
+                                text = "${itm.channelName} · 应还 ${FormatUtils.formatMoney(itm.totalPart)}",
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontSize = ArchiveTypeScale.caption,
                                 color = colors.textSecondary,
@@ -1056,7 +815,7 @@ fun UpcomingInstallmentsSheet(
                         }
 
                         // 一键已还
-                        LedgerTextButton(
+                        ArchiveTextButton(
                             text = "已还",
                             onClick = { onQuickPayItem(itm) }
                         )
@@ -1093,7 +852,7 @@ fun EditInstallmentPlanSheet(
 
     val canSave = editTitle.isNotBlank()
 
-    LedgerSheet(
+    ArchiveSheet(
         onDismissRequest = onDismissRequest,
         title = "编辑分期计划",
         actionText = "保存",
@@ -1118,14 +877,14 @@ fun EditInstallmentPlanSheet(
                 )
             }
 
-            LedgerField(
+            ArchiveField(
                 value = editTitle,
                 onValueChange = { editTitle = it },
                 label = "计划名称",
                 singleLine = true
             )
 
-            LedgerField(
+            ArchiveField(
                 value = editNote,
                 onValueChange = { editNote = it },
                 label = "备注",
@@ -1202,7 +961,7 @@ fun EditInstallmentPlanSheet(
 
     adjustingItem?.let { itm ->
         val currentDue = modifiedDates[itm.id] ?: itm.dueDate
-        val initialDate = runCatching { LocalDate.parse(currentDue, DateTimeFormatter.ofPattern("yyyy-MM-dd")) }.getOrDefault(LocalDate.now())
+        val initialDate = runCatching { LocalDate.parse(currentDue, DateTimeFormatter.ofPattern("yyyy-MM-dd")) }.getOrDefault(LocalDate.now(FormatUtils.BeijingZone))
         ArchiveDatePickerSheet(
             selectedDate = initialDate,
             onDateSelected = { newDate ->

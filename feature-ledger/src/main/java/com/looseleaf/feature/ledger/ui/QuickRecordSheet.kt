@@ -38,12 +38,10 @@ import com.looseleaf.app.model.CreateTransactionRequest
 import com.looseleaf.app.model.CreditChannel
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
-import com.looseleaf.app.ui.components.ArchivePrimaryButton
-import com.looseleaf.app.ui.components.ArchiveToastManager
+import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.feature.ledger.data.LedgerRepository
 import com.looseleaf.feature.ledger.theme.LedgerCategoryColors
-import com.looseleaf.feature.ledger.theme.LedgerFormat
 import com.looseleaf.feature.ledger.theme.LedgerTheme
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -116,20 +114,12 @@ internal fun QuickRecordSheet(
     var periodsText by rememberSaveable { mutableStateOf("12") }
     val effectivePeriods = periodsText.toIntOrNull() ?: 12
 
-    val userChannels = remember(creditChannels) {
-        creditChannels.filterNot { it.isBuiltin || it.code in setOf("HUABEI", "BAITIAO", "CUSTOM_INSTALLMENT", "huabei", "baitiao", "custom_installment") }
-    }
+    val userChannels = remember(creditChannels) { creditChannels.userCreditChannels() }
     var selectedChannel by remember(userChannels) { mutableStateOf(userChannels.firstOrNull()) }
-    var showCreateChannelDialog by remember { mutableStateOf(false) }
-    var showChannelSelectDialog by remember { mutableStateOf(false) }
 
     var firstDueYearMonth by remember(selectedChannel) {
-        val now = LocalDate.now()
-        val targetDay = selectedChannel?.repaymentDay ?: 10
-        val ym = if (now.dayOfMonth <= targetDay) YearMonth.from(now) else YearMonth.from(now).plusMonths(1)
-        mutableStateOf(ym)
+        mutableStateOf(defaultFirstDueYearMonth(selectedChannel?.repaymentDay ?: 10))
     }
-    var showMonthPicker by remember { mutableStateOf(false) }
 
     var linkGearAsset by rememberSaveable { mutableStateOf(false) }
 
@@ -240,8 +230,7 @@ internal fun QuickRecordSheet(
             // 解析路径下备注已被拆成金额与标题，再存一份原文只会重复
             val note = if (parsed != null) null else trimmedNote.takeIf { it.isNotBlank() && it != title }
 
-            val targetDay = (selectedChannel?.repaymentDay ?: 10).coerceAtMost(firstDueYearMonth.lengthOfMonth())
-            val firstDueDateStr = String.format(Locale.US, "%04d-%02d-%02d", firstDueYearMonth.year, firstDueYearMonth.monthValue, targetDay)
+            val firstDueDateStr = formatFirstDueDate(firstDueYearMonth, selectedChannel?.repaymentDay ?: 10)
 
             scope.launch {
                 try {
@@ -311,10 +300,9 @@ internal fun QuickRecordSheet(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        TypeToggleButton(
+                        ArchiveTypeToggleButton(
                             text = "支出",
                             isSelected = selectedType == "expense",
-                            isExpense = true,
                             onClick = {
                                 selectedType = "expense"
                                 if (selectedCategory !in expenseCategories) {
@@ -322,10 +310,9 @@ internal fun QuickRecordSheet(
                                 }
                             }
                         )
-                        TypeToggleButton(
+                        ArchiveTypeToggleButton(
                             text = "收入",
                             isSelected = selectedType == "income",
-                            isExpense = false,
                             onClick = {
                                 selectedType = "income"
                                 payMethodChoice = "full"
@@ -391,283 +378,73 @@ internal fun QuickRecordSheet(
                 // 付款方式选择：一次付清 / 分期付款 (仅支出时展示)
                 if (selectedType == "expense") {
                     Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        LedgerChoiceItem(
-                            text = "一次付清",
-                            isSelected = payMethodChoice == "full",
-                            onClick = { payMethodChoice = "full" },
-                            modifier = Modifier.weight(1f)
-                        )
-                        LedgerChoiceItem(
-                            text = "分期付款",
-                            isSelected = payMethodChoice == "installment",
-                            onClick = { payMethodChoice = "installment" },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    if (payMethodChoice == "installment") {
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // 1. 分期期数输入（留一个空填）+ 常用期数快捷胶囊并排
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            LedgerField(
-                                value = periodsText,
-                                onValueChange = { input ->
-                                    periodsText = input.filter { it.isDigit() }.take(3)
-                                },
-                                label = "分期期数",
-                                placeholder = "12",
-                                trailingText = "期",
-                                isNumeric = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                modifier = Modifier.width(110.dp)
-                            )
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "常用期数",
-                                    style = LedgerTheme.typography.caption,
-                                    fontFamily = LedgerTheme.typography.serif,
-                                    color = colors.textSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                    InstallmentConfigSection(
+                        periodsText = periodsText,
+                        onPeriodsTextChange = { periodsText = it },
+                        channels = userChannels,
+                        selectedChannel = selectedChannel,
+                        onChannelSelected = { selectedChannel = it },
+                        payMethodChoice = payMethodChoice,
+                        onPayMethodChoiceChange = { payMethodChoice = it },
+                        firstDueYearMonth = firstDueYearMonth,
+                        onFirstDueYearMonthChange = { firstDueYearMonth = it },
+                        principalCents = submitCents,
+                        onCreateChannel = { name, day ->
+                            runCatching {
+                                val created = apiClient.createCreditChannel(
+                                    CreateCreditChannelRequest(name = name, repaymentDay = day)
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    listOf("3", "6", "12", "24", "36").forEach { p ->
-                                        val isSelected = periodsText == p
-                                        Box(
-                                            contentAlignment = Alignment.Center,
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(if (isSelected) colors.surfaceElevated else Color.Transparent)
-                                                .border(
-                                                    ArchiveLines.hairline,
-                                                    if (isSelected) colors.accent else colors.borderSubtle,
-                                                    RoundedCornerShape(4.dp)
-                                                )
-                                                .clickable { periodsText = p }
-                                                .padding(vertical = 6.dp)
-                                        ) {
-                                            Text(
-                                                text = "${p}期",
-                                                fontFamily = LedgerTheme.typography.serif,
-                                                fontSize = 12.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (isSelected) colors.accent else colors.textSecondary,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        // 2. 还款渠道 与 首期还款月份 并排单行双列（合并精简，单行截断）
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            // 还款渠道列（仅展示自建渠道，带 + 新建）
-                            Column(modifier = Modifier.weight(1.2f)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                LedgerRepository.refreshAssets(apiClient)
+                                created
+                            }.onFailure { err ->
+                                ArchiveToastManager.show("创建渠道失败: ${err.message}", isError = true)
+                            }.getOrNull()
+                        },
+                        installmentExtraContent = {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { linkGearAsset = !linkGearAsset }
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 12.dp)
                                 ) {
                                     Text(
-                                        text = "还款渠道",
-                                        style = LedgerTheme.typography.caption,
+                                        text = "同步收录至在役装备库",
+                                        style = LedgerTheme.typography.body,
                                         fontFamily = LedgerTheme.typography.serif,
+                                        color = colors.textPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = if (linkGearAsset) "开启后将同时在「资产大盘」创建在役硬件单品" else "关闭则仅建立分期账单与负债，不建立装备单品",
+                                        style = LedgerTheme.typography.caption,
                                         color = colors.textSecondary,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Text(
-                                        text = "+ 新建",
-                                        style = LedgerTheme.typography.caption,
-                                        fontFamily = LedgerTheme.typography.serif,
-                                        color = colors.accent,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        modifier = Modifier
-                                            .clickable { showCreateChannelDialog = true }
-                                            .padding(start = 4.dp)
+                                }
+                                Switch(
+                                    checked = linkGearAsset,
+                                    onCheckedChange = { linkGearAsset = it },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = colors.background,
+                                        checkedTrackColor = colors.accent,
+                                        uncheckedThumbColor = colors.textMuted,
+                                        uncheckedTrackColor = colors.surfaceElevated
                                     )
-                                }
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
-                                        .clickable {
-                                            if (userChannels.isEmpty()) {
-                                                showCreateChannelDialog = true
-                                            } else {
-                                                showChannelSelectDialog = true
-                                            }
-                                        }
-                                        .padding(horizontal = 8.dp, vertical = 8.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            text = selectedChannel?.name ?: if (userChannels.isEmpty()) "点击新建渠道" else "选择渠道",
-                                            fontFamily = LedgerTheme.typography.serif,
-                                            fontSize = 14.sp,
-                                            color = if (selectedChannel != null) colors.textPrimary else colors.textMuted,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false)
-                                        )
-                                        Text(
-                                            text = selectedChannel?.let { "每月${it.repaymentDay}日" } ?: "▾",
-                                            fontFamily = LedgerTheme.typography.serif,
-                                            fontSize = 12.sp,
-                                            color = colors.textSecondary,
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-                            }
-
-                            // 首期还款月份列（仅选年月）
-                            Column(modifier = Modifier.weight(0.9f)) {
-                                Text(
-                                    text = "首期还款月份",
-                                    style = LedgerTheme.typography.caption,
-                                    fontFamily = LedgerTheme.typography.serif,
-                                    color = colors.textSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
                                 )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
-                                        .clickable { showMonthPicker = true }
-                                        .padding(horizontal = 8.dp, vertical = 8.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            text = String.format(Locale.US, "%04d-%02d", firstDueYearMonth.year, firstDueYearMonth.monthValue),
-                                            fontFamily = ArchiveFontFamilies.MonoScale,
-                                            fontSize = 14.sp,
-                                            color = colors.textPrimary,
-                                            maxLines = 1
-                                        )
-                                        Text(
-                                            text = "▾",
-                                            color = colors.textSecondary,
-                                            fontSize = 12.sp,
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
                             }
                         }
-
-                        // 3. 实时试算单行卡片
-                        val endYm = runCatching {
-                            firstDueYearMonth.plusMonths((effectivePeriods - 1).toLong().coerceAtLeast(0L)).toString()
-                        }.getOrDefault("----")
-
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(colors.surfaceElevated)
-                                .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
-                                .padding(horizontal = 10.dp, vertical = 8.dp)
-                        ) {
-                            val previewText = if (submitCents <= 0) {
-                                "输入金额后将实时试算各期还款额"
-                            } else {
-                                "每期约 ${LedgerFormat.formatMoney(approxMonthly)} · 共 $effectivePeriods 期 · 末期 $endYm"
-                            }
-                            Text(
-                                text = previewText,
-                                style = LedgerTheme.typography.caption,
-                                fontFamily = LedgerTheme.typography.serif,
-                                color = colors.textSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        // 4. 收录在役装备开关
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp))
-                                .clickable { linkGearAsset = !linkGearAsset }
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(end = 12.dp)
-                            ) {
-                                Text(
-                                    text = "同步收录至在役装备库",
-                                    style = LedgerTheme.typography.body,
-                                    fontFamily = LedgerTheme.typography.serif,
-                                    color = colors.textPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = if (linkGearAsset) "开启后将同时在「资产大盘」创建在役硬件单品" else "关闭则仅建立分期账单与负债，不建立装备单品",
-                                    style = LedgerTheme.typography.caption,
-                                    color = colors.textSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Switch(
-                                checked = linkGearAsset,
-                                onCheckedChange = { linkGearAsset = it },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = colors.background,
-                                    checkedTrackColor = colors.accent,
-                                    uncheckedThumbColor = colors.textMuted,
-                                    uncheckedTrackColor = colors.surfaceElevated
-                                )
-                            )
-                        }
-                    }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -751,7 +528,8 @@ internal fun QuickRecordSheet(
             Spacer(modifier = Modifier.height(6.dp))
 
             // 语义识别提示（RG-27）：金额还没敲时，明确告诉用户备注里那串数字会被采纳
-            if (useParsedNote && parsedNote != null) {
+            val activeParsed = if (useParsedNote) parsedNote else null
+            if (activeParsed != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -759,7 +537,7 @@ internal fun QuickRecordSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "识别到 ${LedgerFormat.formatMoney(parsedNote.amountCents)} · ${parsedNote.category}",
+                        text = "识别到 ${FormatUtils.formatMoney(activeParsed.amountCents)} · ${activeParsed.category}",
                         fontFamily = LedgerTheme.typography.serif,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
@@ -820,7 +598,7 @@ internal fun QuickRecordSheet(
                         .fillMaxWidth()
                         .padding(vertical = 6.dp)
                 ) {
-                    LedgerTextField(
+                    ArchiveTextField(
                         value = noteText,
                         onValueChange = { noteText = it },
                         placeholder = "商户或备注，可写「42.5 午餐」",
@@ -861,7 +639,7 @@ internal fun QuickRecordSheet(
                     }
 
                     // 发生时刻选择
-                    LedgerDateTimeSplitRow(
+                    ArchiveDateTimeSplitRow(
                         selectedDateTime = txOccurredAt,
                         onDateTimeSelected = {
                             txOccurredAtMillis = it.atZone(FormatUtils.BeijingZone).toInstant().toEpochMilli()
@@ -935,169 +713,5 @@ internal fun QuickRecordSheet(
                 )
             }
         }
-    }
-
-    // 月份选择底抽
-    if (showMonthPicker) {
-        LedgerMonthPickerSheet(
-            selectedYearMonth = firstDueYearMonth,
-            onYearMonthSelected = { ym -> firstDueYearMonth = ym },
-            onDismissRequest = { showMonthPicker = false }
-        )
-    }
-
-    // 快捷新建渠道对话框
-    if (showCreateChannelDialog) {
-        var newName by remember { mutableStateOf("") }
-        var newDay by remember { mutableStateOf("10") }
-        var isSubmittingChannel by remember { mutableStateOf(false) }
-
-        AlertDialog(
-            onDismissRequest = { if (!isSubmittingChannel) showCreateChannelDialog = false },
-            containerColor = colors.surface,
-            title = {
-                Text(
-                    text = "新建还款渠道",
-                    fontFamily = LedgerTheme.typography.serif,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.textPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .imePadding()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    LedgerField(
-                        value = newName,
-                        onValueChange = { newName = it },
-                        label = "渠道名称",
-                        placeholder = "如 招商银行信用卡",
-                        singleLine = true
-                    )
-                    LedgerField(
-                        value = newDay,
-                        onValueChange = { newDay = it.filter { c -> c.isDigit() }.take(2) },
-                        label = "每月固定还款日",
-                        placeholder = "10",
-                        trailingText = "日",
-                        isNumeric = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true
-                    )
-                }
-            },
-            confirmButton = {
-                LedgerTextButton(
-                    text = "创建并选择",
-                    enabled = newName.isNotBlank() && !isSubmittingChannel,
-                    onClick = {
-                        val day = newDay.toIntOrNull()?.coerceIn(1, 31) ?: 10
-                        isSubmittingChannel = true
-                        scope.launch {
-                            runCatching {
-                                val created = apiClient.createCreditChannel(
-                                    CreateCreditChannelRequest(name = newName.trim(), repaymentDay = day)
-                                )
-                                selectedChannel = created
-                                LedgerRepository.refreshAssets(apiClient)
-                            }.onFailure { err ->
-                                ArchiveToastManager.show("创建渠道失败: ${err.message}", isError = true)
-                            }
-                            isSubmittingChannel = false
-                            showCreateChannelDialog = false
-                        }
-                    }
-                )
-            },
-            dismissButton = {
-                LedgerTextButton(
-                    text = "取消",
-                    enabled = !isSubmittingChannel,
-                    onClick = { showCreateChannelDialog = false }
-                )
-            }
-        )
-    }
-
-    // 渠道选择对话框
-    if (showChannelSelectDialog) {
-        AlertDialog(
-            onDismissRequest = { showChannelSelectDialog = false },
-            containerColor = colors.surface,
-            title = {
-                Text(
-                    text = "选择还款渠道",
-                    fontFamily = LedgerTheme.typography.serif,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.textPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    userChannels.forEach { ch ->
-                        val isSelected = selectedChannel?.id == ch.id
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isSelected) colors.surfaceElevated else Color.Transparent)
-                                .clickable {
-                                    selectedChannel = ch
-                                    showChannelSelectDialog = false
-                                }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = ch.name,
-                                fontFamily = LedgerTheme.typography.serif,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 14.sp,
-                                color = if (isSelected) colors.accent else colors.textPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            Text(
-                                text = "每月${ch.repaymentDay}日",
-                                fontFamily = LedgerTheme.typography.serif,
-                                fontSize = 12.sp,
-                                color = colors.textSecondary,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                LedgerTextButton(
-                    text = "+ 新建渠道",
-                    onClick = {
-                        showChannelSelectDialog = false
-                        showCreateChannelDialog = true
-                    }
-                )
-            },
-            dismissButton = {
-                LedgerTextButton(
-                    text = "关闭",
-                    onClick = { showChannelSelectDialog = false }
-                )
-            }
-        )
     }
 }

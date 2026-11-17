@@ -86,7 +86,7 @@ internal object SyncMerger {
         database: AppDatabase,
         ticket: DeleteUndoTicket
     ): Boolean {
-        val entity = ticket.entity as? CachedEntryEntity ?: return false
+        val entity = ticket.entity
         val deleteEvent = database.outboxDao().findEventByTarget("entry", entity.localId, "DELETE")
             ?: return false
         // 失败态 DELETE 可能已在服务端生效（只是响应丢失），恢复会造成幽灵记录。

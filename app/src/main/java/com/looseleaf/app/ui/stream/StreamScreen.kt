@@ -75,7 +75,6 @@ import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.OfflineMediaFileItem
 import com.looseleaf.app.data.sync.StreamWindowPage
 import com.looseleaf.app.data.sync.SyncManager
-import com.looseleaf.app.model.AlmanacSummaryResponse
 import com.looseleaf.app.model.Attachment
 import com.looseleaf.app.model.CreateEntryRequest
 import com.looseleaf.app.model.CreateProjectRequest
@@ -86,7 +85,6 @@ import com.looseleaf.app.model.Project
 import com.looseleaf.app.model.Wish
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveMotion
-import com.looseleaf.app.theme.LocalArchiveDecorConfig
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.updater.ReleaseInfo
@@ -117,6 +115,7 @@ import androidx.compose.ui.res.painterResource
 private var updateCheckedThisProcess = false
 private const val UPDATE_CHECK_PREFS = "looseleaf_update_check"
 private const val KEY_LAST_CHECK_AT = "last_check_at"
+private val releaseInfoJson = Json { ignoreUnknownKeys = true }
 private const val UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
 
 private fun shouldCheckForUpdate(context: android.content.Context): Boolean {
@@ -156,7 +155,6 @@ fun StreamScreen(
     val apiClient = remember { APIClient.getInstance(context) }
     val syncManager = remember { SyncManager.getInstance(context) }
     val credentialStore = remember { CredentialStore.getInstance(context) }
-    val decorConfig = LocalArchiveDecorConfig.current
 
     // MOB-P1-86：区分「首轮加载中」/「真的没有记录」/「筛选后无匹配」
     val firstSyncCompleted by syncManager.firstSyncCompletedFlow.collectAsStateWithLifecycle()
@@ -187,9 +185,10 @@ fun StreamScreen(
     var cloudUpdateJson by rememberSaveable { mutableStateOf<String?>(null) }
     val cloudUpdate: ReleaseInfo? = remember(cloudUpdateJson) {
         cloudUpdateJson?.let {
-            runCatching { Json { ignoreUnknownKeys = true }.decodeFromString<ReleaseInfo>(it) }.getOrNull()
+            runCatching { releaseInfoJson.decodeFromString<ReleaseInfo>(it) }.getOrNull()
         }
     }
+    var showCloudUpdateDialog by remember { mutableStateOf(false) }
 
     // 那年今日状态
     var remoteOnThisDay by remember { mutableStateOf<List<LifeEntry>>(emptyList()) }
@@ -253,7 +252,7 @@ fun StreamScreen(
                     is UpdateCheckResult.HasUpdate -> {
                         updateCheckedThisProcess = true
                         markUpdateChecked(context)
-                        cloudUpdateJson = Json { ignoreUnknownKeys = true }.encodeToString(result.release)
+                        cloudUpdateJson = releaseInfoJson.encodeToString(result.release)
                     }
                     is UpdateCheckResult.AlreadyLatest -> {
                         updateCheckedThisProcess = true
@@ -529,19 +528,16 @@ fun StreamScreen(
 
             // 新版本可用提示卡片
             cloudUpdate?.let { update ->
-                var downloadProgress by remember { mutableStateOf(0f) }
-                var isDownloading by remember { mutableStateOf(false) }
-                var downloadedFile by remember { mutableStateOf<java.io.File?>(null) }
+                val updateController = rememberAppUpdateController(update)
 
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        // 升级提示整组（淡底 / 描边 / 进度条 / 标题）统一用 accentSmallText，
-                        // 避免 #8E4423 文字旁边出现 #A24F2B描边，两种赤陶并排
                         .background(colors.accentSmallText.copy(alpha = 0.08f))
                         .border(0.5.dp, colors.accentSmallText, RoundedCornerShape(4.dp))
+                        .clickable { showCloudUpdateDialog = true }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -554,21 +550,21 @@ fun StreamScreen(
                             fontSize = 12.sp,
                             color = colors.accentSmallText
                         )
-                        if (isDownloading) {
+                        if (updateController.isDownloading) {
                             Spacer(modifier = Modifier.height(4.dp))
                             LinearProgressIndicator(
-                                progress = { downloadProgress },
+                                progress = { updateController.downloadProgress },
                                 modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
                                 color = colors.accentSmallText,
                                 trackColor = colors.accentSmallText.copy(alpha = 0.2f)
                             )
                             Text(
-                                text = stringResource(R.string.stream_screen_text_tpl_04, (downloadProgress * 100).toInt()),
+                                text = stringResource(R.string.stream_screen_text_tpl_04, (updateController.downloadProgress * 100).toInt()),
                                 fontSize = 11.sp,
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 color = colors.inkMuted
                             )
-                        } else if (downloadedFile != null) {
+                        } else if (updateController.downloadedFile != null) {
                             Text(
                                 text = stringResource(R.string.stream_screen_text_03),
                                 fontSize = 11.sp,
@@ -585,27 +581,18 @@ fun StreamScreen(
                         }
                     }
 
-                    if (downloadedFile != null) {
+                    if (updateController.downloadedFile != null) {
                         Button(
-                            onClick = {
-                                downloadedFile?.let { file ->
-                                    if (!UpdateChecker.installApk(context, file)) {
-                                        ArchiveToastManager.show(
-                                            "安装包签名与已装版本不一致，需先做服务端备份再卸载重装",
-                                            isError = true
-                                        )
-                                    }
-                                }
-                            },
+                            onClick = updateController.installDownloaded,
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                             shape = RoundedCornerShape(2.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
                         ) {
                             Text(stringResource(R.string.stream_screen_install_now), fontSize = 12.sp, fontFamily = ArchiveFontFamilies.EditorialSerif)
                         }
-                    } else if (isDownloading) {
+                    } else if (updateController.isDownloading) {
                         Text(
-                            text = stringResource(R.string.stream_screen_text_tpl_05, (downloadProgress * 100).toInt()),
+                            text = stringResource(R.string.stream_screen_text_tpl_05, (updateController.downloadProgress * 100).toInt()),
                             fontSize = 12.sp,
                             fontFamily = ArchiveFontFamilies.MonoScale,
                             color = colors.accentSmallText,
@@ -613,32 +600,7 @@ fun StreamScreen(
                         )
                     } else {
                         Button(
-                            onClick = {
-                                scope.launch {
-                                    isDownloading = true
-                                    val res = UpdateChecker.downloadApkStream(
-                                        context = context,
-                                        apkUrl = update.apkUrl,
-                                        versionName = update.versionName,
-                                        expectedSha256 = update.apkSha256
-                                    ) { p, _, _ ->
-                                        downloadProgress = p
-                                    }
-                                    isDownloading = false
-                                    res.onSuccess { f ->
-                                        downloadedFile = f
-                                        val launched = UpdateChecker.installApk(context, f)
-                                        if (!launched) {
-                                            ArchiveToastManager.show(
-                                                "安装包签名与已装版本不一致，需先做服务端备份再卸载重装",
-                                                isError = true
-                                            )
-                                        }
-                                    }.onFailure { err ->
-                                        ArchiveToastManager.show("下载失败: ${err.message}", isError = true)
-                                    }
-                                }
-                            },
+                            onClick = updateController.startDownloadAndInstall,
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                             shape = RoundedCornerShape(2.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
@@ -647,6 +609,13 @@ fun StreamScreen(
                         }
                     }
                 }
+            }
+
+            if (showCloudUpdateDialog && cloudUpdate != null) {
+                AppUpdateDialogHost(
+                    release = cloudUpdate,
+                    onDismiss = { showCloudUpdateDialog = false }
+                )
             }
 
             // MOB-P1-24：列表项回调提升为**稳定引用**（放在 items{} 之外），

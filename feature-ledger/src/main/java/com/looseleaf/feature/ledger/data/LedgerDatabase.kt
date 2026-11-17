@@ -23,7 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     version = 3,
     exportSchema = true
 )
-abstract class LedgerDatabase : RoomDatabase() {
+internal abstract class LedgerDatabase : RoomDatabase() {
     abstract fun transactionDao(): TransactionDao
     abstract fun outboxDao(): LedgerOutboxDao
 

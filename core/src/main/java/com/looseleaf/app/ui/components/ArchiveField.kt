@@ -62,9 +62,9 @@ fun ArchiveField(
     onClick: (() -> Unit)? = null,
     errorMessage: String? = null,
     keyboardOptions: KeyboardOptions = KeyboardOptions(
-        autoCorrect = false,
+        autoCorrectEnabled = false,
         capitalization = KeyboardCapitalization.None,
-        keyboardType = if (isNumeric) KeyboardType.Number else KeyboardType.Text
+        keyboardType = if (isNumeric) KeyboardType.Decimal else KeyboardType.Text
     ),
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     imeAction: ImeAction = ImeAction.Default,

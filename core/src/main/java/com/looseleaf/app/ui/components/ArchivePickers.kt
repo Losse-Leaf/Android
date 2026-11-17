@@ -25,11 +25,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.utils.CityDictionary
+import com.looseleaf.app.utils.FormatUtils
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -233,7 +237,7 @@ fun ArchiveDatePickerSheet(
     var tempDate by remember(selectedDate) { mutableStateOf(selectedDate) }
     var currentYearMonth by remember(selectedDate) { mutableStateOf(YearMonth.from(selectedDate)) }
     var isMonthPickerMode by remember { mutableStateOf(false) }
-    val today = remember { LocalDate.now() }
+    val today = remember { LocalDate.now(FormatUtils.BeijingZone) }
 
     Dialog(
         onDismissRequest = onDismissRequest,
@@ -888,7 +892,7 @@ fun ArchiveDatePickerField(
 
     if (showSheet) {
         ArchiveDatePickerSheet(
-            selectedDate = selectedDate ?: LocalDate.now(),
+            selectedDate = selectedDate ?: LocalDate.now(FormatUtils.BeijingZone),
             onDateSelected = onDateSelected,
             onDismissRequest = { showSheet = false }
         )
@@ -1006,6 +1010,115 @@ fun <T> ArchiveSelectField(
                         }
                     }
                     ArchiveDivider()
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 纸色月份选择弹层 (ArchiveMonthPickerSheet)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ArchiveMonthPickerSheet(
+    selectedYearMonth: YearMonth,
+    onYearMonthSelected: (YearMonth) -> Unit,
+    onDismissRequest: () -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    val haptic = LocalHapticFeedback.current
+    var currentYear by remember(selectedYearMonth) { mutableStateOf(selectedYearMonth.year) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        sheetState = sheetState,
+        containerColor = colors.archivePaper,
+        shape = ArchiveShapes.sheetTop,
+        tonalElevation = 0.dp,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                IconButton(onClick = { currentYear-- }) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_chevron_left),
+                        contentDescription = "上一年",
+                        tint = colors.inkPrimary
+                    )
+                }
+                Text(
+                    text = "${currentYear} 年",
+                    fontFamily = ArchiveFontFamilies.EditorialSerif,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = ArchiveTypeScale.h2,
+                    color = colors.inkPrimary
+                )
+                IconButton(onClick = { currentYear++ }) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_chevron_right),
+                        contentDescription = "下一年",
+                        tint = colors.inkPrimary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            val months = (1..12).toList()
+            for (row in months.chunked(4)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (m in row) {
+                        val isSelected = currentYear == selectedYearMonth.year && m == selectedYearMonth.monthValue
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .clip(ArchiveShapes.small)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onYearMonthSelected(YearMonth.of(currentYear, m))
+                                    onDismissRequest()
+                                }
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "${m}月",
+                                    fontFamily = if (isSelected) ArchiveFontFamilies.EditorialSerif else ArchiveFontFamilies.MonoScale,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = ArchiveTypeScale.body,
+                                    color = if (isSelected) colors.accentWarm else colors.inkPrimary
+                                )
+                                if (isSelected) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .width(16.dp)
+                                            .height(2.dp)
+                                            .background(colors.accentWarm)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

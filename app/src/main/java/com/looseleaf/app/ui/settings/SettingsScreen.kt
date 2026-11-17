@@ -14,8 +14,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.*
-import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
@@ -60,8 +60,6 @@ internal fun SettingsScreen(
     onAppearanceModeChanged: (AppearanceMode) -> Unit,
     isBiometricsEnabled: Boolean,
     onBiometricsChanged: (Boolean) -> Unit,
-    enableDecorations: Boolean = true,
-    onEnableDecorationsChanged: ((Boolean) -> Unit)? = null,
     isInstallmentReminderEnabled: Boolean = true,
     onInstallmentReminderChanged: ((Boolean) -> Unit)? = null,
     localDeviceName: String,
@@ -119,7 +117,7 @@ internal fun SettingsScreen(
             ) {
                 IconButton(onClick = onBack) {
                     Icon(
-                        imageVector = Icons.Outlined.ArrowBack,
+                        imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                         contentDescription = "返回",
                         tint = colors.inkPrimary
                     )
@@ -212,42 +210,6 @@ internal fun SettingsScreen(
                             checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f)
                         )
                     )
-                }
-
-                if (onEnableDecorationsChanged != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    ArchiveDivider()
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                            Text(
-                                text = "手账质感装饰",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 14.sp,
-                                color = colors.inkPrimary
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "开启微旋转、倾角、和纸胶带、按压下沉与纸张错位",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 12.sp,
-                                color = colors.inkSecondary
-                            )
-                        }
-                        Switch(
-                            checked = enableDecorations,
-                            onCheckedChange = onEnableDecorationsChanged,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = colors.accentWarm,
-                                checkedTrackColor = colors.accentWarm.copy(alpha = 0.5f)
-                            )
-                        )
-                    }
                 }
 
                 if (onInstallmentReminderChanged != null) {

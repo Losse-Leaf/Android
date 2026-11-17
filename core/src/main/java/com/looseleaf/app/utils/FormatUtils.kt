@@ -8,7 +8,6 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
-import kotlin.math.roundToLong
 
 /**
  * 散页核心格式化工具 (FormatUtils)
@@ -88,30 +87,20 @@ object FormatUtils {
     }
 
     /**
-     * 将任意支持的日期时间串解析为北京时间 LocalDateTime (若为空或解析失败返回 null)
+     * 等宽数字金额格式化（支持千分位、保留两位小数与货币符号）
      */
-    fun parseToLocalDateTimeOrNull(raw: String?): LocalDateTime? {
-        if (raw.isNullOrBlank()) return null
-        return parseOccurredInstantOrNull(raw)?.atZone(BeijingZone)?.toLocalDateTime()
+    fun formatMoney(cents: Long, includeSymbol: Boolean = true): String {
+        val absCents = kotlin.math.abs(cents)
+        val yuan = absCents / 100
+        val remainder = absCents % 100
+        val sign = if (cents < 0) "-" else ""
+        val formattedYuan = String.format(Locale.CHINA, "%,d", yuan)
+        val numStr = "$formattedYuan.${remainder.toString().padStart(2, '0')}"
+        return if (includeSymbol) "${sign}¥$numStr" else "$sign$numStr"
     }
 
     /**
-     * 判断给定 LocalDateTime 是否在北京时间的“今天”
-     */
-    fun isTodayInBeijing(dateTime: LocalDateTime): Boolean {
-        val today = LocalDate.now(BeijingZone)
-        return dateTime.toLocalDate() == today
-    }
-
-    /**
-     * 格式化 LocalDateTime 为 YYYY.MM.DD HH:mm
-     */
-    fun formatLocalDateTimeDisplay(dateTime: LocalDateTime): String {
-        return dateTime.format(DisplayDateTimeFormatter)
-    }
-
-    /**
-     * 将整型「分」转换为「元」字符串展示 (例如 4250 -> "¥ 42.50" 或 "42.50")
+     * 将整型「分」转换为「元」字符串展示 (例如 4250 -> "¥42.50" 或 "42.50")
      */
     fun centsToYuanString(cents: Long, includeSymbol: Boolean = true): String {
         val absCents = kotlin.math.abs(cents)
@@ -164,6 +153,20 @@ object FormatUtils {
         }
         val total = cents + fraction
         return if (negative) -total else total
+    }
+
+    fun yuanToCents(yuanString: String): Long = yuanStringToCents(yuanString)
+
+    /**
+     * Sanitizes system-keyboard decimal yuan text input: digits + at most one '.' + at most 2 fractional digits.
+     */
+    fun sanitizeDecimalYuanInput(raw: String): String {
+        val filtered = raw.filter { it.isDigit() || it == '.' }
+        val dotIdx = filtered.indexOf('.')
+        if (dotIdx == -1) return filtered
+        val integerPart = filtered.substring(0, dotIdx)
+        val fractionalPart = filtered.substring(dotIdx + 1).filter { it.isDigit() }.take(2)
+        return "$integerPart.$fractionalPart"
     }
 
     /**
@@ -229,13 +232,6 @@ object FormatUtils {
     }
 
     /**
-     * 当前北京时间日期字符串 (YYYY.MM.DD)
-     */
-    fun beijingTodayDateString(): String {
-        return LocalDate.now(BeijingZone).format(DisplayDateFormatter)
-    }
-
-    /**
      * 弹性时间解析器 (FlexTime)：支持 ISO8601、RFC3339、HTML5、纸本点号格式与纯日期格式。
      * 解析失败返回 null，由调用方决定「显示原文」还是「回退当前时间」，
      * 绝不在解析层默默把一条旧记录改成今天。
@@ -292,9 +288,6 @@ object FormatUtils {
         val inst = parseOccurredInstantOrNull(rawIso) ?: return rawIso
         return DisplayDateFormatter.format(inst.atZone(BeijingZone))
     }
-
-    fun formatDate(rawIso: String?): String = formatDisplayDate(rawIso)
-    fun formatDateTime(rawIso: String?): String = formatDisplayDateTime(rawIso)
 
     /**
      * 格式化展示为 YYYY.MM.DD HH:mm
@@ -386,7 +379,7 @@ object FormatUtils {
         )
     }
 
-    private fun inferCategoryFromText(
+    fun inferCategoryFromText(
         text: String,
         knownCategories: List<String> = emptyList()
     ): String {
@@ -401,13 +394,13 @@ object FormatUtils {
         // 2. 内置关键词兜底。收入类返回「薪资」而不是「收入」——
         //    默认收入分类列表是 ["薪资","奖金","二手回血",...]，根本没有叫「收入」的分类
         return when {
-            listOf("饭", "餐", "吃", "麦当劳", "肯德基", "咖啡", "茶", "饮", "早点", "午餐", "晚餐", "夜宵", "买菜").any { lower.contains(it) } -> "餐饮"
+            listOf("饭", "餐", "吃", "外卖", "美团", "饿了么", "麦当劳", "肯德基", "星巴克", "咖啡", "茶", "饮", "早点", "午餐", "晚餐", "夜宵", "买菜", "便利店").any { lower.contains(it) } -> "餐饮"
             listOf("地铁", "打车", "滴滴", "公交", "火车", "高铁", "机票", "加油", "停车", "过路费", "骑行").any { lower.contains(it) } -> "交通"
-            listOf("买", "淘宝", "京东", "超市", "衣服", "鞋", "数码", "手机", "相机", "镜头", "电脑").any { lower.contains(it) } -> "购物"
-            listOf("电影", "游戏", "steam", "聚会", "玩", "剧本杀", "门票", "展览").any { lower.contains(it) } -> "娱乐"
+            listOf("买", "淘宝", "天猫", "京东", "拼多多", "超市", "商户", "衣服", "鞋", "数码", "手机", "相机", "镜头", "电脑").any { lower.contains(it) } -> "购物"
+            listOf("电影", "游戏", "steam", "网易", "腾讯", "聚会", "玩", "剧本杀", "门票", "展览").any { lower.contains(it) } -> "娱乐"
             listOf("房租", "水电", "物业", "燃气", "宽带", "话费", "家居").any { lower.contains(it) } -> "住房"
             listOf("书", "课", "学费", "培训", "考试", "订阅", "会员").any { lower.contains(it) } -> "学习"
-            listOf("药", "医院", "门诊", "体检", "牙", "检查").any { lower.contains(it) } -> "医疗"
+            listOf("药", "药房", "医院", "门诊", "体检", "牙", "检查").any { lower.contains(it) } -> "医疗"
             listOf("工资", "奖金", "收益", "利息", "分红", "报销", "红包").any { lower.contains(it) } -> "薪资"
             else -> "其他"
         }

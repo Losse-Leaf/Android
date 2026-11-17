@@ -45,10 +45,12 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
         // getProfile 里的「未初始化则 init」兜底保持不变，正常路径已避开主线程。
         appScope.launch {
             runCatching {
-                com.looseleaf.feature.ledger.LedgerModule.init(this@LooseLeafApp)
-                com.looseleaf.feature.ledger.data.LedgerRepository.onScheduleSyncListener = {
-                    SyncManager.getInstance(this@LooseLeafApp).scheduleSync()
-                }
+                com.looseleaf.feature.ledger.LedgerModule.init(
+                    context = this@LooseLeafApp,
+                    onScheduleSync = {
+                        SyncManager.getInstance(this@LooseLeafApp).scheduleSync()
+                    }
+                )
             }
             runCatching { ProfileRepository.init(this@LooseLeafApp) }
             runCatching { credentialStore.warmUp() }
@@ -61,7 +63,7 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
                 // 且用一次 COUNT 查询判断，无需先建立两条常驻 Flow。
                 // P1-1：账本库独立于主库，必须把它的待同步事件一并计入。
                 val mainPending = syncManager.pendingEventCountNow()
-                val ledgerPending = com.looseleaf.feature.ledger.data.LedgerRepository.pendingOutboxCount()
+                val ledgerPending = com.looseleaf.feature.ledger.LedgerModule.pendingOutboxCount()
                 if (mainPending > 0 || ledgerPending > 0) {
                     syncManager.scheduleSync()
                 }

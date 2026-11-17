@@ -66,7 +66,7 @@ internal fun StreamCoverHeader(
     val subtitleAlpha = (1f - fraction * 2.5f).coerceIn(0f, 1f)
 
     val currentDateString = remember {
-        val now = LocalDate.now()
+        val now = LocalDate.now(com.looseleaf.app.utils.FormatUtils.BeijingZone)
         val weekdayStr = when (now.dayOfWeek.value) {
             1 -> "周一"
             2 -> "周二"

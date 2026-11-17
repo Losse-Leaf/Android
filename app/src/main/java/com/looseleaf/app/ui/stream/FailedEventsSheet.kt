@@ -1,7 +1,7 @@
 package com.looseleaf.app.ui.stream
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,24 +10,28 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.room.withTransaction
 import com.looseleaf.app.data.local.AppDatabase
+import com.looseleaf.app.data.local.OutboxEventEntity
+import com.looseleaf.app.data.sync.OfflineMediaEntryPayload
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.ArchiveSheet
 import com.looseleaf.app.ui.components.ArchiveToastManager
-import com.looseleaf.feature.ledger.data.LedgerDatabase
-import com.looseleaf.feature.ledger.data.LedgerRepository
+import com.looseleaf.feature.ledger.LedgerModule
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
+import java.io.File
 
 internal data class DisplayFailedEvent(
     val eventId: String,
@@ -39,11 +43,73 @@ internal data class DisplayFailedEvent(
     val localTargetId: Long
 )
 
+private val failedEventJson = Json { ignoreUnknownKeys = true }
+
+/**
+ * 统一放弃单条发件箱事件并清理本地孤儿行与暂存媒体文件（供单条放弃与全部放弃共用）。
+ */
+internal suspend fun discardOutboxEvent(
+    context: Context,
+    database: AppDatabase,
+    evt: OutboxEventEntity
+) {
+    val stagedFilesToDelete = mutableListOf<File>()
+    val outboxMediaDir = File(context.filesDir, "outbox_media")
+
+    database.withTransaction {
+        database.outboxDao().deleteById(evt.eventId)
+        if (evt.action == "CREATE") {
+            when (evt.entityType) {
+                "entry" -> database.entryDao().deleteByLocalId(evt.localTargetId)
+                "media_entry" -> {
+                    val entry = database.entryDao().getEntryByLocalId(evt.localTargetId)
+                    if (entry == null || entry.serverId == null || entry.syncStatus == SyncManager.STATUS_PENDING_CREATE) {
+                        database.entryDao().deleteByLocalId(evt.localTargetId)
+                        database.outboxDao().deleteByLocalTarget("entry", evt.localTargetId)
+                    }
+                    val paths = runCatching {
+                        val payload = failedEventJson.decodeFromString<OfflineMediaEntryPayload>(evt.payload)
+                        (payload.files.map { it.filePath } + payload.localImageFilePath)
+                            .filter { it.isNotBlank() }
+                            .distinct()
+                    }.getOrDefault(emptyList())
+                    for (path in paths) {
+                        val f = File(path)
+                        if (f.parentFile?.absolutePath == outboxMediaDir.absolutePath) {
+                            stagedFilesToDelete.add(f)
+                        }
+                    }
+                }
+                "project" -> database.projectDao().deleteById(evt.localTargetId)
+                "wish" -> database.wishDao().deleteById(evt.localTargetId)
+                "footprint" -> database.footprintDao().deleteById(evt.localTargetId)
+            }
+        } else {
+            when (evt.entityType) {
+                "entry", "media_entry" -> {
+                    val entry = database.entryDao().getEntryByLocalId(evt.localTargetId)
+                    if (entry != null) {
+                        if (entry.serverId == null) {
+                            database.entryDao().deleteByLocalId(evt.localTargetId)
+                        } else {
+                            database.entryDao().updateSyncStatus(evt.localTargetId, SyncManager.STATUS_SYNCED)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    stagedFilesToDelete.forEach { file ->
+        runCatching { if (file.exists()) file.delete() }
+    }
+}
+
 /**
  * 失败事件处置抽屉 (Failed Events BottomSheet)
  *
- * 统一展示主库（手稿/造物/心愿/足迹）与独立账本库中阻滞的死信事件：
- * - 支持单条重试（正确置空 failed_at 与重置 retry_count）、单条放弃（联动清理未上云的本地孤儿行）；
+ * 统一展示主库（手稿/造物/心愿/足迹/相纸）与独立账本库中阻滞的死信事件：
+ * - 支持单条重试（置空 failed_at 与重置 retry_count）、单条放弃（联动清理未上云的本地孤儿行与暂存相纸）；
  * - 底部支持一键全部重新排队与全部放弃。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,7 +122,6 @@ internal fun FailedEventsSheet(
     val colors = LooseLeafTheme.colors
     val scope = rememberCoroutineScope()
     val database = remember { AppDatabase.getInstance(context) }
-    val ledgerDatabase = remember { LedgerDatabase.getInstance(context) }
 
     var failedList by remember { mutableStateOf<List<DisplayFailedEvent>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -76,7 +141,7 @@ internal fun FailedEventsSheet(
                         localTargetId = it.localTargetId
                     )
                 }
-                val ledgerItems = ledgerDatabase.outboxDao().getFailedEvents().map {
+                val ledgerItems = LedgerModule.getFailedEvents(context).map {
                     DisplayFailedEvent(
                         eventId = it.eventId,
                         isLedger = true,
@@ -158,16 +223,12 @@ internal fun FailedEventsSheet(
                             event = event,
                             onRetry = {
                                 scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        if (event.isLedger) {
-                                            ledgerDatabase.outboxDao().resetEventToPending(event.eventId)
-                                        } else {
+                                    if (event.isLedger) {
+                                        LedgerModule.retryFailedEvents(context, event.eventId)
+                                    } else {
+                                        withContext(Dispatchers.IO) {
                                             database.outboxDao().resetFailedById(event.eventId)
                                         }
-                                    }
-                                    if (event.isLedger) {
-                                        LedgerRepository.pullLedgerData()
-                                    } else {
                                         syncManager.scheduleSync()
                                     }
                                     ArchiveToastManager.show("已重新排队")
@@ -176,45 +237,16 @@ internal fun FailedEventsSheet(
                             },
                             onDiscard = {
                                 scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        if (event.isLedger) {
-                                            ledgerDatabase.outboxDao().deleteById(event.eventId)
-                                            if (event.action == "CREATE") {
-                                                ledgerDatabase.transactionDao().deleteByLocalId(event.localTargetId)
-                                            } else {
-                                                val tx = ledgerDatabase.transactionDao().getTransactionByLocalId(event.localTargetId)
-                                                if (tx != null) {
-                                                    if (tx.serverId == null) {
-                                                        ledgerDatabase.transactionDao().deleteByLocalId(event.localTargetId)
-                                                    } else {
-                                                        ledgerDatabase.transactionDao().updateSyncStatus(event.localTargetId, "SYNCED")
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            database.outboxDao().deleteById(event.eventId)
-                                            if (event.action == "CREATE") {
-                                                when (event.entityType) {
-                                                    "entry" -> database.entryDao().deleteByLocalId(event.localTargetId)
-                                                    "project" -> database.projectDao().deleteById(event.localTargetId)
-                                                    "wish" -> database.wishDao().deleteById(event.localTargetId)
-                                                    "footprint" -> database.footprintDao().deleteById(event.localTargetId)
-                                                }
-                                            } else {
-                                                when (event.entityType) {
-                                                    "entry" -> {
-                                                        val entry = database.entryDao().getEntryByLocalId(event.localTargetId)
-                                                        if (entry != null) {
-                                                            if (entry.serverId == null) {
-                                                                database.entryDao().deleteByLocalId(event.localTargetId)
-                                                            } else {
-                                                                database.entryDao().updateSyncStatus(event.localTargetId, "SYNCED")
-                                                            }
-                                                        }
-                                                    }
-                                                }
+                                    if (event.isLedger) {
+                                        LedgerModule.discardFailedEvent(context, event.eventId)
+                                    } else {
+                                        withContext(Dispatchers.IO) {
+                                            val evt = database.outboxDao().findEventById(event.eventId)
+                                            if (evt != null) {
+                                                discardOutboxEvent(context, database, evt)
                                             }
                                         }
+                                        syncManager.notifyLocalWrite()
                                     }
                                     ArchiveToastManager.show("已放弃该条发件箱记录")
                                     reload()
@@ -236,49 +268,14 @@ internal fun FailedEventsSheet(
                 TextButton(
                     onClick = {
                         scope.launch {
+                            LedgerModule.discardAllFailed(context)
                             withContext(Dispatchers.IO) {
-                                val ledgerFailed = ledgerDatabase.outboxDao().getFailedEvents()
-                                for (evt in ledgerFailed) {
-                                    ledgerDatabase.outboxDao().deleteById(evt.eventId)
-                                    if (evt.action == "CREATE") {
-                                        ledgerDatabase.transactionDao().deleteByLocalId(evt.localTargetId)
-                                    } else {
-                                        val tx = ledgerDatabase.transactionDao().getTransactionByLocalId(evt.localTargetId)
-                                        if (tx != null) {
-                                            if (tx.serverId == null) {
-                                                ledgerDatabase.transactionDao().deleteByLocalId(evt.localTargetId)
-                                            } else {
-                                                ledgerDatabase.transactionDao().updateSyncStatus(evt.localTargetId, "SYNCED")
-                                            }
-                                        }
-                                    }
-                                }
                                 val mainFailed = database.outboxDao().getFailedEvents()
                                 for (evt in mainFailed) {
-                                    database.outboxDao().deleteById(evt.eventId)
-                                    if (evt.action == "CREATE") {
-                                        when (evt.entityType) {
-                                            "entry" -> database.entryDao().deleteByLocalId(evt.localTargetId)
-                                            "project" -> database.projectDao().deleteById(evt.localTargetId)
-                                            "wish" -> database.wishDao().deleteById(evt.localTargetId)
-                                            "footprint" -> database.footprintDao().deleteById(evt.localTargetId)
-                                        }
-                                    } else {
-                                        when (evt.entityType) {
-                                            "entry" -> {
-                                                val entry = database.entryDao().getEntryByLocalId(evt.localTargetId)
-                                                if (entry != null) {
-                                                    if (entry.serverId == null) {
-                                                        database.entryDao().deleteByLocalId(evt.localTargetId)
-                                                    } else {
-                                                        database.entryDao().updateSyncStatus(evt.localTargetId, "SYNCED")
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
+                                    discardOutboxEvent(context, database, evt)
                                 }
                             }
+                            syncManager.notifyLocalWrite()
                             ArchiveToastManager.show("已放弃所有失败事件")
                             onDismiss()
                         }
@@ -297,10 +294,9 @@ internal fun FailedEventsSheet(
                         scope.launch {
                             withContext(Dispatchers.IO) {
                                 database.outboxDao().resetAllFailed()
-                                ledgerDatabase.outboxDao().retryAllFailed()
                             }
-                            syncManager.retryFailedEvents()
-                            LedgerRepository.pullLedgerData()
+                            syncManager.scheduleSync()
+                            LedgerModule.retryFailedEvents(context)
                             ArchiveToastManager.show("正在重试所有失败记录…")
                             onDismiss()
                         }
@@ -333,6 +329,7 @@ private fun FailedEventItemRow(
     val colors = LooseLeafTheme.colors
     val entityLabel = when (event.entityType) {
         "travel" -> "游历"
+        "media_entry" -> "图文"
         "project" -> "造物"
         "wish" -> "心愿"
         "footprint" -> "足迹"
@@ -343,7 +340,7 @@ private fun FailedEventItemRow(
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = colors.archiveCard,
-        border = androidx.compose.foundation.BorderStroke(0.6.dp, colors.borderDivider),
+        border = BorderStroke(0.6.dp, colors.borderDivider),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -369,8 +366,6 @@ private fun FailedEventItemRow(
                         text = "重试 ${event.retryCount} 次",
                         fontFamily = ArchiveFontFamilies.MonoScale,
                         fontSize = 11.sp,
-                        // 失败计数属于"错误/失败"语义，不是"主操作/选中"，
-                        // 用赤陶会让用户以为这里可以点。故用砖红。
                         color = colors.alertRed
                     )
                 }

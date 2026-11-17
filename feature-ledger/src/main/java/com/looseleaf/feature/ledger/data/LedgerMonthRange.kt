@@ -10,12 +10,12 @@ import java.time.YearMonth
  * - 与库里的 `occurred_at` 同为 `yyyy-MM-dd'T'HH:mm:ss+08:00` 格式；
  * - 半开区间避免「月末 23:59:59」与下月 00:00:00 的边界重复/漏算。
  */
-data class MonthRange(
+internal data class MonthRange(
     val startIso: String,
     val endIso: String
 )
 
-fun monthRangeOf(yearMonth: YearMonth): MonthRange {
+internal fun monthRangeOf(yearMonth: YearMonth): MonthRange {
     val start = yearMonth.atDay(1).atStartOfDay()
     val nextMonthStart = yearMonth.plusMonths(1).atDay(1).atStartOfDay()
     return MonthRange(

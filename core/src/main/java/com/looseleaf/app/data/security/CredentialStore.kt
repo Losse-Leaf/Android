@@ -49,11 +49,6 @@ class CredentialStore private constructor(context: Context) {
         /** MOB-P2-45：高对比度模式开关（Android 未公开高对比度 API，故由应用内提供） */
         private const val KEY_HIGH_CONTRAST = "high_contrast"
 
-        /** 手账装订孔显隐开关 */
-
-        /** 手账质感装饰开关（微旋转、倾角、和纸胶带、按压下沉等） */
-        private const val KEY_ENABLE_DECORATIONS = "enable_decorations"
-
         /** 分期还款到期提醒开关 */
         private const val KEY_INSTALLMENT_REMINDER_ENABLED = "installment_reminder_enabled"
 
@@ -191,14 +186,6 @@ class CredentialStore private constructor(context: Context) {
         get() = settings.getBoolean(KEY_HIGH_CONTRAST, false)
         set(value) {
             settings.edit().putBoolean(KEY_HIGH_CONTRAST, value).apply()
-        }
-
-
-    /** 手账质感装饰开关（微旋转、倾角、和纸胶带、按压下沉等，默认开启） */
-    var enableDecorations: Boolean
-        get() = settings.getBoolean(KEY_ENABLE_DECORATIONS, true)
-        set(value) {
-            settings.edit().putBoolean(KEY_ENABLE_DECORATIONS, value).apply()
         }
 
     var isInstallmentReminderEnabled: Boolean

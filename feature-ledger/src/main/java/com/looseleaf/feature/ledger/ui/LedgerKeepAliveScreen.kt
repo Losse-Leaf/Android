@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,7 +28,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import com.looseleaf.app.theme.ArchiveLines
+import com.looseleaf.app.ui.components.ArchiveDivider
 import com.looseleaf.app.ui.components.ArchivePageHeader
+import com.looseleaf.app.ui.components.ArchiveTextButton
 import com.looseleaf.feature.ledger.theme.LedgerTheme
 
 /**
@@ -61,7 +64,7 @@ fun LedgerKeepAliveScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            imageVector = Icons.Outlined.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = "返回",
                             tint = colors.textPrimary
                         )
@@ -214,7 +217,7 @@ private fun CheckCard(
                 color = colors.textSecondary
             )
             Spacer(modifier = Modifier.height(10.dp))
-            LedgerTextButton(
+            ArchiveTextButton(
                 text = actionText,
                 enabled = !isPassed,
                 onClick = onAction
@@ -247,17 +250,17 @@ private fun OemGuideCard() {
                 name = "小米 / 澎湃 OS (Xiaomi / HyperOS)",
                 steps = "长按多任务卡片锁定 + 设置 -> 应用设置 -> 自启动 -> 允许自启动 + 省电策略设为「无限制」"
             )
-            LedgerDivider(modifier = Modifier.padding(vertical = 8.dp))
+            ArchiveDivider(modifier = Modifier.padding(vertical = 8.dp))
             OemItem(
                 name = "华为 / 荣耀 (EMUI / HarmonyOS / MagicOS)",
                 steps = "手机管家 -> 应用启动管理 -> 找到本应用 -> 关闭「自动管理」-> 开启「允许自启动、允许关联启动、允许后台活动」"
             )
-            LedgerDivider(modifier = Modifier.padding(vertical = 8.dp))
+            ArchiveDivider(modifier = Modifier.padding(vertical = 8.dp))
             OemItem(
                 name = "OPPO / 一加 (ColorOS)",
                 steps = "多任务界面右上角三点 -> 锁定 + 设置 -> 电池 -> 应用耗电管理 -> 允许唤醒前台与后台运行"
             )
-            LedgerDivider(modifier = Modifier.padding(vertical = 8.dp))
+            ArchiveDivider(modifier = Modifier.padding(vertical = 8.dp))
             OemItem(
                 name = "vivo / iQOO (OriginOS)",
                 steps = "多任务下滑加锁 + 设置 -> 电池 -> 后台耗电管理 -> 允许高耗电后台运行"

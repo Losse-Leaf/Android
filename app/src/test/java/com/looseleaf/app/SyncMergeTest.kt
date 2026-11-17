@@ -18,7 +18,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import com.looseleaf.app.data.local.OutboxEventEntity
-import com.looseleaf.app.data.sync.DeleteUndoKind
 import com.looseleaf.app.data.sync.DeleteUndoTicket
 
 /**
@@ -200,7 +199,7 @@ class SyncMergeTest {
             dao.deleteByLocalId(1)
             assertEquals(null, dao.getEntryByLocalId(1))
 
-            val ticket = DeleteUndoTicket(entity = entity, kind = DeleteUndoKind.ENTRY)
+            val ticket = DeleteUndoTicket(entity = entity)
             val restored = SyncMerger.undoDeleteEntry(db, ticket)
 
             assertTrue("删除事件仍在发件箱时应当可以撤销", restored)
@@ -226,7 +225,7 @@ class SyncMergeTest {
                 syncStatus = "SYNCED"
             )
             // 发件箱里没有 DELETE 事件 ⇒ 说明已经被 Worker 上传处理
-            val ticket = DeleteUndoTicket(entity = entity, kind = DeleteUndoKind.ENTRY)
+            val ticket = DeleteUndoTicket(entity = entity)
             val restored = SyncMerger.undoDeleteEntry(db, ticket)
             assertTrue("事件已上传后不得允许撤销（会造成幽灵记录）", !restored)
             assertEquals(null, db.entryDao().getEntryByLocalId(2))
@@ -253,7 +252,7 @@ class SyncMergeTest {
             )
             db.entryDao().deleteByLocalId(3)
 
-            val ticket = DeleteUndoTicket(entity = entity, kind = DeleteUndoKind.ENTRY)
+            val ticket = DeleteUndoTicket(entity = entity)
             assertTrue(SyncMerger.undoDeleteEntry(db, ticket))
 
             val remaining = db.outboxDao().getAllPendingEvents().filter { it.localTargetId == 3L }
@@ -273,7 +272,7 @@ class SyncMergeTest {
                     failedAt = "2026-10-24T00:00:00+08:00"
                 )
             )
-            val ticket = DeleteUndoTicket(entity = entity, kind = DeleteUndoKind.ENTRY)
+            val ticket = DeleteUndoTicket(entity = entity)
             assertEquals(false, SyncMerger.undoDeleteEntry(db, ticket))
         }
     }

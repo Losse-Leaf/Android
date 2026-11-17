@@ -12,8 +12,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.math.BigDecimal
-import java.math.RoundingMode
 import java.time.LocalDateTime
 import java.util.Collections
 import java.util.LinkedHashMap
@@ -152,13 +150,11 @@ class LedgerNotificationListenerService : NotificationListenerService() {
 
         fun parseYuanStringToCents(str: String?): Long? {
             if (str.isNullOrBlank()) return null
-            return runCatching {
-                BigDecimal(str.trim())
-                    .multiply(BigDecimal(100))
-                    .setScale(0, RoundingMode.HALF_UP)
-                    .longValueExact()
-            }.getOrNull()
+            return FormatUtils.yuanStringToCents(str).takeIf { it > 0L }
         }
+
+        private fun inferCategory(content: String, type: String): String =
+            if (type == "income") "其他收入" else FormatUtils.inferCategoryFromText(content)
 
         fun parseBillFromText(content: String, pkg: String = ""): CreateTransactionRequest? {
             // 短信包名必须包含明确金融/支付关键词，防止误记普通聊天或营销
@@ -203,21 +199,7 @@ class LedgerNotificationListenerService : NotificationListenerService() {
                 else -> "其他"
             }
 
-            val category = when {
-                type == "income" -> "其他收入"
-                content.contains("外卖") || content.contains("美团") || content.contains("饿了么") ||
-                    content.contains("肯德基") || content.contains("麦当劳") || content.contains("星巴克") ||
-                    content.contains("餐饮") || content.contains("咖啡") || content.contains("便利店") -> "餐饮"
-                content.contains("滴滴") || content.contains("打车") || content.contains("地铁") ||
-                    content.contains("公交") || content.contains("加油") || content.contains("停车") ||
-                    content.contains("火车") || content.contains("机票") -> "交通"
-                content.contains("京东") || content.contains("淘宝") || content.contains("拼多多") ||
-                    content.contains("天猫") || content.contains("购物") || content.contains("商户") -> "购物"
-                content.contains("电影") || content.contains("游戏") || content.contains("网易") ||
-                    content.contains("腾讯") || content.contains("会员") -> "娱乐"
-                content.contains("药房") || content.contains("医院") || content.contains("门诊") -> "医疗"
-                else -> "其他"
-            }
+            val category = inferCategory(content, type)
 
             val title = when {
                 type == "income" -> "自动记账: 收到款项"
@@ -237,7 +219,7 @@ class LedgerNotificationListenerService : NotificationListenerService() {
                 title = title,
                 note = sanitizedNote,
                 paymentMethod = paymentMethod,
-                occurredAt = FormatUtils.toBeijingIsoString(LocalDateTime.now())
+                occurredAt = FormatUtils.toBeijingIsoString(LocalDateTime.now(FormatUtils.BeijingZone))
             )
         }
 

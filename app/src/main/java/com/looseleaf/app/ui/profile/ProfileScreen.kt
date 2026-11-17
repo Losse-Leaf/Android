@@ -1,42 +1,25 @@
 package com.looseleaf.app.ui.profile
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import kotlinx.coroutines.CancellationException
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import android.content.Intent
-import android.net.Uri
-import androidx.core.content.FileProvider
-import java.io.File
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,37 +27,23 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.api.APIException
-import com.looseleaf.feature.ledger.data.LedgerRepository
-import com.looseleaf.feature.ledger.theme.LedgerFormat
 import com.looseleaf.app.data.local.ProfileRepository
 import com.looseleaf.app.data.security.AppearanceMode
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.SyncManager
-import com.looseleaf.app.model.CuratorProfile
 import com.looseleaf.app.model.GlobalStats
-import com.looseleaf.app.model.LifeEntry
-import com.looseleaf.app.model.UpdateProfileRequest
-import com.looseleaf.app.model.CategoryOption
-import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.ui.settings.SettingsScreen
-import com.looseleaf.app.ui.stream.EntryDetailSheetDialog
 import com.looseleaf.app.updater.ReleaseInfo
 import com.looseleaf.app.updater.UpdateCheckResult
 import com.looseleaf.app.updater.UpdateChecker
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import androidx.compose.ui.res.stringResource
-import com.looseleaf.app.BuildConfig
 import com.looseleaf.app.R
-import com.looseleaf.app.data.local.AppDatabase
-import androidx.compose.ui.res.painterResource
 /**
  * 主理人展台与设备中枢设置 (ProfileScreen)
  * 严格遵循 docs/backend.md §一.5 全数据后端驱动与严禁前端写死原则 (Dynamic Data Sovereignty)
@@ -85,7 +54,6 @@ fun ProfileScreen(
     onUnpair: () -> Unit,
     modifier: Modifier = Modifier,
     onAppearanceModeChanged: (AppearanceMode) -> Unit = {},
-    onEnableDecorationsChanged: ((Boolean) -> Unit)? = null,
     onNavigateToRoute: ((String) -> Unit)? = null,
     /** 「有图手记」：跳时间流并只看带图记录（RG-30） */
     onOpenImageEntries: (() -> Unit)? = null,
@@ -106,14 +74,10 @@ fun ProfileScreen(
     val repoProfile by ProfileRepository.profileState.collectAsStateWithLifecycle()
 
     var profile by remember(repoProfile) { mutableStateOf(repoProfile ?: cachedProfile) }
-    var localAvatarPreviewUri by remember { mutableStateOf<Uri?>(null) }
     var appearanceMode by remember { mutableStateOf(credentialStore.appearanceMode) }
     var isBiometricsEnabled by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
-    var enableDecorations by remember { mutableStateOf(credentialStore.enableDecorations) }
     var isInstallmentReminderEnabled by remember { mutableStateOf(credentialStore.isInstallmentReminderEnabled) }
     var showSettingsScreen by remember { mutableStateOf(false) }
-    var selectedAlmanacEntry by remember { mutableStateOf<LifeEntry?>(null) }
-    var almanacEntryToDelete by remember { mutableStateOf<LifeEntry?>(null) }
     LaunchedEffect(showSettingsScreen) {
         onBottomBarVisibilityChanged?.invoke(!showSettingsScreen)
     }
@@ -121,14 +85,11 @@ fun ProfileScreen(
         onDispose { onBottomBarVisibilityChanged?.invoke(true) }
     }
     var showUnpairDialog by remember { mutableStateOf(false) }
-    var showAlmanacDialog by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var availableUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
     var showRenameDeviceDialog by remember { mutableStateOf(false) }
-    var isUploadingAvatar by remember { mutableStateOf(false) }
 
-    val clipboardManager = LocalClipboardManager.current
     var globalStats by remember { mutableStateOf<GlobalStats?>(null) }
     var isLoadingInitialStats by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -181,81 +142,6 @@ fun ProfileScreen(
             result.onFailure { err ->
                 if (err is CancellationException) return@onFailure
                 ArchiveToastManager.show("档案刷新失败: ${err.message}", isError = true)
-            }
-        }
-    }
-
-    val avatarPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
-            localAvatarPreviewUri = uri
-            scope.launch {
-                isUploadingAvatar = true
-                try {
-                    val bytes = withContext(Dispatchers.IO) {
-                        val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        context.contentResolver.openInputStream(uri)?.use {
-                            BitmapFactory.decodeStream(it, null, boundsOptions)
-                        }
-                        val origW = boundsOptions.outWidth
-                        val origH = boundsOptions.outHeight
-                        val maxDim = 512
-                        var sampleSize = 1
-                        while (origW / (sampleSize * 2) >= maxDim || origH / (sampleSize * 2) >= maxDim) {
-                            sampleSize *= 2
-                        }
-                        val decodeOptions = BitmapFactory.Options().apply {
-                            inSampleSize = sampleSize
-                            // MOB-P2-67：16bit 色深会让照片出现明显色带（尤其肤色与渐变）
-                            inPreferredConfig = Bitmap.Config.ARGB_8888
-                        }
-                        val decoded = context.contentResolver.openInputStream(uri)?.use {
-                            BitmapFactory.decodeStream(it, null, decodeOptions)
-                        }
-                        if (decoded != null) {
-                            val (targetW, targetH) = if (decoded.width > decoded.height) {
-                                val h = (decoded.height * maxDim.toFloat() / decoded.width).toInt().coerceAtLeast(1)
-                                maxDim to h
-                            } else {
-                                val w = (decoded.width * maxDim.toFloat() / decoded.height).toInt().coerceAtLeast(1)
-                                w to maxDim
-                            }
-                            val scaled = Bitmap.createScaledBitmap(decoded, targetW, targetH, true)
-                            if (scaled !== decoded) decoded.recycle()
-                            val stream = ByteArrayOutputStream()
-                            scaled.compress(Bitmap.CompressFormat.JPEG, 82, stream)
-                            scaled.recycle()
-                            stream.toByteArray()
-                        } else null
-                    }
-
-                    if (bytes != null && bytes.isNotEmpty()) {
-                        val att = apiClient.uploadUnifiedFallback(
-                            fileBytes = bytes,
-                            filename = "avatar_${System.currentTimeMillis()}.jpg",
-                            mimeType = "image/jpeg",
-                            folder = "avatar"
-                        )
-                        val updated = apiClient.updateCuratorProfile(
-                            UpdateProfileRequest(avatarKey = att.objectKey)
-                        )
-                        ProfileRepository.updateProfile(context, updated)
-                        profile = updated
-                        localAvatarPreviewUri = null
-                        ArchiveToastManager.show("肖像照片已更新")
-                    } else {
-                        localAvatarPreviewUri = null
-                        ArchiveToastManager.show("头像解析失败", isError = true)
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    localAvatarPreviewUri = null
-                    ArchiveToastManager.show("头像上传失败: ${e.message}", isError = true)
-                } finally {
-                    isUploadingAvatar = false
-                }
             }
         }
     }
@@ -365,15 +251,14 @@ fun ProfileScreen(
                                         }
                                 ) {
                                     val avatarUrl = apiClient.resolveMediaUrl(profile.avatarUrl)
-                                    val avatarModel: Any? = localAvatarPreviewUri ?: avatarUrl.takeIf { it.isNotBlank() }
 
-                                    if (avatarModel != null) {
+                                    if (avatarUrl.isNotBlank()) {
                                         AsyncImage(
                                             model = ImageRequest.Builder(context)
-                                                .data(avatarModel)
+                                                .data(avatarUrl)
                                                 .crossfade(true)
-                                                .memoryCacheKey(avatarUrl.takeIf { localAvatarPreviewUri == null })
-                                                .diskCacheKey(avatarUrl.takeIf { localAvatarPreviewUri == null })
+                                                .memoryCacheKey(avatarUrl)
+                                                .diskCacheKey(avatarUrl)
                                                 .build(),
                                             contentDescription = "主理人头像",
                                             contentScale = ContentScale.Crop,
@@ -397,22 +282,6 @@ fun ProfileScreen(
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 26.sp,
                                                 color = colors.accentWarm
-                                            )
-                                        }
-                                    }
-
-                                    if (isUploadingAvatar) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .clip(CircleShape)
-                                                .background(colors.inkPrimary.copy(alpha = 0.5f)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            CircularProgressIndicator(
-                                                color = colors.archivePaper,
-                                                modifier = Modifier.size(20.dp),
-                                                strokeWidth = 2.dp
                                             )
                                         }
                                     }
@@ -515,7 +384,7 @@ fun ProfileScreen(
                                     else -> "0"
                                 }
                                 val expenseText = when {
-                                    globalStats != null -> LedgerFormat.formatMoney(globalStats?.monthExpense ?: 0L)
+                                    globalStats != null -> FormatUtils.formatMoney(globalStats?.monthExpense ?: 0L)
                                     isLoadingInitialStats -> "..."
                                     else -> "¥0.00"
                                 }
@@ -683,12 +552,6 @@ fun ProfileScreen(
                         isBiometricsEnabled = enabled
                         credentialStore.isBiometricsEnabled = enabled
                     },
-                    enableDecorations = enableDecorations,
-                    onEnableDecorationsChanged = { enabled ->
-                        enableDecorations = enabled
-                        credentialStore.enableDecorations = enabled
-                        onEnableDecorationsChanged?.invoke(enabled)
-                    },
                     isInstallmentReminderEnabled = isInstallmentReminderEnabled,
                     onInstallmentReminderChanged = { enabled ->
                         isInstallmentReminderEnabled = enabled
@@ -707,61 +570,6 @@ fun ProfileScreen(
                     onCheckUpdate = checkUpdate,
                     onUnpair = { showUnpairDialog = true },
                     onBack = { showSettingsScreen = false }
-                )
-            }
-
-            // 年度生活年鉴五幕弹窗
-            if (showAlmanacDialog) {
-                AlmanacDialog(
-                    apiClient = apiClient,
-                    earliestEntryYear = globalStats?.currentYear,
-                    onDismiss = { showAlmanacDialog = false },
-                    onSelectEntry = { entry -> selectedAlmanacEntry = entry }
-                )
-            }
-
-            selectedAlmanacEntry?.let { activeEntry ->
-                EntryDetailSheetDialog(
-                    entry = activeEntry,
-                    apiClient = apiClient,
-                    onDismiss = { selectedAlmanacEntry = null },
-                    onSaveEdit = { req, attachments ->
-                        scope.launch {
-                            runCatching {
-                                val written = syncManager.updateEntryOptimistic(activeEntry.id, req, attachments)
-                                if (written) ArchiveToastManager.show("手记已修订")
-                                else ArchiveToastManager.show("未能定位手记", isError = true)
-                                selectedAlmanacEntry = null
-                            }.onFailure { err ->
-                                ArchiveToastManager.show("修订失败: ${err.message}", isError = true)
-                            }
-                        }
-                    },
-                    onDelete = { almanacEntryToDelete = activeEntry },
-                    onPhotoClick = { _, _ -> }
-                )
-            }
-
-            almanacEntryToDelete?.let { deleting ->
-                ArchiveConfirmDialog(
-                    title = "删除散页手记",
-                    content = "确认删除《${deleting.title.ifBlank { "无题随笔" }}》？此操作不可逆。",
-                    confirmText = "确认删除",
-                    isDestructive = true,
-                    onConfirm = {
-                        val id = deleting.id
-                        almanacEntryToDelete = null
-                        selectedAlmanacEntry = null
-                        scope.launch {
-                            runCatching {
-                                syncManager.deleteEntry(id)
-                                ArchiveToastManager.show("手记已删除")
-                            }.onFailure { err ->
-                                ArchiveToastManager.show("删除失败: ${err.message}", isError = true)
-                            }
-                        }
-                    },
-                    onDismiss = { almanacEntryToDelete = null }
                 )
             }
 
@@ -854,44 +662,10 @@ fun ProfileScreen(
                 )
             }
 
-            if (availableUpdate != null) {
-                val update = availableUpdate!!
-                var downloadProgress by remember { mutableStateOf(0f) }
-                var isDownloading by remember { mutableStateOf(false) }
-
-                ArchiveReleaseDialog(
-                    release = update,
-                    isDownloading = isDownloading,
-                    downloadProgress = if (isDownloading) downloadProgress else null,
-                    onDismiss = {
-                        if (!isDownloading) availableUpdate = null
-                    },
-                    onDownloadAndInstall = {
-                        scope.launch {
-                            isDownloading = true
-                            val res = UpdateChecker.downloadApkStream(
-                                context = context,
-                                apkUrl = update.apkUrl,
-                                versionName = update.versionName,
-                                expectedSha256 = update.apkSha256
-                            ) { p, _, _ ->
-                                downloadProgress = p
-                            }
-                            isDownloading = false
-                            res.onSuccess { f ->
-                                if (!UpdateChecker.installApk(context, f)) {
-                                    ArchiveToastManager.show(
-                                        "安装包签名与已装版本不一致，需先做服务端备份再卸载重装",
-                                        isError = true
-                                    )
-                                }
-                            }.onFailure { err ->
-                                ArchiveToastManager.show("下载失败: ${err.message}", isError = true)
-                            }
-                        }
-                    }
-                )
-            }
+            AppUpdateDialogHost(
+                release = availableUpdate,
+                onDismiss = { availableUpdate = null }
+            )
         }
     }
 }

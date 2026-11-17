@@ -71,8 +71,11 @@ internal fun EditWishSheetDialog(
         draftStore.putString("${draftPrefix}city_name", cityName)
     }
     var isSubmitting by remember { mutableStateOf(false) }
-    // MOB 表单审计 #20：金额输入非法（非数字）时禁用保存并提示
-    val budgetInvalid = budgetYuan.isNotBlank() && budgetYuan.trim().toDoubleOrNull() == null
+    val budgetCents = FormatUtils.yuanToCents(budgetYuan)
+    val budgetInvalid = budgetYuan.isNotBlank() &&
+        budgetYuan.trim() != "0" &&
+        budgetYuan.trim() != "0.00" &&
+        budgetCents == 0L
 
     ArchiveSheet(
         onDismissRequest = onDismiss,
@@ -88,7 +91,7 @@ internal fun EditWishSheetDialog(
             isSubmitting = true
             scope.launch {
                 runCatching {
-                    val cents = FormatUtils.yuanStringToCents(budgetYuan)
+                    val cents = FormatUtils.yuanToCents(budgetYuan)
                     val syncManager = SyncManager.getInstance(draftContext)
                     val queued = syncManager.updateWishOrQueue(
                         id = wish.id,

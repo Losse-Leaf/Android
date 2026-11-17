@@ -39,13 +39,11 @@ import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
+import com.looseleaf.app.ui.components.*
 import androidx.compose.ui.text.TextStyle
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.core.R
-import com.looseleaf.feature.ledger.data.CategoryTotalRow
-import com.looseleaf.feature.ledger.data.MonthlyTotalsRow
 import com.looseleaf.feature.ledger.theme.LedgerCategoryColors
-import com.looseleaf.feature.ledger.theme.LedgerFormat
 import com.looseleaf.feature.ledger.theme.LedgerTheme
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -67,8 +65,6 @@ import kotlin.math.roundToLong
 @Composable
 internal fun TransactionsLedgerTab(
     transactions: List<Transaction>,
-    monthlyTotals: MonthlyTotalsRow = MonthlyTotalsRow(),
-    monthlyCategoryTotals: List<CategoryTotalRow> = emptyList(),
     isPrivacyMasked: Boolean,
     installmentSummary: com.looseleaf.app.model.InstallmentSummary? = null,
     onOpenUpcomingInstallments: () -> Unit = {},
@@ -87,34 +83,26 @@ internal fun TransactionsLedgerTab(
     // 口径统一与去重计算：分期还款仅手续费计入月支出 (RC-140)
     val expenseTransactions = remember(transactions) { transactions.filter { it.type != "income" } }
     val incomeTransactions = remember(transactions) { transactions.filter { it.type == "income" } }
-    val totalExpense = remember(transactions, monthlyTotals) {
-        if (transactions.isNotEmpty()) {
-            expenseTransactions.sumOf {
-                if (it.source == "installment_repay") it.feeAmount else it.amount
-            }
-        } else {
-            monthlyTotals.totalExpense
+    val totalExpense = remember(expenseTransactions) {
+        expenseTransactions.sumOf {
+            if (it.source == "installment_repay") it.feeAmount else it.amount
         }
     }
-    val totalIncome = remember(transactions, monthlyTotals) {
-        if (transactions.isNotEmpty()) incomeTransactions.sumOf { it.amount } else monthlyTotals.totalIncome
+    val totalIncome = remember(incomeTransactions) {
+        incomeTransactions.sumOf { it.amount }
     }
     val monthBalance = totalIncome - totalExpense
 
     // 分类支出统计
-    val categoryTotals = remember(expenseTransactions, monthlyCategoryTotals) {
-        if (expenseTransactions.isNotEmpty()) {
-            expenseTransactions
-                .groupBy { if (it.source == "installment_repay") "利息手续费" else it.category }
-                .map { (cat, list) ->
-                    val sum = list.sumOf { if (it.source == "installment_repay") it.feeAmount else it.amount }
-                    cat to sum
-                }
-                .filter { it.second > 0 }
-                .sortedByDescending { it.second }
-        } else {
-            monthlyCategoryTotals.map { it.category to it.total }
-        }
+    val categoryTotals = remember(expenseTransactions) {
+        expenseTransactions
+            .groupBy { if (it.source == "installment_repay") "利息手续费" else it.category }
+            .map { (cat, list) ->
+                val sum = list.sumOf { if (it.source == "installment_repay") it.feeAmount else it.amount }
+                cat to sum
+            }
+            .filter { it.second > 0 }
+            .sortedByDescending { it.second }
     }
 
     // 预留待确认条数计算
@@ -197,7 +185,7 @@ internal fun TransactionsLedgerTab(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = if (isPrivacyMasked) "¥ ••••" else LedgerFormat.formatMoney(totalExpense),
+                        text = if (isPrivacyMasked) "¥ ••••" else FormatUtils.formatMoney(totalExpense),
                         style = LedgerTheme.typography.amountLarge,
                         color = colors.expense
                     )
@@ -210,7 +198,7 @@ internal fun TransactionsLedgerTab(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "收入 ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(totalIncome)}",
+                            text = "收入 ${if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(totalIncome)}",
                             fontFamily = ArchiveFontFamilies.MonoScale,
                             fontSize = ArchiveTypeScale.caption,
                             color = colors.income
@@ -222,7 +210,7 @@ internal fun TransactionsLedgerTab(
                         )
                         val balanceColor = if (!isPrivacyMasked && monthBalance < 0) colors.alertRed else colors.textPrimary
                         Text(
-                            text = "结余 ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(monthBalance)}",
+                            text = "结余 ${if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(monthBalance)}",
                             fontFamily = ArchiveFontFamilies.MonoScale,
                             fontSize = ArchiveTypeScale.caption,
                             color = balanceColor
@@ -326,7 +314,7 @@ internal fun TransactionsLedgerTab(
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
-                                    text = "本月已还 ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(installmentSummary.thisMonthPaid)}",
+                                    text = "本月已还 ${if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(installmentSummary.thisMonthPaid)}",
                                     fontFamily = ArchiveFontFamilies.MonoScale,
                                     fontSize = ArchiveTypeScale.caption,
                                     color = colors.textSecondary
@@ -338,7 +326,7 @@ internal fun TransactionsLedgerTab(
                                 )
                                 if (installmentSummary.overdueCount > 0) {
                                     Text(
-                                        text = "待还 ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(installmentSummary.thisMonthScheduled + installmentSummary.overdueAmount)} (含逾期)",
+                                        text = "待还 ${if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(installmentSummary.thisMonthScheduled + installmentSummary.overdueAmount)} (含逾期)",
                                         fontFamily = ArchiveFontFamilies.MonoScale,
                                         fontSize = ArchiveTypeScale.caption,
                                         color = colors.alertRed,
@@ -346,7 +334,7 @@ internal fun TransactionsLedgerTab(
                                     )
                                 } else {
                                     Text(
-                                        text = "待还 ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(installmentSummary.thisMonthScheduled)}",
+                                        text = "待还 ${if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(installmentSummary.thisMonthScheduled)}",
                                         fontFamily = ArchiveFontFamilies.MonoScale,
                                         fontSize = ArchiveTypeScale.caption,
                                         color = colors.textSecondary
@@ -363,14 +351,14 @@ internal fun TransactionsLedgerTab(
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
-                    LedgerDivider()
+                    ArchiveDivider()
                 }
             }
 
             // 4. 账目列表：按日分组
             if (transactions.isEmpty()) {
                 item(key = "empty_transactions_state") {
-                    LedgerEmptyState(
+                    ArchiveEmptyState(
                         title = "这个月还没有账目",
                         actionText = "记一笔",
                         onActionClick = onNavigateToKeypad,
@@ -433,14 +421,14 @@ internal fun TransactionsLedgerTab(
                             ) {
                                 if (dayRegularExpense > 0) {
                                     Text(
-                                        text = "支 ${LedgerFormat.formatMoney(dayRegularExpense)}",
+                                        text = "支 ${FormatUtils.formatMoney(dayRegularExpense)}",
                                         fontFamily = ArchiveFontFamilies.MonoScale,
                                         fontSize = 12.sp,
                                         color = colors.textSecondary
                                     )
                                 } else if (dayInstallmentPrincipal > 0) {
                                     Text(
-                                        text = "分期 ${LedgerFormat.formatMoney(dayInstallmentPrincipal)}",
+                                        text = "分期 ${FormatUtils.formatMoney(dayInstallmentPrincipal)}",
                                         fontFamily = ArchiveFontFamilies.MonoScale,
                                         fontSize = 12.sp,
                                         color = colors.textSecondary
@@ -448,7 +436,7 @@ internal fun TransactionsLedgerTab(
                                 }
                                 if (dayIncome > 0) {
                                     Text(
-                                        text = "收 ${LedgerFormat.formatMoney(dayIncome)}",
+                                        text = "收 ${FormatUtils.formatMoney(dayIncome)}",
                                         fontFamily = ArchiveFontFamilies.MonoScale,
                                         fontSize = 12.sp,
                                         color = colors.income
@@ -463,7 +451,7 @@ internal fun TransactionsLedgerTab(
                         items = dayTxs,
                         key = { "tx_${it.id}_${it.syncStatus}" }
                     ) { tx ->
-                        LedgerSwipeRevealRow(
+                        ArchiveSwipeRevealRow(
                             onDelete = { onDelete(tx) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -477,7 +465,7 @@ internal fun TransactionsLedgerTab(
                                     isPrivacyMasked = isPrivacyMasked,
                                     onClick = { onEdit(tx) }
                                 )
-                                LedgerDivider(modifier = Modifier.padding(start = 22.dp))
+                                ArchiveDivider(modifier = Modifier.padding(start = 22.dp))
                             }
                         }
                     }
@@ -506,7 +494,7 @@ private fun TransactionRowItem(
     val isIncome = tx.type == "income"
     val isInstallmentRepay = tx.source == "installment_repay"
     val sign = if (isIncome) "+" else "-"
-    val displayAmount = if (isPrivacyMasked) "¥ ••••" else "$sign${LedgerFormat.formatMoney(tx.amount)}"
+    val displayAmount = if (isPrivacyMasked) "¥ ••••" else "$sign${FormatUtils.formatMoney(tx.amount)}"
     val colorDot = if (isInstallmentRepay) LedgerCategoryColors.colorForCategory("利息手续费", colors.isDark) else LedgerCategoryColors.colorForCategory(tx.category, colors.isDark)
     val displayTime = remember(tx.occurredAt) { FormatUtils.formatDisplayTime(tx.occurredAt) }
 
@@ -524,7 +512,7 @@ private fun TransactionRowItem(
     // 第二行副文案：分期还款显示 手续费 · 账户名；普通账目显示 时间 · 账户/渠道
     val subtitleText = remember(tx, displayTime) {
         if (isInstallmentRepay) {
-            val feePart = if (tx.feeAmount > 0) "手续费 ${LedgerFormat.formatMoney(tx.feeAmount)}" else null
+            val feePart = if (tx.feeAmount > 0) "手续费 ${FormatUtils.formatMoney(tx.feeAmount)}" else null
             val accountPart = tx.paymentMethod?.takeIf { it.isNotBlank() }
             listOfNotNull(feePart, accountPart).joinToString(" · ")
         } else {

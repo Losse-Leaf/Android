@@ -42,8 +42,6 @@ import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.security.AppearanceMode
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.theme.ArchiveFontFamilies
-import com.looseleaf.app.theme.ArchiveDecorConfig
-import com.looseleaf.app.theme.LocalArchiveDecorConfig
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.feature.ledger.LedgerEntry
 import com.looseleaf.app.ui.pairing.PairingScreen
@@ -96,7 +94,6 @@ class MainActivity : FragmentActivity() {
     // MOB-P0-09：外观模式提升为 Activity 字段级状态，
     // 这样回调可以做成「稳定引用」，MainContent 才有机会跳过重组。
     private val appearanceModeState = mutableStateOf(AppearanceMode.SYSTEM)
-    private val enableDecorationsState = mutableStateOf(true)
     private val isPairedState = mutableStateOf(false)
 
     /**
@@ -165,7 +162,6 @@ class MainActivity : FragmentActivity() {
         // 外观偏好必须在首帧前读到：否则暗房用户冷启动会先闪一下纸色界面。
         // 这里只读普通 SharedPreferences（非加密存储），开销远小于一次主题闪变。
         appearanceModeState.value = credentialStore.appearanceMode
-        enableDecorationsState.value = credentialStore.enableDecorations
         isPairedState.value = credentialStore.isPaired()
 
         setContent {
@@ -222,20 +218,12 @@ class MainActivity : FragmentActivity() {
                         fontScale = baseDensity.fontScale.coerceAtMost(MAX_FONT_SCALE)
                     )
                 }
-                val decorConfig = remember(enableDecorationsState.value) {
-                    ArchiveDecorConfig(enableDecorations = enableDecorationsState.value)
-                }
                 CompositionLocalProvider(
-                    LocalDensity provides clampedDensity,
-                    LocalArchiveDecorConfig provides decorConfig
+                    LocalDensity provides clampedDensity
                 ) {
                     // Toast 宿主挂在最外层（各底层抽屉已自带独立 Window 级 ModalBottomSheet 遮罩）
                     Box(modifier = Modifier.fillMaxSize()) {
                         Column(modifier = Modifier.fillMaxSize()) {
-                            // MOB-P1-85：全局离线横幅 ——
-                            // 此前「离线」这件事只有时间流页的一枚小徽标在表达，
-                            // 账本 / 造物 / 展台页完全没有任何提示，
-                            // 用户在其它页面断网保存后根本不知道数据还没同步。
                             OfflineBanner(
                                 pendingCount = pendingEventCount,
                                 failedCount = failedEventCount,
@@ -244,11 +232,7 @@ class MainActivity : FragmentActivity() {
                             MainContent(
                                 modifier = Modifier.weight(1f),
                                 isDarkTheme = isDarkTheme,
-                                appearanceMode = appearanceMode,
-                                onAppearanceModeChanged = onAppearanceModeChanged,
-                                onEnableDecorationsChanged = { enabled ->
-                                    enableDecorationsState.value = enabled
-                                }
+                                onAppearanceModeChanged = onAppearanceModeChanged
                             )
                         }
 
@@ -271,9 +255,7 @@ class MainActivity : FragmentActivity() {
     private fun MainContent(
         modifier: Modifier = Modifier,
         isDarkTheme: Boolean,
-        appearanceMode: AppearanceMode,
-        onAppearanceModeChanged: (AppearanceMode) -> Unit,
-        onEnableDecorationsChanged: (Boolean) -> Unit
+        onAppearanceModeChanged: (AppearanceMode) -> Unit
     ) {
         var isPaired by isPairedState
         val currentRouteState = rememberSaveable {
@@ -476,7 +458,7 @@ class MainActivity : FragmentActivity() {
                     color = dialogColors.inkSecondary
                 )
                 Spacer(modifier = Modifier.height(18.dp))
-                com.looseleaf.app.ui.components.TerracottaStampButton(
+                com.looseleaf.app.ui.components.ArchivePrimaryButton(
                     text = stringResource(R.string.main_activity_sso_reconnect),
                     onClick = {
                         val hubCandidate = apiClient.baseUrl.ifBlank {
@@ -569,52 +551,7 @@ class MainActivity : FragmentActivity() {
                 }
             )
         } else if (!isUnlocked) {
-            val colors = LooseLeafTheme.colors
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    // edge-to-edge 下必须避让状态栏与手势条，否则「隐私守护中」文案
-                    // 会顶到状态栏下方、解锁按钮贴住手势横条
-                    .systemBarsPadding()
-                    .background(colors.archivePaper)
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        painter = painterResource(com.looseleaf.core.R.drawable.ic_lock),
-                        contentDescription = stringResource(R.string.main_activity_contentDescription_01),
-                        tint = colors.accentWarm,
-                        modifier = Modifier.size(40.dp)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = stringResource(R.string.main_activity_text_01),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 20.sp,
-                        color = colors.inkPrimary
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = stringResource(R.string.main_activity_text_02),
-                        fontFamily = ArchiveFontFamilies.BodySans,
-                        fontSize = 13.sp,
-                        color = colors.inkSecondary
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(
-                        onClick = { requestBiometricUnlock() },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = colors.accentWarm,
-                            contentColor = colors.archivePaper
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
-                    ) {
-                        Text(stringResource(R.string.main_activity_verify_biometrics), fontFamily = ArchiveFontFamilies.EditorialSerif)
-                    }
-                }
-            }
+            BiometricLockOverlay(onRequestUnlock = { requestBiometricUnlock() })
         } else {
             var lastBackPressTime by remember { mutableLongStateOf(0L) }
 
@@ -722,7 +659,6 @@ class MainActivity : FragmentActivity() {
                                         syncManager.cancelScheduledSync()
                                     },
                                     onAppearanceModeChanged = onAppearanceModeChanged,
-                                    onEnableDecorationsChanged = onEnableDecorationsChanged,
                                     onNavigateToRoute = onRouteSelected,
                                     onOpenImageEntries = {
                                         pendingContentFilter = setOf("has_image")

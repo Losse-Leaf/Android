@@ -9,48 +9,22 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import com.looseleaf.app.darkroom.ExtractedExif
-import com.looseleaf.app.darkroom.ImagePipeline
-import com.looseleaf.app.darkroom.ProcessedImageResult
 import com.looseleaf.app.data.api.APIClient
-import com.looseleaf.app.data.api.ResponseMeta
 import com.looseleaf.app.data.api.APIException
+import com.looseleaf.app.data.api.ResponseMeta
 import com.looseleaf.app.data.local.*
 import com.looseleaf.app.model.*
-import com.looseleaf.feature.ledger.data.MonthRange
 import com.looseleaf.app.utils.FormatUtils
+import com.looseleaf.feature.ledger.LedgerModule
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
-
-@Serializable
-data class OfflineMediaFileItem(
-    val filePath: String,
-    val mimeType: String = "image/jpeg",
-    val width: Int = 0,
-    val height: Int = 0
-)
-
-@Serializable
-data class OfflineMediaEntryPayload(
-    val localImageFilePath: String = "",
-    val mimeType: String = "image/jpeg",
-    val width: Int = 0,
-    val height: Int = 0,
-    val files: List<OfflineMediaFileItem> = emptyList(),
-    val req: CreateEntryRequest
-)
 
 /**
  * 时间流一个分页窗口的完整结果（AND-3）。
@@ -76,11 +50,8 @@ data class StreamWindowPage(
  * MOB-P2-47：删除撤销票据。
  * 记录被删对象，用于在「已删除」提示上挂一个「撤销」动作。
  */
-enum class DeleteUndoKind { ENTRY }
-
 class DeleteUndoTicket(
-    val entity: Any,
-    val kind: DeleteUndoKind
+    val entity: CachedEntryEntity
 )
 
 class SyncManager private constructor(private val context: Context) {
@@ -159,9 +130,6 @@ class SyncManager private constructor(private val context: Context) {
         /** MOB-P1-32：附件解码记忆化的最大条目数（超出按 LRU 淘汰） */
         private const val ATTACHMENT_MEMO_MAX = 4_000
 
-        /** MOB-P0-03：媒体直传并发上限（超过会占满移动上行带宽并放大内存峰值） */
-        private const val MAX_CONCURRENT_UPLOADS = 3
-
         /**
          * OPT-08：CREATE 返回 410 Gone —— 服务端该记录已被软删后物理清理。
          * 本地临时行与对应 CREATE 事件必须一起丢弃，避免幽灵行与死信重试。
@@ -200,7 +168,6 @@ class SyncManager private constructor(private val context: Context) {
     // 改成 lazy 后，getInstance() 只是一次对象分配；真正的重量级初始化
     // 推迟到首次实际使用（或后台 ensureStarted()）时发生。
     private val database by lazy { AppDatabase.getInstance(context) }
-    private val ledgerDatabase by lazy { com.looseleaf.feature.ledger.data.LedgerDatabase.getInstance(context) }
     private val apiClient by lazy { APIClient.getInstance(context) }
     private val workManager by lazy { WorkManager.getInstance(context) }
     private val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
@@ -218,6 +185,187 @@ class SyncManager private constructor(private val context: Context) {
 
     private val syncPrefs by lazy {
         context.getSharedPreferences(SYNC_PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    private val mediaCoordinator by lazy {
+        MediaOutboxCoordinator(
+            context = context,
+            database = database,
+            apiClient = apiClient,
+            json = json,
+            notifyLocalWrite = ::notifyLocalWrite,
+            scheduleSync = ::scheduleSync
+        )
+    }
+
+    private val projectSync by lazy {
+        SimpleEntitySyncAdapter<CreateProjectRequest, CreateProjectRequest, Project, CachedProjectEntity>(
+            entityType = SimpleEntitySync.PROJECT,
+            datasetLabel = "造物",
+            cursorKey = KEY_PROJECTS_CURSOR,
+            database = database,
+            syncPrefs = syncPrefs,
+            scheduleSync = ::scheduleSync,
+            cursorForRequest = ::cursorForRequest,
+            maxUpdatedCursor = ::maxUpdatedCursor,
+            daoHasAny = { database.projectDao().hasAny() },
+            daoGetAllIds = { database.projectDao().getAllIds() },
+            daoGetById = { database.projectDao().getById(it) },
+            daoInsert = { database.projectDao().insert(it) },
+            daoInsertAll = { database.projectDao().insertAll(it) },
+            daoDeleteById = { database.projectDao().deleteById(it) },
+            daoDeleteByIds = { database.projectDao().deleteByIds(it) },
+            domainId = { it.id },
+            domainUpdatedAt = { it.updatedAt },
+            domainDeletedAt = { it.deletedAt },
+            domainToEntity = { it.toCacheEntity() },
+            entityWithId = { entity, id -> entity.copy(id = id) },
+            encodeCreateReq = { json.encodeToString(it) },
+            decodeCreateReq = { json.decodeFromString(it) },
+            encodeUpdateReq = { json.encodeToString(it) },
+            decodeUpdateReq = { json.decodeFromString(it) },
+            getCreateClientRequestId = { it.clientRequestId },
+            withCreateClientRequestId = { req, cid -> req.copy(clientRequestId = cid) },
+            updateReqAsCreateReq = { req, fallbackCid -> req.copy(clientRequestId = req.clientRequestId ?: fallbackCid) },
+            createReqToOfflineEntity = { req, id, _ -> req.toOfflineEntity(id) },
+            updateReqToOfflineEntity = { req, id, _ -> req.toOfflineEntity(id) },
+            matchesServer = { req, domain -> req.matchesServer(domain) },
+            fetchRemote = { since, recordPage ->
+                val meta = ResponseMeta()
+                val items = apiClient.fetchProjects(limit = 0, since = since, meta = meta)
+                recordPage(meta, items)
+                items
+            },
+            remoteCreate = { req, meta -> apiClient.createProject(req, meta = meta) },
+            remoteUpdate = { id, req -> apiClient.updateProject(id, req) },
+            remoteDelete = { id -> apiClient.deleteProject(id) }
+        )
+    }
+
+    private val wishSync by lazy {
+        SimpleEntitySyncAdapter<CreateWishRequest, CreateWishRequest, Wish, CachedWishEntity>(
+            entityType = SimpleEntitySync.WISH,
+            datasetLabel = "心愿",
+            cursorKey = KEY_WISHES_CURSOR,
+            database = database,
+            syncPrefs = syncPrefs,
+            scheduleSync = ::scheduleSync,
+            cursorForRequest = ::cursorForRequest,
+            maxUpdatedCursor = ::maxUpdatedCursor,
+            daoHasAny = { database.wishDao().hasAny() },
+            daoGetAllIds = { database.wishDao().getAllIds() },
+            daoGetById = { database.wishDao().getById(it) },
+            daoInsert = { database.wishDao().insert(it) },
+            daoInsertAll = { database.wishDao().insertAll(it) },
+            daoDeleteById = { database.wishDao().deleteById(it) },
+            daoDeleteByIds = { database.wishDao().deleteByIds(it) },
+            domainId = { it.id },
+            domainUpdatedAt = { it.updatedAt },
+            domainDeletedAt = { it.deletedAt },
+            domainToEntity = { it.toCacheEntity(json) },
+            entityWithId = { entity, id -> entity.copy(id = id) },
+            encodeCreateReq = { json.encodeToString(it) },
+            decodeCreateReq = { json.decodeFromString(it) },
+            encodeUpdateReq = { json.encodeToString(it) },
+            decodeUpdateReq = { json.decodeFromString(it) },
+            getCreateClientRequestId = { it.clientRequestId },
+            withCreateClientRequestId = { req, cid -> req.copy(clientRequestId = cid) },
+            updateReqAsCreateReq = { req, fallbackCid -> req.copy(clientRequestId = req.clientRequestId ?: fallbackCid) },
+            createReqToOfflineEntity = { req, id, existing -> req.toOfflineEntity(id, existing) },
+            updateReqToOfflineEntity = { req, id, existing -> req.toOfflineEntity(id, existing) },
+            matchesServer = { req, domain -> req.matchesServer(domain) },
+            fetchRemote = { since, recordPage ->
+                val allWishes = mutableListOf<Wish>()
+                var wishPage = 1
+                var pages = 0
+                var reachedEnd = false
+                while (pages < MAX_PAGES) {
+                    val pageMeta = ResponseMeta()
+                    val wishes = apiClient.fetchWishes(
+                        page = wishPage,
+                        pageSize = 100,
+                        since = since,
+                        meta = pageMeta
+                    )
+                    pages++
+                    recordPage(pageMeta, wishes)
+                    allWishes.addAll(wishes)
+                    if (wishes.size < 100) {
+                        reachedEnd = true
+                        break
+                    }
+                    wishPage++
+                }
+                if (paginationExceeded(reachedEnd, pages, MAX_PAGES)) {
+                    throw IllegalStateException("心愿分页超限")
+                }
+                allWishes
+            },
+            remoteCreate = { req, meta -> apiClient.createWish(req, meta = meta) },
+            remoteUpdate = { id, req -> apiClient.updateWish(id, req) },
+            remoteDelete = { id -> apiClient.deleteWish(id) },
+            shouldKeepLocalStateOnOnlineUpdate = { id ->
+                database.outboxDao().findEventByTarget(SimpleEntitySync.WISH, id, "RESOLVE") != null
+            },
+            shouldKeepLocalStateAfterCreate = { serverId ->
+                database.outboxDao().findEventByTarget(SimpleEntitySync.WISH, serverId, "RESOLVE") != null
+            },
+            extraOutboxActionHandler = { event, onPayloadSuperseded ->
+                if (event.action == "RESOLVE") {
+                    replayTargetedMutation(event, onPayloadSuperseded) { targetServerId, payload ->
+                        val req = json.decodeFromString<ResolveWishRequest>(payload)
+                        apiClient.resolveWish(targetServerId, req)
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+        )
+    }
+
+    private val footprintSync by lazy {
+        SimpleEntitySyncAdapter<CreateFootprintRequest, CreateFootprintRequest, Footprint, CachedFootprintEntity>(
+            entityType = SimpleEntitySync.FOOTPRINT,
+            datasetLabel = "足迹",
+            cursorKey = KEY_FOOTPRINTS_CURSOR,
+            database = database,
+            syncPrefs = syncPrefs,
+            scheduleSync = ::scheduleSync,
+            cursorForRequest = ::cursorForRequest,
+            maxUpdatedCursor = ::maxUpdatedCursor,
+            daoHasAny = { database.footprintDao().hasAny() },
+            daoGetAllIds = { database.footprintDao().getAllIds() },
+            daoGetById = { database.footprintDao().getById(it) },
+            daoInsert = { database.footprintDao().insert(it) },
+            daoInsertAll = { database.footprintDao().insertAll(it) },
+            daoDeleteById = { database.footprintDao().deleteById(it) },
+            daoDeleteByIds = { database.footprintDao().deleteByIds(it) },
+            domainId = { it.id },
+            domainUpdatedAt = { it.updatedAt },
+            domainDeletedAt = { it.deletedAt },
+            domainToEntity = { it.toCacheEntity(json) },
+            entityWithId = { entity, id -> entity.copy(id = id) },
+            encodeCreateReq = { json.encodeToString(it) },
+            decodeCreateReq = { json.decodeFromString(it) },
+            encodeUpdateReq = { json.encodeToString(it) },
+            decodeUpdateReq = { json.decodeFromString(it) },
+            getCreateClientRequestId = { it.clientRequestId },
+            withCreateClientRequestId = { req, cid -> req.copy(clientRequestId = cid) },
+            updateReqAsCreateReq = { req, fallbackCid -> req.copy(clientRequestId = req.clientRequestId ?: fallbackCid) },
+            createReqToOfflineEntity = { req, id, existing -> req.toOfflineEntity(id, existing) },
+            updateReqToOfflineEntity = { req, id, existing -> req.toOfflineEntity(id, existing) },
+            matchesServer = { req, domain -> req.matchesServer(domain) },
+            fetchRemote = { since, recordPage ->
+                val meta = ResponseMeta()
+                val items = apiClient.fetchFootprints(since = since, meta = meta)
+                recordPage(meta, items)
+                items
+            },
+            remoteCreate = { req, meta -> apiClient.createFootprint(req, meta = meta) },
+            remoteUpdate = { id, req -> apiClient.updateFootprint(id, req) },
+            remoteDelete = { id -> apiClient.deleteFootprint(id) }
+        )
     }
 
     /**
@@ -254,14 +402,14 @@ class SyncManager private constructor(private val context: Context) {
             scope.launch {
                 combine(
                     database.outboxDao().getPendingEventCountFlow().catch { emit(0) },
-                    ledgerDatabase.outboxDao().getPendingEventCountFlow().catch { emit(0) }
+                    LedgerModule.observePendingCount(context).catch { emit(0) }
                 ) { appPending, ledgerPending -> appPending + ledgerPending }
                     .collect { _pendingEventCount.value = it }
             }
             scope.launch {
                 combine(
                     database.outboxDao().getFailedEventCountFlow().catch { emit(0) },
-                    ledgerDatabase.outboxDao().getFailedEventCountFlow().catch { emit(0) }
+                    LedgerModule.observeFailedCount(context).catch { emit(0) }
                 ) { appFailed, ledgerFailed -> appFailed + ledgerFailed }
                     .collect { _failedEventCount.value = it }
             }
@@ -355,22 +503,6 @@ class SyncManager private constructor(private val context: Context) {
         }
         attachmentMemo[raw] = decoded
         return decoded
-    }
-
-    // 观察全量生活档案 (合并本地乐观与云端权威，后台 Default 线程反序列化，0ms 即刻上屏杜绝白屏闪烁)
-    // MOB-P1-48：distinctUntilChanged 抑制「表级失效 → 全表重发射」的下游抖动：
-    // 内容没变就不通知 UI，避免列表无谓重组。
-    // AND-7：所有 DAO 流改为 lazy —— 构造 SyncManager 时不再碰 Room；
-    // 首次真正订阅时才建立观察者（Application 已把它放到 IO 线程预热）。
-    val entriesFlow: StateFlow<List<LifeEntry>> by lazy {
-        flow { emitAll(database.entryDao().getAllEntriesFlow()) }
-            .catch { emit(emptyList()) }
-            .map { entities ->
-                entities.map { it.toDomainModel(json) { raw -> decodeAttachments(raw) } }
-            }
-            .distinctUntilChanged()
-            .flowOn(Dispatchers.Default)
-            .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
     }
 
     /**
@@ -647,24 +779,11 @@ class SyncManager private constructor(private val context: Context) {
     /**
      * 将压制后的相纸字节保存至离线发件箱目录
      */
-    fun saveCompressedImageToOutboxDir(bytes: ByteArray): File {
-        val outboxDir = File(context.filesDir, "outbox_media").apply { mkdirs() }
-        val targetFile = File(outboxDir, "img_${UUID.randomUUID()}.jpg")
-        try {
-            targetFile.writeBytes(bytes)
-        } catch (e: Exception) {
-            // 写一半失败会留下残缺文件，必须清掉，否则又变成孤儿
-            runCatching { targetFile.delete() }
-            throw e
-        }
-        return targetFile
-    }
+    fun saveCompressedImageToOutboxDir(bytes: ByteArray): File =
+        mediaCoordinator.saveCompressedImageToOutboxDir(bytes)
 
     /**
-     * 离线相纸图文归册 (entityType = "media_entry")：
-     * 保存压缩后 JPEG 至 filesDir/outbox_media/img_{UUID}.jpg，
-     * 创建带本地 file:// 预览 Attachment 的 CachedEntryEntity 立即在时间流展示，
-     * 并入队 media_entry 发件箱事件供网络恢复后自动上传与建档。
+     * 离线相纸图文归册 (entityType = "media_entry")
      */
     suspend fun createMediaEntryOffline(
         localImageFilePath: String,
@@ -673,106 +792,14 @@ class SyncManager private constructor(private val context: Context) {
         height: Int,
         req: CreateEntryRequest,
         additionalMediaFiles: List<OfflineMediaFileItem> = emptyList()
-    ): Long = withContext(Dispatchers.IO) {
-        val outboxDir = File(context.filesDir, "outbox_media").apply { mkdirs() }
-
-        fun ensureInOutboxDir(sourcePath: String): File {
-            val src = File(sourcePath)
-            if (src.parentFile?.absolutePath == outboxDir.absolutePath && src.exists()) {
-                return src
-            }
-            val dest = File(outboxDir, "img_${UUID.randomUUID()}.jpg")
-            if (src.exists()) {
-                src.copyTo(dest, overwrite = true)
-            }
-            return dest
-        }
-
-        val allItems = mutableListOf<OfflineMediaFileItem>()
-        if (localImageFilePath.isNotBlank()) {
-            val savedPrimary = ensureInOutboxDir(localImageFilePath)
-            allItems.add(
-                OfflineMediaFileItem(
-                    filePath = savedPrimary.absolutePath,
-                    mimeType = mimeType,
-                    width = width,
-                    height = height
-                )
-            )
-        }
-        for (extra in additionalMediaFiles) {
-            if (extra.filePath.isNotBlank()) {
-                val savedExtra = ensureInOutboxDir(extra.filePath)
-                allItems.add(extra.copy(filePath = savedExtra.absolutePath))
-            }
-        }
-
-        val previewAttachments = allItems.mapIndexed { idx, item ->
-            val file = File(item.filePath)
-            Attachment(
-                id = -(idx + 1).toLong(),
-                objectKey = "local_outbox/${file.name}",
-                originalFilename = file.name,
-                mimeType = item.mimeType,
-                size = if (file.exists()) file.length() else 0L,
-                width = item.width.takeIf { it > 0 },
-                height = item.height.takeIf { it > 0 },
-                url = "file://${file.absolutePath}"
-            )
-        }
-
-        // 契约 C：幂等创建键在**事件创建时**生成并随载荷持久化，重试复用同一个。
-        // 服务端按它查重——worker 在「已建档、未 markSynced」窗口被中断后重试，
-        // 不会在服务端重复建档。
-        val idempotentReq = req.copy(clientRequestId = UUID.randomUUID().toString())
-
-        val entryEntity = CachedEntryEntity(
-            localId = 0,
-            serverId = null,
-            type = idempotentReq.type,
-            title = idempotentReq.title,
-            content = idempotentReq.content,
-            occurredAt = idempotentReq.occurredAt,
-            location = idempotentReq.location,
-            cityCode = idempotentReq.cityCode,
-            cityName = idempotentReq.cityName,
-            projectId = idempotentReq.projectId,
-            wishId = idempotentReq.wishId,
-            footprintId = idempotentReq.footprintId,
-            isPrivate = idempotentReq.isPrivate == true,
-            attachmentsJson = json.encodeToString(previewAttachments),
-            syncStatus = STATUS_PENDING_CREATE,
-            createdAt = FormatUtils.beijingNowIsoString()
-        )
-        // 本地记录与发件箱事件必须同事务落库：中途崩溃不能留下「永远 PENDING 却无事件」的孤儿
-        val localId = database.withTransaction {
-            val id = database.entryDao().insert(entryEntity)
-            val primaryItem = allItems.firstOrNull()
-            val payloadObj = OfflineMediaEntryPayload(
-                localImageFilePath = primaryItem?.filePath ?: localImageFilePath,
-                mimeType = primaryItem?.mimeType ?: mimeType,
-                width = primaryItem?.width ?: width,
-                height = primaryItem?.height ?: height,
-                files = allItems,
-                req = idempotentReq
-            )
-            database.outboxDao().insert(
-                OutboxEventEntity(
-                    eventId = UUID.randomUUID().toString(),
-                    entityType = "media_entry",
-                    action = "CREATE",
-                    payload = json.encodeToString(payloadObj),
-                    localTargetId = id,
-                    serverTargetId = null
-                )
-            )
-            id
-        }
-
-        notifyLocalWrite()
-        scheduleSync()
-        localId
-    }
+    ): Long = mediaCoordinator.createMediaEntryOffline(
+        localImageFilePath = localImageFilePath,
+        mimeType = mimeType,
+        width = width,
+        height = height,
+        req = req,
+        additionalMediaFiles = additionalMediaFiles
+    )
 
     /**
      * 乐观创建生活档案 (0ms 上屏)
@@ -1065,7 +1092,7 @@ class SyncManager private constructor(private val context: Context) {
 
         // 已同步的条目：删除事件仍在发件箱里（尚未上传）⇒ 可以撤销
         val undoable = entity.serverId != null && entity.serverId > 0 && orphanMediaPaths.isEmpty()
-        return if (undoable) DeleteUndoTicket(entity = entity, kind = DeleteUndoKind.ENTRY) else null
+        return if (undoable) DeleteUndoTicket(entity = entity) else null
     }
 
     /**
@@ -1246,6 +1273,8 @@ class SyncManager private constructor(private val context: Context) {
             if (paginationExceeded(reachedEnd, pages, MAX_PAGES)) {
                 throw IllegalStateException("分页超过 $MAX_PAGES 页，本次拉取已中止")
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             return "生活档案：${e.message}"
         }
@@ -1273,209 +1302,14 @@ class SyncManager private constructor(private val context: Context) {
         return null
     }
 
-    /**
-     * MOB-P1-37：造物项目（整表对账）。
-     *
-     * 不能再用 clearAll() + insertAll()：那会把尚未上传的负数临时行一起清掉，
-     * 发件箱随后补发成功时本地已经没有可替换的行，列表还会短暂「消失」。
-     * 现在只删除「远端完整列表里不存在、且未被发件箱保护」的已同步行。
-     */
-    /**
-     * OPT-02：造物拉取（支持 since 增量与软删墓碑对齐，保护发件箱引用的本地行）。
-     *
-     * 不能再用 clearAll() + insertAll()：那会把尚未上传的负数临时行一起清掉，
-     * 发件箱随后补发成功时本地已经没有可替换的行，列表还会短暂「消失」。
-     * 增量模式下：
-     *   - 墓碑且未被保护 -> deleteById
-     *   - 正常且未被保护 -> upsert
-     * 全量模式下：只删除「远端完整列表里不存在、且未被发件箱保护」的已同步行。
-     */
-    private suspend fun pullProjectsDataset(forceFull: Boolean): String? = try {
-        val cursor = syncPrefs.getString(KEY_PROJECTS_CURSOR, null)
-        val useIncremental = !forceFull && database.projectDao().hasAny() && !cursor.isNullOrBlank()
-        val localIdsBeforePull = if (!useIncremental) database.projectDao().getAllIds() else emptyList()
-        val meta = ResponseMeta()
-        val remoteProjects = apiClient.fetchProjects(
-            limit = 0,
-            since = if (useIncremental) cursorForRequest(cursor) else null,
-            meta = meta
-        )
-        val updatedCandidates = mutableListOf<String?>()
-        val serverCursor = meta.syncCursor
-        if (!serverCursor.isNullOrBlank()) {
-            updatedCandidates += serverCursor
-        } else {
-            updatedCandidates += remoteProjects.map { it.updatedAt }
-            updatedCandidates += remoteProjects.map { it.deletedAt }
-        }
+    private suspend fun pullProjectsDataset(forceFull: Boolean): String? =
+        projectSync.pullDataset(forceFull)
 
-        database.withTransaction {
-            val protectedIds = database.outboxDao()
-                .getProtectedServerTargetIds(SimpleEntitySync.PROJECT)
-                .toHashSet()
+    private suspend fun pullWishesDataset(forceFull: Boolean): String? =
+        wishSync.pullDataset(forceFull)
 
-            if (useIncremental) {
-                val tombstones = remoteProjects.filter { it.deletedAt != null && it.id !in protectedIds }
-                if (tombstones.isNotEmpty()) {
-                    tombstones.map { it.id }.chunked(500).forEach { database.projectDao().deleteByIds(it) }
-                }
-                val active = remoteProjects.filter { it.deletedAt == null && it.id !in protectedIds }
-                if (active.isNotEmpty()) {
-                    database.projectDao().insertAll(active.map { it.toCacheEntity() })
-                }
-            } else {
-                val remoteIds = remoteProjects.mapTo(HashSet()) { it.id }
-                val toDelete = SimpleEntitySync.staleServerIdsToDelete(
-                    localIdsBeforePull, remoteIds, protectedIds
-                )
-                if (toDelete.isNotEmpty()) {
-                    toDelete.chunked(500).forEach { database.projectDao().deleteByIds(it) }
-                }
-                database.projectDao().insertAll(
-                    remoteProjects.filter { it.deletedAt == null && it.id !in protectedIds }.map { it.toCacheEntity() }
-                )
-            }
-        }
-
-        val maxUpdated = maxUpdatedCursor(updatedCandidates)
-        if (maxUpdated != null) {
-            syncPrefs.edit().putString(KEY_PROJECTS_CURSOR, maxUpdated).apply()
-        }
-        null
-    } catch (e: Exception) {
-        "造物：${e.message}"
-    }
-
-    /** OPT-02：三维心愿（支持 since 增量与软删墓碑对齐，分页拉取，保护发件箱引用的本地行） */
-    private suspend fun pullWishesDataset(forceFull: Boolean): String? = try {
-        val cursor = syncPrefs.getString(KEY_WISHES_CURSOR, null)
-        val useIncremental = !forceFull && database.wishDao().hasAny() && !cursor.isNullOrBlank()
-        val localIdsBeforePull = if (!useIncremental) database.wishDao().getAllIds() else emptyList()
-        val allWishes = mutableListOf<Wish>()
-        val updatedCandidates = mutableListOf<String?>()
-        var wishPage = 1
-        var pages = 0
-        var reachedEnd = false
-
-        while (pages < MAX_PAGES) {
-            val pageMeta = ResponseMeta()
-            val wishes = apiClient.fetchWishes(
-                page = wishPage,
-                pageSize = 100,
-                since = if (useIncremental) cursorForRequest(cursor) else null,
-                meta = pageMeta
-            )
-            pages++
-            val serverCursor = pageMeta.syncCursor
-            if (!serverCursor.isNullOrBlank()) {
-                updatedCandidates += serverCursor
-            } else {
-                updatedCandidates += wishes.map { it.updatedAt }
-                updatedCandidates += wishes.map { it.deletedAt }
-            }
-            allWishes.addAll(wishes)
-            if (wishes.size < 100) {
-                reachedEnd = true
-                break
-            }
-            wishPage++
-        }
-        if (paginationExceeded(reachedEnd, pages, MAX_PAGES)) {
-            throw IllegalStateException("心愿分页超限")
-        }
-
-        database.withTransaction {
-            val protectedIds = database.outboxDao()
-                .getProtectedServerTargetIds(SimpleEntitySync.WISH)
-                .toHashSet()
-
-            if (useIncremental) {
-                val tombstones = allWishes.filter { it.deletedAt != null && it.id !in protectedIds }
-                if (tombstones.isNotEmpty()) {
-                    tombstones.map { it.id }.chunked(500).forEach { database.wishDao().deleteByIds(it) }
-                }
-                val active = allWishes.filter { it.deletedAt == null && it.id !in protectedIds }
-                if (active.isNotEmpty()) {
-                    database.wishDao().insertAll(active.map { it.toCacheEntity(json) })
-                }
-            } else {
-                val remoteIds = allWishes.mapTo(HashSet()) { it.id }
-                val toDelete = SimpleEntitySync.staleServerIdsToDelete(
-                    localIdsBeforePull, remoteIds, protectedIds
-                )
-                if (toDelete.isNotEmpty()) {
-                    toDelete.chunked(500).forEach { database.wishDao().deleteByIds(it) }
-                }
-                database.wishDao().insertAll(
-                    allWishes.filter { it.deletedAt == null && it.id !in protectedIds }.map { it.toCacheEntity(json) }
-                )
-            }
-        }
-
-        val maxUpdated = maxUpdatedCursor(updatedCandidates)
-        if (maxUpdated != null) {
-            syncPrefs.edit().putString(KEY_WISHES_CURSOR, maxUpdated).apply()
-        }
-        null
-    } catch (e: Exception) {
-        "心愿：${e.message}"
-    }
-
-    /** OPT-02：足迹（支持 since 增量与软删墓碑对齐，保护发件箱引用的本地行） */
-    private suspend fun pullFootprintsDataset(forceFull: Boolean): String? = try {
-        val cursor = syncPrefs.getString(KEY_FOOTPRINTS_CURSOR, null)
-        val useIncremental = !forceFull && database.footprintDao().hasAny() && !cursor.isNullOrBlank()
-        val localIdsBeforePull = if (!useIncremental) database.footprintDao().getAllIds() else emptyList()
-        val meta = ResponseMeta()
-        val remoteFootprints = apiClient.fetchFootprints(
-            since = if (useIncremental) cursorForRequest(cursor) else null,
-            meta = meta
-        )
-        val updatedCandidates = mutableListOf<String?>()
-        val serverCursor = meta.syncCursor
-        if (!serverCursor.isNullOrBlank()) {
-            updatedCandidates += serverCursor
-        } else {
-            updatedCandidates += remoteFootprints.map { it.updatedAt }
-            updatedCandidates += remoteFootprints.map { it.deletedAt }
-        }
-
-        database.withTransaction {
-            val protectedIds = database.outboxDao()
-                .getProtectedServerTargetIds(SimpleEntitySync.FOOTPRINT)
-                .toHashSet()
-
-            if (useIncremental) {
-                val tombstones = remoteFootprints.filter { it.deletedAt != null && it.id !in protectedIds }
-                if (tombstones.isNotEmpty()) {
-                    tombstones.map { it.id }.chunked(500).forEach { database.footprintDao().deleteByIds(it) }
-                }
-                val active = remoteFootprints.filter { it.deletedAt == null && it.id !in protectedIds }
-                if (active.isNotEmpty()) {
-                    database.footprintDao().insertAll(active.map { it.toCacheEntity(json) })
-                }
-            } else {
-                val remoteIds = remoteFootprints.mapTo(HashSet()) { it.id }
-                val toDelete = SimpleEntitySync.staleServerIdsToDelete(
-                    localIdsBeforePull, remoteIds, protectedIds
-                )
-                if (toDelete.isNotEmpty()) {
-                    toDelete.chunked(500).forEach { database.footprintDao().deleteByIds(it) }
-                }
-                database.footprintDao().insertAll(
-                    remoteFootprints.filter { it.deletedAt == null && it.id !in protectedIds }.map { it.toCacheEntity(json) }
-                )
-            }
-        }
-
-        val maxUpdated = maxUpdatedCursor(updatedCandidates)
-        if (maxUpdated != null) {
-            syncPrefs.edit().putString(KEY_FOOTPRINTS_CURSOR, maxUpdated).apply()
-        }
-        null
-    } catch (e: Exception) {
-        "足迹：${e.message}"
-    }
+    private suspend fun pullFootprintsDataset(forceFull: Boolean): String? =
+        footprintSync.pullDataset(forceFull)
 
     /** MOB-P1-37：时间流页面专用拉取（只拉生活档案） */
     suspend fun pullStreamData(forceFull: Boolean = false): Result<Unit> =
@@ -1590,291 +1424,23 @@ class SyncManager private constructor(private val context: Context) {
         }
     }
 
-    /**
-     * P1-2：临时行的 CREATE 载荷里已有幂等键；编辑改写 CREATE 载荷时必须沿用，
-     * 否则同一笔离线创建会在重试时换键，仍可能重复落库。
-     */
-    private suspend fun pendingSimpleCreateClientRequestId(
-        entityType: String,
-        tempLocalId: Long
-    ): String? = database.outboxDao()
-        .findEventByTarget(entityType, tempLocalId, "CREATE")
-        ?.let { event ->
-            runCatching {
-                when (entityType) {
-                    SimpleEntitySync.PROJECT ->
-                        json.decodeFromString<CreateProjectRequest>(event.payload).clientRequestId
-                    SimpleEntitySync.WISH ->
-                        json.decodeFromString<CreateWishRequest>(event.payload).clientRequestId
-                    SimpleEntitySync.FOOTPRINT ->
-                        json.decodeFromString<CreateFootprintRequest>(event.payload).clientRequestId
-                    else -> null
-                }
-            }.getOrNull()
-        }
+    suspend fun createProjectOrQueue(req: CreateProjectRequest): Boolean =
+        projectSync.createOrQueue(req)
 
-    /**
-     * 在线直连创建造物；网络不可达时入发件箱，并写入本地临时行，联网后自动补发。
-     * 返回 true 表示「已离线排队」。
-     */
-    suspend fun createProjectOrQueue(req: CreateProjectRequest): Boolean = withContext(Dispatchers.IO) {
-        // P1-2：在线请求与离线补发共用同一个幂等键 —— 响应丢失后重试不会建出第二条。
-        val request = req.copy(
-            clientRequestId = req.clientRequestId ?: SimpleEntitySync.newClientRequestId()
-        )
-        try {
-            val created = apiClient.createProject(request)
-            database.projectDao().insert(created.toCacheEntity())
-            false
-        } catch (e: Exception) {
-            val code = (e as? APIException)?.code ?: -1
-            if (code == -1 || code >= 500) {
-                val tempId = SimpleEntitySync.nextTempLocalId()
-                database.withTransaction {
-                    database.projectDao().insert(request.toOfflineEntity(tempId))
-                    SimpleEntitySync.enqueueCreate(
-                        database.outboxDao(),
-                        SimpleEntitySync.PROJECT,
-                        json.encodeToString(request),
-                        tempId
-                    )
-                }
-                scheduleSync()
-                true
-            } else {
-                throw e
-            }
-        }
-    }
+    suspend fun updateProjectOrQueue(id: Long, req: CreateProjectRequest): Boolean =
+        projectSync.updateOrQueue(id, req)
 
-    suspend fun updateProjectOrQueue(id: Long, req: CreateProjectRequest): Boolean = withContext(Dispatchers.IO) {
-        // 临时行还没有服务端 id：只改本地与 CREATE 载荷，绝不请求 /projects/-1。
-        if (id < 0) {
-            database.withTransaction {
-                // 读-改-写必须在同一事务里：若 CREATE 刚完成并换绑，临时行与
-                // CREATE 事件都已不在 —— 此时重新插回临时行会补发出第二条记录。
-                val tempRowExists = database.projectDao().getById(id) != null
-                val createExists = SimpleEntitySync.hasPendingCreate(
-                    database.outboxDao(), SimpleEntitySync.PROJECT, id
-                )
-                if (!tempRowExists && !createExists) return@withTransaction
-                val request = req.copy(
-                    clientRequestId = req.clientRequestId
-                        ?: pendingSimpleCreateClientRequestId(SimpleEntitySync.PROJECT, id)
-                        ?: SimpleEntitySync.newClientRequestId()
-                )
-                database.projectDao().insert(request.toOfflineEntity(id))
-                SimpleEntitySync.enqueueUpdate(
-                    database.outboxDao(),
-                    SimpleEntitySync.PROJECT,
-                    json.encodeToString(request),
-                    id
-                )
-            }
-            scheduleSync()
-            return@withContext true
-        }
-        try {
-            val pendingUpdate = SimpleEntitySync.findPendingUpdate(
-                database.outboxDao(), SimpleEntitySync.PROJECT, id
-            )
-            val updated = apiClient.updateProject(id, req)
-            database.withTransaction {
-                database.projectDao().insert(updated.toCacheEntity())
-                // 在线已成功：同载荷的待发 UPDATE 已无意义，删掉避免旧内容回灌。
-                SimpleEntitySync.discardSupersededUpdate(database.outboxDao(), pendingUpdate)
-            }
-            false
-        } catch (e: Exception) {
-            val code = (e as? APIException)?.code ?: -1
-            if (code == -1 || code >= 500) {
-                database.withTransaction {
-                    database.projectDao().insert(req.toOfflineEntity(id))
-                    SimpleEntitySync.enqueueUpdate(
-                        database.outboxDao(),
-                        SimpleEntitySync.PROJECT,
-                        json.encodeToString(req),
-                        id
-                    )
-                }
-                scheduleSync()
-                true
-            } else {
-                throw e
-            }
-        }
-    }
+    suspend fun deleteProjectOrQueue(id: Long): Boolean =
+        projectSync.deleteOrQueue(id)
 
-    suspend fun deleteProjectOrQueue(id: Long): Boolean = withContext(Dispatchers.IO) {
-        if (id < 0) {
-            // 临时行尚未上传：删本地行并撤销 CREATE，不产生 DELETE 事件。
-            database.withTransaction {
-                database.projectDao().deleteById(id)
-                SimpleEntitySync.enqueueDelete(database.outboxDao(), SimpleEntitySync.PROJECT, id)
-            }
-            scheduleSync()
-            return@withContext true
-        }
-        try {
-            apiClient.deleteProject(id)
-            database.withTransaction {
-                database.projectDao().deleteById(id)
-                database.outboxDao().deleteByLocalTarget(SimpleEntitySync.PROJECT, id)
-            }
-            false
-        } catch (e: Exception) {
-            val code = (e as? APIException)?.code ?: -1
-            if (code == 404) {
-                // 服务端已删（网页 / 其他设备）：本地同样收口，不再反复失败。
-                database.withTransaction {
-                    database.projectDao().deleteById(id)
-                    database.outboxDao().deleteByLocalTarget(SimpleEntitySync.PROJECT, id)
-                }
-                false
-            } else if (code == -1 || code >= 500) {
-                database.withTransaction {
-                    database.projectDao().deleteById(id)
-                    SimpleEntitySync.enqueueDelete(database.outboxDao(), SimpleEntitySync.PROJECT, id)
-                }
-                scheduleSync()
-                true
-            } else {
-                throw e
-            }
-        }
-    }
+    suspend fun createWishOrQueue(req: CreateWishRequest): Boolean =
+        wishSync.createOrQueue(req)
 
-    /** 在线直连许愿；网络不可达时入发件箱，并写入本地临时行，联网后自动补发。返回 true 表示已离线排队。 */
-    suspend fun createWishOrQueue(req: CreateWishRequest): Boolean = withContext(Dispatchers.IO) {
-        // P1-2：在线请求与离线补发共用同一个幂等键。
-        val request = req.copy(
-            clientRequestId = req.clientRequestId ?: SimpleEntitySync.newClientRequestId()
-        )
-        try {
-            val created = apiClient.createWish(request)
-            database.wishDao().insert(created.toCacheEntity(json))
-            false
-        } catch (e: Exception) {
-            val code = (e as? APIException)?.code ?: -1
-            if (code == -1 || code >= 500) {
-                val tempId = SimpleEntitySync.nextTempLocalId()
-                database.withTransaction {
-                    database.wishDao().insert(request.toOfflineEntity(tempId))
-                    SimpleEntitySync.enqueueCreate(
-                        database.outboxDao(),
-                        SimpleEntitySync.WISH,
-                        json.encodeToString(request),
-                        tempId
-                    )
-                }
-                scheduleSync()
-                true
-            } else {
-                throw e
-            }
-        }
-    }
+    suspend fun updateWishOrQueue(id: Long, req: CreateWishRequest): Boolean =
+        wishSync.updateOrQueue(id, req)
 
-    suspend fun updateWishOrQueue(id: Long, req: CreateWishRequest): Boolean = withContext(Dispatchers.IO) {
-        if (id < 0) {
-            database.withTransaction {
-                val existing = database.wishDao().getById(id)
-                val createExists = SimpleEntitySync.hasPendingCreate(
-                    database.outboxDao(), SimpleEntitySync.WISH, id
-                )
-                if (existing == null && !createExists) return@withTransaction
-                val request = req.copy(
-                    clientRequestId = req.clientRequestId
-                        ?: pendingSimpleCreateClientRequestId(SimpleEntitySync.WISH, id)
-                        ?: SimpleEntitySync.newClientRequestId()
-                )
-                database.wishDao().insert(request.toOfflineEntity(id, existing))
-                SimpleEntitySync.enqueueUpdate(
-                    database.outboxDao(),
-                    SimpleEntitySync.WISH,
-                    json.encodeToString(request),
-                    id
-                )
-            }
-            scheduleSync()
-            return@withContext true
-        }
-        try {
-            val pendingUpdate = SimpleEntitySync.findPendingUpdate(
-                database.outboxDao(), SimpleEntitySync.WISH, id
-            )
-            val pendingResolve = database.outboxDao().findEventByTarget(
-                SimpleEntitySync.WISH, id, "RESOLVE"
-            )
-            val updated = apiClient.updateWish(id, req)
-            database.withTransaction {
-                if (pendingResolve != null) {
-                    // 本地已有待归册状态，不能让服务端“wanting”响应把它回退。
-                    val local = database.wishDao().getById(id)
-                    database.wishDao().insert(req.toOfflineEntity(id, local))
-                } else {
-                    database.wishDao().insert(updated.toCacheEntity(json))
-                }
-                SimpleEntitySync.discardSupersededUpdate(database.outboxDao(), pendingUpdate)
-            }
-            false
-        } catch (e: Exception) {
-            val code = (e as? APIException)?.code ?: -1
-            if (code == -1 || code >= 500) {
-                val existing = database.wishDao().getById(id)
-                database.withTransaction {
-                    database.wishDao().insert(req.toOfflineEntity(id, existing))
-                    SimpleEntitySync.enqueueUpdate(
-                        database.outboxDao(),
-                        SimpleEntitySync.WISH,
-                        json.encodeToString(req),
-                        id
-                    )
-                }
-                scheduleSync()
-                true
-            } else {
-                throw e
-            }
-        }
-    }
-
-    suspend fun deleteWishOrQueue(id: Long): Boolean = withContext(Dispatchers.IO) {
-        if (id < 0) {
-            database.withTransaction {
-                database.wishDao().deleteById(id)
-                SimpleEntitySync.enqueueDelete(database.outboxDao(), SimpleEntitySync.WISH, id)
-            }
-            scheduleSync()
-            return@withContext true
-        }
-        try {
-            apiClient.deleteWish(id)
-            database.withTransaction {
-                database.wishDao().deleteById(id)
-                database.outboxDao().deleteByLocalTarget(SimpleEntitySync.WISH, id)
-            }
-            false
-        } catch (e: Exception) {
-            val code = (e as? APIException)?.code ?: -1
-            if (code == 404) {
-                database.withTransaction {
-                    database.wishDao().deleteById(id)
-                    database.outboxDao().deleteByLocalTarget(SimpleEntitySync.WISH, id)
-                }
-                false
-            } else if (code == -1 || code >= 500) {
-                database.withTransaction {
-                    database.wishDao().deleteById(id)
-                    SimpleEntitySync.enqueueDelete(database.outboxDao(), SimpleEntitySync.WISH, id)
-                }
-                scheduleSync()
-                true
-            } else {
-                throw e
-            }
-        }
-    }
+    suspend fun deleteWishOrQueue(id: Long): Boolean =
+        wishSync.deleteOrQueue(id)
 
     suspend fun resolveWishOrQueue(id: Long, req: ResolveWishRequest): Boolean = withContext(Dispatchers.IO) {
         if (id < 0) {
@@ -1882,7 +1448,6 @@ class SyncManager private constructor(private val context: Context) {
             database.withTransaction {
                 if (existing != null) {
                     database.wishDao().insert(existing.withResolvedState(req))
-                    // 极端情况下 CREATE 已丢：先补一份创建事件，RESOLVE 才有目标可换绑。
                     if (!SimpleEntitySync.hasPendingCreate(database.outboxDao(), SimpleEntitySync.WISH, id)) {
                         SimpleEntitySync.enqueueCreate(
                             database.outboxDao(),
@@ -1901,6 +1466,8 @@ class SyncManager private constructor(private val context: Context) {
             val updated = apiClient.resolveWish(id, req)
             database.wishDao().insert(updated.toCacheEntity(json))
             false
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             val code = (e as? APIException)?.code ?: -1
             if (code == -1 || code >= 500) {
@@ -1919,209 +1486,14 @@ class SyncManager private constructor(private val context: Context) {
         }
     }
 
-    suspend fun createFootprintOrQueue(req: CreateFootprintRequest): Boolean = withContext(Dispatchers.IO) {
-        // P1-2：在线请求与离线补发共用同一个幂等键。
-        val request = req.copy(
-            clientRequestId = req.clientRequestId ?: SimpleEntitySync.newClientRequestId()
-        )
-        try {
-            val created = apiClient.createFootprint(request)
-            database.footprintDao().insert(created.toCacheEntity(json))
-            false
-        } catch (e: Exception) {
-            val code = (e as? APIException)?.code ?: -1
-            if (code == -1 || code >= 500) {
-                val tempId = SimpleEntitySync.nextTempLocalId()
-                database.withTransaction {
-                    database.footprintDao().insert(request.toOfflineEntity(tempId))
-                    SimpleEntitySync.enqueueCreate(
-                        database.outboxDao(),
-                        SimpleEntitySync.FOOTPRINT,
-                        json.encodeToString(request),
-                        tempId
-                    )
-                }
-                scheduleSync()
-                true
-            } else {
-                throw e
-            }
-        }
-    }
+    suspend fun createFootprintOrQueue(req: CreateFootprintRequest): Boolean =
+        footprintSync.createOrQueue(req)
 
-    suspend fun updateFootprintOrQueue(id: Long, req: CreateFootprintRequest): Boolean = withContext(Dispatchers.IO) {
-        if (id < 0) {
-            database.withTransaction {
-                val existing = database.footprintDao().getById(id)
-                val createExists = SimpleEntitySync.hasPendingCreate(
-                    database.outboxDao(), SimpleEntitySync.FOOTPRINT, id
-                )
-                if (existing == null && !createExists) return@withTransaction
-                val request = req.copy(
-                    clientRequestId = req.clientRequestId
-                        ?: pendingSimpleCreateClientRequestId(SimpleEntitySync.FOOTPRINT, id)
-                        ?: SimpleEntitySync.newClientRequestId()
-                )
-                database.footprintDao().insert(request.toOfflineEntity(id, existing))
-                SimpleEntitySync.enqueueUpdate(
-                    database.outboxDao(),
-                    SimpleEntitySync.FOOTPRINT,
-                    json.encodeToString(request),
-                    id
-                )
-            }
-            scheduleSync()
-            return@withContext true
-        }
-        try {
-            val pendingUpdate = SimpleEntitySync.findPendingUpdate(
-                database.outboxDao(), SimpleEntitySync.FOOTPRINT, id
-            )
-            val updated = apiClient.updateFootprint(id, req)
-            database.withTransaction {
-                database.footprintDao().insert(updated.toCacheEntity(json))
-                SimpleEntitySync.discardSupersededUpdate(database.outboxDao(), pendingUpdate)
-            }
-            false
-        } catch (e: Exception) {
-            val code = (e as? APIException)?.code ?: -1
-            if (code == -1 || code >= 500) {
-                val existing = database.footprintDao().getById(id)
-                database.withTransaction {
-                    database.footprintDao().insert(req.toOfflineEntity(id, existing))
-                    SimpleEntitySync.enqueueUpdate(
-                        database.outboxDao(),
-                        SimpleEntitySync.FOOTPRINT,
-                        json.encodeToString(req),
-                        id
-                    )
-                }
-                scheduleSync()
-                true
-            } else {
-                throw e
-            }
-        }
-    }
+    suspend fun updateFootprintOrQueue(id: Long, req: CreateFootprintRequest): Boolean =
+        footprintSync.updateOrQueue(id, req)
 
-    suspend fun deleteFootprintOrQueue(id: Long): Boolean = withContext(Dispatchers.IO) {
-        if (id < 0) {
-            database.withTransaction {
-                database.footprintDao().deleteById(id)
-                SimpleEntitySync.enqueueDelete(database.outboxDao(), SimpleEntitySync.FOOTPRINT, id)
-            }
-            scheduleSync()
-            return@withContext true
-        }
-        try {
-            apiClient.deleteFootprint(id)
-            database.withTransaction {
-                database.footprintDao().deleteById(id)
-                database.outboxDao().deleteByLocalTarget(SimpleEntitySync.FOOTPRINT, id)
-            }
-            false
-        } catch (e: Exception) {
-            val code = (e as? APIException)?.code ?: -1
-            if (code == 404) {
-                database.withTransaction {
-                    database.footprintDao().deleteById(id)
-                    database.outboxDao().deleteByLocalTarget(SimpleEntitySync.FOOTPRINT, id)
-                }
-                false
-            } else if (code == -1 || code >= 500) {
-                database.withTransaction {
-                    database.footprintDao().deleteById(id)
-                    SimpleEntitySync.enqueueDelete(database.outboxDao(), SimpleEntitySync.FOOTPRINT, id)
-                }
-                scheduleSync()
-                true
-            } else {
-                throw e
-            }
-        }
-    }
-
-    private enum class SimpleCreateOutcome { CANCELED, INSERT_SERVER, KEEP_LOCAL_AND_UPDATE }
-
-    /**
-     * P0-3：造物 / 心愿 / 足迹 CREATE 收尾。
-     *
-     * 在**同一个事务**内按 eventId 重读事件、升级/删除事件并落本地行，避免
-     * 「事件已删、临时行还没换成真实 id」的崩溃窗口留下永远同步不掉的幽灵行。
-     *
-     * - 事件已不在 → 用户删除/放弃，调用方补偿删除刚建出的服务端行；
-     * - 载荷已变 → CREATE 原地升级为 UPDATE，绑定真实 id 后按最新内容补发；
-     * - 载荷未变但服务端响应是幂等命中的旧记录 → 同样升级为 UPDATE，
-     *   否则用户响应丢失后的编辑会被旧响应静默覆盖；
-     * - 载荷未变且响应一致 → 用服务端权威响应替换临时行。
-     */
-    private suspend fun finalizeSimpleCreate(
-        event: OutboxEventEntity,
-        sentPayload: String,
-        serverId: Long,
-        serverMatchesSentPayload: Boolean,
-        onPayloadUnchanged: suspend () -> Unit,
-        onPayloadChanged: suspend () -> Unit
-    ): SimpleCreateOutcome = database.withTransaction {
-        val latest = database.outboxDao().findEventById(event.eventId)
-            ?: return@withTransaction SimpleCreateOutcome.CANCELED
-        val tempLocalId = event.localTargetId
-        if (latest.payload != sentPayload || !serverMatchesSentPayload) {
-            database.outboxDao().insert(
-                latest.copy(
-                    action = "UPDATE",
-                    localTargetId = serverId,
-                    serverTargetId = serverId,
-                    failedAt = null,
-                    lastError = null,
-                    retryCount = 0
-                )
-            )
-            database.outboxDao().rebindFollowUpsToServerId(
-                event.entityType, tempLocalId, serverId
-            )
-            onPayloadChanged()
-            SimpleCreateOutcome.KEEP_LOCAL_AND_UPDATE
-        } else {
-            database.outboxDao().delete(latest)
-            database.outboxDao().rebindFollowUpsToServerId(
-                event.entityType, tempLocalId, serverId
-            )
-            onPayloadUnchanged()
-            SimpleCreateOutcome.INSERT_SERVER
-        }
-    }
-
-    /**
-     * CREATE 飞行期间用户已删除：尽力删除刚建出的服务端行。
-     * 删除失败（网络抖动等）时落一条 DELETE 事件，避免幽灵行被下次拉取复活。
-     */
-    private suspend fun compensateCanceledSimpleCreate(
-        entityType: String,
-        serverId: Long,
-        deleteRemote: suspend (Long) -> Unit
-    ) {
-        try {
-            deleteRemote(serverId)
-        } catch (e: APIException) {
-            if (e.code != 404) enqueueCompensationDelete(entityType, serverId)
-        } catch (e: Exception) {
-            enqueueCompensationDelete(entityType, serverId)
-        }
-    }
-
-    private suspend fun enqueueCompensationDelete(entityType: String, serverId: Long) {
-        database.outboxDao().insert(
-            OutboxEventEntity(
-                eventId = UUID.randomUUID().toString(),
-                entityType = entityType,
-                action = "DELETE",
-                payload = "{}",
-                localTargetId = serverId,
-                serverTargetId = serverId
-            )
-        )
-    }
+    suspend fun deleteFootprintOrQueue(id: Long): Boolean =
+        footprintSync.deleteOrQueue(id)
 
     /**
      * 执行单条 Outbox 事件的远端投递
@@ -2233,607 +1605,10 @@ class SyncManager private constructor(private val context: Context) {
                     else -> database.outboxDao().delete(event)
                 }
             }
-            "media_entry" -> {
-                if (event.action == "CREATE") {
-                    val payload = json.decodeFromString<OfflineMediaEntryPayload>(event.payload)
-                    val itemsToUpload = if (payload.files.isNotEmpty()) {
-                        payload.files
-                    } else if (payload.localImageFilePath.isNotBlank()) {
-                        listOf(
-                            OfflineMediaFileItem(
-                                filePath = payload.localImageFilePath,
-                                mimeType = payload.mimeType,
-                                width = payload.width,
-                                height = payload.height
-                            )
-                        )
-                    } else {
-                        emptyList()
-                    }
-
-                    val tempFiles = java.util.Collections.synchronizedList(mutableListOf<File>())
-                    // MOB-P0-03：原先每张照片都被 readBytes() 整份读进堆内存，
-                    // 而且是「无限并发」上传 —— N 张照片的峰值内存 = 2 × Σ文件大小，
-                    // 同时还会占满上行带宽把其它请求饿死。
-                    // 现在改为「最多 3 张并发 + 文件流式上传」，峰值内存恒定。
-                    val uploadSemaphore = Semaphore(MAX_CONCURRENT_UPLOADS)
-                    // 上传结果与 itemsToUpload **按下标对齐**（null = 该文件已不存在）：
-                    // 上传可能耗时数十秒，期间用户可能又移除了照片，收尾时要按
-                    // 「文件是否仍在最新载荷里」逐张过滤，不能 filterNotNull 后丢失对应关系。
-                    val uploadResults: List<Attachment?> = coroutineScope {
-                        itemsToUpload.map { item ->
-                            async(Dispatchers.IO) {
-                                uploadSemaphore.withPermit {
-                                    val file = File(item.filePath)
-                                    if (file.exists()) {
-                                        tempFiles.add(file)
-                                        ImagePipeline.uploadImage(
-                                            apiClient = apiClient,
-                                            file = file,
-                                            mimeType = item.mimeType,
-                                            filename = file.name,
-                                            width = item.width,
-                                            height = item.height
-                                        )
-                                    } else null
-                                }
-                            }
-                        }.awaitAll()
-                    }
-
-                    // ── P2：合并附件时以**数据库里的最新载荷**为准，不用启动时的内存快照。
-                    // 上传期间用户移除照片会收窄媒体载荷（updateEntryOptimistic 重写本事件）；
-                    // 若仍按快照把「全部已上传附件」并进建档/UPDATE，被删照片会被服务端回填。
-                    val latestMediaEvent = database.outboxDao().findEventById(event.eventId)
-                    if (latestMediaEvent == null) {
-                        // 事件已不在：记录刚被用户删除（撤销/清队也会走到这里），
-                        // 再建档只会留下本机永远删不掉的幽灵条目——就地终止。
-                        for (f in tempFiles) {
-                            runCatching { f.delete() }
-                        }
-                        return
-                    }
-                    val currentFilePaths = (
-                        runCatching {
-                            json.decodeFromString<OfflineMediaEntryPayload>(latestMediaEvent.payload).files
-                        }.getOrNull() ?: payload.files
-                        ).map { it.filePath }.toSet()
-                    val selectedAttachments = uploadResults.mapIndexedNotNull { idx, att ->
-                        att?.takeIf { itemsToUpload[idx].filePath in currentFilePaths }
-                    }
-
-                    // 仍被选中的相纸必须全部传完；被用户移除的相纸缺文件不再致命
-                    //（它本来就不该进这条记录，缺了正好）。
-                    val missingSelected = uploadResults.withIndex().any { (idx, att) ->
-                        itemsToUpload[idx].filePath in currentFilePaths && att == null
-                    }
-                    if (missingSelected) {
-                        // 相纸文件被清理/丢失：不要把「缺图条目」悄悄传上去
-                        throw IllegalStateException("本地相纸文件缺失，无法完成上传")
-                    }
-
-                    val finalReq = payload.req.copy(
-                        attachmentIds = (
-                            (payload.req.attachmentIds ?: emptyList()) +
-                                selectedAttachments.map { it.id }
-                            ).distinct().takeIf { it.isNotEmpty() }
-                    )
-                    val serverEntry = try {
-                        apiClient.createEntry(finalReq)
-                    } catch (e: APIException) {
-                        if (e.code == 410) {
-                            // OPT-08：服务端该记录已被软删后物理清理（purge）。
-                            // 删除本地临时行、消费事件并清掉本次上传产生的临时文件。
-                            discardGoneCreate(database, event) {
-                                database.entryDao().deleteByLocalId(event.localTargetId)
-                            }
-                            for (f in tempFiles) {
-                                runCatching { f.delete() }
-                            }
-                            return
-                        }
-                        throw e
-                    }
-
-                    // 上传（秒级）与 createEntry（网络往返）的间隙里用户可能已删除
-                    // 这条未同步条目（事件消失）。若不补偿，服务端会留下一条
-                    // 本机永远删不掉的幽灵档案，下次拉取还会把它「复活」到本地。
-                    // 事件已不在 → 对刚建出的服务端条目做尽力补偿删除，并跳过本地回写。
-                    if (database.outboxDao().findEventById(event.eventId) == null) {
-                        runCatching { apiClient.deleteEntry(serverEntry.id) }
-                        for (f in tempFiles) {
-                            runCatching { f.delete() }
-                        }
-                        return
-                    }
-
-                    // 收尾（本地回写 / 绑定 / UPDATE 合并 / 删事件）放进同一事务：
-                    // 与 UI 编辑的写事务互斥，避免再次出现「读-写间隙被插队」。
-                    database.withTransaction {
-                        // 编辑期间排队的 UPDATE 里只有当时已知的 id；本次 CREATE 上传的
-                        // 保留相纸现在拿到了服务端 id，补进 UPDATE 才能精确替换附件集合。
-                        // 只并入「按最新载荷仍被选中」的上传结果，被移除的相纸不能回填。
-                        // 查询提到上面：建档后的行状态也依赖「是否存在排队 UPDATE」。
-                        val pendingUpdate = database.outboxDao().findEventByTarget(
-                            "entry", event.localTargetId, "UPDATE"
-                        )
-                        val localEntity = database.entryDao().getEntryByLocalId(event.localTargetId)
-                        if (localEntity != null) {
-                            val finalAttachments = if (serverEntry.attachments.isNotEmpty()) {
-                                serverEntry.attachments
-                            } else {
-                                selectedAttachments
-                            }
-                            // 若上传期间已有排队的 UPDATE（用户编辑过），行必须停在
-                            // PENDING_UPDATE 而不是 SYNCED：SYNCED 会解除「待发行不被
-                            // 增量拉取覆盖」的保护，此窗口内拉取会用服务端旧正文
-                            // 回灌覆盖本地新编辑，UPDATE 投递后才自愈。
-                            val statusAfterCreate = if (pendingUpdate != null) STATUS_PENDING_UPDATE else STATUS_SYNCED
-                            database.entryDao().update(
-                                localEntity.copy(
-                                    serverId = serverEntry.id,
-                                    syncStatus = statusAfterCreate,
-                                    attachmentsJson = json.encodeToString(finalAttachments)
-                                )
-                            )
-                        } else {
-                            database.entryDao().markSynced(event.localTargetId, serverEntry.id)
-                        }
-                        database.outboxDao().bindPendingUpdatesToServerId(
-                            "entry", event.localTargetId, serverEntry.id
-                        )
-                        if (pendingUpdate != null) {
-                            val updateReq = runCatching {
-                                json.decodeFromString<CreateEntryRequest>(pendingUpdate.payload)
-                            }.getOrNull()
-                            if (updateReq != null) {
-                                val finalIds = (
-                                    (updateReq.attachmentIds ?: emptyList()) +
-                                        selectedAttachments.map { it.id }
-                                    ).distinct()
-                                database.outboxDao().insert(
-                                    pendingUpdate.copy(
-                                        payload = json.encodeToString(
-                                            updateReq.copy(
-                                                attachmentIds = finalIds.takeIf { it.isNotEmpty() },
-                                                clearAttachments = finalIds.isEmpty()
-                                            )
-                                        )
-                                    )
-                                )
-                            }
-                        }
-
-                        // 先删事件、后删本地文件：若中途崩溃，重试时事件已不在，
-                        // 顶多留下一个孤儿文件（可被清理），绝不出现「文件没了但事件还在」
-                        // → 上传必失败 → 反复重试 10 次进失败态的死局。
-                        database.outboxDao().delete(event)
-                    }
-                    for (f in tempFiles) {
-                        runCatching { f.delete() }
-                    }
-                } else {
-                    database.outboxDao().delete(event)
-                }
-            }
-            "project" -> {
-                when (event.action) {
-                    "CREATE" -> {
-                        // 旧版本删除临时行时只入队 DELETE、没有撤销 CREATE；
-                        // 本地行已不在说明用户已放弃，直接消费事件，绝不让服务端复活。
-                        // （-1 是旧版本哨兵，迁移会先把它修成真实临时 id，这里不碰。）
-                        if (event.localTargetId < -1 &&
-                            database.projectDao().getById(event.localTargetId) == null
-                        ) {
-                            database.outboxDao().delete(event)
-                            return
-                        }
-                        val sentPayload = event.payload
-                        val req = json.decodeFromString<CreateProjectRequest>(sentPayload)
-                        val meta = ResponseMeta()
-                        val created = try {
-                            apiClient.createProject(req, meta = meta)
-                        } catch (e: APIException) {
-                            if (e.code == 410) {
-                                // OPT-08：软删重放契约——服务端该记录已被软删除，删除本地临时行并丢弃本 CREATE 事件
-                                database.withTransaction {
-                                    database.projectDao().deleteById(event.localTargetId)
-                                    database.outboxDao().delete(event)
-                                }
-                                return
-                            }
-                            throw e
-                        }
-
-                        // 软删墓碑兜底保护：若服务端返回已软删记录，删除本地临时行并消费事件
-                        if (created.deletedAt != null) {
-                            database.withTransaction {
-                                database.projectDao().deleteById(event.localTargetId)
-                                database.outboxDao().delete(event)
-                            }
-                            return
-                        }
-
-                        val outcome = finalizeSimpleCreate(
-                            event = event,
-                            sentPayload = sentPayload,
-                            serverId = created.id,
-                            serverMatchesSentPayload = req.matchesServer(created),
-                            onPayloadUnchanged = {
-                                database.projectDao().deleteById(event.localTargetId)
-                                database.projectDao().insert(created.toCacheEntity())
-                            },
-                            onPayloadChanged = {
-                                // 临时行保留用户最新内容，只把主键换成真实 id。
-                                val local = database.projectDao().getById(event.localTargetId)
-                                database.projectDao().deleteById(event.localTargetId)
-                                database.projectDao().insert(
-                                    (local ?: req.toOfflineEntity(created.id)).copy(id = created.id)
-                                )
-                            }
-                        )
-                        when (outcome) {
-                            SimpleCreateOutcome.CANCELED -> {
-                                // 飞行期间用户已删除：不让服务端留下本机永远删不掉的幽灵。
-                                database.projectDao().deleteById(event.localTargetId)
-                                compensateCanceledSimpleCreate(SimpleEntitySync.PROJECT, created.id) {
-                                    apiClient.deleteProject(it)
-                                }
-                            }
-                            SimpleCreateOutcome.KEEP_LOCAL_AND_UPDATE -> {
-                                // 事件已原地升级为 UPDATE（eventId 不变）：移出本轮的
-                                // “已尝试”集合，让下一轮 drain 立即按最新载荷补发。
-                                onPayloadSuperseded?.invoke()
-                            }
-                            SimpleCreateOutcome.INSERT_SERVER -> Unit
-                        }
-                    }
-                    "UPDATE" -> {
-                        val current = database.outboxDao().findEventById(event.eventId) ?: return
-                        val targetServerId = current.serverTargetId
-                            ?: current.localTargetId.takeIf { it > 0 }
-                        if (targetServerId == null || targetServerId <= 0) {
-                            // CREATE 还没拿到服务端 id：保留事件，等换绑后再发。
-                            // 本地行已不在说明用户已放弃，直接消费事件。
-                            if (database.projectDao().getById(current.localTargetId) == null) {
-                                database.outboxDao().delete(current)
-                            }
-                            return
-                        }
-                        try {
-                            val req = json.decodeFromString<CreateProjectRequest>(current.payload)
-                            val updated = apiClient.updateProject(targetServerId, req)
-                            database.withTransaction {
-                                val latest = database.outboxDao().findEventById(current.eventId)
-                                    ?: return@withTransaction
-                                if (latest.payload != current.payload) {
-                                    onPayloadSuperseded?.invoke()
-                                    return@withTransaction
-                                }
-                                database.projectDao().deleteById(current.localTargetId)
-                                database.projectDao().insert(updated.toCacheEntity())
-                                database.outboxDao().delete(latest)
-                            }
-                        } catch (e: APIException) {
-                            if (e.code == 404) {
-                                // 服务端已删：本地修改无处可去，与 DELETE 同口径收口。
-                                database.withTransaction {
-                                    database.projectDao().deleteById(current.localTargetId)
-                                    database.outboxDao().delete(current)
-                                }
-                            } else {
-                                throw e
-                            }
-                        }
-                    }
-                    "DELETE" -> {
-                        val current = database.outboxDao().findEventById(event.eventId) ?: return
-                        val targetServerId = current.serverTargetId
-                            ?: current.localTargetId.takeIf { it > 0 }
-                        if (targetServerId != null && targetServerId > 0) {
-                            try {
-                                apiClient.deleteProject(targetServerId)
-                            } catch (e: APIException) {
-                                if (e.code != 404) throw e
-                            }
-                        }
-                        database.withTransaction {
-                            database.projectDao().deleteById(current.localTargetId)
-                            if (targetServerId != null && targetServerId != current.localTargetId) {
-                                database.projectDao().deleteById(targetServerId)
-                            }
-                            database.outboxDao().delete(current)
-                        }
-                    }
-                    else -> database.outboxDao().delete(event)
-                }
-            }
-            "wish" -> {
-                when (event.action) {
-                    "CREATE" -> {
-                        if (event.localTargetId < -1 &&
-                            database.wishDao().getById(event.localTargetId) == null
-                        ) {
-                            database.outboxDao().delete(event)
-                            return
-                        }
-                        val sentPayload = event.payload
-                        val req = json.decodeFromString<CreateWishRequest>(sentPayload)
-                        val meta = ResponseMeta()
-                        val created = try {
-                            apiClient.createWish(req, meta = meta)
-                        } catch (e: APIException) {
-                            if (e.code == 410) {
-                                // OPT-08：软删重放契约——服务端该记录已被软删除，删除本地临时行并丢弃本 CREATE 事件
-                                database.withTransaction {
-                                    database.wishDao().deleteById(event.localTargetId)
-                                    database.outboxDao().delete(event)
-                                }
-                                return
-                            }
-                            throw e
-                        }
-
-                        // 软删墓碑兜底保护：若服务端返回已软删记录，删除本地临时行并消费事件
-                        if (created.deletedAt != null) {
-                            database.withTransaction {
-                                database.wishDao().deleteById(event.localTargetId)
-                                database.outboxDao().delete(event)
-                            }
-                            return
-                        }
-
-                        val outcome = finalizeSimpleCreate(
-                            event = event,
-                            sentPayload = sentPayload,
-                            serverId = created.id,
-                            serverMatchesSentPayload = req.matchesServer(created),
-                            onPayloadUnchanged = {
-                                // 飞行期间用户可能已经归册：服务端响应仍是 wanting，
-                                // 不能把它盖到本地 fulfilled / relinquished 状态上。
-                                val pendingResolve = database.outboxDao().findEventByTarget(
-                                    SimpleEntitySync.WISH, created.id, "RESOLVE"
-                                )
-                                val local = database.wishDao().getById(event.localTargetId)
-                                database.wishDao().deleteById(event.localTargetId)
-                                if (pendingResolve != null && local != null) {
-                                    database.wishDao().insert(local.copy(id = created.id))
-                                } else {
-                                    database.wishDao().insert(created.toCacheEntity(json))
-                                }
-                            },
-                            onPayloadChanged = {
-                                val local = database.wishDao().getById(event.localTargetId)
-                                database.wishDao().deleteById(event.localTargetId)
-                                database.wishDao().insert(
-                                    (local ?: req.toOfflineEntity(created.id)).copy(id = created.id)
-                                )
-                            }
-                        )
-                        when (outcome) {
-                            SimpleCreateOutcome.CANCELED -> {
-                                database.wishDao().deleteById(event.localTargetId)
-                                compensateCanceledSimpleCreate(SimpleEntitySync.WISH, created.id) {
-                                    apiClient.deleteWish(it)
-                                }
-                            }
-                            SimpleCreateOutcome.KEEP_LOCAL_AND_UPDATE -> onPayloadSuperseded?.invoke()
-                            SimpleCreateOutcome.INSERT_SERVER -> Unit
-                        }
-                    }
-                    "UPDATE" -> {
-                        val current = database.outboxDao().findEventById(event.eventId) ?: return
-                        val targetServerId = current.serverTargetId
-                            ?: current.localTargetId.takeIf { it > 0 }
-                        if (targetServerId == null || targetServerId <= 0) {
-                            if (database.wishDao().getById(current.localTargetId) == null) {
-                                database.outboxDao().delete(current)
-                            }
-                            return
-                        }
-                        try {
-                            val req = json.decodeFromString<CreateWishRequest>(current.payload)
-                            val updated = apiClient.updateWish(targetServerId, req)
-                            database.withTransaction {
-                                val latest = database.outboxDao().findEventById(current.eventId)
-                                    ?: return@withTransaction
-                                if (latest.payload != current.payload) {
-                                    onPayloadSuperseded?.invoke()
-                                    return@withTransaction
-                                }
-                                database.wishDao().deleteById(current.localTargetId)
-                                database.wishDao().insert(updated.toCacheEntity(json))
-                                database.outboxDao().delete(latest)
-                            }
-                        } catch (e: APIException) {
-                            if (e.code == 404) {
-                                database.withTransaction {
-                                    database.wishDao().deleteById(current.localTargetId)
-                                    database.outboxDao().delete(current)
-                                }
-                            } else {
-                                throw e
-                            }
-                        }
-                    }
-                    "RESOLVE" -> {
-                        val current = database.outboxDao().findEventById(event.eventId) ?: return
-                        val targetServerId = current.serverTargetId
-                            ?: current.localTargetId.takeIf { it > 0 }
-                        if (targetServerId == null || targetServerId <= 0) {
-                            // CREATE 还没成功：保留 RESOLVE，等换绑后再归册。
-                            if (database.wishDao().getById(current.localTargetId) == null) {
-                                database.outboxDao().delete(current)
-                            }
-                            return
-                        }
-                        try {
-                            val req = json.decodeFromString<ResolveWishRequest>(current.payload)
-                            val resolved = apiClient.resolveWish(targetServerId, req)
-                            database.withTransaction {
-                                val latest = database.outboxDao().findEventById(current.eventId)
-                                    ?: return@withTransaction
-                                if (latest.payload != current.payload) {
-                                    onPayloadSuperseded?.invoke()
-                                    return@withTransaction
-                                }
-                                database.wishDao().deleteById(current.localTargetId)
-                                database.wishDao().insert(resolved.toCacheEntity(json))
-                                database.outboxDao().delete(latest)
-                            }
-                        } catch (e: APIException) {
-                            if (e.code == 404) {
-                                database.withTransaction {
-                                    database.wishDao().deleteById(current.localTargetId)
-                                    database.outboxDao().delete(current)
-                                }
-                            } else {
-                                throw e
-                            }
-                        }
-                    }
-                    "DELETE" -> {
-                        val current = database.outboxDao().findEventById(event.eventId) ?: return
-                        val targetServerId = current.serverTargetId
-                            ?: current.localTargetId.takeIf { it > 0 }
-                        if (targetServerId != null && targetServerId > 0) {
-                            try {
-                                apiClient.deleteWish(targetServerId)
-                            } catch (e: APIException) {
-                                if (e.code != 404) throw e
-                            }
-                        }
-                        database.withTransaction {
-                            database.wishDao().deleteById(current.localTargetId)
-                            if (targetServerId != null && targetServerId != current.localTargetId) {
-                                database.wishDao().deleteById(targetServerId)
-                            }
-                            database.outboxDao().delete(current)
-                        }
-                    }
-                    else -> database.outboxDao().delete(event)
-                }
-            }
-            "footprint" -> {
-                when (event.action) {
-                    "CREATE" -> {
-                        if (event.localTargetId < -1 &&
-                            database.footprintDao().getById(event.localTargetId) == null
-                        ) {
-                            database.outboxDao().delete(event)
-                            return
-                        }
-                        val sentPayload = event.payload
-                        val req = json.decodeFromString<CreateFootprintRequest>(sentPayload)
-                        val meta = ResponseMeta()
-                        val created = try {
-                            apiClient.createFootprint(req, meta = meta)
-                        } catch (e: APIException) {
-                            if (e.code == 410) {
-                                // OPT-08：软删重放契约——服务端该记录已被软删除，删除本地临时行并丢弃本 CREATE 事件
-                                database.withTransaction {
-                                    database.footprintDao().deleteById(event.localTargetId)
-                                    database.outboxDao().delete(event)
-                                }
-                                return
-                            }
-                            throw e
-                        }
-
-                        // 软删墓碑兜底保护：若服务端返回已软删记录，删除本地临时行并消费事件
-                        if (created.deletedAt != null) {
-                            database.withTransaction {
-                                database.footprintDao().deleteById(event.localTargetId)
-                                database.outboxDao().delete(event)
-                            }
-                            return
-                        }
-
-                        val outcome = finalizeSimpleCreate(
-                            event = event,
-                            sentPayload = sentPayload,
-                            serverId = created.id,
-                            serverMatchesSentPayload = req.matchesServer(created),
-                            onPayloadUnchanged = {
-                                database.footprintDao().deleteById(event.localTargetId)
-                                database.footprintDao().insert(created.toCacheEntity(json))
-                            },
-                            onPayloadChanged = {
-                                val local = database.footprintDao().getById(event.localTargetId)
-                                database.footprintDao().deleteById(event.localTargetId)
-                                database.footprintDao().insert(
-                                    (local ?: req.toOfflineEntity(created.id)).copy(id = created.id)
-                                )
-                            }
-                        )
-                        when (outcome) {
-                            SimpleCreateOutcome.CANCELED -> {
-                                database.footprintDao().deleteById(event.localTargetId)
-                                compensateCanceledSimpleCreate(SimpleEntitySync.FOOTPRINT, created.id) {
-                                    apiClient.deleteFootprint(it)
-                                }
-                            }
-                            SimpleCreateOutcome.KEEP_LOCAL_AND_UPDATE -> onPayloadSuperseded?.invoke()
-                            SimpleCreateOutcome.INSERT_SERVER -> Unit
-                        }
-                    }
-                    "UPDATE" -> {
-                        val current = database.outboxDao().findEventById(event.eventId) ?: return
-                        val targetServerId = current.serverTargetId
-                            ?: current.localTargetId.takeIf { it > 0 }
-                        if (targetServerId == null || targetServerId <= 0) {
-                            if (database.footprintDao().getById(current.localTargetId) == null) {
-                                database.outboxDao().delete(current)
-                            }
-                            return
-                        }
-                        try {
-                            val req = json.decodeFromString<CreateFootprintRequest>(current.payload)
-                            val updated = apiClient.updateFootprint(targetServerId, req)
-                            database.withTransaction {
-                                val latest = database.outboxDao().findEventById(current.eventId)
-                                    ?: return@withTransaction
-                                if (latest.payload != current.payload) {
-                                    onPayloadSuperseded?.invoke()
-                                    return@withTransaction
-                                }
-                                database.footprintDao().deleteById(current.localTargetId)
-                                database.footprintDao().insert(updated.toCacheEntity(json))
-                                database.outboxDao().delete(latest)
-                            }
-                        } catch (e: APIException) {
-                            if (e.code == 404) {
-                                database.withTransaction {
-                                    database.footprintDao().deleteById(current.localTargetId)
-                                    database.outboxDao().delete(current)
-                                }
-                            } else {
-                                throw e
-                            }
-                        }
-                    }
-                    "DELETE" -> {
-                        val current = database.outboxDao().findEventById(event.eventId) ?: return
-                        val targetServerId = current.serverTargetId
-                            ?: current.localTargetId.takeIf { it > 0 }
-                        if (targetServerId != null && targetServerId > 0) {
-                            try {
-                                apiClient.deleteFootprint(targetServerId)
-                            } catch (e: APIException) {
-                                if (e.code != 404) throw e
-                            }
-                        }
-                        database.withTransaction {
-                            database.footprintDao().deleteById(current.localTargetId)
-                            if (targetServerId != null && targetServerId != current.localTargetId) {
-                                database.footprintDao().deleteById(targetServerId)
-                            }
-                            database.outboxDao().delete(current)
-                        }
-                    }
-                    else -> database.outboxDao().delete(event)
-                }
-            }
+            "media_entry" -> mediaCoordinator.replayOutboxEvent(event)
+            SimpleEntitySync.PROJECT -> projectSync.replayOutboxEvent(event, onPayloadSuperseded)
+            SimpleEntitySync.WISH -> wishSync.replayOutboxEvent(event, onPayloadSuperseded)
+            SimpleEntitySync.FOOTPRINT -> footprintSync.replayOutboxEvent(event, onPayloadSuperseded)
             else -> {
                 // 未知事件类型不再静默删除：标记失败并保留原始载荷，交给用户处置
                 database.outboxDao().markFailed(
@@ -2969,23 +1744,6 @@ fun LifeEntry.toCacheEntity(localId: Long, json: Json): CachedEntryEntity = Cach
     syncStatus = SyncManager.STATUS_SYNCED,
     createdAt = createdAt ?: occurredAt
 )
-
-/**
- * 把媒体 CREATE 的待上传文件收窄到编辑弹窗的当前选择。
- *
- * 本地相纸的 [Attachment.objectKey] 形如 `local_outbox/<file.name>`，
- * 负 id 表示尚未上传；按文件名与 [OfflineMediaFileItem.filePath] 对应。
- */
-internal fun selectMediaFiles(
-    files: List<OfflineMediaFileItem>,
-    selected: List<Attachment>
-): List<OfflineMediaFileItem> {
-    val keptNames = selected
-        .filter { it.id < 0 }
-        .map { it.objectKey.substringAfterLast('/') }
-        .toSet()
-    return files.filter { File(it.filePath).name in keptNames }
-}
 
 fun Project.toCacheEntity(): CachedProjectEntity = CachedProjectEntity(
     id = id,

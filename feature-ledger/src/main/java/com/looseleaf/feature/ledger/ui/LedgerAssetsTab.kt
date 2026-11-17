@@ -24,8 +24,8 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.ArchiveTypeScale
-import com.looseleaf.app.ui.components.ArchiveGearRow
-import com.looseleaf.feature.ledger.theme.LedgerFormat
+import com.looseleaf.app.ui.components.*
+import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.feature.ledger.theme.LedgerTheme
 
 /**
@@ -46,7 +46,6 @@ internal fun AssetsAndGearTab(
     onCalibrateBalanceClick: () -> Unit,
     onAddGearClick: () -> Unit,
     onSellGearClick: (GearItem) -> Unit,
-    onManageChannelsClick: () -> Unit,
     onNewInstallmentClick: () -> Unit = {},
     onPlanClick: (InstallmentPlanItemSummary) -> Unit = {},
     /** 从展台「随行装备」跳进来时要定位的器物（RG-30） */
@@ -77,9 +76,9 @@ internal fun AssetsAndGearTab(
                 .padding(16.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                LedgerSkeleton(modifier = Modifier.fillMaxWidth().height(140.dp))
-                LedgerSkeleton(modifier = Modifier.fillMaxWidth().height(100.dp))
-                LedgerSkeleton(modifier = Modifier.fillMaxWidth().height(160.dp))
+                ArchiveSkeleton(modifier = Modifier.fillMaxWidth().height(140.dp))
+                ArchiveSkeleton(modifier = Modifier.fillMaxWidth().height(100.dp))
+                ArchiveSkeleton(modifier = Modifier.fillMaxWidth().height(160.dp))
             }
         }
         return
@@ -103,7 +102,7 @@ internal fun AssetsAndGearTab(
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
             ) {
-                SectionHeader(
+                ArchiveSectionHeader(
                     title = "净资产总览",
                     actionText = "校准余额",
                     onActionClick = onCalibrateBalanceClick
@@ -112,7 +111,7 @@ internal fun AssetsAndGearTab(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = if (isPrivacyMasked) "¥ ••••" else LedgerFormat.formatMoney(ov.netWorth),
+                    text = if (isPrivacyMasked) "¥ ••••" else FormatUtils.formatMoney(ov.netWorth),
                     style = TextStyle(
                         fontFamily = ArchiveFontFamilies.MonoScale,
                         fontWeight = FontWeight.Bold,
@@ -125,7 +124,7 @@ internal fun AssetsAndGearTab(
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
-                LedgerDivider()
+                ArchiveDivider()
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Row(
@@ -146,7 +145,7 @@ internal fun AssetsAndGearTab(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(ov.liquidBalance),
+                            text = if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(ov.liquidBalance),
                             style = TextStyle(
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontWeight = FontWeight.SemiBold,
@@ -172,7 +171,7 @@ internal fun AssetsAndGearTab(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(ov.fixedAssets),
+                            text = if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(ov.fixedAssets),
                             style = TextStyle(
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontWeight = FontWeight.SemiBold,
@@ -198,7 +197,7 @@ internal fun AssetsAndGearTab(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(ov.totalLiabilities),
+                            text = if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(ov.totalLiabilities),
                             style = TextStyle(
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontWeight = FontWeight.SemiBold,
@@ -213,7 +212,7 @@ internal fun AssetsAndGearTab(
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
-                LedgerDivider()
+                ArchiveDivider()
             }
         }
 
@@ -224,7 +223,7 @@ internal fun AssetsAndGearTab(
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
             ) {
-                SectionHeader(
+                ArchiveSectionHeader(
                     title = "分期负债",
                     actionText = "+ 新建",
                     onActionClick = onNewInstallmentClick
@@ -256,7 +255,7 @@ internal fun AssetsAndGearTab(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(ov.totalLiabilities),
+                            text = if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(ov.totalLiabilities),
                             style = TextStyle(
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontWeight = FontWeight.SemiBold,
@@ -282,7 +281,7 @@ internal fun AssetsAndGearTab(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(ov.monthlyLiabilities),
+                            text = if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(ov.monthlyLiabilities),
                             style = TextStyle(
                                 fontFamily = ArchiveFontFamilies.MonoScale,
                                 fontWeight = FontWeight.SemiBold,
@@ -336,7 +335,7 @@ internal fun AssetsAndGearTab(
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
             ) {
-                SectionHeader(
+                ArchiveSectionHeader(
                     title = "装备 ${ov.gearSummary.items.size}",
                     actionText = "+ 添加",
                     onActionClick = onAddGearClick
@@ -355,7 +354,7 @@ internal fun AssetsAndGearTab(
                 } else {
                     ov.gearSummary.items.forEachIndexed { idx, gear ->
                         if (idx > 0) {
-                            LedgerDivider()
+                            ArchiveDivider()
                         }
                         // 从展台跳进来时高亮目标器物，用户滚到装备区一眼能看到
                         val isFocused = focusGearId != null && gear.id == focusGearId
@@ -375,7 +374,7 @@ internal fun AssetsAndGearTab(
                                 trailingText = if (isPrivacyMasked) {
                                     "••••"
                                 } else {
-                                    gear.priceCents?.let { LedgerFormat.formatMoney(it) } ?: "—"
+                                    gear.priceCents?.let { FormatUtils.formatMoney(it) } ?: "—"
                                 },
                                 trailingColor = colors.textPrimary,
                                 showShortDateInSubtitle = true,
@@ -389,7 +388,7 @@ internal fun AssetsAndGearTab(
     }
 
     if (showInstallmentOverviewSheet) {
-        LedgerSheet(
+        ArchiveSheet(
             onDismissRequest = { showInstallmentOverviewSheet = false },
             title = "分期与信贷明细",
             cancelText = "关闭"
@@ -401,13 +400,12 @@ internal fun AssetsAndGearTab(
                     .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 顶部操作栏：新建分期
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Start,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    LedgerTextButton(
+                    ArchiveTextButton(
                         text = "新建分期",
                         onClick = {
                             showInstallmentOverviewSheet = false
@@ -416,7 +414,7 @@ internal fun AssetsAndGearTab(
                     )
                 }
 
-                LedgerDivider()
+                ArchiveDivider()
 
                 if (installmentPlans.isEmpty()) {
                     Text(
@@ -480,7 +478,7 @@ internal fun AssetsAndGearTab(
 
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    text = if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(plan.remainingPrincipal),
+                                    text = if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(plan.remainingPrincipal),
                                     fontFamily = ArchiveFontFamilies.MonoScale,
                                     fontSize = ArchiveTypeScale.body,
                                     fontWeight = FontWeight.SemiBold,
@@ -488,14 +486,14 @@ internal fun AssetsAndGearTab(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "本期: ${if (isPrivacyMasked) "••••" else LedgerFormat.formatMoney(plan.nextTotal)}",
+                                    text = "本期: ${if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(plan.nextTotal)}",
                                     fontFamily = ArchiveFontFamilies.MonoScale,
                                     fontSize = ArchiveTypeScale.caption,
                                     color = colors.textSecondary
                                 )
                             }
                         }
-                        LedgerDivider()
+                        ArchiveDivider()
                     }
                 }
             }

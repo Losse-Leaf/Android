@@ -225,12 +225,11 @@ class OutboxSyncWorker(
             }
 
             // MOB-P1-03: 同步排空独立账本数据库 (looseleaf_ledger.db) 发件箱
-            runCatching {
-                val ledgerDb = com.looseleaf.feature.ledger.data.LedgerDatabase.getInstance(applicationContext)
-                if (ledgerDb.outboxDao().countPendingEvents() > 0) {
-                    val ledgerResult = com.looseleaf.feature.ledger.data.LedgerRepository.pullLedgerData()
-                    if (ledgerResult.isFailure) anyFailed = true
-                }
+            val ledgerOk = runCatching {
+                com.looseleaf.feature.ledger.LedgerModule.syncTransactions(onlyIfPending = true)
+            }.getOrDefault(false)
+            if (!ledgerOk) {
+                anyFailed = true
             }
 
             // 只要还有**可重试**的失败事件就整体退避重试（WorkManager 会按指数退避再跑一轮）。

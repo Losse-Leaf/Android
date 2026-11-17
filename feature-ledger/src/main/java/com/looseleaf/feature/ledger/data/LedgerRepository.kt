@@ -7,8 +7,10 @@ import com.looseleaf.app.data.api.APIException
 import com.looseleaf.app.data.api.ResponseMeta
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.model.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
@@ -23,11 +25,11 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
-val DefaultExpenseCategories = listOf("餐饮", "交通", "购物", "娱乐", "住房", "学习", "医疗", "其他")
-val DefaultIncomeCategories = listOf("薪资", "奖金", "二手回血", "稿费与创作", "投资收益", "其他收入")
-val DefaultPaymentMethods = listOf("微信支付", "支付宝", "银行卡", "现金")
+internal val DefaultExpenseCategories = listOf("餐饮", "交通", "购物", "娱乐", "住房", "学习", "医疗", "其他")
+internal val DefaultIncomeCategories = listOf("薪资", "奖金", "二手回血", "稿费与创作", "投资收益", "其他收入")
+internal val DefaultPaymentMethods = listOf("微信支付", "支付宝", "银行卡", "现金")
 
-data class LedgerSnapshot(
+internal data class LedgerSnapshot(
     val expenseCategories: List<String> = DefaultExpenseCategories,
     val incomeCategories: List<String> = DefaultIncomeCategories,
     val paymentMethods: List<String> = DefaultPaymentMethods,
@@ -39,19 +41,32 @@ data class LedgerSnapshot(
     val isLoadingAssets: Boolean = false
 )
 
-data class LedgerDeleteUndoTicket(
+internal data class LedgerDeleteUndoTicket(
     val entity: CachedTransactionEntity,
     val pendingUpdatePayload: String? = null
+)
+
+internal data class FlushOutcome(
+    val hasPushed: Boolean,
+    val hasTransientFailure: Boolean,
+    val isUnauthorized: Boolean = false
 )
 
 /**
  * 账本核心仓储与数据管理中心 (LedgerRepository)
  * 独立管理 looseleaf_ledger.db、分类字典缓存、分期渠道、资产大盘与同步链路。
  */
-object LedgerRepository {
+internal object LedgerRepository {
 
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    internal const val MAX_RETRY = 10
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+        encodeDefaults = false
+    }
     private val syncMutex = Mutex()
+    private val repoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
     private var appContext: Context? = null
@@ -81,7 +96,7 @@ object LedgerRepository {
         appContext = context.applicationContext
         customCredentialStore = credentialStore
         customApiClient = apiClient
-        CoroutineScope(Dispatchers.IO).launch {
+        repoScope.launch {
             runCatching {
                 val db = LedgerDatabase.getInstance(context.applicationContext)
                 db.transactionDao().deleteSyncedShadowsOfPending()
@@ -159,8 +174,8 @@ object LedgerRepository {
     var onScheduleSyncListener: (() -> Unit)? = null
 
     fun scheduleOutboxFlush() {
-        val ctx = appContext ?: return
-        CoroutineScope(Dispatchers.IO).launch {
+        appContext ?: return
+        repoScope.launch {
             runCatching {
                 pullLedgerData()
             }
@@ -177,22 +192,6 @@ object LedgerRepository {
         return db.transactionDao().getTransactionsInRangeFlow(range.startIso, range.endIso)
             .catch { emit(emptyList()) }
             .map { entities -> entities.map { it.toDomainModel() }.distinctBy { it.id } }
-            .distinctUntilChanged()
-            .flowOn(Dispatchers.Default)
-    }
-
-    fun monthlyTotalsFlow(range: MonthRange): Flow<MonthlyTotalsRow> {
-        val db = appContext?.let { LedgerDatabase.getInstance(it) } ?: return flowOf(MonthlyTotalsRow())
-        return db.transactionDao().getMonthlyTotalsFlow(range.startIso, range.endIso)
-            .catch { emit(MonthlyTotalsRow()) }
-            .distinctUntilChanged()
-            .flowOn(Dispatchers.Default)
-    }
-
-    fun monthlyCategoryTotalsFlow(range: MonthRange): Flow<List<CategoryTotalRow>> {
-        val db = appContext?.let { LedgerDatabase.getInstance(it) } ?: return flowOf(emptyList())
-        return db.transactionDao().getMonthlyCategoryTotalsFlow(range.startIso, range.endIso)
-            .catch { emit(emptyList()) }
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default)
     }
@@ -443,75 +442,35 @@ object LedgerRepository {
         val nowIso = Instant.now().toString()
 
         db.withTransaction {
-            if (serverId != null && serverId > 0) {
-                val pendingDelete = db.outboxDao().findEventByTarget(entity.localId, "DELETE")
-                if (pendingDelete != null) {
-                    // DELETE 事件仍在发件箱中：撤销事件
-                    db.outboxDao().deleteByEventId(pendingDelete.eventId)
-                    if (ticket.pendingUpdatePayload != null) {
-                        // P1-1: 撤销删除时保留未同步编辑，恢复为 PENDING_UPDATE 并重新入队 UPDATE 事件
-                        db.transactionDao().update(entity.copy(syncStatus = "PENDING_UPDATE"))
-                        val clientRequestId = UUID.randomUUID().toString()
-                        val sequence = db.outboxDao().getNextSequence()
-                        db.outboxDao().insert(
-                            LedgerOutboxEventEntity(
-                                eventId = UUID.randomUUID().toString(),
-                                action = "UPDATE",
-                                payload = ticket.pendingUpdatePayload,
-                                localTargetId = entity.localId,
-                                serverTargetId = serverId,
-                                clientRequestId = clientRequestId,
-                                sequence = sequence,
-                                enqueuedAt = nowIso
-                            )
-                        )
-                    } else {
-                        db.transactionDao().update(entity.copy(syncStatus = "SYNCED"))
-                    }
-                } else {
-                    // 远端已物理删除，需以 PENDING_CREATE 重新建账
-                    val newLocalId = db.transactionDao().insert(
-                        entity.copy(localId = 0, serverId = null, syncStatus = "PENDING_CREATE")
-                    )
+            val pendingDelete = if (serverId != null && serverId > 0) {
+                db.outboxDao().findEventByTarget(entity.localId, "DELETE")
+            } else null
+
+            if (pendingDelete != null && serverId != null && serverId > 0) {
+                // DELETE 事件仍在发件箱中：撤销事件
+                db.outboxDao().deleteByEventId(pendingDelete.eventId)
+                if (ticket.pendingUpdatePayload != null) {
+                    // P1-1: 撤销删除时保留未同步编辑，恢复为 PENDING_UPDATE 并重新入队 UPDATE 事件
+                    db.transactionDao().update(entity.copy(syncStatus = "PENDING_UPDATE"))
                     val clientRequestId = UUID.randomUUID().toString()
                     val sequence = db.outboxDao().getNextSequence()
-                    val parsedUpdateReq = ticket.pendingUpdatePayload?.let {
-                        runCatching { json.decodeFromString<CreateTransactionRequest>(it) }.getOrNull()
-                    }
-                    val createReq = parsedUpdateReq?.copy(clientRequestId = clientRequestId) ?: CreateTransactionRequest(
-                        amount = entity.amount,
-                        type = entity.type,
-                        category = entity.category,
-                        title = entity.title,
-                        note = entity.note,
-                        paymentMethod = entity.paymentMethod,
-                        occurredAt = entity.occurredAt,
-                        cityCode = entity.cityCode,
-                        wishId = entity.wishId,
-                        footprintId = entity.footprintId,
-                        isInstallment = entity.isInstallment,
-                        installmentChannelCode = entity.installmentChannelCode,
-                        installmentTotalAmount = entity.installmentTotalAmount,
-                        installmentMonths = entity.installmentMonths,
-                        installmentMonthlyPay = entity.installmentMonthlyPay,
-                        repaymentDay = entity.repaymentDay,
-                        clientRequestId = clientRequestId
-                    )
                     db.outboxDao().insert(
                         LedgerOutboxEventEntity(
                             eventId = UUID.randomUUID().toString(),
-                            action = "CREATE",
-                            payload = json.encodeToString(createReq),
-                            localTargetId = newLocalId,
-                            serverTargetId = null,
+                            action = "UPDATE",
+                            payload = ticket.pendingUpdatePayload,
+                            localTargetId = entity.localId,
+                            serverTargetId = serverId,
                             clientRequestId = clientRequestId,
                             sequence = sequence,
                             enqueuedAt = nowIso
                         )
                     )
+                } else {
+                    db.transactionDao().update(entity.copy(syncStatus = "SYNCED"))
                 }
             } else {
-                // 本地新增条目撤销删除：重新插回本地并入队 CREATE
+                // 本地新增条目撤销删除，或远端已物理删除需重新建账：重新插回本地并入队 CREATE
                 val newLocalId = db.transactionDao().insert(
                     entity.copy(localId = 0, serverId = null, syncStatus = "PENDING_CREATE")
                 )
@@ -531,7 +490,7 @@ object LedgerRepository {
                     cityCode = entity.cityCode,
                     wishId = entity.wishId,
                     footprintId = entity.footprintId,
-                    isInstallment = entity.isInstallment,
+                    isInstallment = entity.isInstallment.takeIf { it },
                     installmentChannelCode = entity.installmentChannelCode,
                     installmentTotalAmount = entity.installmentTotalAmount,
                     installmentMonths = entity.installmentMonths,
@@ -576,7 +535,22 @@ object LedgerRepository {
 
     // ──────────────────────────── 接口并行拉取、增量游标与数据同步 ────────────────────────────
 
-    suspend fun pullLedgerData(force: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
+    /**
+     * 后台同步入口：返回 true 表示账本同步完成且不存在待重试的临时推送失败；
+     * 返回 false 表示仍有临时网络 / 服务端故障，调用方（如 OutboxSyncWorker）应返回 Result.retry()。
+     */
+    suspend fun syncTransactions(force: Boolean = false, onlyIfPending: Boolean = false): Boolean {
+        if (onlyIfPending && pendingOutboxCount() == 0) return true
+        return pullLedgerData(force = force).fold(
+            onSuccess = { noTransientFailure -> noTransientFailure },
+            onFailure = { err ->
+                if (err is CancellationException) throw err
+                (err as? APIException)?.code == 401
+            }
+        )
+    }
+
+    suspend fun pullLedgerData(force: Boolean = false): Result<Boolean> = withContext(Dispatchers.IO) {
         syncMutex.withLock {
             runCatching {
                 val api = getApiClient()
@@ -589,11 +563,14 @@ object LedgerRepository {
                     lastMetadataRefreshTime = now
                 }
 
-                val db = appContext?.let { LedgerDatabase.getInstance(it) } ?: return@runCatching
+                val db = appContext?.let { LedgerDatabase.getInstance(it) } ?: return@runCatching true
 
                 // 2. 推送待发事件
-                val hasPushed = flushOutbox(db, api)
-                if (hasPushed) {
+                val flushOutcome = flushOutbox(db, api)
+                if (flushOutcome.isUnauthorized) {
+                    throw APIException(401, "设备凭据已失效")
+                }
+                if (flushOutcome.hasPushed) {
                     refreshAll(api, force = true)
                     lastMetadataRefreshTime = System.currentTimeMillis()
                 }
@@ -716,6 +693,11 @@ object LedgerRepository {
                 // 4. 清理超过 7 天的发件箱死信（与主库策略对齐）
                 val sevenDaysAgo = Instant.now().minus(java.time.Duration.ofDays(7)).toString()
                 db.outboxDao().cleanExpiredFailedEvents(sevenDaysAgo)
+
+                !flushOutcome.hasTransientFailure
+            }.also { res ->
+                val ex = res.exceptionOrNull()
+                if (ex is CancellationException) throw ex
             }
         }
     }
@@ -950,9 +932,11 @@ object LedgerRepository {
      * 写入完成在 Room 事务内重新比对事件载荷（Check-Then-Act），杜绝同步期间编辑静默丢弃；
      * 对网络与 5xx 故障实施退避重试，4xx 错误进入死信。
      */
-    internal suspend fun flushOutbox(db: LedgerDatabase, api: APIClient): Boolean {
+    internal suspend fun flushOutbox(db: LedgerDatabase, api: APIClient): FlushOutcome {
         val events = db.outboxDao().getAllPendingEvents()
         var hasPushed = false
+        var hasTransientFailure = false
+        var isUnauthorized = false
         val now = Instant.now()
 
         for (event in events) {
@@ -1004,19 +988,14 @@ object LedgerRepository {
                             }
                             if (latest.payload != event.payload) {
                                 // P0-1 竞态保护：飞行期间用户再次编辑了该条目
-                                // 服务端已按旧载荷与 client_request_id 创建了记录 (created.id)
-                                // 绑定返回的 serverId 到本地行，保持本地状态为 PENDING_UPDATE
                                 db.transactionDao().bindServerId(event.localTargetId, created.id)
                                 db.transactionDao().updateSyncStatus(event.localTargetId, "PENDING_UPDATE")
                                 db.outboxDao().bindServerId(event.localTargetId, created.id)
-                                // 将原 CREATE 事件删除，替换为一条新的 UPDATE 事件，载荷为最新编辑内容
                                 promoteCreateToUpdate(db, latest, created.id, latest.payload)
                             } else if (localEntity != null &&
                                 localEntity.syncStatus != "SYNCED" &&
                                 (createMeta.isIdempotentReplay || !transactionsHaveSameContent(localEntity.toDomainModel(), created))
                             ) {
-                                // P0-1 / OPT-08：重试命中幂等键或内容不一致，服务端返回的是旧载荷落库结果，
-                                // 而本地在重试前已有新编辑 ⇒ 保留本地内容并升级为 UPDATE
                                 if (!transactionsHaveSameContent(localEntity.toDomainModel(), created)) {
                                     db.transactionDao().bindServerId(event.localTargetId, created.id)
                                     db.transactionDao().updateSyncStatus(event.localTargetId, "PENDING_UPDATE")
@@ -1044,12 +1023,10 @@ object LedgerRepository {
                             val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
                             val updated = try {
                                 api.updateTransaction(serverId, req)
-                            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                                val apiEx = e as? APIException
-                                val msg = e.message ?: ""
-                                if (apiEx?.code == 404 || msg.contains("404") || msg.contains("不存在")) {
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                if ((e as? APIException)?.code == 404) {
                                     // P1-2: 远端该记录已不存在，清理本地行与事件避免永久卡死
                                     db.withTransaction {
                                         db.transactionDao().deleteByLocalId(event.localTargetId)
@@ -1067,7 +1044,6 @@ object LedgerRepository {
                                 }
                                 if (latest.payload != event.payload) {
                                     // P0-1 竞态保护：飞行期间用户再次编辑了该条目
-                                    // 不 markSynced、不删事件，下一轮循环将重发最新载荷
                                     return@withTransaction
                                 }
                                 db.transactionDao().markSynced(event.localTargetId, serverId, updated.updatedAt)
@@ -1087,13 +1063,10 @@ object LedgerRepository {
                         if (serverId != null && serverId > 0) {
                             try {
                                 api.deleteTransaction(serverId)
-                            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                                val msg = e.message ?: ""
-                                if (msg.contains("404") || msg.contains("不存在") || msg.contains("已被删除")) {
-                                    // 远端已删除或不存在，视为成功
-                                } else {
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                if ((e as? APIException)?.code != 404) {
                                     throw e
                                 }
                             }
@@ -1110,32 +1083,70 @@ object LedgerRepository {
                         }
                     }
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
+            } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                val apiEx = e as? APIException
-                val code = apiEx?.code ?: -1
-                val errorMsg = e.message ?: "Unknown sync error"
-
-                when {
-                    code == 401 -> {
-                        // 鉴权失败：暂停本次队列处理，等待重配对
+                when (handleOutboxExceptionInternal(db, event, e, now)) {
+                    OutboxErrorResult.STOP_UNAUTHORIZED -> {
+                        isUnauthorized = true
                         break
                     }
-                    code in 400..499 && code != 408 && code != 429 -> {
-                        // 客户端业务/参数致命错误：记录死信
-                        db.outboxDao().markFailed(event.eventId, now.toString(), errorMsg)
+                    OutboxErrorResult.TRANSIENT_RETRY -> {
+                        hasTransientFailure = true
                     }
-                    else -> {
-                        // 网络抖动、5xx 服务端错误或 429 限流：执行指数退避重试，不记入死信
-                        val backoffSeconds = calculateExponentialBackoff(event.retryCount)
-                        val nextRetryTime = now.plusSeconds(backoffSeconds).toString()
-                        db.outboxDao().scheduleRetry(event.eventId, nextRetryTime, errorMsg)
-                    }
+                    OutboxErrorResult.PERMANENT_FAILURE -> Unit
                 }
             }
         }
-        return hasPushed
+        return FlushOutcome(
+            hasPushed = hasPushed,
+            hasTransientFailure = hasTransientFailure,
+            isUnauthorized = isUnauthorized
+        )
+    }
+
+    private enum class OutboxErrorResult { STOP_UNAUTHORIZED, PERMANENT_FAILURE, TRANSIENT_RETRY }
+
+    internal suspend fun handleOutboxException(
+        db: LedgerDatabase,
+        event: LedgerOutboxEventEntity,
+        e: Exception,
+        now: Instant = Instant.now()
+    ): Boolean {
+        val res = handleOutboxExceptionInternal(db, event, e, now)
+        return res == OutboxErrorResult.TRANSIENT_RETRY
+    }
+
+    private suspend fun handleOutboxExceptionInternal(
+        db: LedgerDatabase,
+        event: LedgerOutboxEventEntity,
+        e: Exception,
+        now: Instant
+    ): OutboxErrorResult {
+        val code = (e as? APIException)?.code ?: -1
+        val errorMsg = e.message ?: "Unknown sync error"
+
+        if (code == 401) {
+            return OutboxErrorResult.STOP_UNAUTHORIZED
+        }
+
+        val isPermanentClientError = code in 400..499 && code != 408 && code != 429
+        val exhausted = event.retryCount + 1 >= MAX_RETRY
+
+        return if (isPermanentClientError || exhausted) {
+            val formatted = buildString {
+                if (code > 0 && !errorMsg.startsWith("[$code]")) append("[$code] ")
+                append(errorMsg)
+                if (exhausted && !isPermanentClientError) append("（已重试 $MAX_RETRY 次）")
+            }
+            db.outboxDao().markPermanentFailure(event.eventId, now.toString(), formatted)
+            OutboxErrorResult.PERMANENT_FAILURE
+        } else {
+            val backoffSeconds = calculateExponentialBackoff(event.retryCount)
+            val nextRetryTime = now.plusSeconds(backoffSeconds).toString()
+            db.outboxDao().scheduleRetry(event.eventId, nextRetryTime, errorMsg)
+            OutboxErrorResult.TRANSIENT_RETRY
+        }
     }
 
     private fun calculateExponentialBackoff(retryCount: Int): Long {

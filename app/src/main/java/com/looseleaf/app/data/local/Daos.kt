@@ -25,9 +25,6 @@ data class DayCountRow(
 @Dao
 interface EntryDao {
     @Query("SELECT * FROM cached_entries WHERE sync_status != 'PENDING_DELETE' ORDER BY occurred_at DESC")
-    fun getAllEntriesFlow(): Flow<List<CachedEntryEntity>>
-
-    @Query("SELECT * FROM cached_entries WHERE sync_status != 'PENDING_DELETE' ORDER BY occurred_at DESC")
     suspend fun getAllEntries(): List<CachedEntryEntity>
 
     /**

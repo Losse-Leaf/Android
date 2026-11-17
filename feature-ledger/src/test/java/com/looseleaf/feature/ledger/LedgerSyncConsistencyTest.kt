@@ -763,4 +763,47 @@ class LedgerSyncConsistencyTest {
         assertEquals("UPDATE", reEnqueuedUpdate.action)
         assertEquals(updatePayload, reEnqueuedUpdate.payload)
     }
+
+    @Test
+    fun `账本发件箱瞬态异常超过10次后转入永久死信不再无限重试`() = runBlocking {
+        val outboxDao = db.outboxDao()
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = "evt_retry_cap",
+                action = "CREATE",
+                payload = """{"amount":1200,"category":"餐饮","title":"早餐"}""",
+                localTargetId = 1L,
+                clientRequestId = "crid_retry_cap",
+                sequence = 1L,
+                retryCount = 8,
+                enqueuedAt = "2026-11-18T08:00:00+08:00"
+            )
+        )
+
+        val t0 = java.time.Instant.parse("2026-11-18T00:00:00Z")
+        val evt8 = outboxDao.findActiveEventById("evt_retry_cap")!!
+        val isTransient9 = com.looseleaf.feature.ledger.data.LedgerRepository.handleOutboxException(
+            db = db,
+            event = evt8,
+            e = java.io.IOException("network timeout"),
+            now = t0
+        )
+        assertTrue(isTransient9)
+        assertEquals(1, outboxDao.countPendingEvents())
+        assertEquals(0, outboxDao.getFailedEvents().size)
+
+        val evt9 = outboxDao.getAllPendingEvents(t0.plusSeconds(1000).toString()).single()
+        assertEquals(9, evt9.retryCount)
+        val isTransient10 = com.looseleaf.feature.ledger.data.LedgerRepository.handleOutboxException(
+            db = db,
+            event = evt9,
+            e = java.io.IOException("network timeout again"),
+            now = t0.plusSeconds(1000)
+        )
+        assertFalse(isTransient10)
+        assertEquals(0, outboxDao.countPendingEvents())
+        val failed = outboxDao.getFailedEvents()
+        assertEquals(1, failed.size)
+        assertEquals("evt_retry_cap", failed.single().eventId)
+    }
 }

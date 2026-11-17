@@ -5,11 +5,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -18,8 +19,11 @@ import androidx.compose.ui.window.DialogProperties
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.updater.ReleaseInfo
+import com.looseleaf.app.updater.UpdateChecker
 import androidx.compose.ui.res.stringResource
 import com.looseleaf.app.R
+import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * 散页自研新版发布笺纸对话框 (ArchiveReleaseDialog)
@@ -194,4 +198,79 @@ fun ArchiveReleaseDialog(
             }
         }
     }
+}
+
+class AppUpdateDownloadState(
+    val isDownloading: Boolean,
+    val downloadProgress: Float,
+    val downloadedFile: File?,
+    val startDownloadAndInstall: () -> Unit,
+    val installDownloaded: () -> Unit
+)
+
+@Composable
+fun rememberAppUpdateController(release: ReleaseInfo): AppUpdateDownloadState {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var downloadProgress by remember(release.tagName) { mutableFloatStateOf(0f) }
+    var isDownloading by remember(release.tagName) { mutableStateOf(false) }
+    var downloadedFile by remember(release.tagName) { mutableStateOf<File?>(null) }
+
+    val installApkWithFeedback: (File) -> Unit = { file ->
+        if (!UpdateChecker.installApk(context, file)) {
+            ArchiveToastManager.show(
+                "安装包签名与已装版本不一致，需先做服务端备份再卸载重装",
+                isError = true
+            )
+        }
+    }
+
+    return AppUpdateDownloadState(
+        isDownloading = isDownloading,
+        downloadProgress = downloadProgress,
+        downloadedFile = downloadedFile,
+        startDownloadAndInstall = {
+            if (!isDownloading) {
+                scope.launch {
+                    isDownloading = true
+                    val res = UpdateChecker.downloadApkStream(
+                        context = context,
+                        apkUrl = release.apkUrl,
+                        versionName = release.versionName,
+                        expectedSha256 = release.apkSha256
+                    ) { p, _, _ ->
+                        downloadProgress = p
+                    }
+                    isDownloading = false
+                    res.onSuccess { f ->
+                        downloadedFile = f
+                        installApkWithFeedback(f)
+                    }.onFailure { err ->
+                        ArchiveToastManager.show("下载失败: ${err.message}", isError = true)
+                    }
+                }
+            }
+        },
+        installDownloaded = {
+            downloadedFile?.let(installApkWithFeedback)
+        }
+    )
+}
+
+@Composable
+fun AppUpdateDialogHost(
+    release: ReleaseInfo?,
+    onDismiss: () -> Unit
+) {
+    val activeRelease = release ?: return
+    val controller = rememberAppUpdateController(activeRelease)
+    ArchiveReleaseDialog(
+        release = activeRelease,
+        isDownloading = controller.isDownloading,
+        downloadProgress = if (controller.isDownloading) controller.downloadProgress else null,
+        onDismiss = {
+            if (!controller.isDownloading) onDismiss()
+        },
+        onDownloadAndInstall = controller.startDownloadAndInstall
+    )
 }

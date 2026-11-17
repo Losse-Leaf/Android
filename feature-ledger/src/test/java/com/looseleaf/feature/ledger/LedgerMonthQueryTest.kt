@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.looseleaf.feature.ledger.data.CachedTransactionEntity
 import com.looseleaf.feature.ledger.data.LedgerDatabase
 import com.looseleaf.feature.ledger.data.monthRangeOf
+import com.looseleaf.feature.ledger.data.toDomainModel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -17,9 +18,7 @@ import org.robolectric.annotation.Config
 import java.time.YearMonth
 
 /**
- * AND-4：账本月度查询的边界与汇总语义。
- *
- * 验证独立 LedgerDatabase 上的月度流水查询与下推聚合。
+ * AND-4：账本月度查询的边界与流水聚合语义。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
@@ -46,6 +45,8 @@ class LedgerMonthQueryTest {
         amount: Long,
         type: String = "expense",
         category: String = "餐饮",
+        source: String? = null,
+        feeAmount: Long = 0,
         syncStatus: String = "SYNCED"
     ) = CachedTransactionEntity(
         localId = id,
@@ -55,6 +56,8 @@ class LedgerMonthQueryTest {
         category = category,
         title = "账目 $id",
         occurredAt = occurredAt,
+        source = source,
+        feeAmount = feeAmount,
         syncStatus = syncStatus
     )
 
@@ -97,27 +100,33 @@ class LedgerMonthQueryTest {
     }
 
     @Test
-    fun `月度收支汇总下推聚合正确`() = runBlocking {
+    fun `月度流水聚合与分期手续费口径正确`() = runBlocking {
         seed()
+        db.transactionDao().insert(
+            tx(
+                id = 8,
+                occurredAt = "2026-10-18T10:00:00+08:00",
+                amount = 10500,
+                category = "利息手续费",
+                source = "installment_repay",
+                feeAmount = 500
+            )
+        )
         val range = monthRangeOf(YearMonth.of(2026, 10))
-        val totals = db.transactionDao().getMonthlyTotalsFlow(range.startIso, range.endIso).first()
-        // 支出：tx2(1000) + tx3(2000) + tx4(3000) = 6000
-        assertEquals(6000L, totals.totalExpense)
-        // 收入：tx7(9000) = 9000
-        assertEquals(9000L, totals.totalIncome)
-    }
+        val domainList = db.transactionDao()
+            .getTransactionsInRangeFlow(range.startIso, range.endIso)
+            .first()
+            .map { it.toDomainModel() }
 
-    @Test
-    fun `月度分类统计降序正确`() = runBlocking {
-        seed()
-        val range = monthRangeOf(YearMonth.of(2026, 10))
-        val catTotals = db.transactionDao().getMonthlyCategoryTotalsFlow(range.startIso, range.endIso).first()
-        assertEquals(2, catTotals.size)
-        // 餐饮: 1000 + 3000 = 4000
-        assertEquals("餐饮", catTotals[0].category)
-        assertEquals(4000L, catTotals[0].total)
-        // 交通: 2000
-        assertEquals("交通", catTotals[1].category)
-        assertEquals(2000L, catTotals[1].total)
+        val totalExpense = domainList
+            .filter { it.type != "income" }
+            .sumOf { if (it.source == "installment_repay") it.feeAmount else it.amount }
+        val totalIncome = domainList
+            .filter { it.type == "income" }
+            .sumOf { it.amount }
+
+        // 支出：tx2(1000) + tx3(2000) + tx4(3000) + tx8分期仅计手续费(500) = 6500
+        assertEquals(6500L, totalExpense)
+        assertEquals(9000L, totalIncome)
     }
 }

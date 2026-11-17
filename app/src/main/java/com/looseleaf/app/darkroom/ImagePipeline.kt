@@ -42,29 +42,7 @@ data class ExtractedExif(
     val longitude: Double? = null,
     val inferredCityCode: String? = null,
     val inferredCityName: String? = null
-) {
-    /**
-     * 生成经典胶片机身与底片元数据底款
-     * 例如: "LEICA M6 · SUMMICRON 35mm · 1/250s f/2.0 ISO 400"
-     */
-    fun toFilmMetadataString(): String {
-        val parts = mutableListOf<String>()
-        val camera = listOfNotNull(make, model).joinToString(" ").trim()
-        if (camera.isNotBlank()) parts.add(camera)
-        lensModel?.takeIf { it.isNotBlank() }?.let { parts.add(it) }
-
-        val shooting = mutableListOf<String>()
-        focalLength?.let { shooting.add(it) }
-        aperture?.let { shooting.add("f/$it") }
-        shutterSpeed?.let { shooting.add("${it}s") }
-        iso?.let { shooting.add("ISO $it") }
-        if (shooting.isNotEmpty()) {
-            parts.add(shooting.joinToString(" "))
-        }
-
-        return if (parts.isNotEmpty()) parts.joinToString(" · ") else "散页随行相纸"
-    }
-}
+)
 
 data class ProcessedImageResult(
     val compressedBytes: ByteArray,

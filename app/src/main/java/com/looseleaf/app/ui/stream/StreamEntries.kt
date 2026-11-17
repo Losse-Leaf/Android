@@ -54,7 +54,6 @@ import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveMotion
 import com.looseleaf.app.theme.ArchiveShadows
 import com.looseleaf.app.theme.ArchiveShapes
-import com.looseleaf.app.theme.LocalArchiveDecorConfig
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils

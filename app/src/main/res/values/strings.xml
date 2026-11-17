@@ -7,7 +7,6 @@
     <string name="main_activity_title_02">纸页写坏了</string>
     <string name="main_activity_confirmText_01">我知道了</string>
     <string name="main_activity_title_03">设备凭据已失效</string>
-    <string name="main_activity_confirmText_02">重新配对</string>
     <string name="main_activity_sso_reconnect">通过 Vesper Auth 通行证一键接入</string>
     <string name="main_activity_manual_reconnect">扫码或手动深链配对</string>
     <string name="main_activity_dismissText_01">稍后</string>
@@ -17,7 +16,6 @@
     <string name="main_activity_contentDescription_02">离线</string>
 
     <!-- archive_bottom_sheet -->
-    <string name="archive_bottom_sheet_text_01">取消</string>
 
     <!-- archive_lightbox_viewer -->
     <string name="archive_lightbox_viewer_label_01">lightbox-scale</string>
@@ -27,99 +25,22 @@
     <string name="archive_release_dialog_text_01">散页 · 新版本发布</string>
 
     <!-- film_frame -->
-    <string name="film_frame_text_01">暗房显影中…</string>
-    <string name="film_frame_text_02">相纸载入暂缓</string>
 
     <!-- paper_components -->
-    <string name="paper_components_contentDescription_01">清除城市</string>
-    <string name="paper_components_text_01">选择属地城市</string>
-    <string name="paper_components_contentDescription_02">关闭</string>
-    <string name="paper_components_placeholder_01">搜索城市…</string>
-    <string name="paper_components_text_02">时空纪年 · 发生日期</string>
-    <string name="paper_components_contentDescription_03">上一月</string>
-    <string name="paper_components_contentDescription_04">下一月</string>
-    <string name="paper_components_text_03">发生时刻 · 调整时分</string>
-    <string name="paper_components_contentDescription_05">+1小时</string>
-    <string name="paper_components_contentDescription_06">-1小时</string>
-    <string name="paper_components_text_04">:</string>
-    <string name="paper_components_contentDescription_07">+1分钟</string>
-    <string name="paper_components_contentDescription_08">-1分钟</string>
-    <string name="paper_components_contentDescription_09">选择日期</string>
-    <string name="paper_components_contentDescription_10">选择时刻</string>
 
     <!-- paper_skeleton -->
-    <string name="paper_skeleton_label_01">paperSkeleton</string>
-    <string name="paper_skeleton_label_02">skeletonAlpha</string>
 
     <!-- ledger_assets_tab -->
-    <string name="ledger_assets_tab_text_01">个人核心资产大盘</string>
-    <string name="ledger_assets_tab_text_02">信贷渠道与分期负债</string>
-    <string name="ledger_assets_tab_text_03">暂无未清还信贷分期，资金健康。</string>
-    <string name="ledger_assets_tab_text_04">暂无录入固资装备</string>
-    <string name="ledger_assets_tab_text_05">出清</string>
 
     <!-- ledger_dialogs -->
-    <string name="ledger_dialogs_title_01">删除信贷渠道？</string>
-    <string name="ledger_dialogs_confirmText_01">确认删除</string>
-    <string name="ledger_dialogs_label_01">渠道名称</string>
-    <string name="ledger_dialogs_label_02">每月还款日 (1~31)</string>
-    <string name="ledger_dialogs_text_01">信贷分期渠道管理</string>
-    <string name="ledger_dialogs_placeholder_01">还款日</string>
-    <string name="ledger_dialogs_contentDescription_01">编辑渠道</string>
-    <string name="ledger_dialogs_contentDescription_02">删除渠道</string>
-    <string name="ledger_dialogs_title_02">删除这个分类？</string>
-    <string name="ledger_dialogs_text_02">分类字典管理</string>
-    <string name="ledger_dialogs_placeholder_02">新分类名称…</string>
-    <string name="ledger_dialogs_contentDescription_03">删除分类</string>
+    <string name="projects_wishes_screen_confirm_delete">确认删除</string>
 
     <!-- ledger_screen -->
-    <string name="ledger_screen_text_01">散页 · 口袋账本</string>
-    <string name="ledger_screen_text_02">生活收支流水与资产中枢</string>
-    <string name="ledger_screen_title_01">验证以查看账目金额</string>
-    <string name="ledger_screen_contentDescription_01">隐蔽金额</string>
-    <string name="ledger_screen_contentDescription_02">刷新</string>
-    <string name="ledger_screen_text_03">账目同步失败，点此重试</string>
-    <string name="ledger_screen_label_01">ledgerTab</string>
-    <string name="ledger_screen_text_04">支出</string>
-    <string name="ledger_screen_text_05">收入</string>
-    <string name="ledger_screen_placeholder_01">备注…（可写「42.5 午餐」自动拆解）</string>
-    <string name="ledger_screen_text_06">🕘 </string>
-    <string name="ledger_screen_text_07">📍 </string>
-    <string name="ledger_screen_text_08">记入账本</string>
-    <string name="ledger_screen_title_02">记账附加设置</string>
-    <string name="ledger_screen_text_09">发生时刻</string>
-    <string name="ledger_screen_text_10">属地城市</string>
-    <string name="ledger_screen_placeholder_02">选择城市…</string>
-    <string name="ledger_screen_text_11">使用当前定位</string>
-    <string name="ledger_screen_text_12">分期还款入账</string>
-    <string name="ledger_screen_title_03">修订记账明细</string>
-    <string name="ledger_screen_label_02">金额 (元)</string>
-    <string name="ledger_screen_label_03">标题/简要</string>
-    <string name="ledger_screen_label_04">分类</string>
-    <string name="ledger_screen_label_05">支付方式</string>
-    <string name="ledger_screen_label_06">随附手记</string>
-    <string name="ledger_screen_title_04">彻底删除这台设备？</string>
-    <string name="ledger_screen_title_05">删除这笔账目？</string>
-    <string name="ledger_screen_title_06">验证以删除账目</string>
-    <string name="ledger_screen_title_07">校准初始流动资金底数</string>
-    <string name="ledger_screen_text_13">设定初始底数后，系统将依据全量收支流水动态实时推算当前流动资产与净资产：</string>
-    <string name="ledger_screen_label_07">初始资金底数 (元)</string>
-    <string name="ledger_screen_title_08">登记在役装备</string>
-    <string name="ledger_screen_label_08">装备名称</string>
-    <string name="ledger_screen_label_09">规格参数</string>
-    <string name="ledger_screen_label_10">购入总价 (元)</string>
-    <string name="ledger_screen_text_14">变卖后设备将标记为已退役，回血金额将自动生成一笔二手收入流水：</string>
-    <string name="ledger_screen_label_11">成交出清金额 (元)</string>
-    <string name="ledger_screen_label_12">退役备忘</string>
+    <string name="stream_dialogs_placeholder_select_city">选择城市…</string>
 
     <!-- ledger_transactions_tab -->
-    <string name="ledger_transactions_tab_contentDescription_01">上个月</string>
-    <string name="ledger_transactions_tab_contentDescription_02">下个月</string>
-    <string name="ledger_transactions_tab_text_01">本月暂无记账明细</string>
-    <string name="ledger_transactions_tab_contentDescription_03">删除</string>
 
     <!-- tactile_keypad -->
-    <string name="tactile_keypad_contentDescription_01">退格</string>
 
     <!-- pairing_screen -->
     <string name="pairing_screen_text_01">散页 · 随行入网</string>
@@ -155,22 +76,6 @@
     <string name="profile_components_text_01">改名</string>
 
     <!-- profile_screen -->
-    <string name="profile_screen_text_01">散页 · 展台</string>
-    <string name="profile_screen_text_02">器物、隐私与信任设备</string>
-    <string name="profile_screen_contentDescription_01">主理人肖像</string>
-    <string name="profile_screen_contentDescription_02">更换头像</string>
-    <string name="profile_screen_contentDescription_03">编辑主理人档案</string>
-    <string name="profile_screen_text_03">全局档案指标</string>
-    <string name="profile_screen_text_04">新设备配对链接（5分钟有效）</string>
-    <string name="profile_screen_text_05">正在核对受信任设备…</string>
-    <string name="profile_screen_text_06">随行偏好与隐私保护</string>
-    <string name="profile_screen_text_07">高对比度 (High Contrast)</string>
-    <string name="profile_screen_text_08">加强次级文字与卡片边界的可辨度</string>
-    <string name="profile_screen_text_09">存储配置与快照灾备</string>
-    <string name="profile_screen_text_10">服务端全量 SQLite WAL 快照轮转管理，支持配置 Cloudflare R2 / S3 兼容对象存储与双向媒体同步。</string>
-    <string name="profile_screen_text_11">版本与更新</string>
-    <string name="profile_screen_label_01">当前版本</string>
-    <string name="profile_screen_label_02">分发渠道</string>
     <string name="profile_screen_title_01">解除受信任设备？</string>
     <string name="profile_screen_confirmText_01">确认解除</string>
     <string name="profile_screen_title_02">重命名此设备</string>
@@ -178,34 +83,16 @@
     <string name="profile_screen_confirmText_02">确认更名</string>
 
     <!-- profile_sheets -->
-    <string name="profile_sheets_title_01">主理人手卷</string>
-    <string name="profile_sheets_text_01">输入主理人称谓…</string>
-    <string name="profile_sheets_text_02">如：生活记录者、独立摄影师…</string>
-    <string name="profile_sheets_placeholder_01">点选所在省市 (375 国标行政区划)…</string>
-    <string name="profile_sheets_text_03">写下一句指引你的生活信条…</string>
-    <string name="profile_sheets_text_04">关于你自己、关于时间、关于生活的自白散篇…</string>
 
     <!-- projects_wishes_lists -->
-    <string name="projects_wishes_lists_contentDescription_01">编辑</string>
-    <string name="projects_wishes_lists_contentDescription_02">编辑心愿</string>
-    <string name="projects_wishes_lists_contentDescription_03">删除心愿</string>
 
     <!-- projects_wishes_screen -->
     <string name="projects_wishes_screen_text_01">工坊</string>
-    <string name="projects_wishes_screen_text_03">确认保存</string>
-    <string name="projects_wishes_screen_placeholder_01">选择行政区划城市…</string>
-    <string name="projects_wishes_screen_label_01">启程/到访时刻</string>
-    <string name="projects_wishes_screen_text_04">多日游历（选填返程日期）</string>
-    <string name="projects_wishes_screen_label_02">返程/离程时刻</string>
-    <string name="projects_wishes_screen_text_05">副标题或设计注记 (选填)…</string>
-    <string name="projects_wishes_screen_placeholder_02">点选目的地城市…</string>
-    <string name="projects_wishes_screen_text_06">写下背后的故事、随笔手记或愿景备忘…</string>
     <string name="projects_wishes_screen_label_03">圆满时刻</string>
     <string name="projects_wishes_screen_label_04">实获好物/方案名称</string>
     <string name="projects_wishes_screen_label_05">实付金额 (元)</string>
     <string name="projects_wishes_screen_label_06">圆梦感言手记 (同步写入时间流)</string>
     <string name="projects_wishes_screen_text_07">正在检索属地散页与旅途消费…</string>
-    <string name="projects_wishes_screen_text_08">属地散页手记</string>
     <string name="projects_wishes_screen_label_07">造物名称</string>
     <string name="projects_wishes_screen_label_08">副标题或设计注记</string>
     <string name="projects_wishes_screen_label_09">项目概述与故事</string>
@@ -213,18 +100,13 @@
     <string name="projects_wishes_screen_title_01">移除心愿？</string>
     <string name="projects_wishes_screen_confirmText_01">确认移除</string>
     <string name="projects_wishes_screen_title_02">删除造物项目？</string>
-    <string name="projects_wishes_screen_title_03">移除这条足迹？</string>
 
     <!-- projects_wishes_sheets -->
     <string name="projects_wishes_sheets_label_01">心愿名称</string>
-    <string name="projects_wishes_sheets_placeholder_01">选择目的地城市…</string>
     <string name="projects_wishes_sheets_label_02">规格参数或备忘</string>
     <string name="projects_wishes_sheets_label_03">意向预算 (元)</string>
     <string name="projects_wishes_sheets_placeholder_02">初衷手记…</string>
-    <string name="projects_wishes_sheets_placeholder_03">点选属地城市…</string>
     <string name="projects_wishes_sheets_label_04">到访时刻</string>
-    <string name="projects_wishes_sheets_label_05">旅程标题</string>
-    <string name="projects_wishes_sheets_placeholder_04">随笔手记…</string>
 
     <!-- quick_note_sheet -->
     <string name="quick_note_sheet_contentDescription_01">装裱相纸</string>
@@ -233,42 +115,16 @@
     <string name="quick_note_sheet_text_02">提笔写下当下的心绪、现场气味或片刻偶遇…</string>
     <string name="quick_note_sheet_text_03">发生时刻与时空锚点</string>
     <string name="quick_note_sheet_text_04">空间驻留地点</string>
-    <string name="quick_note_sheet_text_05">标记为精选印记（收录于精选特刊）</string>
     <string name="quick_note_sheet_text_06">到访城市与旅程足迹 *</string>
     <string name="quick_note_sheet_placeholder_01">具体景点或街巷注记 (选填)</string>
     <string name="quick_note_sheet_label_01">归属旅程足迹</string>
     <string name="quick_note_sheet_placeholder_02">-- 自动聚合至同城近期旅程 --</string>
     <string name="quick_note_sheet_text_07">游历见闻标题…</string>
     <string name="quick_note_sheet_text_08">写下路上的风景、异乡的气味或旅途偶遇…</string>
-    <string name="quick_note_sheet_text_09">标记为精选游记</string>
-    <string name="quick_note_sheet_label_02">撰写已有进展手记</string>
-    <string name="quick_note_sheet_label_03">＋ 立项新造物</string>
-    <string name="quick_note_sheet_text_10">暂无活跃造物项目</string>
     <string name="quick_note_sheet_label_04">选择关联造物项目 *</string>
     <string name="quick_note_sheet_text_11">手记标题…</string>
     <string name="quick_note_sheet_text_12">记录今日造物进展、代码提交、设计突破或心得…</string>
     <string name="quick_note_sheet_text_13">记录时间</string>
-    <string name="quick_note_sheet_label_05">造物名称 *</string>
-    <string name="quick_note_sheet_placeholder_03">例如：Loose-Leaf 散页</string>
-    <string name="quick_note_sheet_label_06">副标题</string>
-    <string name="quick_note_sheet_placeholder_04">例如：极简纸墨生活自留地</string>
-    <string name="quick_note_sheet_label_07">造物分类</string>
-    <string name="quick_note_sheet_label_08">运行状态</string>
-    <string name="quick_note_sheet_label_09">项目简介 *</string>
-    <string name="quick_note_sheet_placeholder_05">一两句话阐述这个项目的核心目的与愿景…</string>
-    <string name="quick_note_sheet_label_10">立项初衷</string>
-    <string name="quick_note_sheet_placeholder_06">为什么要做这件造物？背后的契机与期许…</string>
-    <string name="quick_note_sheet_label_11">仓库或作品链接</string>
-    <string name="quick_note_sheet_placeholder_07">https://github.com/...</string>
-    <string name="quick_note_sheet_label_12">心愿名称 *</string>
-    <string name="quick_note_sheet_label_13">预估预算 (¥)</string>
-    <string name="quick_note_sheet_placeholder_08">0.00</string>
-    <string name="quick_note_sheet_label_14">规格型号</string>
-    <string name="quick_note_sheet_placeholder_09">如：50mm f/1.4 定焦镜头 / 深空灰 512G</string>
-    <string name="quick_note_sheet_placeholder_10">目的地城市 *</string>
-    <string name="quick_note_sheet_label_15">期许达成日期</string>
-    <string name="quick_note_sheet_label_16">心愿寄语</string>
-    <string name="quick_note_sheet_placeholder_11">写下对达成那一刻的期许或向往…</string>
 
     <!-- stream_dialogs -->
     <string name="stream_dialogs_placeholder_01">标题</string>
@@ -277,79 +133,39 @@
     <string name="stream_dialogs_text_02">+ 补选相纸照片</string>
     <string name="stream_dialogs_contentDescription_01">撕除此照片</string>
     <string name="stream_dialogs_text_03">保存修订</string>
-    <string name="stream_dialogs_text_04">★ 精选印记</string>
-    <string name="stream_dialogs_text_05">五幕生命叙事 · 岁月卷首至柴米油盐</string>
-    <string name="stream_dialogs_title_01">岁月卷首 · 书写刻度</string>
-    <string name="stream_dialogs_title_02">心愿圆满 · 念念回响</string>
-    <string name="stream_dialogs_title_03">柴米油盐 · 生活光谱</string>
     <string name="stream_dialogs_confirmText_01">合上</string>
     <string name="stream_dialogs_text_06">全库检索生活记忆</string>
     <string name="stream_dialogs_placeholder_03">搜索……</string>
 
     <!-- stream_entries -->
     <string name="stream_entries_contentDescription_01">展开或收起</string>
-    <string name="stream_entries_text_01">时光生活刻度</string>
-    <string name="stream_entries_contentDescription_02">删除记录</string>
 
     <!-- stream_filter_bar -->
-    <string name="stream_filter_bar_text_01">年份</string>
-    <string name="stream_filter_bar_text_02">全集</string>
 
     <!-- stream_screen -->
-    <string name="stream_screen_text_01">散页 · 随行手账</string>
-    <string name="stream_screen_subtitle">随行手账</string>
-    <string name="stream_screen_text_02">生活自留地 · 真实时间轴</string>
-    <string name="stream_screen_contentDescription_01">检索</string>
-    <string name="stream_screen_contentDescription_02">年度年鉴</string>
-    <string name="stream_screen_contentDescription_03">同步刷新</string>
     <string name="stream_screen_text_03">下载完成，准备安装</string>
-    <string name="stream_screen_text_04">正在翻阅你的时间流…</string>
-    <string name="stream_screen_text_05">换个分类或年份看看</string>
-    <string name="stream_screen_contentDescription_04">记随笔</string>
-    <string name="stream_screen_text_06">重试会清空失败态并重新排队；放弃则移除这些发件箱事件</string>
     <string name="stream_screen_title_01">撕除手记？</string>
     <string name="stream_screen_confirmText_01">确认撕除</string>
     <string name="stream_screen_title_02">验证以撕除记录</string>
     <!-- paper_components -->
-    <string name="paper_components_text_tpl_01">%1$s年%2$s月%3$s日 · %4$s</string>
-    <string name="paper_components_text_tpl_02">%1$s 年 %2$s 月</string>
-    <string name="paper_components_text_tpl_03">%1$s：</string>
 
     <!-- temporal_gap_separator -->
     <string name="temporal_gap_separator_text_tpl_01"> 历经 %1$s 天的沉默与沉淀 </string>
 
     <!-- ledger_assets_tab -->
-    <string name="ledger_assets_tab_text_tpl_01">月供 %1$s</string>
-    <string name="ledger_assets_tab_text_tpl_02">每月 %1$s 号还款 (距还款日 %2$s 天)</string>
-    <string name="ledger_assets_tab_text_tpl_03">月供 %1$s</string>
-    <string name="ledger_assets_tab_text_tpl_04">在役固资装备 (%1$s)</string>
 
     <!-- ledger_dialogs -->
-    <string name="ledger_dialogs_title_tpl_01">修订渠道 · %1$s</string>
-    <string name="ledger_dialogs_text_tpl_01">每月 %1$s 日还款%2$s</string>
 
     <!-- ledger_screen -->
-    <string name="ledger_screen_text_tpl_01">识别到 %1$s · %2$s · 点「盖章」自动采纳</string>
-    <string name="ledger_screen_text_tpl_02">%1$s期</string>
-    <string name="ledger_screen_text_tpl_03">每月%1$s日还款</string>
-    <string name="ledger_screen_text_tpl_04">每月%1$s日还款</string>
-    <string name="ledger_screen_title_tpl_01">变卖出清 · %1$s</string>
 
     <!-- ledger_transactions_tab -->
-    <string name="ledger_transactions_tab_text_tpl_01">%1$s 年 %2$s 月</string>
-    <string name="ledger_transactions_tab_text_tpl_02">%1$s %2$s%%</string>
 
     <!-- profile_screen -->
-    <string name="profile_screen_text_tpl_01">“ %1$s ”</string>
-    <string name="profile_screen_text_tpl_02">随行 EDC 装备 (%1$s)</string>
 
     <!-- projects_wishes_lists -->
-    <string name="projects_wishes_lists_text_tpl_01">预算: %1$s · 实际: %2$s</string>
-    <string name="projects_wishes_lists_text_tpl_02">NO.%1$s</string>
 
     <!-- projects_wishes_screen -->
     <string name="projects_wishes_screen_text_tpl_01">同步未完成：%1$s · 点此重试</string>
-    <string name="projects_wishes_screen_title_tpl_01">圆满心愿 · %1$s</string>
     <string name="projects_wishes_screen_title_tpl_02">%1$s · 城市回忆抽屉</string>
     <string name="projects_wishes_screen_text_tpl_02">属地检索失败：%1$s · 点此重试</string>
     <string name="projects_wishes_screen_text_tpl_03">累计到访 %1$s 次 · 散页 %2$s 篇</string>
@@ -371,33 +187,16 @@
 
     <!-- stream_dialogs -->
     <string name="stream_dialogs_text_tpl_01">手账影像相纸 (%1$s)</string>
-    <string name="stream_dialogs_text_tpl_02">%1$s 年度生活年鉴</string>
-    <string name="stream_dialogs_text_tpl_03">%1$s 年</string>
-    <string name="stream_dialogs_text_tpl_04">获取年鉴失败: %1$s</string>
-    <string name="stream_dialogs_text_tpl_05">全年共落笔 %1$s 篇散页，累计 %2$s 字，点亮 %3$s 个真实日子。</string>
-    <string name="stream_dialogs_text_tpl_06">起止刻度: %1$s — %2$s</string>
-    <string name="stream_dialogs_title_tpl_01">足迹 · 步履所至 (%1$s 城)</string>
-    <string name="stream_dialogs_text_tpl_07">圆满达成 %1$s 项心愿 · 仍有 %2$s 项向往中</string>
-    <string name="stream_dialogs_text_tpl_08">心愿兑现投入: %1$s</string>
-    <string name="stream_dialogs_title_tpl_02">浮光掠影 · 四季相纸 (%1$s 帧)</string>
-    <string name="stream_dialogs_text_tpl_09">年度总支出: %1$s</string>
-    <string name="stream_dialogs_text_tpl_10">年度总收入: %1$s</string>
 
     <!-- stream_entries -->
     <string name="stream_entries_text_tpl_01">那年今日 · 岁月回响 (%1$s)</string>
-    <string name="stream_entries_text_tpl_02"> · 共 %1$s 篇手记</string>
-    <string name="stream_entries_contentDescription_tpl_01">过去一年生活活跃热力图，共 %1$s 天有记录</string>
 
     <!-- stream_filter_bar -->
-    <string name="stream_filter_bar_text_tpl_01">%1$s年</string>
 
     <!-- stream_screen -->
-    <string name="stream_screen_text_tpl_01">待同步 %1$s</string>
-    <string name="stream_screen_text_tpl_02">同步失败 %1$s</string>
     <string name="stream_screen_text_tpl_03">检测到新版本 %1$s（当前 v%2$s）</string>
     <string name="stream_screen_text_tpl_04">正在应用内下载: %1$s%%</string>
     <string name="stream_screen_text_tpl_05">%1$s%%</string>
-    <string name="stream_screen_text_tpl_06">处置 %1$s 条失败记录</string>
     <!-- MainActivity -->
     <string name="main_activity_verify_biometrics">验证指纹 / 面容解锁</string>
 
@@ -406,36 +205,14 @@
     <string name="archive_release_dialog_update_now">立即更新并安装</string>
 
     <!-- PaperComponents -->
-    <string name="paper_components_cancel">取消</string>
-    <string name="paper_components_confirm_date">确定日期</string>
-    <string name="paper_components_hour_range">时 (00-23)</string>
-    <string name="paper_components_minute_range">分 (00-59)</string>
-    <string name="paper_components_confirm_time">确定时刻</string>
 
     <!-- LedgerAssetsTab -->
-    <string name="ledger_assets_calibration">校准资金底数</string>
-    <string name="ledger_assets_fluid">流动可用资金</string>
-    <string name="ledger_assets_fixed">在役固定资产</string>
-    <string name="ledger_assets_credit">待还信贷负债</string>
-    <string name="ledger_assets_manage_channels">管理渠道</string>
-    <string name="ledger_assets_add_equipment">+ 登记新装备</string>
 
     <!-- LedgerDialogs -->
-    <string name="ledger_dialogs_add">添加</string>
-    <string name="ledger_dialogs_new">新增</string>
-    <string name="ledger_dialogs_loading">加载中…</string>
 
     <!-- LedgerScreen -->
-    <string name="ledger_screen_clear">清空</string>
-    <string name="ledger_screen_disassemble">拆解</string>
-    <string name="ledger_screen_manage_categories">管理分类</string>
-    <string name="ledger_screen_sync_purchase">同步生成一笔购置支出账目</string>
-    <string name="ledger_screen_delete_equipment">彻底删除此设备</string>
 
     <!-- LedgerTransactionsTab -->
-    <string name="ledger_transactions_expense">本月总支出</string>
-    <string name="ledger_transactions_income">本月总收入</string>
-    <string name="ledger_transactions_balance">月收支结余</string>
 
     <!-- PairingScreen -->
     <string name="pairing_screen_clipboard">一键读取剪贴板链接</string>
@@ -447,33 +224,12 @@
     <string name="scanner_pick_from_album">从相册选取二维码</string>
 
     <!-- ProfileScreen -->
-    <string name="profile_screen_drafts">散页手稿</string>
-    <string name="profile_screen_projects">造物项目</string>
-    <string name="profile_screen_expense">当月支出</string>
-    <string name="profile_screen_pair_new_device">+ 配对新设备</string>
-    <string name="profile_screen_collapse">收起</string>
-    <string name="profile_screen_copy_link">一键复制配对链接</string>
-    <string name="profile_screen_appearance">纸墨外观 (Appearance)</string>
-    <string name="profile_screen_appearance_desc">跟随系统 / 暖色棉纸 / 暗房安全灯，三态可切</string>
-    <string name="profile_screen_biometrics">生物识别守护 (Biometrics)</string>
-    <string name="profile_screen_biometrics_desc">解锁账本与敏感收支柱状图</string>
-    <string name="profile_screen_config_manage">配置与管理</string>
-    <string name="profile_screen_unbind_device">解除此设备绑定</string>
-    <string name="profile_screen_issuing_ticket">签发中…</string>
 
     <!-- ProfileSheets -->
-    <string name="profile_sheets_title">称谓</string>
-    <string name="profile_sheets_identity">头衔与身份</string>
-    <string name="profile_sheets_motto">生活格言</string>
-    <string name="profile_sheets_confession">自白手记</string>
 
     <!-- ProjectsWishesLists -->
-    <string name="projects_wishes_empty_projects">暂无造物记录</string>
-    <string name="projects_wishes_empty_wishes">暂无匹配的心愿记录</string>
-    <string name="projects_wishes_achieve">达成归册</string>
 
     <!-- ProjectsWishesScreen -->
-    <string name="projects_wishes_cancel">取消</string>
     <string name="projects_wishes_province_drawer">省级回忆抽屉</string>
     <string name="projects_wishes_edit_ticket">编辑票根</string>
     <string name="projects_wishes_remove">移除</string>
@@ -489,11 +245,8 @@
     <string name="quick_note_cancel">取消</string>
     <string name="quick_note_mount_paper">装裱相纸</string>
     <string name="quick_note_album_mount">相册装裱</string>
-    <string name="quick_note_create_project">立即立项新造物</string>
 
     <!-- StreamDialogs -->
-    <string name="stream_dialogs_empty_footprints">本年度暂无远行足迹记录</string>
-    <string name="stream_dialogs_empty_footprints_desc">四季流转，静待更多影像沉淀</string>
     <string name="stream_dialogs_untitled">无题随笔</string>
     <string name="stream_dialogs_footprint_default">足迹</string>
     <string name="stream_dialogs_entries_count">生活印记 (%1$d)</string>
@@ -504,6 +257,4 @@
     <!-- StreamScreen -->
     <string name="stream_screen_install_now">立即安装</string>
     <string name="stream_screen_in_app_update">应用内更新</string>
-    <string name="stream_screen_discard">放弃</string>
-    <string name="stream_screen_retry_all">全部重试</string>
 </resources>
