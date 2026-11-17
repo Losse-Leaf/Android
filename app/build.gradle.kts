@@ -20,8 +20,8 @@ android {
         resourceConfigurations += listOf("zh", "en")
         minSdk = 26
         targetSdk = 35
-        versionCode = 63
-        versionName = "1.12.0"
+        versionCode = 64
+        versionName = "1.13.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
