@@ -19,8 +19,6 @@ data class Transaction(
     val note: String? = null,
     @SerialName("payment_method") val paymentMethod: String? = null,
     @SerialName("wish_id") val wishId: Long? = null,
-    @SerialName("footprint_id") val footprintId: Long? = null,
-    @SerialName("city_code") val cityCode: String? = null,
     @SerialName("occurred_at") val occurredAt: String = FormatUtils.beijingNowIsoString(),
     @SerialName("is_installment") val isInstallment: Boolean? = null,
     @SerialName("installment_channel_code") val installmentChannelCode: String? = null,
@@ -50,9 +48,7 @@ data class CreateTransactionRequest(
     val note: String? = null,
     @SerialName("payment_method") val paymentMethod: String? = null,
     @SerialName("occurred_at") val occurredAt: String,
-    @SerialName("city_code") val cityCode: String? = null,
     @SerialName("wish_id") val wishId: Long? = null,
-    @SerialName("footprint_id") val footprintId: Long? = null,
     // 分期三态（后端契约）：null = 不携带保持原值；true = 明确分期；false 配合 clearInstallment=true 降级
     @SerialName("is_installment") val isInstallment: Boolean? = null,
     @SerialName("clear_installment") val clearInstallment: Boolean = false,
@@ -65,10 +61,6 @@ data class CreateTransactionRequest(
     @SerialName("installment_fee_mode") val installmentFeeMode: String? = null,
     @SerialName("installment_fee_value") val installmentFeeValue: Long? = null,
     @SerialName("first_due_date") val firstDueDate: String? = null,
-    @SerialName("link_gear_asset") val linkGearAsset: Boolean = false,
-    @SerialName("gear_category") val gearCategory: String? = null,
-    @SerialName("gear_spec") val gearSpec: String? = null,
-    @SerialName("clear_city") val clearCity: Boolean = false,
     @SerialName("client_request_id") val clientRequestId: String? = null
 )
 
@@ -89,24 +81,6 @@ data class CategoriesResponse(
 
 @Immutable
 @Serializable
-data class GearItem(
-    val id: String,
-    val name: String,
-    val spec: String = "",
-    val category: String = "数码器材",
-    val status: String = "active",
-    @SerialName("price_cents") val priceCents: Long? = null,
-    @SerialName("purchase_date") val purchaseDate: String? = null,
-    @SerialName("sold_price_cents") val soldPriceCents: Long? = null,
-    @SerialName("sold_date") val soldDate: String? = null,
-    val note: String? = null
-)
-
-/**
- * 资产大盘与设备库 (GET /api/v1/assets/overview)
- */
-@Immutable
-@Serializable
 data class CreditChannel(
     val id: Long = 0,
     val code: String = "",
@@ -124,77 +98,6 @@ data class CreateCreditChannelRequest(
     val color: String? = null
 )
 
-@Serializable
-data class GearSummary(
-    @SerialName("total_count") val totalCount: Int = 0,
-    @SerialName("active_count") val activeCount: Int = 0,
-    @SerialName("active_value") val activeValue: Long = 0,
-    @SerialName("sold_count") val soldCount: Int = 0,
-    @SerialName("sold_recovered_value") val soldRecoveredValue: Long = 0,
-    val items: List<GearItem> = emptyList()
-)
-
-@Serializable
-data class AssetsOverview(
-    @SerialName("net_worth") val netWorth: Long = 0,
-    @SerialName("liquid_balance") val liquidBalance: Long = 0,
-    @SerialName("initial_liquid_balance") val initialLiquidBalance: Long = 0,
-    @SerialName("fixed_assets") val fixedAssets: Long = 0,
-    @SerialName("total_liabilities") val totalLiabilities: Long = 0,
-    @SerialName("monthly_liabilities") val monthlyLiabilities: Long = 0,
-    @SerialName("gear_summary") val gearSummary: GearSummary = GearSummary()
-)
-
-@Serializable
-data class SetLiquidBalanceRequest(
-    @SerialName("initial_liquid_balance") val initialLiquidBalance: Long
-)
-
-@Serializable
-data class LiquidBalanceResponse(
-    @SerialName("initial_liquid_balance") val initialLiquidBalance: Long = 0
-)
-
-@Serializable
-data class AddGearAssetRequest(
-    val name: String,
-    val category: String = "数码器材",
-    val spec: String = "",
-    @SerialName("price_cents") val priceCents: Long = 0,
-    @SerialName("purchase_date") val purchaseDate: String? = null,
-    @SerialName("payment_method") val paymentMethod: String? = null,
-    val note: String? = null,
-    // 这一项不能有默认值：客户端默认 true、服务端默认 false，encodeDefaults=false 下省略会少记一笔账
-    @SerialName("create_transaction") val createTransaction: Boolean,
-    @SerialName("is_installment") val isInstallment: Boolean? = null,
-    @SerialName("installment_channel_code") val installmentChannelCode: String? = null,
-    @SerialName("installment_total_amount") val installmentTotalAmount: Long? = null,
-    @SerialName("installment_months") val installmentMonths: Int? = null,
-    @SerialName("repayment_day") val repaymentDay: Int? = null
-)
-
-@Serializable
-data class SellGearRequest(
-    @SerialName("sold_price_cents") val soldPriceCents: Long,
-    @SerialName("sold_date") val soldDate: String? = null,
-    val note: String? = null
-)
-
-@Serializable
-data class RestoreGearAssetRequest(
-    val id: String,
-    val name: String,
-    val spec: String = "",
-    val category: String = "数码器材",
-    val status: String = "active",
-    @SerialName("price_cents") val priceCents: Long = 0,
-    @SerialName("purchase_date") val purchaseDate: String? = null,
-    @SerialName("sold_price_cents") val soldPriceCents: Long = 0,
-    @SerialName("sold_date") val soldDate: String? = null,
-    val note: String? = null,
-    val index: Int = -1
-)
-
 // 真实分期还款计划体系契约模型 (RC-140)
 
 @Serializable
@@ -204,7 +107,7 @@ data class InstallmentPlan(
     @SerialName("channel_code") val channelCode: String = "",
     @SerialName("channel_name") val channelName: String? = null,
     val title: String = "",
-    val kind: String = "asset", // "asset" | "expense"
+    val kind: String = "expense",
     val principal: Long = 0, // 分
     val periods: Int = 3,
     @SerialName("fee_mode") val feeMode: String = "none", // "none" | "fixed_per_period" | "rate_per_period" | "total_fee"
@@ -212,7 +115,6 @@ data class InstallmentPlan(
     @SerialName("total_fee") val totalFee: Long = 0,
     @SerialName("first_due_date") val firstDueDate: String = "",
     @SerialName("repay_day") val repayDay: Int = 10,
-    @SerialName("asset_id") val assetId: String? = null,
     @SerialName("category_id") val categoryId: Long? = null,
     @SerialName("category_name") val categoryName: String? = null,
     @SerialName("purchase_entry_id") val purchaseEntryId: Long? = null,
@@ -246,7 +148,7 @@ data class InstallmentPlanItemSummary(
     @SerialName("channel_code") val channelCode: String = "",
     @SerialName("channel_name") val channelName: String? = null,
     val title: String = "",
-    val kind: String = "asset",
+    val kind: String = "expense",
     val principal: Long = 0,
     val periods: Int = 3,
     @SerialName("fee_mode") val feeMode: String = "none",
@@ -254,7 +156,6 @@ data class InstallmentPlanItemSummary(
     @SerialName("total_fee") val totalFee: Long = 0,
     @SerialName("first_due_date") val firstDueDate: String = "",
     @SerialName("repay_day") val repayDay: Int = 10,
-    @SerialName("asset_id") val assetId: String? = null,
     @SerialName("category_id") val categoryId: Long? = null,
     @SerialName("category_name") val categoryName: String? = null,
     val status: String = "active",
@@ -297,18 +198,13 @@ data class CreateInstallmentPlanRequest(
     @SerialName("channel_id") val channelId: Long? = null,
     @SerialName("channel_code") val channelCode: String? = null,
     val title: String,
-    val kind: String = "asset",
+    val kind: String = "expense",
     val principal: Long,
     val periods: Int,
     @SerialName("fee_mode") val feeMode: String = "none",
     @SerialName("fee_value") val feeValue: Long = 0,
     @SerialName("first_due_date") val firstDueDate: String? = null,
     @SerialName("repay_day") val repayDay: Int? = null,
-    @SerialName("asset_id") val assetId: String? = null,
-    @SerialName("create_new_gear") val createNewGear: Boolean? = null,
-    @SerialName("gear_name") val gearName: String? = null,
-    @SerialName("gear_spec") val gearSpec: String? = null,
-    @SerialName("gear_category") val gearCategory: String? = null,
     @SerialName("category_id") val categoryId: Long? = null,
     @SerialName("category_name") val categoryName: String? = null,
     @SerialName("purchase_date") val purchaseDate: String? = null,

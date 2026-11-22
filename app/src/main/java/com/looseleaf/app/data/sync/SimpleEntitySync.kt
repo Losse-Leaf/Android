@@ -1,15 +1,9 @@
 package com.looseleaf.app.data.sync
 
-import com.looseleaf.app.data.local.CachedFootprintEntity
-import com.looseleaf.app.data.local.CachedProjectEntity
 import com.looseleaf.app.data.local.CachedWishEntity
 import com.looseleaf.app.data.local.OutboxDao
 import com.looseleaf.app.data.local.OutboxEventEntity
-import com.looseleaf.app.model.CreateFootprintRequest
-import com.looseleaf.app.model.CreateProjectRequest
 import com.looseleaf.app.model.CreateWishRequest
-import com.looseleaf.app.model.Footprint
-import com.looseleaf.app.model.Project
 import com.looseleaf.app.model.ResolveWishRequest
 import com.looseleaf.app.model.Wish
 import com.looseleaf.app.utils.FormatUtils
@@ -17,7 +11,7 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * P0-3：造物 / 心愿 / 足迹的离线临时行与发件箱目标模型。
+ * P0-3：心愿的离线临时行与发件箱目标模型。
  *
  * 统一约定：
  * - 未同步临时行 `id < 0`；
@@ -27,9 +21,7 @@ import java.util.concurrent.atomic.AtomicLong
  * - CREATE 成功后由 Worker 把后续 UPDATE / RESOLVE 换绑到真实 server id。
  */
 internal object SimpleEntitySync {
-    const val PROJECT = "project"
     const val WISH = "wish"
-    const val FOOTPRINT = "footprint"
 
     /**
      * 进程内单调递减的临时 id。
@@ -209,22 +201,6 @@ internal object SimpleEntitySync {
 
 // ---------- 请求模型 → 本地临时行（离线创建与 CREATE 升级回退共用） ----------
 
-internal fun CreateProjectRequest.toOfflineEntity(
-    id: Long,
-    updatedAt: String = FormatUtils.beijingNowIsoString()
-): CachedProjectEntity = CachedProjectEntity(
-    id = id,
-    title = title,
-    subtitle = subtitle,
-    description = description,
-    story = story,
-    category = category,
-    status = status ?: "进行中",
-    githubUrl = githubUrl,
-    order = order,
-    updatedAt = updatedAt
-)
-
 internal fun CreateWishRequest.toOfflineEntity(
     id: Long,
     existing: CachedWishEntity? = null,
@@ -235,8 +211,6 @@ internal fun CreateWishRequest.toOfflineEntity(
     kind = kind,
     note = note,
     spec = spec,
-    cityCode = cityCode,
-    cityName = cityName,
     budget = budget,
     actualCost = existing?.actualCost ?: 0,
     resolutionType = existing?.resolutionType,
@@ -246,29 +220,7 @@ internal fun CreateWishRequest.toOfflineEntity(
     status = existing?.status ?: "wanting",
     targetDate = targetDate,
     fulfilledAt = existing?.fulfilledAt,
-    gearId = existing?.gearId,
     attachmentsJson = existing?.attachmentsJson ?: "[]",
-    updatedAt = updatedAt
-)
-
-internal fun CreateFootprintRequest.toOfflineEntity(
-    id: Long,
-    existing: CachedFootprintEntity? = null,
-    updatedAt: String = FormatUtils.beijingNowIsoString()
-): CachedFootprintEntity = CachedFootprintEntity(
-    id = id,
-    cityCode = cityCode,
-    cityName = cityName,
-    title = title ?: existing?.title,
-    visitedAt = visitedAt,
-    departedAt = departedAt ?: existing?.departedAt,
-    note = note ?: existing?.note,
-    lifeEntryId = existing?.lifeEntryId,
-    wishId = existing?.wishId,
-    attachmentsJson = existing?.attachmentsJson ?: "[]",
-    entriesCount = existing?.entriesCount ?: 0,
-    totalSpent = existing?.totalSpent ?: 0,
-    transactionCount = existing?.transactionCount ?: 0,
     updatedAt = updatedAt
 )
 
@@ -278,8 +230,6 @@ internal fun CachedWishEntity.toCreateWishRequest(): CreateWishRequest = CreateW
     kind = kind,
     note = note,
     spec = spec,
-    cityCode = cityCode,
-    cityName = cityName,
     budget = budget,
     targetDate = targetDate,
     clientRequestId = SimpleEntitySync.newClientRequestId()
@@ -299,11 +249,6 @@ internal fun CachedWishEntity.withResolvedState(req: ResolveWishRequest): Cached
 }
 
 // ---------- P1-2：幂等命中判定 ----------
-//
-// 服务端按 client_request_id 幂等返回的是**首次落库的旧记录**。若创建请求其实
-// 已经成功、响应丢失后用户又编辑了临时行，重试会命中旧记录；此时若直接采用
-// 服务端响应，用户的新内容会被静默盖掉。这里比对响应与本次发送载荷的关键字段，
-// 不一致就说明响应已过期，调用方应保留本地内容并把 CREATE 升级为 UPDATE。
 
 private fun normalizedText(value: String?): String = value?.trim().orEmpty()
 
@@ -317,49 +262,11 @@ private fun sameInstantOrText(sent: String?, server: String?): Boolean {
     }
 }
 
-internal fun CreateProjectRequest.matchesServer(project: Project): Boolean =
-    normalizedText(title) == normalizedText(project.title) &&
-        normalizedText(subtitle) == normalizedText(project.subtitle) &&
-        normalizedText(description) == normalizedText(project.description) &&
-        normalizedText(story) == normalizedText(project.story) &&
-        normalizedText(category) == normalizedText(project.category) &&
-        normalizedText(githubUrl) == normalizedText(project.githubUrl) &&
-        normalizedText(status).ifEmpty { "进行中" } ==
-        normalizedText(project.status).ifEmpty { "进行中" } &&
-        order == (project.order ?: 0)
-
 internal fun CreateWishRequest.matchesServer(wish: Wish): Boolean =
     normalizedText(title) == normalizedText(wish.title) &&
         normalizedText(kind).ifEmpty { "item" } ==
         normalizedText(wish.kind).ifEmpty { "item" } &&
         normalizedText(note) == normalizedText(wish.note) &&
         normalizedText(spec) == normalizedText(wish.spec) &&
-        normalizedText(cityCode) == normalizedText(wish.cityCode) &&
-        normalizedText(cityName) == normalizedText(wish.cityName) &&
         budget == wish.budget &&
         sameInstantOrText(targetDate, wish.targetDate)
-
-/**
- * 足迹的城市名会被后端按国标字典规范化、到访/返程倒挂会被自动交换，
- * 因此只比对城市代码与时间集合，避免把服务端的正常规范化误判成旧记录。
- */
-internal fun CreateFootprintRequest.matchesServer(footprint: Footprint): Boolean {
-    val sentTimes = listOfNotNull(
-        FormatUtils.parseOccurredInstantOrNull(visitedAt),
-        FormatUtils.parseOccurredInstantOrNull(departedAt)
-    ).sorted()
-    val serverTimes = listOfNotNull(
-        FormatUtils.parseOccurredInstantOrNull(footprint.visitedAt),
-        FormatUtils.parseOccurredInstantOrNull(footprint.departedAt)
-    ).sorted()
-    val timesMatch = if (sentTimes.isEmpty() || serverTimes.isEmpty()) {
-        normalizedText(visitedAt) == normalizedText(footprint.visitedAt) &&
-            normalizedText(departedAt) == normalizedText(footprint.departedAt)
-    } else {
-        sentTimes == serverTimes
-    }
-    return normalizedText(cityCode) == normalizedText(footprint.cityCode) &&
-        normalizedText(title) == normalizedText(footprint.title) &&
-        normalizedText(note) == normalizedText(footprint.note) &&
-        timesMatch
-}

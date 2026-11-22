@@ -13,20 +13,16 @@ import java.io.File
     entities = [
         CachedEntryEntity::class,
         OutboxEventEntity::class,
-        CachedProjectEntity::class,
-        CachedWishEntity::class,
-        CachedFootprintEntity::class
+        CachedWishEntity::class
     ],
-    version = 11,
+    version = 12,
     // 导出 schema 到 app/schemas，后续迁移必须能和它逐字段对齐
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun entryDao(): EntryDao
     abstract fun outboxDao(): OutboxDao
-    abstract fun projectDao(): ProjectDao
     abstract fun wishDao(): WishDao
-    abstract fun footprintDao(): FootprintDao
 
     companion object {
         private const val DB_NAME = "looseleaf_local.db"
@@ -495,20 +491,25 @@ abstract class AppDatabase : RoomDatabase() {
                         "ON `cached_entries` (`sync_status`, `occurred_at`)"
                 )
 
-                db.execSQL(
-                    "CREATE TABLE IF NOT EXISTS `cached_projects_new` (" +
-                        "`id` INTEGER NOT NULL, `title` TEXT NOT NULL, `subtitle` TEXT, `description` TEXT, " +
-                        "`story` TEXT, `category` TEXT, `status` TEXT, `github_url` TEXT, " +
-                        "`order` INTEGER, `updated_at` TEXT, PRIMARY KEY(`id`))"
-                )
-                db.execSQL(
-                    "INSERT INTO `cached_projects_new` (`id`, `title`, `subtitle`, `description`, " +
-                        "`story`, `category`, `status`, `github_url`, `order`, `updated_at`) " +
-                        "SELECT `id`, `title`, `subtitle`, `description`, `story`, `category`, " +
-                        "`status`, `github_url`, `order`, `updated_at` FROM `cached_projects`"
-                )
-                db.execSQL("DROP TABLE `cached_projects`")
-                db.execSQL("ALTER TABLE `cached_projects_new` RENAME TO `cached_projects`")
+                val hasProjectsTable = db.query(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cached_projects'"
+                ).use { it.moveToNext() }
+                if (hasProjectsTable) {
+                    db.execSQL(
+                        "CREATE TABLE IF NOT EXISTS `cached_projects_new` (" +
+                            "`id` INTEGER NOT NULL, `title` TEXT NOT NULL, `subtitle` TEXT, `description` TEXT, " +
+                            "`story` TEXT, `category` TEXT, `status` TEXT, `github_url` TEXT, " +
+                            "`order` INTEGER, `updated_at` TEXT, PRIMARY KEY(`id`))"
+                    )
+                    db.execSQL(
+                        "INSERT INTO `cached_projects_new` (`id`, `title`, `subtitle`, `description`, " +
+                            "`story`, `category`, `status`, `github_url`, `order`, `updated_at`) " +
+                            "SELECT `id`, `title`, `subtitle`, `description`, `story`, `category`, " +
+                            "`status`, `github_url`, `order`, `updated_at` FROM `cached_projects`"
+                    )
+                    db.execSQL("DROP TABLE `cached_projects`")
+                    db.execSQL("ALTER TABLE `cached_projects_new` RENAME TO `cached_projects`")
+                }
             }
         }
 
@@ -554,6 +555,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `cached_projects`")
+                db.execSQL("DROP TABLE IF EXISTS `cached_footprints`")
+                db.execSQL("DELETE FROM `outbox_events` WHERE `entity_type` IN ('project', 'footprint')")
+            }
+        }
+
         /** MIGRATION_8_9 的单表归一：只回写「归一结果与原文不同」的行，幂等且最小化写放大。 */
         private fun normalizeOccurredAtInPlace(db: SupportSQLiteDatabase, table: String) {
             val pendingUpdates = mutableListOf<Pair<Long, String>>()
@@ -591,7 +600,8 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_7_8,
                     MIGRATION_8_9,
                     MIGRATION_9_10,
-                    MIGRATION_10_11
+                    MIGRATION_10_11,
+                    MIGRATION_11_12
                 )
                 // 只在「降级安装」时清库；版本前进时缺迁移宁可显式失败，也不静默抹掉未同步数据。
                 .fallbackToDestructiveMigrationOnDowngrade()

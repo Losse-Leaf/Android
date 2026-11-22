@@ -17,9 +17,9 @@ import org.robolectric.annotation.Config
  * 时间流**分页查询**的语义回归 (MOB-P1-71)
  *
  * 这一轮把过滤从 Kotlin 内存筛选改成了 SQL 下推，
- * 「自然下渗分类」的口径（带属地归游历、带造物归造物、带心愿归心愿）
+ * 「自然下渗分类」的口径（带心愿归心愿、其余归日常）
  * 从此**只有 SQL 这一份事实源** —— 一旦写错，用户就会「找不到自己的记录」。
- * 这里用 Robolectric 在 JVM 上跑真实的 SQLite，把六种筛选口径全部钉死。
+ * 这里用 Robolectric 在 JVM 上跑真实的 SQLite，把筛选口径全部钉死。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
@@ -44,8 +44,6 @@ class StreamQueryTest {
         id: Long,
         type: String = "life",
         occurredAt: String = "2026-03-0${id}T10:00:00+08:00",
-        cityCode: String? = null,
-        projectId: Long? = null,
         wishId: Long? = null,
         title: String = "条目 $id"
     ) = CachedEntryEntity(
@@ -55,9 +53,6 @@ class StreamQueryTest {
         title = title,
         content = "内容 $id",
         occurredAt = occurredAt,
-        cityCode = cityCode,
-        cityName = cityCode?.let { "城市$it" },
-        projectId = projectId,
         wishId = wishId,
         attachmentsJson = "[]",
         syncStatus = "SYNCED"
@@ -69,14 +64,10 @@ class StreamQueryTest {
             dao.insertAll(
                 listOf(
                     entry(1, type = "life", title = "纯日常"),
-                    entry(2, type = "travel", title = "游历条目"),
-                    entry(3, type = "life", cityCode = "330100", title = "日常但有属地"),
-                    entry(4, type = "project", title = "造物条目"),
-                    entry(5, type = "life", projectId = 7L, title = "日常但挂着造物"),
-                    entry(6, type = "wish", title = "心愿条目"),
-                    entry(7, type = "life", wishId = 9L, title = "日常但挂着心愿"),
-                    entry(8, type = "daily", title = "另一种日常"),
-                    entry(9, type = "life", occurredAt = "2025-05-01T10:00:00+08:00", title = "旧年份")
+                    entry(2, type = "wish", title = "心愿条目"),
+                    entry(3, type = "life", wishId = 9L, title = "日常但挂着心愿"),
+                    entry(4, type = "daily", title = "另一种日常"),
+                    entry(5, type = "life", occurredAt = "2025-05-01T10:00:00+08:00", title = "旧年份")
                 )
             )
         }
@@ -86,30 +77,9 @@ class StreamQueryTest {
     fun `all 口径返回全部并按发生时间倒序`() {
         seed()
         val rows = runBlocking { db.entryDao().getEntriesPage("all", null, 100, 0) }
-        assertEquals(9, rows.size)
+        assertEquals(5, rows.size)
         // 2026 的条目应当排在 2025 之前
         assertTrue(rows.first().occurredAt > rows.last().occurredAt)
-    }
-
-    @Test
-    fun `travel 口径包含游历与带属地的日常`() {
-        seed()
-        val rows = runBlocking { db.entryDao().getEntriesPage("travel", null, 100, 0) }
-        val titles = rows.map { it.title }.toSet()
-        assertTrue("游历条目" in titles)
-        assertTrue("日常但有属地" in titles)
-        assertTrue("纯日常" !in titles)
-        assertTrue("造物条目" !in titles)
-    }
-
-    @Test
-    fun `project 口径包含造物与挂着造物的日常`() {
-        seed()
-        val rows = runBlocking { db.entryDao().getEntriesPage("project", null, 100, 0) }
-        val titles = rows.map { it.title }.toSet()
-        assertTrue("造物条目" in titles)
-        assertTrue("日常但挂着造物" in titles)
-        assertTrue("纯日常" !in titles)
     }
 
     @Test
@@ -136,7 +106,7 @@ class StreamQueryTest {
     fun `年份筛选只返回该年`() {
         seed()
         val rows = runBlocking { db.entryDao().getEntriesPage("all", "2026", 100, 0) }
-        assertEquals(8, rows.size)
+        assertEquals(4, rows.size)
         val old = runBlocking { db.entryDao().getEntriesPage("all", "2025", 100, 0) }
         assertEquals(1, old.size)
         assertEquals("旧年份", old.first().title)
@@ -145,14 +115,14 @@ class StreamQueryTest {
     @Test
     fun `分页 offset 与 limit 正确切分`() {
         seed()
-        val first = runBlocking { db.entryDao().getEntriesPage("all", null, 4, 0) }
-        val second = runBlocking { db.entryDao().getEntriesPage("all", null, 4, 4) }
-        assertEquals(4, first.size)
-        assertEquals(4, second.size)
+        val first = runBlocking { db.entryDao().getEntriesPage("all", null, 2, 0) }
+        val second = runBlocking { db.entryDao().getEntriesPage("all", null, 2, 2) }
+        assertEquals(2, first.size)
+        assertEquals(2, second.size)
         // 两页之间不应有重叠
         assertTrue(first.map { it.localId }.toSet().intersect(second.map { it.localId }.toSet()).isEmpty())
         val count = runBlocking { db.entryDao().countEntries("all", null) }
-        assertEquals(9, count)
+        assertEquals(5, count)
     }
 
     @Test
@@ -163,12 +133,12 @@ class StreamQueryTest {
             dao.insertAll(
                 listOf(
                     CachedEntryEntity(
-                    localId = 99,
-                    serverId = 99,
-                    type = "life",
-                    title = "已标记删除",
-                    content = "",
-                    occurredAt = "2026-04-01T10:00:00+08:00",
+                        localId = 99,
+                        serverId = 99,
+                        type = "life",
+                        title = "已标记删除",
+                        content = "",
+                        occurredAt = "2026-04-01T10:00:00+08:00",
                         attachmentsJson = "[]",
                         syncStatus = "PENDING_DELETE"
                     )
@@ -180,7 +150,7 @@ class StreamQueryTest {
     }
 
     @Test
-    fun `组合筛选：日常与游历多选且指定2026年`() {
+    fun `组合筛选：仅日常且指定2026年`() {
         seed()
         val dao = db.entryDao()
         val rows = runBlocking {
@@ -189,8 +159,6 @@ class StreamQueryTest {
                 month = null,
                 hasCategories = true,
                 includeDaily = true,
-                includeTravel = true,
-                includeProject = false,
                 includeWish = false,
                 hasImage = false,
                 isPending = false,
@@ -205,8 +173,6 @@ class StreamQueryTest {
                 month = null,
                 hasCategories = true,
                 includeDaily = true,
-                includeTravel = true,
-                includeProject = false,
                 includeWish = false,
                 hasImage = false,
                 isPending = false,
@@ -215,15 +181,7 @@ class StreamQueryTest {
         }
         val titles = rows.map { it.title }.toSet()
         assertEquals(count, rows.size)
-        // 应该包含日常、另一种日常、游历条目、日常但有属地
-        assertTrue("纯日常" in titles)
-        assertTrue("另一种日常" in titles)
-        assertTrue("游历条目" in titles)
-        assertTrue("日常但有属地" in titles)
-        // 不应包含造物、心愿或2025年条目
-        assertTrue("造物条目" !in titles)
-        assertTrue("心愿条目" !in titles)
-        assertTrue("旧年份" !in titles)
+        assertEquals(setOf("纯日常", "另一种日常"), titles)
     }
 
     @Test
@@ -272,8 +230,6 @@ class StreamQueryTest {
                 month = null,
                 hasCategories = false,
                 includeDaily = false,
-                includeTravel = false,
-                includeProject = false,
                 includeWish = false,
                 hasImage = true,
                 isPending = false,
@@ -291,8 +247,6 @@ class StreamQueryTest {
                 month = null,
                 hasCategories = false,
                 includeDaily = false,
-                includeTravel = false,
-                includeProject = false,
                 includeWish = false,
                 hasImage = false,
                 isPending = true,

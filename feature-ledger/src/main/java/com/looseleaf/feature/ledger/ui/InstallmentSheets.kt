@@ -46,14 +46,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun CreateInstallmentSheet(
     creditChannels: List<CreditChannel>,
-    existingGears: List<GearItem>,
     expenseCategories: List<String>,
     onDismissRequest: () -> Unit,
     onSubmit: suspend (CreateInstallmentPlanRequest) -> Boolean,
     initialTitle: String = "",
     initialPriceYuan: String = "",
-    initialGearCategory: String = "数码器材",
-    isFromGear: Boolean = false,
     onCreateChannel: (suspend (name: String, repaymentDay: Int) -> CreditChannel?)? = null
 ) {
     val colors = LedgerTheme.colors
@@ -74,8 +71,6 @@ fun CreateInstallmentSheet(
         mutableStateOf(defaultFirstDueYearMonth(selectedChannel?.repaymentDay ?: 10))
     }
 
-    var selectedKind by remember { mutableStateOf("asset") }
-    var selectedGearId by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(expenseCategories.firstOrNull { it == "购物" || it == "数码器材" } ?: expenseCategories.firstOrNull() ?: "购物") }
     var note by remember { mutableStateOf("") }
 
@@ -94,18 +89,14 @@ fun CreateInstallmentSheet(
                     channelId = selectedChannel?.id,
                     channelCode = selectedChannel?.code,
                     title = title.trim(),
-                    kind = selectedKind,
+                    kind = "expense",
                     principal = principalCents,
                     periods = effectivePeriods,
                     feeMode = "none",
                     feeValue = 0L,
                     firstDueDate = firstDueDateStr,
                     repayDay = selectedChannel?.repaymentDay ?: 10,
-                    assetId = if (selectedKind == "asset" && selectedGearId.isNotBlank()) selectedGearId else null,
-                    createNewGear = selectedKind == "asset" && selectedGearId.isBlank(),
-                    gearName = if (selectedKind == "asset" && selectedGearId.isBlank()) title.trim() else null,
-                    gearCategory = if (selectedKind == "asset" && selectedGearId.isBlank()) initialGearCategory else null,
-                    categoryName = if (selectedKind == "expense") selectedCategory else null,
+                    categoryName = selectedCategory,
                     note = note.trim().ifEmpty { null }
                 )
                 isSubmitting = true
@@ -160,85 +151,25 @@ fun CreateInstallmentSheet(
                 emptyPreviewHint = "输入金额与期数后将实时试算各期还款额",
                 onCreateChannel = onCreateChannel,
                 installmentExtraContent = {
-                    if (!isFromGear) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = "分期类型",
-                                    style = LedgerTheme.typography.caption,
-                                    color = colors.textSecondary,
-                                    maxLines = 1
-                                )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "消费分类",
+                            style = LedgerTheme.typography.caption,
+                            color = colors.textSecondary,
+                            maxLines = 1
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            expenseCategories.forEach { cat ->
                                 ArchiveSelectableCapsule(
-                                    text = "购入装备",
-                                    selected = selectedKind == "asset",
-                                    onClick = { selectedKind = "asset" }
+                                    text = cat,
+                                    selected = selectedCategory == cat,
+                                    onClick = { selectedCategory = cat }
                                 )
-                                ArchiveSelectableCapsule(
-                                    text = "一笔消费",
-                                    selected = selectedKind == "expense",
-                                    onClick = { selectedKind = "expense" }
-                                )
-                            }
-
-                            if (selectedKind == "asset" && existingGears.isNotEmpty()) {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(
-                                        text = "关联装备",
-                                        style = LedgerTheme.typography.caption,
-                                        color = colors.textSecondary,
-                                        maxLines = 1
-                                    )
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        ArchiveSelectableCapsule(
-                                            text = "新装备",
-                                            selected = selectedGearId.isBlank(),
-                                            onClick = { selectedGearId = "" }
-                                        )
-                                        existingGears.forEach { g ->
-                                            val isSelected = selectedGearId == g.id
-                                            ArchiveSelectableCapsule(
-                                                text = g.name,
-                                                selected = isSelected,
-                                                onClick = { selectedGearId = if (isSelected) "" else g.id }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (selectedKind == "expense") {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(
-                                        text = "消费分类",
-                                        style = LedgerTheme.typography.caption,
-                                        color = colors.textSecondary,
-                                        maxLines = 1
-                                    )
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        expenseCategories.forEach { cat ->
-                                            ArchiveSelectableCapsule(
-                                                text = cat,
-                                                selected = selectedCategory == cat,
-                                                onClick = { selectedCategory = cat }
-                                            )
-                                        }
-                                    }
-                                }
                             }
                         }
                     }
@@ -291,8 +222,12 @@ fun InstallmentPlanDetailSheet(
                 .padding(horizontal = 16.dp, vertical = 4.dp)
         ) {
             // 标题与渠道
+            val channelMeta = buildString {
+                append(plan.channelName ?: plan.channelCode)
+                plan.categoryName?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
+            }
             Text(
-                text = "${plan.channelName ?: plan.channelCode} · ${if (plan.kind == "asset") "购入装备" else "一笔消费"}",
+                text = channelMeta,
                 style = LedgerTheme.typography.caption,
                 fontFamily = LedgerTheme.typography.serif,
                 color = colors.textSecondary,
@@ -970,5 +905,150 @@ fun EditInstallmentPlanSheet(
             },
             onDismissRequest = { adjustingItem = null }
         )
+    }
+}
+
+/**
+ * 分期计划总览列表抽屉（通过账本顶栏更多菜单访问，确保分期计划不因移除资产大盘而孤立）
+ */
+@Composable
+fun InstallmentPlansSheet(
+    plans: List<InstallmentPlanItemSummary>,
+    isPrivacyMasked: Boolean,
+    onDismissRequest: () -> Unit,
+    onNewInstallmentClick: () -> Unit,
+    onPlanClick: (InstallmentPlanItemSummary) -> Unit
+) {
+    val colors = LedgerTheme.colors
+    val activePlans = remember(plans) { plans.filter { it.status == "active" } }
+    val settledPlans = remember(plans) { plans.filter { it.status != "active" } }
+
+    ArchiveSheet(
+        onDismissRequest = onDismissRequest,
+        title = "分期计划",
+        cancelText = "关闭",
+        actionText = "+ 新建分期",
+        isActionEnabled = true,
+        onAction = {
+            onDismissRequest()
+            onNewInstallmentClick()
+        }
+    ) {
+        if (plans.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "暂无分期计划",
+                    style = LedgerTheme.typography.body,
+                    fontFamily = LedgerTheme.typography.serif,
+                    color = colors.textSecondary
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (activePlans.isNotEmpty()) {
+                    item(key = "hdr_active_plans") {
+                        Text(
+                            text = "进行中 (${activePlans.size})",
+                            style = LedgerTheme.typography.caption,
+                            fontFamily = LedgerTheme.typography.serif,
+                            color = colors.textSecondary,
+                            modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                        )
+                    }
+                    items(activePlans, key = { "plan_${it.id}" }) { plan ->
+                        InstallmentPlanSummaryRow(
+                            plan = plan,
+                            isPrivacyMasked = isPrivacyMasked,
+                            onClick = { onPlanClick(plan) }
+                        )
+                    }
+                }
+                if (settledPlans.isNotEmpty()) {
+                    item(key = "hdr_settled_plans") {
+                        Text(
+                            text = "已结清 (${settledPlans.size})",
+                            style = LedgerTheme.typography.caption,
+                            fontFamily = LedgerTheme.typography.serif,
+                            color = colors.textMuted,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+                        )
+                    }
+                    items(settledPlans, key = { "plan_done_${it.id}" }) { plan ->
+                        InstallmentPlanSummaryRow(
+                            plan = plan,
+                            isPrivacyMasked = isPrivacyMasked,
+                            onClick = { onPlanClick(plan) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstallmentPlanSummaryRow(
+    plan: InstallmentPlanItemSummary,
+    isPrivacyMasked: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = LedgerTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(ArchiveShapes.medium)
+            .background(colors.surfaceElevated)
+            .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.medium)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = plan.title,
+                style = LedgerTheme.typography.body,
+                fontFamily = LedgerTheme.typography.serif,
+                fontWeight = FontWeight.Medium,
+                color = colors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "${plan.channelName ?: plan.channelCode} · 已还 ${plan.paidPeriods}/${plan.periods} 期",
+                fontFamily = ArchiveFontFamilies.MonoScale,
+                fontSize = ArchiveTypeScale.caption,
+                color = colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = if (isPrivacyMasked) "¥ ••••" else FormatUtils.formatMoney(plan.remainingPrincipal),
+                fontFamily = ArchiveFontFamilies.MonoScale,
+                fontSize = ArchiveTypeScale.body,
+                fontWeight = FontWeight.Medium,
+                color = if (plan.remainingPrincipal > 0) colors.expense else colors.income
+            )
+            Text(
+                text = if (plan.status == "settled") "已结清" else if (plan.isOverdue) "已逾期" else "待还本金",
+                fontFamily = LedgerTheme.typography.serif,
+                fontSize = ArchiveTypeScale.caption,
+                color = if (plan.isOverdue) colors.alertRed else colors.textMuted
+            )
+        }
     }
 }

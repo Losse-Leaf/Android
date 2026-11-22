@@ -77,11 +77,8 @@ import com.looseleaf.app.data.sync.StreamWindowPage
 import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.model.Attachment
 import com.looseleaf.app.model.CreateEntryRequest
-import com.looseleaf.app.model.CreateProjectRequest
 import com.looseleaf.app.model.CreateWishRequest
-import com.looseleaf.app.model.Footprint
 import com.looseleaf.app.model.LifeEntry
-import com.looseleaf.app.model.Project
 import com.looseleaf.app.model.Wish
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveMotion
@@ -90,7 +87,6 @@ import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.updater.ReleaseInfo
 import com.looseleaf.app.updater.UpdateCheckResult
 import com.looseleaf.app.updater.UpdateChecker
-import com.looseleaf.app.utils.CityDictionary
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.app.utils.LocationHelper
 import kotlinx.coroutines.Dispatchers
@@ -143,11 +139,13 @@ private const val STREAM_PAGE_SIZE = 60
 @Composable
 fun StreamScreen(
     modifier: Modifier = Modifier,
-    /** 搜索结果跳转到工坊（RG-31）：kind = project / wish / footprint，id 为服务端主键 */
+    /** 搜索结果跳转到心愿单：kind = wish，id 为服务端主键 */
     onOpenWorkshopTarget: ((String, Long) -> Unit)? = null,
-    /** 外部指定初始内容筛选（RG-30）：如展台「有图手记」跳进来时带上 has_image */
+    /** 外部指定初始内容筛选 */
     initialContentFilter: Set<String>? = null,
-    onContentFilterConsumed: (() -> Unit)? = null
+    onContentFilterConsumed: (() -> Unit)? = null,
+    /** 顶栏设置入口 */
+    onOpenSettings: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -510,7 +508,8 @@ fun StreamScreen(
                         ArchiveToastManager.show("发件箱已重新排队，联网后自动上传 ($pendingCount 项待重放)")
                         syncManager.scheduleSync()
                     }
-                }
+                },
+                onOpenSettings = onOpenSettings
             )
 
             // 顶栏下沿 1dp 淡线：只在列表滚动、内容上移时出现，平时不显示

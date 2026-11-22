@@ -6,7 +6,6 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.looseleaf.app.data.api.APIClient
-import com.looseleaf.app.data.local.ProfileRepository
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.sync.SyncManager
 import kotlinx.coroutines.CoroutineScope
@@ -52,7 +51,6 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
                     }
                 )
             }
-            runCatching { ProfileRepository.init(this@LooseLeafApp) }
             runCatching { credentialStore.warmUp() }
             // AND-7：SyncManager 的 Room / 计数 Flow 订阅改为显式后台启动，
             // 冷启动首帧不再构建数据库观察者。

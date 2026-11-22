@@ -121,8 +121,6 @@ internal fun QuickRecordSheet(
         mutableStateOf(defaultFirstDueYearMonth(selectedChannel?.repaymentDay ?: 10))
     }
 
-    var linkGearAsset by rememberSaveable { mutableStateOf(false) }
-
     var inputAmountString by rememberSaveable { mutableStateOf("0") }
     var noteText by rememberSaveable { mutableStateOf("") }
     var showAllCategories by rememberSaveable { mutableStateOf(false) }
@@ -251,9 +249,7 @@ internal fun QuickRecordSheet(
                         repaymentDay = if (submitInstallment) (selectedChannel?.repaymentDay ?: 10) else null,
                         installmentFeeMode = if (submitInstallment) "none" else null,
                         installmentFeeValue = if (submitInstallment) 0L else null,
-                        firstDueDate = if (submitInstallment) firstDueDateStr else null,
-                        linkGearAsset = submitInstallment && linkGearAsset,
-                        gearCategory = if (submitInstallment && linkGearAsset) submitCategory else null
+                        firstDueDate = if (submitInstallment) firstDueDateStr else null
                     )
                     ledgerRepository.createTransactionOptimistic(req)
                     onTransactionCreated()
@@ -394,55 +390,11 @@ internal fun QuickRecordSheet(
                                 val created = apiClient.createCreditChannel(
                                     CreateCreditChannelRequest(name = name, repaymentDay = day)
                                 )
-                                LedgerRepository.refreshAssets(apiClient)
+                                LedgerRepository.refreshInstallments(apiClient)
                                 created
                             }.onFailure { err ->
                                 ArchiveToastManager.show("创建渠道失败: ${err.message}", isError = true)
                             }.getOrNull()
-                        },
-                        installmentExtraContent = {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .clickable { linkGearAsset = !linkGearAsset }
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(end = 12.dp)
-                                ) {
-                                    Text(
-                                        text = "同步收录至在役装备库",
-                                        style = LedgerTheme.typography.body,
-                                        fontFamily = LedgerTheme.typography.serif,
-                                        color = colors.textPrimary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = if (linkGearAsset) "开启后将同时在「资产大盘」创建在役硬件单品" else "关闭则仅建立分期账单与负债，不建立装备单品",
-                                        style = LedgerTheme.typography.caption,
-                                        color = colors.textSecondary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                Switch(
-                                    checked = linkGearAsset,
-                                    onCheckedChange = { linkGearAsset = it },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = colors.background,
-                                        checkedTrackColor = colors.accent,
-                                        uncheckedThumbColor = colors.textMuted,
-                                        uncheckedTrackColor = colors.surfaceElevated
-                                    )
-                                )
-                            }
                         }
                     )
                 }

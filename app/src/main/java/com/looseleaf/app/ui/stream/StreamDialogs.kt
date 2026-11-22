@@ -81,11 +81,9 @@ fun EntryDetailSheetDialog(
     // 用户正在输入的标题/正文被**重置回服务器上的旧值** —— 表现为「打字打到一半被清空」。
     // 用 entry.id 作 key：同一条记录的刷新不会打断输入；切换到另一条记录才重置。
     var isEditing by remember(entry.id) { mutableStateOf(false) }
-    var editType by remember(entry.id) { mutableStateOf(entry.type) }
+    var editType by remember(entry.id) { mutableStateOf(if (entry.type == "wish") "wish" else "life") }
     var editTitle by remember(entry.id) { mutableStateOf(entry.title) }
     var editContent by remember(entry.id) { mutableStateOf(entry.content) }
-    var editCityCode by remember(entry.id) { mutableStateOf(entry.cityCode ?: "") }
-    var editCityName by remember(entry.id) { mutableStateOf(entry.cityName ?: entry.location ?: "") }
     var editLocation by remember(entry.id) { mutableStateOf(entry.location ?: "") }
     var editOccurredAt by remember(entry.id) { mutableStateOf(FormatUtils.parseToLocalDateTime(entry.occurredAt)) }
     var editIsPrivate by remember(entry.id) { mutableStateOf(entry.isPrivate) }
@@ -120,9 +118,6 @@ fun EntryDetailSheetDialog(
     }
 
     val saveAction: () -> Unit = {
-        val code = editCityCode.trim()
-        val cityName = editCityName.trim().takeIf { it.isNotBlank() }
-        val hadCity = !entry.cityCode.isNullOrBlank()
         val finalAttachmentIds = editAttachments.mapNotNull { it.id.takeIf { id -> id > 0 } }
         val req = CreateEntryRequest(
             type = editType,
@@ -130,12 +125,7 @@ fun EntryDetailSheetDialog(
             content = editContent.trim(),
             occurredAt = FormatUtils.toBeijingIsoString(editOccurredAt),
             location = editLocation.trim(),
-            cityCode = code.takeIf { it.isNotBlank() },
-            cityName = cityName,
-            clearCity = hadCity && code.isBlank(),
-            projectId = if (editType == "project") entry.projectId else null,
             wishId = if (editType == "wish") entry.wishId else null,
-            footprintId = entry.footprintId,
             isPrivate = editIsPrivate,
             attachmentIds = finalAttachmentIds,
             clearAttachments = finalAttachmentIds.isEmpty()
@@ -166,8 +156,6 @@ fun EntryDetailSheetDialog(
                 // 类型切换
                 val typeOptions = listOf(
                     "life" to "日常随笔",
-                    "travel" to "游历",
-                    "project" to "造物日志",
                     "wish" to "心愿印记"
                 )
                 Row(
@@ -214,18 +202,6 @@ fun EntryDetailSheetDialog(
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
-
-                ArchiveCityPickerField(
-                    selectedCityCode = editCityCode,
-                    selectedCityName = editCityName,
-                    onCitySelected = { code, name ->
-                        editCityCode = code
-                        editCityName = name
-                    },
-                    placeholder = stringResource(R.string.stream_dialogs_placeholder_select_city)
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
 
                 ArchiveField(
                     value = editLocation,
@@ -387,7 +363,7 @@ fun EntryDetailSheetDialog(
                     )
                 }
 
-                val detailPlace = listOfNotNull(entry.cityName, entry.location).distinct().filter { it.isNotBlank() }.joinToString(" · ")
+                val detailPlace = entry.location?.trim().orEmpty()
                 if (detailPlace.isNotBlank()) {
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -591,7 +567,7 @@ internal fun GlobalSearchDialog(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 val res = searchResult
-                if (res == null || (res.entries.isEmpty() && res.footprints.isEmpty() && res.wishes.isEmpty() && res.projects.isEmpty())) {
+                if (res == null || (res.entries.isEmpty() && res.wishes.isEmpty())) {
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 380.dp)
@@ -649,43 +625,6 @@ internal fun GlobalSearchDialog(
                             }
                         }
 
-                        if (res.footprints.isNotEmpty()) {
-                            item {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(stringResource(R.string.stream_dialogs_footprints_count, res.footprints.size), fontSize = 11.sp, color = colors.inkMuted)
-                            }
-                            items(res.footprints, key = { "f_${it.id}" }) { foot ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(colors.archiveSubtle)
-                                        .clickable {
-                                            if (onOpenTarget != null) {
-                                                onOpenTarget("footprint", foot.id)
-                                            } else {
-                                                viewingDetail = "足迹 · ${foot.cityName}" to listOfNotNull(
-                                                    foot.title?.takeIf { it.isNotBlank() },
-                                                    "到访时刻: ${FormatUtils.formatDisplayDate(foot.visitedAt)}",
-                                                    foot.note?.takeIf { it.isNotBlank() }
-                                                ).joinToString("\n\n")
-                                            }
-                                        }
-                                        .padding(8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    SearchHighlightText(
-                                        text = "${foot.cityName} · ${foot.title ?: stringResource(R.string.stream_dialogs_footprint_default)}",
-                                        query = searchQuery,
-                                        fontSize = 12.sp,
-                                        color = colors.inkPrimary
-                                    )
-                                    Text(foot.visitedAt?.take(10) ?: "", fontSize = 11.sp, color = colors.inkMuted)
-                                }
-                            }
-                        }
-
                         if (res.wishes.isNotEmpty()) {
                             item {
                                 Spacer(modifier = Modifier.height(6.dp))
@@ -704,7 +643,6 @@ internal fun GlobalSearchDialog(
                                                 viewingDetail = "心愿清单 · ${wish.title}" to listOfNotNull(
                                                     "心愿类别: ${if (wish.kind == "travel") "旅程" else if (wish.kind == "milestone") "里程碑" else "好物"}",
                                                     if (wish.budget > 0) "意向预算: ${FormatUtils.centsToYuanString(wish.budget)}" else null,
-                                                    wish.cityName?.takeIf { it.isNotBlank() }?.let { "目的地: $it" },
                                                     wish.note?.takeIf { it.isNotBlank() }?.let { "手记备忘: $it" }
                                                 ).joinToString("\n\n")
                                             }
@@ -722,45 +660,6 @@ internal fun GlobalSearchDialog(
                                     if (wish.budget > 0) {
                                         Text(FormatUtils.centsToYuanString(wish.budget), fontSize = 11.sp, color = colors.accentSmallText)
                                     }
-                                }
-                            }
-                        }
-
-                        if (res.projects.isNotEmpty()) {
-                            item {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(stringResource(R.string.stream_dialogs_projects_count, res.projects.size), fontSize = 11.sp, color = colors.inkMuted)
-                            }
-                            items(res.projects, key = { "p_${it.id}" }) { proj ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(colors.archiveSubtle)
-                                        .clickable {
-                                            if (onOpenTarget != null) {
-                                                onOpenTarget("project", proj.id)
-                                            } else {
-                                                viewingDetail = "造物项目 · ${proj.title}" to listOfNotNull(
-                                                    proj.subtitle?.takeIf { it.isNotBlank() }?.let { "副标题: $it" },
-                                                    proj.status?.takeIf { it.isNotBlank() }?.let { "状态: $it" },
-                                                    proj.description?.takeIf { it.isNotBlank() }?.let { "描述: $it" },
-                                                    proj.story?.takeIf { it.isNotBlank() }?.let { "造物故事: $it" },
-                                                    proj.githubUrl?.takeIf { it.isNotBlank() }?.let { "源码仓库: $it" }
-                                                ).joinToString("\n\n")
-                                            }
-                                        }
-                                        .padding(8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    SearchHighlightText(
-                                        text = proj.title,
-                                        query = searchQuery,
-                                        fontSize = 12.sp,
-                                        color = colors.inkPrimary
-                                    )
-                                    Text(proj.status ?: "", fontSize = 11.sp, color = colors.inkMuted)
                                 }
                             }
                         }

@@ -34,11 +34,9 @@ internal data class LedgerSnapshot(
     val incomeCategories: List<String> = DefaultIncomeCategories,
     val paymentMethods: List<String> = DefaultPaymentMethods,
     val creditChannels: List<CreditChannel> = emptyList(),
-    val assetsOverview: AssetsOverview? = null,
     val installmentPlans: List<InstallmentPlanItemSummary> = emptyList(),
     val installmentSummary: InstallmentSummary? = null,
-    val upcomingInstallmentItems: List<UpcomingInstallmentItem> = emptyList(),
-    val isLoadingAssets: Boolean = false
+    val upcomingInstallmentItems: List<UpcomingInstallmentItem> = emptyList()
 )
 
 internal data class LedgerDeleteUndoTicket(
@@ -213,9 +211,7 @@ internal object LedgerRepository {
                 note = enqueuedReq.note,
                 paymentMethod = enqueuedReq.paymentMethod,
                 occurredAt = enqueuedReq.occurredAt,
-                cityCode = enqueuedReq.cityCode,
                 wishId = enqueuedReq.wishId,
-                footprintId = enqueuedReq.footprintId,
                 isInstallment = enqueuedReq.isInstallment ?: false,
                 installmentChannelCode = enqueuedReq.installmentChannelCode,
                 installmentTotalAmount = enqueuedReq.installmentTotalAmount,
@@ -274,9 +270,7 @@ internal object LedgerRepository {
                 note = req.note,
                 paymentMethod = req.paymentMethod,
                 occurredAt = req.occurredAt,
-                cityCode = if (req.clearCity) null else req.cityCode,
                 wishId = req.wishId ?: entity.wishId,
-                footprintId = req.footprintId ?: entity.footprintId,
                 isInstallment = if (req.clearInstallment) {
                     false
                 } else {
@@ -314,9 +308,7 @@ internal object LedgerRepository {
                         note = req.note,
                         paymentMethod = req.paymentMethod,
                         occurredAt = req.occurredAt,
-                        cityCode = if (req.clearCity) null else (req.cityCode ?: existingReq.cityCode),
                         wishId = req.wishId ?: existingReq.wishId,
-                        footprintId = req.footprintId ?: existingReq.footprintId,
                         isInstallment = if (req.clearInstallment) false else (req.isInstallment ?: existingReq.isInstallment),
                         clearInstallment = req.clearInstallment,
                         installmentChannelCode = if (req.clearInstallment) null else (req.installmentChannelCode ?: existingReq.installmentChannelCode),
@@ -414,21 +406,6 @@ internal object LedgerRepository {
                 db.transactionDao().deleteByLocalId(entity.localId)
             }
 
-            // 联动本地大盘流动资金
-            if (entity.type == "expense" && !entity.isInstallment) {
-                _snapshot.update { s ->
-                    s.copy(assetsOverview = s.assetsOverview?.let { ov ->
-                        ov.copy(liquidBalance = ov.liquidBalance + entity.amount)
-                    })
-                }
-            } else if (entity.type == "income") {
-                _snapshot.update { s ->
-                    s.copy(assetsOverview = s.assetsOverview?.let { ov ->
-                        ov.copy(liquidBalance = ov.liquidBalance - entity.amount)
-                    })
-                }
-            }
-
             LedgerDeleteUndoTicket(entity = entity, pendingUpdatePayload = pendingUpdatePayload)
         }.also { ticket ->
             if (ticket != null) scheduleOutboxFlush()
@@ -487,9 +464,7 @@ internal object LedgerRepository {
                     note = entity.note,
                     paymentMethod = entity.paymentMethod,
                     occurredAt = entity.occurredAt,
-                    cityCode = entity.cityCode,
                     wishId = entity.wishId,
-                    footprintId = entity.footprintId,
                     isInstallment = entity.isInstallment.takeIf { it },
                     installmentChannelCode = entity.installmentChannelCode,
                     installmentTotalAmount = entity.installmentTotalAmount,
@@ -510,21 +485,6 @@ internal object LedgerRepository {
                         enqueuedAt = nowIso
                     )
                 )
-            }
-
-            // 联动扣回流动资金
-            if (entity.type == "expense" && !entity.isInstallment) {
-                _snapshot.update { s ->
-                    s.copy(assetsOverview = s.assetsOverview?.let { ov ->
-                        ov.copy(liquidBalance = ov.liquidBalance - entity.amount)
-                    })
-                }
-            } else if (entity.type == "income") {
-                _snapshot.update { s ->
-                    s.copy(assetsOverview = s.assetsOverview?.let { ov ->
-                        ov.copy(liquidBalance = ov.liquidBalance + entity.amount)
-                    })
-                }
             }
 
             true
@@ -771,9 +731,7 @@ internal object LedgerRepository {
         if (normalizedText(local.note) != normalizedText(remote.note)) return false
         if (normalizedText(local.paymentMethod) != normalizedText(remote.paymentMethod)) return false
         if (!sameInstant(local.occurredAt, remote.occurredAt)) return false
-        if (normalizedText(local.cityCode) != normalizedText(remote.cityCode)) return false
         if (local.wishId != remote.wishId) return false
-        if (local.footprintId != remote.footprintId) return false
 
         val localInstallment = local.isInstallment == true
         val remoteInstallment = remote.isInstallment == true
@@ -1157,42 +1115,31 @@ internal object LedgerRepository {
 
     suspend fun refreshAll(
         apiClient: APIClient,
-        force: Boolean = false,
-        showSpinner: Boolean = false
+        force: Boolean = false
     ) = refreshAll(
         fetchCategories = { apiClient.fetchCategories() },
         fetchCreditChannels = { apiClient.fetchCreditChannels() },
-        fetchAssetsOverview = { apiClient.fetchAssetsOverview() },
         fetchInstallments = { apiClient.fetchInstallmentPlans() },
         fetchSummary = { apiClient.fetchInstallmentSummary() },
         fetchUpcoming = { apiClient.fetchUpcomingInstallmentItems() },
-        force = force,
-        showSpinner = showSpinner
+        force = force
     )
 
     internal suspend fun refreshAll(
         fetchCategories: suspend () -> List<CategoryOption>,
         fetchCreditChannels: suspend () -> List<CreditChannel>,
-        fetchAssetsOverview: suspend () -> AssetsOverview,
         fetchInstallments: (suspend () -> List<InstallmentPlanItemSummary>)? = null,
         fetchSummary: (suspend () -> InstallmentSummary)? = null,
         fetchUpcoming: (suspend () -> List<UpcomingInstallmentItem>)? = null,
-        force: Boolean = false,
-        showSpinner: Boolean = false
+        force: Boolean = false
     ) = withContext(Dispatchers.IO) {
         if (initialized && !force) {
-            if (_snapshot.value.assetsOverview == null) refreshAssets(fetchAssetsOverview, fetchInstallments, fetchSummary, fetchUpcoming, showSpinner)
             return@withContext
-        }
-
-        if (showSpinner || _snapshot.value.assetsOverview == null) {
-            _snapshot.update { it.copy(isLoadingAssets = true) }
         }
 
         coroutineScope {
             val categoriesDeferred = async { runCatching { fetchCategories() } }
             val channelsDeferred = async { runCatching { fetchCreditChannels() } }
-            val assetsDeferred = async { runCatching { fetchAssetsOverview() } }
             val installmentsDeferred = async { if (fetchInstallments != null) runCatching { fetchInstallments() } else null }
             val summaryDeferred = async { if (fetchSummary != null) runCatching { fetchSummary() } else null }
             val upcomingDeferred = async { if (fetchUpcoming != null) runCatching { fetchUpcoming() } else null }
@@ -1216,66 +1163,49 @@ internal object LedgerRepository {
                 _snapshot.update { it.copy(creditChannels = channels) }
             }
 
-            val assetsResult = assetsDeferred.await()
-            assetsResult.getOrNull()?.let { overview ->
-                _snapshot.update { it.copy(assetsOverview = overview) }
-            }
-
-            val plans = installmentsDeferred.await()?.getOrNull() ?: _snapshot.value.installmentPlans
+            val plansResult = installmentsDeferred.await()
+            val plans = plansResult?.getOrNull() ?: _snapshot.value.installmentPlans
             val summary = summaryDeferred.await()?.getOrNull() ?: _snapshot.value.installmentSummary
             val upcoming = upcomingDeferred.await()?.getOrNull() ?: _snapshot.value.upcomingInstallmentItems
             _snapshot.update {
                 it.copy(
                     installmentPlans = plans,
                     installmentSummary = summary,
-                    upcomingInstallmentItems = upcoming,
-                    isLoadingAssets = false
+                    upcomingInstallmentItems = upcoming
                 )
             }
 
             if (categoriesResult.isSuccess) initialized = true
 
-            if (categoriesResult.isFailure && channelsResult.isFailure && assetsResult.isFailure) {
+            if (categoriesResult.isFailure && channelsResult.isFailure && (plansResult == null || plansResult.isFailure)) {
                 throw categoriesResult.exceptionOrNull()
                     ?: channelsResult.exceptionOrNull()
-                    ?: assetsResult.exceptionOrNull()
+                    ?: plansResult?.exceptionOrNull()
                     ?: IllegalStateException("账本数据拉取失败")
             }
         }
     }
 
-    suspend fun refreshAssets(apiClient: APIClient, showSpinner: Boolean = false) =
-        refreshAssets(
-            fetchAssetsOverview = { apiClient.fetchAssetsOverview() },
-            fetchInstallments = { apiClient.fetchInstallmentPlans() },
-            fetchSummary = { apiClient.fetchInstallmentSummary() },
-            fetchUpcoming = { apiClient.fetchUpcomingInstallmentItems() },
-            showSpinner = showSpinner
-        )
+    suspend fun refreshInstallments(apiClient: APIClient) = withContext(Dispatchers.IO) {
+        coroutineScope {
+            val channelsDeferred = async { runCatching { apiClient.fetchCreditChannels() }.getOrNull() }
+            val plansDeferred = async { runCatching { apiClient.fetchInstallmentPlans() }.getOrNull() }
+            val summaryDeferred = async { runCatching { apiClient.fetchInstallmentSummary() }.getOrNull() }
+            val upcomingDeferred = async { runCatching { apiClient.fetchUpcomingInstallmentItems() }.getOrNull() }
 
-    internal suspend fun refreshAssets(
-        fetchAssetsOverview: suspend () -> AssetsOverview,
-        fetchInstallments: (suspend () -> List<InstallmentPlanItemSummary>)? = null,
-        fetchSummary: (suspend () -> InstallmentSummary)? = null,
-        fetchUpcoming: (suspend () -> List<UpcomingInstallmentItem>)? = null,
-        showSpinner: Boolean = false
-    ) = withContext(Dispatchers.IO) {
-        if (showSpinner || _snapshot.value.assetsOverview == null) {
-            _snapshot.update { it.copy(isLoadingAssets = true) }
-        }
-        val overview = runCatching { fetchAssetsOverview() }.getOrNull()
-        val plans = if (fetchInstallments != null) runCatching { fetchInstallments() }.getOrDefault(emptyList()) else _snapshot.value.installmentPlans
-        val summary = if (fetchSummary != null) runCatching { fetchSummary() }.getOrNull() else _snapshot.value.installmentSummary
-        val upcoming = if (fetchUpcoming != null) runCatching { fetchUpcoming() }.getOrDefault(emptyList()) else _snapshot.value.upcomingInstallmentItems
+            val channels = channelsDeferred.await()
+            val plans = plansDeferred.await()
+            val summary = summaryDeferred.await()
+            val upcoming = upcomingDeferred.await()
 
-        _snapshot.update {
-            it.copy(
-                assetsOverview = overview ?: it.assetsOverview,
-                installmentPlans = plans,
-                installmentSummary = summary,
-                upcomingInstallmentItems = upcoming,
-                isLoadingAssets = false
-            )
+            _snapshot.update {
+                it.copy(
+                    creditChannels = channels ?: it.creditChannels,
+                    installmentPlans = plans ?: it.installmentPlans,
+                    installmentSummary = summary ?: it.installmentSummary,
+                    upcomingInstallmentItems = upcoming ?: it.upcomingInstallmentItems
+                )
+            }
         }
     }
 

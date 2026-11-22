@@ -2,7 +2,6 @@ package com.looseleaf.app
 
 import com.looseleaf.app.model.CompleteUploadRequest
 import com.looseleaf.app.model.DeleteResponse
-import com.looseleaf.app.model.Footprint
 import com.looseleaf.app.model.LifeEntry
 import com.looseleaf.app.model.PresignUploadRequest
 import com.looseleaf.app.model.Transaction
@@ -42,7 +41,7 @@ class ModelSerializationTest {
     fun testLifeEntrySerialization() {
         val entry = LifeEntry(
             id = 201,
-            type = "travel",
+            type = "life",
             title = "大理行记",
             content = "苍山微雪，洱海无波。",
             occurredAt = "2026-10-12T16:00:00+08:00",
@@ -82,16 +81,11 @@ class ModelSerializationTest {
     }
 
     @Test
-    fun testWishesPaginatedEnvelopeAndFootprintAndDeleteResponse() {
+    fun testWishesPaginatedEnvelopeAndDeleteResponse() {
         val wishesPayload = """{"total":1,"page":1,"page_size":50,"wishes":[{"id":7,"title":"Leica M6","kind":"item","budget":2500000,"actual_cost":0,"status":"wanting"}]}"""
         val wishesResp = json.decodeFromString<WishesListResponse>(wishesPayload)
         assertEquals(1, wishesResp.total)
         assertEquals("Leica M6", wishesResp.wishes.first().title)
-
-        val footprintPayload = """{"id":3,"city_code":"532900","city_name":"大理白族自治州","title":"苍山漫游","visited_at":"2026-10-12T00:00:00+08:00","note":"洱海月色"}"""
-        val fp = json.decodeFromString<Footprint>(footprintPayload)
-        assertEquals("洱海月色", fp.note)
-        assertEquals("苍山漫游", fp.title)
 
         val delNumeric = json.decodeFromString<DeleteResponse>("""{"id":12,"deleted":true}""")
         val delString = json.decodeFromString<DeleteResponse>("""{"id":"12","purged":true}""")

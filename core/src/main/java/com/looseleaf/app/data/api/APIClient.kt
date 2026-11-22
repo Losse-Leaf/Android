@@ -416,7 +416,7 @@ class APIClient private constructor(private val context: Context) {
         executeEnvelopeRequest<DeleteResponse>("/api/v1/entries/$id", "DELETE", queryParams = params)
     }
 
-    // MARK: - 5. 记账 (Transactions) & 资产大盘 (Assets) & 分期渠道
+    // MARK: - 5. 记账 (Transactions) & 分期渠道
 
     suspend fun fetchTransactions(
         year: Int? = null,
@@ -447,71 +447,6 @@ class APIClient private constructor(private val context: Context) {
     suspend fun deleteTransaction(id: Long, purge: Boolean = false) {
         val params = if (purge) mapOf("purge" to "true") else null
         executeEnvelopeRequest<DeleteResponse>("/api/v1/transactions/$id", "DELETE", queryParams = params)
-    }
-
-    suspend fun fetchAssetsOverview(): AssetsOverview {
-        return executeEnvelopeRequest("/api/v1/assets/overview", "GET")
-    }
-
-    suspend fun updateLiquidBalance(cents: Long): LiquidBalanceResponse {
-        val req = SetLiquidBalanceRequest(initialLiquidBalance = cents)
-        return executeEnvelopeRequest("/api/v1/assets/liquid-balance", "PUT", body = req.toJsonBody())
-    }
-
-    suspend fun addGearAsset(req: AddGearAssetRequest): GearItem {
-        return executeEnvelopeRequest("/api/v1/assets/gear", "POST", body = req.toJsonBody())
-    }
-
-    suspend fun sellGearAsset(id: String, req: SellGearRequest): GearItem {
-        return executeEnvelopeRequest("/api/v1/assets/gear/$id/sell", "POST", body = req.toJsonBody())
-    }
-
-    suspend fun deleteGearAsset(id: String) {
-        executeEnvelopeRequest<DeleteResponse>("/api/v1/assets/gear/$id", "DELETE")
-    }
-
-    suspend fun restoreGearAsset(req: RestoreGearAssetRequest) {
-        executeEnvelopeRequest<Map<String, JsonElement>>("/api/v1/assets/gear/restore", "POST", body = req.toJsonBody())
-    }
-
-    /**
-     * 更新在役装备信息：保持原 id、顺序与伴生散页关联（兼容 v1.8.6+ 服务端）。
-     * 若回写失败则自动按原快照回滚，避免装备意外丢失。
-     */
-    suspend fun updateGearAsset(original: GearItem, updated: GearItem, index: Int = -1) {
-        val originalSnap = RestoreGearAssetRequest(
-            id = original.id,
-            name = original.name,
-            spec = original.spec,
-            category = original.category,
-            status = original.status,
-            priceCents = original.priceCents ?: 0L,
-            purchaseDate = original.purchaseDate,
-            soldPriceCents = original.soldPriceCents ?: 0L,
-            soldDate = original.soldDate,
-            note = original.note,
-            index = index
-        )
-        val updatedSnap = RestoreGearAssetRequest(
-            id = original.id,
-            name = updated.name.trim(),
-            spec = updated.spec.trim(),
-            category = updated.category.trim().ifBlank { "数码器材" },
-            status = updated.status,
-            priceCents = updated.priceCents ?: 0L,
-            purchaseDate = updated.purchaseDate,
-            soldPriceCents = updated.soldPriceCents ?: 0L,
-            soldDate = updated.soldDate,
-            note = updated.note,
-            index = index
-        )
-        deleteGearAsset(original.id)
-        try {
-            restoreGearAsset(updatedSnap)
-        } catch (err: Exception) {
-            runCatching { restoreGearAsset(originalSnap) }
-            throw err
-        }
     }
 
     suspend fun fetchCreditChannels(): List<CreditChannel> {
@@ -571,31 +506,7 @@ class APIClient private constructor(private val context: Context) {
         return executeEnvelopeRequest("/api/v1/installment-items/upcoming", "GET")
     }
 
-    // MARK: - 6. 造物、心愿与足迹 (Projects, Wishes & Footprints)
-
-    suspend fun fetchProjects(
-        limit: Int? = 0,
-        since: String? = null,
-        meta: ResponseMeta? = null
-    ): List<Project> {
-        val params = mutableMapOf<String, String>()
-        if (limit != null) params["limit"] = limit.toString()
-        if (!since.isNullOrBlank()) params["since"] = since
-        return executeEnvelopeRequest("/api/v1/projects", "GET", queryParams = params.ifEmpty { null }, meta = meta)
-    }
-
-    suspend fun createProject(req: CreateProjectRequest, meta: ResponseMeta? = null): Project {
-        return executeEnvelopeRequest("/api/v1/projects", "POST", body = req.toJsonBody(), meta = meta)
-    }
-
-    suspend fun updateProject(id: Long, req: CreateProjectRequest): Project {
-        return executeEnvelopeRequest("/api/v1/projects/$id", "PUT", body = req.toJsonBody())
-    }
-
-    suspend fun deleteProject(id: Long, purge: Boolean = false) {
-        val params = if (purge) mapOf("purge" to "true") else null
-        executeEnvelopeRequest<DeleteResponse>("/api/v1/projects/$id", "DELETE", queryParams = params)
-    }
+    // MARK: - 6. 心愿单 (Wishes)
 
     suspend fun fetchWishes(
         page: Int = 1,
@@ -631,38 +542,6 @@ class APIClient private constructor(private val context: Context) {
     suspend fun deleteWish(id: Long, purge: Boolean = false) {
         val params = if (purge) mapOf("purge" to "true") else null
         executeEnvelopeRequest<DeleteResponse>("/api/v1/wishes/$id", "DELETE", queryParams = params)
-    }
-
-    suspend fun fetchFootprints(
-        year: Int? = null,
-        since: String? = null,
-        meta: ResponseMeta? = null
-    ): List<Footprint> {
-        val params = mutableMapOf<String, String>()
-        if (year != null) params["year"] = year.toString()
-        if (!since.isNullOrBlank()) params["since"] = since
-        return executeEnvelopeRequest("/api/v1/footprints", "GET", queryParams = params.ifEmpty { null }, meta = meta)
-    }
-
-    suspend fun createFootprint(req: CreateFootprintRequest, meta: ResponseMeta? = null): Footprint {
-        return executeEnvelopeRequest("/api/v1/footprints", "POST", body = req.toJsonBody(), meta = meta)
-    }
-
-    suspend fun updateFootprint(id: Long, req: CreateFootprintRequest): Footprint {
-        return executeEnvelopeRequest("/api/v1/footprints/$id", "PUT", body = req.toJsonBody())
-    }
-
-    suspend fun deleteFootprint(id: Long, purge: Boolean = false) {
-        val params = if (purge) mapOf("purge" to "true") else null
-        executeEnvelopeRequest<DeleteResponse>("/api/v1/footprints/$id", "DELETE", queryParams = params)
-    }
-
-    suspend fun fetchCityMemoryDrawer(cityCode: String): CityMemoryDrawerResponse {
-        return executeEnvelopeRequest("/api/v1/footprints/cities/$cityCode/drawer", "GET")
-    }
-
-    suspend fun fetchProvinceMemoryDrawer(adcode: String): ProvinceMemoryDrawerResponse {
-        return executeEnvelopeRequest("/api/v1/footprints/provinces/$adcode/drawer", "GET")
     }
 
     // MARK: - 7. 媒体直传 (R2 Presign & Upload)

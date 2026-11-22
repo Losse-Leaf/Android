@@ -4,8 +4,6 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
-import com.looseleaf.app.model.LifeEntry
-import com.looseleaf.app.model.Transaction
 import com.looseleaf.app.utils.FormatUtils
 
 /**
@@ -59,8 +57,8 @@ data class CachedEntryEntity(
 data class OutboxEventEntity(
     @PrimaryKey
     @ColumnInfo(name = "event_id") val eventId: String,
-    @ColumnInfo(name = "entity_type") val entityType: String, // 'entry', 'transaction', 'media'
-    @ColumnInfo(name = "action") val action: String,           // 'CREATE', 'UPDATE', 'DELETE'
+    @ColumnInfo(name = "entity_type") val entityType: String, // 'entry', 'media_entry', 'wish'
+    @ColumnInfo(name = "action") val action: String,           // 'CREATE', 'UPDATE', 'DELETE', 'RESOLVE'
     @ColumnInfo(name = "payload") val payload: String,         // JSON 序列化数据
     @ColumnInfo(name = "local_target_id") val localTargetId: Long = 0,
     @ColumnInfo(name = "server_target_id") val serverTargetId: Long? = null,
@@ -73,25 +71,7 @@ data class OutboxEventEntity(
 )
 
 /**
- * 离线造物项目缓存表 (CachedProject)
- */
-@Entity(tableName = "cached_projects")
-data class CachedProjectEntity(
-    @PrimaryKey val id: Long,
-    @ColumnInfo(name = "title") val title: String,
-    @ColumnInfo(name = "subtitle") val subtitle: String? = null,
-    @ColumnInfo(name = "description") val description: String? = null,
-    @ColumnInfo(name = "story") val story: String? = null,
-    @ColumnInfo(name = "category") val category: String? = null,
-    @ColumnInfo(name = "status") val status: String? = null,
-    @ColumnInfo(name = "github_url") val githubUrl: String? = null,
-    @ColumnInfo(name = "order") val order: Int? = 0,
-    @ColumnInfo(name = "is_private", defaultValue = "0") val isPrivate: Boolean = false,
-    @ColumnInfo(name = "updated_at") val updatedAt: String? = null
-)
-
-/**
- * 离线三维心愿缓存表 (CachedWish)
+ * 离线心愿单缓存表 (CachedWish)
  */
 @Entity(tableName = "cached_wishes")
 data class CachedWishEntity(
@@ -112,27 +92,5 @@ data class CachedWishEntity(
     @ColumnInfo(name = "gear_id") val gearId: String? = null,
     @ColumnInfo(name = "is_private", defaultValue = "0") val isPrivate: Boolean = false,
     @ColumnInfo(name = "attachments_json") val attachmentsJson: String = "[]",
-    @ColumnInfo(name = "updated_at") val updatedAt: String? = null
-)
-
-/**
- * 离线足迹缓存表 (CachedFootprint)
- */
-@Entity(tableName = "cached_footprints")
-data class CachedFootprintEntity(
-    @PrimaryKey val id: Long,
-    @ColumnInfo(name = "city_code") val cityCode: String,
-    @ColumnInfo(name = "city_name") val cityName: String,
-    @ColumnInfo(name = "title") val title: String? = null,
-    @ColumnInfo(name = "visited_at") val visitedAt: String? = null,
-    @ColumnInfo(name = "departed_at") val departedAt: String? = null,
-    @ColumnInfo(name = "note") val note: String? = null,
-    @ColumnInfo(name = "life_entry_id") val lifeEntryId: Long? = null,
-    @ColumnInfo(name = "wish_id") val wishId: Long? = null,
-    @ColumnInfo(name = "is_private", defaultValue = "0") val isPrivate: Boolean = false,
-    @ColumnInfo(name = "attachments_json") val attachmentsJson: String = "[]",
-    @ColumnInfo(name = "entries_count") val entriesCount: Int? = null,
-    @ColumnInfo(name = "total_spent") val totalSpent: Long? = null,
-    @ColumnInfo(name = "transaction_count") val transactionCount: Int? = null,
     @ColumnInfo(name = "updated_at") val updatedAt: String? = null
 )

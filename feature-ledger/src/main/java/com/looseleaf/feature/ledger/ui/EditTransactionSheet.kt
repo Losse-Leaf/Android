@@ -105,7 +105,6 @@ internal fun EditTransactionSheet(
                         note = editNote.trim().ifBlank { null },
                         paymentMethod = if (submitInstallment) (selectedChannel?.name ?: editPaymentMethod) else editPaymentMethod,
                         occurredAt = FormatUtils.toBeijingIsoString(txOccurredAt),
-                        cityCode = tx.cityCode,
                         isInstallment = submitInstallment,
                         clearInstallment = shouldClearInstallment,
                         installmentChannelCode = if (submitInstallment) (selectedChannel?.code ?: tx.installmentChannelCode) else null,
@@ -295,7 +294,7 @@ internal fun EditTransactionSheet(
                             val created = apiClient.createCreditChannel(
                                 CreateCreditChannelRequest(name = name, repaymentDay = day)
                             )
-                            LedgerRepository.refreshAssets(apiClient)
+                            LedgerRepository.refreshInstallments(apiClient)
                             created
                         }.onFailure { err ->
                             ArchiveToastManager.show("创建渠道失败: ${err.message}", isError = true)

@@ -29,8 +29,6 @@ object LocationHelper {
     private const val LAST_KNOWN_MAX_AGE_MS = 5 * 60_000L
 
     data class ResolvedLocation(
-        val cityCode: String?,
-        val cityName: String?,
         val locationName: String,
         val latitude: Double,
         val longitude: Double
@@ -145,24 +143,19 @@ object LocationHelper {
         }
 
     /**
-     * 将 Location 经纬度逆编码为城市代码与候选地标
+     * 将 Location 经纬度逆编码为候选地点名称
      */
     fun resolveLocationDetails(context: Context, location: Location): ResolvedLocation {
         val lat = location.latitude
         val lng = location.longitude
         var cityName: String? = null
-        var cityCode: String? = null
         val candidates = mutableListOf<String>()
 
         try {
             if (Geocoder.isPresent()) {
                 val geocoder = Geocoder(context, Locale.CHINA)
-                val addresses: List<Address>? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    // API 33+ 支持同步或异步，在 IO 线程同步调用较安全
-                    geocoder.getFromLocation(lat, lng, 3)
-                } else {
-                    geocoder.getFromLocation(lat, lng, 3)
-                }
+                @Suppress("DEPRECATION")
+                val addresses: List<Address>? = geocoder.getFromLocation(lat, lng, 3)
 
                 if (!addresses.isNullOrEmpty()) {
                     val primary = addresses.first()
@@ -174,7 +167,6 @@ object LocationHelper {
 
                     if (!locality.isNullOrBlank()) {
                         cityName = locality
-                        cityCode = CityDictionary.codeForLocation(locality)
                     }
 
                     // 组织候选地标（优先具体地标、街道、区县）
@@ -198,23 +190,9 @@ object LocationHelper {
         } catch (_: Exception) {
         }
 
-        // 离线或逆地理失败兜底：使用 CityDictionary 经纬度最近城市
-        if (cityCode.isNullOrBlank()) {
-            val nearest = CityDictionary.nearestCityForCoordinates(lat, lng)
-            if (nearest != null) {
-                cityCode = nearest.first
-                cityName = nearest.second
-                if (!candidates.contains(nearest.second)) {
-                    candidates.add(nearest.second)
-                }
-            }
-        }
-
         val primaryLocation = candidates.firstOrNull() ?: cityName ?: ""
 
         return ResolvedLocation(
-            cityCode = cityCode,
-            cityName = cityName,
             locationName = primaryLocation,
             latitude = lat,
             longitude = lng

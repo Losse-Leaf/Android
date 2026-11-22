@@ -4,20 +4,14 @@ import androidx.room.Room
 import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import com.looseleaf.app.data.local.AppDatabase
-import com.looseleaf.app.data.local.CachedFootprintEntity
-import com.looseleaf.app.data.local.CachedProjectEntity
 import com.looseleaf.app.data.local.CachedWishEntity
 import com.looseleaf.app.data.local.OutboxEventEntity
 import com.looseleaf.app.data.sync.SimpleEntitySync
 import com.looseleaf.app.data.sync.matchesServer
-import com.looseleaf.app.data.sync.toOfflineEntity
 import com.looseleaf.app.data.sync.toCacheEntity
+import com.looseleaf.app.data.sync.toOfflineEntity
 import com.looseleaf.app.data.sync.withResolvedState
-import com.looseleaf.app.model.CreateFootprintRequest
-import com.looseleaf.app.model.CreateProjectRequest
 import com.looseleaf.app.model.CreateWishRequest
-import com.looseleaf.app.model.Footprint
-import com.looseleaf.app.model.Project
 import com.looseleaf.app.model.ResolveWishRequest
 import com.looseleaf.app.model.Wish
 import com.looseleaf.app.utils.FormatUtils
@@ -36,7 +30,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * P0-3：造物 / 心愿 / 足迹离线临时行与发件箱目标模型。
+ * P0-3：心愿离线临时行与发件箱目标模型。
  *
  * 这些断言锁死四条不能回退的规则：
  * 1. 临时行 id < 0，CREATE 的 localTargetId 必须是这个临时 id；
@@ -65,7 +59,7 @@ class SimpleEntitySyncTest {
 
     private fun event(
         eventId: String,
-        entityType: String = "project",
+        entityType: String = SimpleEntitySync.WISH,
         action: String = "CREATE",
         payload: String = "{}",
         localTargetId: Long = -1L,
@@ -86,7 +80,7 @@ class SimpleEntitySyncTest {
     @Test
     fun `临时行 CREATE 使用负数 localTargetId 且不绑定服务端 id`() = runBlocking {
         val dao = db.outboxDao()
-        SimpleEntitySync.enqueueCreate(dao, SimpleEntitySync.PROJECT, "{\"title\":\"离线造物\"}", -101L)
+        SimpleEntitySync.enqueueCreate(dao, SimpleEntitySync.WISH, "{\"title\":\"离线心愿\"}", -101L)
 
         val events = dao.getAllPendingEvents()
         assertEquals(1, events.size)
@@ -112,8 +106,8 @@ class SimpleEntitySyncTest {
     @Test
     fun `临时行删除撤销 CREATE 且不入队 DELETE`() = runBlocking {
         val dao = db.outboxDao()
-        SimpleEntitySync.enqueueCreate(dao, SimpleEntitySync.FOOTPRINT, "{}", -103L)
-        SimpleEntitySync.enqueueDelete(dao, SimpleEntitySync.FOOTPRINT, -103L)
+        SimpleEntitySync.enqueueCreate(dao, SimpleEntitySync.WISH, "{}", -103L)
+        SimpleEntitySync.enqueueDelete(dao, SimpleEntitySync.WISH, -103L)
 
         assertTrue(dao.getAllPendingEvents().isEmpty())
     }
@@ -125,7 +119,7 @@ class SimpleEntitySyncTest {
         dao.insert(
             event(
                 eventId = "legacy-create",
-                entityType = "wish",
+                entityType = SimpleEntitySync.WISH,
                 action = "CREATE",
                 localTargetId = -1L,
                 serverTargetId = -103L
@@ -139,8 +133,8 @@ class SimpleEntitySyncTest {
     @Test
     fun `已同步行删除会取消旧 UPDATE 并入队 DELETE`() = runBlocking {
         val dao = db.outboxDao()
-        SimpleEntitySync.enqueueUpdate(dao, SimpleEntitySync.PROJECT, "{\"title\":\"改过\"}", 7L)
-        SimpleEntitySync.enqueueDelete(dao, SimpleEntitySync.PROJECT, 7L)
+        SimpleEntitySync.enqueueUpdate(dao, SimpleEntitySync.WISH, "{\"title\":\"改过\"}", 7L)
+        SimpleEntitySync.enqueueDelete(dao, SimpleEntitySync.WISH, 7L)
 
         val events = dao.getAllPendingEvents()
         assertEquals(1, events.size)
@@ -176,7 +170,7 @@ class SimpleEntitySyncTest {
         dao.insert(
             event(
                 eventId = "legacy-temp",
-                entityType = "project",
+                entityType = SimpleEntitySync.WISH,
                 action = "CREATE",
                 localTargetId = -1L,
                 serverTargetId = -555L
@@ -185,7 +179,7 @@ class SimpleEntitySyncTest {
         dao.insert(
             event(
                 eventId = "legacy-server",
-                entityType = "wish",
+                entityType = SimpleEntitySync.WISH,
                 action = "UPDATE",
                 localTargetId = -1L,
                 serverTargetId = 42L
@@ -224,7 +218,7 @@ class SimpleEntitySyncTest {
         dao.insert(
             event(
                 eventId = "legacy-create",
-                entityType = "project",
+                entityType = SimpleEntitySync.WISH,
                 action = "CREATE",
                 localTargetId = -1L,
                 serverTargetId = -301L
@@ -233,7 +227,7 @@ class SimpleEntitySyncTest {
         dao.insert(
             event(
                 eventId = "legacy-update",
-                entityType = "project",
+                entityType = SimpleEntitySync.WISH,
                 action = "UPDATE",
                 localTargetId = -1L,
                 serverTargetId = -301L
@@ -243,7 +237,7 @@ class SimpleEntitySyncTest {
         // 模拟启动迁移后，用户又编辑了一次临时行。
         SimpleEntitySync.repairLegacyTargets(dao)
         SimpleEntitySync.enqueueUpdate(
-            dao, SimpleEntitySync.PROJECT, "{\"title\":\"最新内容\"}", -301L
+            dao, SimpleEntitySync.WISH, "{\"title\":\"最新内容\"}", -301L
         )
 
         val events = dao.getAllPendingEvents()
@@ -260,7 +254,7 @@ class SimpleEntitySyncTest {
         dao.insert(
             event(
                 eventId = "legacy-create",
-                entityType = "wish",
+                entityType = SimpleEntitySync.WISH,
                 action = "CREATE",
                 localTargetId = -1L,
                 serverTargetId = -302L
@@ -292,11 +286,11 @@ class SimpleEntitySyncTest {
     @Test
     fun `发件箱保护 id 同时覆盖 local 与 server 两列`() = runBlocking {
         val dao = db.outboxDao()
-        dao.insert(event(eventId = "u", entityType = "project", action = "UPDATE", localTargetId = 11L, serverTargetId = 11L))
-        dao.insert(event(eventId = "d", entityType = "project", action = "DELETE", localTargetId = 12L, serverTargetId = 12L))
-        dao.insert(event(eventId = "t", entityType = "project", action = "CREATE", localTargetId = -5L))
+        dao.insert(event(eventId = "u", entityType = SimpleEntitySync.WISH, action = "UPDATE", localTargetId = 11L, serverTargetId = 11L))
+        dao.insert(event(eventId = "d", entityType = SimpleEntitySync.WISH, action = "DELETE", localTargetId = 12L, serverTargetId = 12L))
+        dao.insert(event(eventId = "t", entityType = SimpleEntitySync.WISH, action = "CREATE", localTargetId = -5L))
 
-        val protectedIds = dao.getProtectedServerTargetIds("project").toSet()
+        val protectedIds = dao.getProtectedServerTargetIds(SimpleEntitySync.WISH).toSet()
         assertEquals(setOf(11L, 12L), protectedIds)
         assertFalse(protectedIds.contains(-5L))
     }
@@ -318,33 +312,19 @@ class SimpleEntitySyncTest {
     }
 
     @Test
-    fun `三类创建请求都会序列化 client_request_id`() {
+    fun `创建请求会序列化 client_request_id`() {
         val json = Json { encodeDefaults = false }
-        val project = json.encodeToString(
-            CreateProjectRequest(title = "造物", clientRequestId = "cid-project")
-        )
         val wish = json.encodeToString(
             CreateWishRequest(title = "心愿", clientRequestId = "cid-wish")
         )
-        val footprint = json.encodeToString(
-            CreateFootprintRequest(
-                cityCode = "330100",
-                cityName = "杭州市",
-                visitedAt = "2026-11-01T10:00:00+08:00",
-                clientRequestId = "cid-footprint"
-            )
-        )
-
-        assertTrue(project.contains("\"client_request_id\":\"cid-project\""))
         assertTrue(wish.contains("\"client_request_id\":\"cid-wish\""))
-        assertTrue(footprint.contains("\"client_request_id\":\"cid-footprint\""))
     }
 
     @Test
     fun `幂等命中旧记录时内容比对能识别出本地新编辑`() {
-        val request = CreateProjectRequest(title = "新标题", description = "新描述")
-        val stale = Project(id = 7L, title = "旧标题", description = "新描述")
-        val fresh = Project(id = 7L, title = "新标题", description = "新描述")
+        val request = CreateWishRequest(title = "新标题", note = "新描述")
+        val stale = Wish(id = 7L, title = "旧标题", note = "新描述")
+        val fresh = Wish(id = 7L, title = "新标题", note = "新描述")
 
         assertFalse(request.matchesServer(stale))
         assertTrue(request.matchesServer(fresh))
@@ -361,122 +341,69 @@ class SimpleEntitySyncTest {
     }
 
     @Test
-    fun `足迹内容比对容忍城市名规范化与到访返程交换`() {
-        val request = CreateFootprintRequest(
-            cityCode = "330100",
-            cityName = "杭州",
-            title = "西湖",
-            visitedAt = "2026-11-02T10:00",
-            departedAt = "2026-11-01T09:00"
-        )
-        val normalized = Footprint(
-            id = 11L,
-            cityCode = "330100",
-            cityName = "杭州市",
-            title = "西湖",
-            visitedAt = "2026-11-01T09:00:00+08:00",
-            departedAt = "2026-11-02T10:00:00+08:00"
-        )
-        val edited = request.copy(note = "用户新写的备注")
+    fun `WishDao 支持按 ID 集合批量删除`() = runBlocking {
+        val w1 = CachedWishEntity(id = 10L, title = "W1", kind = "item", status = "wanting", attachmentsJson = "[]")
+        val w2 = CachedWishEntity(id = 20L, title = "W2", kind = "item", status = "wanting", attachmentsJson = "[]")
+        val w3 = CachedWishEntity(id = 30L, title = "W3", kind = "item", status = "wanting", attachmentsJson = "[]")
+        db.wishDao().insertAll(listOf(w1, w2, w3))
 
-        assertTrue(request.matchesServer(normalized))
-        assertFalse(edited.matchesServer(normalized))
-    }
-
-    @Test
-    fun `ProjectDao, WishDao 与 FootprintDao 支持按 ID 集合批量删除`() = runBlocking {
-        val p1 = CachedProjectEntity(id = 1L, title = "P1", status = "进行中", order = 0)
-        val p2 = CachedProjectEntity(id = 2L, title = "P2", status = "进行中", order = 1)
-        val p3 = CachedProjectEntity(id = 3L, title = "P3", status = "进行中", order = 2)
-        db.projectDao().insertAll(listOf(p1, p2, p3))
-
-        db.projectDao().deleteByIds(listOf(1L, 3L))
-        assertEquals(listOf(2L), db.projectDao().getAllIds())
-
-        val w1 = CachedWishEntity(id = 10L, title = "W1", kind = "item", status = "open", attachmentsJson = "[]")
-        val w2 = CachedWishEntity(id = 20L, title = "W2", kind = "item", status = "open", attachmentsJson = "[]")
-        db.wishDao().insertAll(listOf(w1, w2))
-
-        db.wishDao().deleteByIds(listOf(10L))
+        db.wishDao().deleteByIds(listOf(10L, 30L))
         assertEquals(listOf(20L), db.wishDao().getAllIds())
-
-        val f1 = CachedFootprintEntity(id = 100L, cityCode = "330100", cityName = "杭州", attachmentsJson = "[]")
-        val f2 = CachedFootprintEntity(id = 200L, cityCode = "310000", cityName = "上海", attachmentsJson = "[]")
-        db.footprintDao().insertAll(listOf(f1, f2))
-
-        db.footprintDao().deleteByIds(listOf(200L))
-        assertEquals(listOf(100L), db.footprintDao().getAllIds())
     }
 
     @Test
-    fun `Project, Wish, Footprint 能够正常反序列化 deleted_at 软删墓碑`() {
+    fun `Wish 能够正常反序列化 deleted_at 软删墓碑`() {
         val json = Json { ignoreUnknownKeys = true }
-        val projectJson = """{"id":1,"title":"测试项目","deleted_at":"2026-11-08T10:00:00+08:00"}"""
-        val proj = json.decodeFromString<Project>(projectJson)
-        assertEquals("2026-11-08T10:00:00+08:00", proj.deletedAt)
-
         val wishJson = """{"id":2,"title":"测试心愿","deleted_at":"2026-11-08T10:00:00Z"}"""
         val wish = json.decodeFromString<Wish>(wishJson)
         assertEquals("2026-11-08T10:00:00Z", wish.deletedAt)
-
-        val fpJson = """{"id":3,"city_code":"330100","city_name":"杭州","deleted_at":"2026-11-08T02:00:00Z"}"""
-        val fp = json.decodeFromString<Footprint>(fpJson)
-        assertEquals("2026-11-08T02:00:00Z", fp.deletedAt)
     }
 
     @Test
-    fun `ProjectDao, WishDao, FootprintDao 的 hasAny 正确反映数据是否存在`() = runBlocking {
-        assertFalse(db.projectDao().hasAny())
+    fun `WishDao 的 hasAny 正确反映数据是否存在`() = runBlocking {
         assertFalse(db.wishDao().hasAny())
-        assertFalse(db.footprintDao().hasAny())
 
-        db.projectDao().insert(CachedProjectEntity(id = 1L, title = "P", status = "进行中"))
-        assertTrue(db.projectDao().hasAny())
-
-        db.wishDao().insert(CachedWishEntity(id = 2L, title = "W", kind = "item", status = "open", attachmentsJson = "[]"))
+        db.wishDao().insert(CachedWishEntity(id = 2L, title = "W", kind = "item", status = "wanting", attachmentsJson = "[]"))
         assertTrue(db.wishDao().hasAny())
-
-        db.footprintDao().insert(CachedFootprintEntity(id = 3L, cityCode = "330100", cityName = "杭州", attachmentsJson = "[]"))
-        assertTrue(db.footprintDao().hasAny())
     }
 
     @Test
     fun `增量同步墓碑删除未受保护记录，但保留受保护记录`() = runBlocking {
-        val p1 = CachedProjectEntity(id = 10L, title = "P1", status = "进行中")
-        val p2 = CachedProjectEntity(id = 20L, title = "P2", status = "进行中")
-        db.projectDao().insertAll(listOf(p1, p2))
+        val w1 = CachedWishEntity(id = 10L, title = "W1", kind = "item", status = "wanting", attachmentsJson = "[]")
+        val w2 = CachedWishEntity(id = 20L, title = "W2", kind = "item", status = "wanting", attachmentsJson = "[]")
+        db.wishDao().insertAll(listOf(w1, w2))
 
-        // p2 受保护（例如本地有 UPDATE 事件）
+        // w2 受保护（例如本地有 UPDATE 事件）
         db.outboxDao().insert(event(
             eventId = "ev-up-20",
-            entityType = SimpleEntitySync.PROJECT,
+            entityType = SimpleEntitySync.WISH,
             action = "UPDATE",
             serverTargetId = 20L
         ))
 
-        val remoteProjects = listOf(
-            Project(id = 10L, title = "P1", deletedAt = "2026-11-08T10:00:00Z"),
-            Project(id = 20L, title = "P2", deletedAt = "2026-11-08T10:00:00Z"),
-            Project(id = 30L, title = "P3", deletedAt = null)
+        val remoteWishes = listOf(
+            Wish(id = 10L, title = "W1", deletedAt = "2026-11-08T10:00:00Z"),
+            Wish(id = 20L, title = "W2", deletedAt = "2026-11-08T10:00:00Z"),
+            Wish(id = 30L, title = "W3", deletedAt = null)
         )
 
         // 模拟增量处理逻辑
-        val protectedIds = db.outboxDao().getProtectedServerTargetIds(SimpleEntitySync.PROJECT).toHashSet()
-        val tombstones = remoteProjects.filter { it.deletedAt != null && it.id !in protectedIds }
+        val protectedIds = db.outboxDao().getProtectedServerTargetIds(SimpleEntitySync.WISH).toHashSet()
+        val tombstones = remoteWishes.filter { it.deletedAt != null && it.id !in protectedIds }
         if (tombstones.isNotEmpty()) {
-            db.projectDao().deleteByIds(tombstones.map { it.id })
+            db.wishDao().deleteByIds(tombstones.map { it.id })
         }
-        val active = remoteProjects.filter { it.deletedAt == null && it.id !in protectedIds }
+        val active = remoteWishes.filter { it.deletedAt == null && it.id !in protectedIds }
         if (active.isNotEmpty()) {
-            db.projectDao().insertAll(active.map { it.toCacheEntity() })
+            db.wishDao().insertAll(active.map { it.toCacheEntity(Json { ignoreUnknownKeys = true }) })
         }
 
-        // p1 未受保护，被软删墓碑删除
-        assertNull(db.projectDao().getById(10L))
-        // p2 受保护，保留在本地
-        assertEquals("P2", db.projectDao().getById(20L)?.title)
-        // p3 活跃且未受保护，插入本地
-        assertEquals("P3", db.projectDao().getById(30L)?.title)
+        // w1 未受保护，被软删墓碑删除
+        assertNull(db.wishDao().getById(10L))
+        // w2 受保护，保留在本地
+        assertEquals("W2", db.wishDao().getById(20L)?.title)
+        // w3 活跃且未受保护，插入本地
+        assertEquals("W3", db.wishDao().getById(30L)?.title)
     }
 
     @Test
@@ -495,23 +422,24 @@ class SimpleEntitySyncTest {
     }
 
     @Test
-    fun `501条造物全量拉取时正常保留，不会被误删`() = runBlocking {
-        // 505 条造物全量对账
+    fun `505条心愿全量拉取时正常保留，不会被误删`() = runBlocking {
         val count = 505
-        val localEntities = (1..count).map { CachedProjectEntity(id = it.toLong(), title = "Proj #$it", status = "进行中") }
-        db.projectDao().insertAll(localEntities)
-        assertEquals(count, db.projectDao().getAllIds().size)
+        val localEntities = (1..count).map {
+            CachedWishEntity(id = it.toLong(), title = "Wish #$it", kind = "item", status = "wanting", attachmentsJson = "[]")
+        }
+        db.wishDao().insertAll(localEntities)
+        assertEquals(count, db.wishDao().getAllIds().size)
 
-        val remoteProjects = (1..count).map { Project(id = it.toLong(), title = "Proj #$it") }
-        val localIdsBeforePull = db.projectDao().getAllIds()
-        val remoteIds = remoteProjects.mapTo(HashSet()) { it.id }
-        val protectedIds = db.outboxDao().getProtectedServerTargetIds(SimpleEntitySync.PROJECT).toHashSet()
+        val remoteWishes = (1..count).map { Wish(id = it.toLong(), title = "Wish #$it") }
+        val localIdsBeforePull = db.wishDao().getAllIds()
+        val remoteIds = remoteWishes.mapTo(HashSet()) { it.id }
+        val protectedIds = db.outboxDao().getProtectedServerTargetIds(SimpleEntitySync.WISH).toHashSet()
 
         val toDelete = SimpleEntitySync.staleServerIdsToDelete(localIdsBeforePull, remoteIds, protectedIds)
         assertEquals(0, toDelete.size)
 
-        db.projectDao().insertAll(remoteProjects.map { it.toCacheEntity() })
-        assertEquals(count, db.projectDao().getAllIds().size)
+        db.wishDao().insertAll(remoteWishes.map { it.toCacheEntity(Json { ignoreUnknownKeys = true }) })
+        assertEquals(count, db.wishDao().getAllIds().size)
     }
 
     @Test
@@ -545,14 +473,14 @@ class SimpleEntitySyncTest {
     @Test
     fun `OPT-08 命中幂等重放旧响应时升级为 UPDATE 保护本地新编辑`() = runBlocking {
         val outbox = db.outboxDao()
-        val projects = db.projectDao()
+        val wishes = db.wishDao()
 
         // 插入本地临时行与对应的 CREATE 事件
         val tempId = -105L
-        projects.insert(CachedProjectEntity(id = tempId, title = "新标题", status = "进行中"))
+        wishes.insert(CachedWishEntity(id = tempId, title = "新标题", kind = "item", status = "wanting", attachmentsJson = "[]"))
         val createEvent = event(
             eventId = "ev-create-105",
-            entityType = SimpleEntitySync.PROJECT,
+            entityType = SimpleEntitySync.WISH,
             action = "CREATE",
             payload = "{\"title\":\"新标题\"}",
             localTargetId = tempId
@@ -580,9 +508,9 @@ class SimpleEntitySyncTest {
                 )
             )
             outbox.rebindFollowUpsToServerId(createEvent.entityType, tempId, serverId)
-            val local = projects.getById(tempId)
-            projects.deleteById(tempId)
-            projects.insert(local!!.copy(id = serverId))
+            val local = wishes.getById(tempId)
+            wishes.deleteById(tempId)
+            wishes.insert(local!!.copy(id = serverId))
             "KEEP_LOCAL_AND_UPDATE"
         } else {
             "INSERT_SERVER"
@@ -590,7 +518,7 @@ class SimpleEntitySyncTest {
 
         assertEquals("KEEP_LOCAL_AND_UPDATE", outcome)
         // 本地行换绑后保留了“新标题”，没有被服务端的“旧标题”覆盖
-        assertEquals("新标题", projects.getById(serverId)?.title)
+        assertEquals("新标题", wishes.getById(serverId)?.title)
         // CREATE 事件原地升级为 UPDATE 事件，等待重发
         val updatedEvent = outbox.findEventById(createEvent.eventId)
         assertEquals("UPDATE", updatedEvent?.action)
@@ -600,13 +528,13 @@ class SimpleEntitySyncTest {
     @Test
     fun `OPT-08 软删重放时删除本地临时行并丢弃 CREATE 事件`() = runBlocking {
         val outbox = db.outboxDao()
-        val projects = db.projectDao()
+        val wishes = db.wishDao()
 
         val tempId = -106L
-        projects.insert(CachedProjectEntity(id = tempId, title = "待删临时行", status = "进行中"))
+        wishes.insert(CachedWishEntity(id = tempId, title = "待删临时行", kind = "item", status = "wanting", attachmentsJson = "[]"))
         val createEvent = event(
             eventId = "ev-create-106",
-            entityType = SimpleEntitySync.PROJECT,
+            entityType = SimpleEntitySync.WISH,
             action = "CREATE",
             payload = "{\"title\":\"待删临时行\"}",
             localTargetId = tempId
@@ -616,11 +544,11 @@ class SimpleEntitySyncTest {
         // 模拟服务端返回 410 Gone 或带 deleted_at 墓碑
         // 软删重放契约：删除本地临时行并消费事件
         db.withTransaction {
-            projects.deleteById(tempId)
+            wishes.deleteById(tempId)
             outbox.delete(createEvent)
         }
 
-        assertNull(projects.getById(tempId))
+        assertNull(wishes.getById(tempId))
         assertNull(outbox.findEventById(createEvent.eventId))
     }
 }

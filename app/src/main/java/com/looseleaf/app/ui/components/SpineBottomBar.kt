@@ -60,15 +60,11 @@ fun SpineBottomBar(
 
     val streamIcon = painterResource(R.drawable.ic_nav_book)
     val ledgerIcon = painterResource(R.drawable.ic_nav_ledger)
-    val workshopIcon = painterResource(R.drawable.ic_nav_craft)
-    val profileIcon = painterResource(R.drawable.ic_nav_gallery)
 
-    val tabs = remember(streamIcon, ledgerIcon, workshopIcon, profileIcon) {
+    val tabs = remember(streamIcon, ledgerIcon) {
         listOf(
-            SpineNavigationItem("stream", "时间流", streamIcon),
-            SpineNavigationItem("ledger", "账本", ledgerIcon),
-            SpineNavigationItem("workshop", "工坊", workshopIcon),
-            SpineNavigationItem("profile", "展台", profileIcon)
+            SpineNavigationItem("stream", "散页", streamIcon),
+            SpineNavigationItem("ledger", "记账", ledgerIcon)
         )
     }
 
@@ -102,10 +98,7 @@ fun SpineBottomBar(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     for (tab in tabs) {
-                        val isSelected = when (tab.route) {
-                            "workshop" -> currentRoute in setOf("workshop", "projects", "footprints", "wishes")
-                            else -> tab.route == currentRoute
-                        }
+                        val isSelected = tab.route == currentRoute
 
                         SpineBottomTabItem(
                             item = tab,

@@ -71,9 +71,7 @@ class SyncManager private constructor(private val context: Context) {
         const val STATUS_PENDING_DELETE = "PENDING_DELETE"
         private const val SYNC_PREFS_NAME = "looseleaf_sync_prefs"
         private const val KEY_ENTRIES_CURSOR = "last_entries_sync_cursor"
-        private const val KEY_PROJECTS_CURSOR = "last_projects_sync_cursor"
         private const val KEY_WISHES_CURSOR = "last_wishes_sync_cursor"
-        private const val KEY_FOOTPRINTS_CURSOR = "last_footprints_sync_cursor"
         private const val KEY_ON_THIS_DAY_JSON = "on_this_day_json"
         private const val KEY_ON_THIS_DAY_DATE = "on_this_day_date"
 
@@ -198,50 +196,6 @@ class SyncManager private constructor(private val context: Context) {
         )
     }
 
-    private val projectSync by lazy {
-        SimpleEntitySyncAdapter<CreateProjectRequest, CreateProjectRequest, Project, CachedProjectEntity>(
-            entityType = SimpleEntitySync.PROJECT,
-            datasetLabel = "造物",
-            cursorKey = KEY_PROJECTS_CURSOR,
-            database = database,
-            syncPrefs = syncPrefs,
-            scheduleSync = ::scheduleSync,
-            cursorForRequest = ::cursorForRequest,
-            maxUpdatedCursor = ::maxUpdatedCursor,
-            daoHasAny = { database.projectDao().hasAny() },
-            daoGetAllIds = { database.projectDao().getAllIds() },
-            daoGetById = { database.projectDao().getById(it) },
-            daoInsert = { database.projectDao().insert(it) },
-            daoInsertAll = { database.projectDao().insertAll(it) },
-            daoDeleteById = { database.projectDao().deleteById(it) },
-            daoDeleteByIds = { database.projectDao().deleteByIds(it) },
-            domainId = { it.id },
-            domainUpdatedAt = { it.updatedAt },
-            domainDeletedAt = { it.deletedAt },
-            domainToEntity = { it.toCacheEntity() },
-            entityWithId = { entity, id -> entity.copy(id = id) },
-            encodeCreateReq = { json.encodeToString(it) },
-            decodeCreateReq = { json.decodeFromString(it) },
-            encodeUpdateReq = { json.encodeToString(it) },
-            decodeUpdateReq = { json.decodeFromString(it) },
-            getCreateClientRequestId = { it.clientRequestId },
-            withCreateClientRequestId = { req, cid -> req.copy(clientRequestId = cid) },
-            updateReqAsCreateReq = { req, fallbackCid -> req.copy(clientRequestId = req.clientRequestId ?: fallbackCid) },
-            createReqToOfflineEntity = { req, id, _ -> req.toOfflineEntity(id) },
-            updateReqToOfflineEntity = { req, id, _ -> req.toOfflineEntity(id) },
-            matchesServer = { req, domain -> req.matchesServer(domain) },
-            fetchRemote = { since, recordPage ->
-                val meta = ResponseMeta()
-                val items = apiClient.fetchProjects(limit = 0, since = since, meta = meta)
-                recordPage(meta, items)
-                items
-            },
-            remoteCreate = { req, meta -> apiClient.createProject(req, meta = meta) },
-            remoteUpdate = { id, req -> apiClient.updateProject(id, req) },
-            remoteDelete = { id -> apiClient.deleteProject(id) }
-        )
-    }
-
     private val wishSync by lazy {
         SimpleEntitySyncAdapter<CreateWishRequest, CreateWishRequest, Wish, CachedWishEntity>(
             entityType = SimpleEntitySync.WISH,
@@ -321,50 +275,6 @@ class SyncManager private constructor(private val context: Context) {
                     false
                 }
             }
-        )
-    }
-
-    private val footprintSync by lazy {
-        SimpleEntitySyncAdapter<CreateFootprintRequest, CreateFootprintRequest, Footprint, CachedFootprintEntity>(
-            entityType = SimpleEntitySync.FOOTPRINT,
-            datasetLabel = "足迹",
-            cursorKey = KEY_FOOTPRINTS_CURSOR,
-            database = database,
-            syncPrefs = syncPrefs,
-            scheduleSync = ::scheduleSync,
-            cursorForRequest = ::cursorForRequest,
-            maxUpdatedCursor = ::maxUpdatedCursor,
-            daoHasAny = { database.footprintDao().hasAny() },
-            daoGetAllIds = { database.footprintDao().getAllIds() },
-            daoGetById = { database.footprintDao().getById(it) },
-            daoInsert = { database.footprintDao().insert(it) },
-            daoInsertAll = { database.footprintDao().insertAll(it) },
-            daoDeleteById = { database.footprintDao().deleteById(it) },
-            daoDeleteByIds = { database.footprintDao().deleteByIds(it) },
-            domainId = { it.id },
-            domainUpdatedAt = { it.updatedAt },
-            domainDeletedAt = { it.deletedAt },
-            domainToEntity = { it.toCacheEntity(json) },
-            entityWithId = { entity, id -> entity.copy(id = id) },
-            encodeCreateReq = { json.encodeToString(it) },
-            decodeCreateReq = { json.decodeFromString(it) },
-            encodeUpdateReq = { json.encodeToString(it) },
-            decodeUpdateReq = { json.decodeFromString(it) },
-            getCreateClientRequestId = { it.clientRequestId },
-            withCreateClientRequestId = { req, cid -> req.copy(clientRequestId = cid) },
-            updateReqAsCreateReq = { req, fallbackCid -> req.copy(clientRequestId = req.clientRequestId ?: fallbackCid) },
-            createReqToOfflineEntity = { req, id, existing -> req.toOfflineEntity(id, existing) },
-            updateReqToOfflineEntity = { req, id, existing -> req.toOfflineEntity(id, existing) },
-            matchesServer = { req, domain -> req.matchesServer(domain) },
-            fetchRemote = { since, recordPage ->
-                val meta = ResponseMeta()
-                val items = apiClient.fetchFootprints(since = since, meta = meta)
-                recordPage(meta, items)
-                items
-            },
-            remoteCreate = { req, meta -> apiClient.createFootprint(req, meta = meta) },
-            remoteUpdate = { id, req -> apiClient.updateFootprint(id, req) },
-            remoteDelete = { id -> apiClient.deleteFootprint(id) }
         )
     }
 
@@ -682,8 +592,6 @@ class SyncManager private constructor(private val context: Context) {
         val monthStr = month?.let { String.format(java.util.Locale.US, "%02d", it) }
         val hasCategories = categories.isNotEmpty()
         val includeDaily = categories.contains("daily")
-        val includeTravel = categories.contains("travel")
-        val includeProject = categories.contains("project")
         val includeWish = categories.contains("wish")
         val hasImage = contents.contains("has_image")
         val isPending = contents.contains("pending")
@@ -694,8 +602,6 @@ class SyncManager private constructor(private val context: Context) {
             month = monthStr,
             hasCategories = hasCategories,
             includeDaily = includeDaily,
-            includeTravel = includeTravel,
-            includeProject = includeProject,
             includeWish = includeWish,
             hasImage = hasImage,
             isPending = isPending,
@@ -709,8 +615,6 @@ class SyncManager private constructor(private val context: Context) {
             month = monthStr,
             hasCategories = hasCategories,
             includeDaily = includeDaily,
-            includeTravel = includeTravel,
-            includeProject = includeProject,
             includeWish = includeWish,
             hasImage = hasImage,
             isPending = isPending,
@@ -735,8 +639,6 @@ class SyncManager private constructor(private val context: Context) {
             month = month?.let { String.format(java.util.Locale.US, "%02d", it) },
             hasCategories = categories.isNotEmpty(),
             includeDaily = categories.contains("daily"),
-            includeTravel = categories.contains("travel"),
-            includeProject = categories.contains("project"),
             includeWish = categories.contains("wish"),
             hasImage = contents.contains("has_image"),
             isPending = contents.contains("pending"),
@@ -749,30 +651,12 @@ class SyncManager private constructor(private val context: Context) {
         database.entryDao().getAvailableMonthsForYear(year.toString())
     }
 
-    // 观察全量造物项目 (离线缓存即时上屏)
-    val projectsFlow: StateFlow<List<Project>> by lazy {
-        flow { emitAll(database.projectDao().getAllProjectsFlow()) }
-            .catch { emit(emptyList()) }
-            .map { entities ->
-                entities.map { it.toProject() }
-            }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    }
-
     // 观察全量三维心愿 (离线缓存即时上屏)
     val wishesFlow: StateFlow<List<Wish>> by lazy {
         flow { emitAll(database.wishDao().getAllWishesFlow()) }
             .catch { emit(emptyList()) }
             .map { entities ->
                 entities.map { it.toWish(json) }
-            }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    }
-
-    // 观察全量足迹 (离线缓存即时上屏)
-    val footprintsFlow: StateFlow<List<Footprint>> by lazy {
-        flow { emitAll(database.footprintDao().getAllFootprintsFlow()) }
-            .catch { emit(emptyList()) }
-            .map { entities ->
-                entities.map { it.toFootprint(json) }
             }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
     }
 
@@ -810,13 +694,9 @@ class SyncManager private constructor(private val context: Context) {
         content: String,
         occurredAt: String = FormatUtils.beijingNowIsoString(),
         location: String? = null,
-        cityCode: String? = null,
-        cityName: String? = null,
         attachmentIds: List<Long>? = null,
         attachments: List<Attachment> = emptyList(),
-        projectId: Long? = null,
         wishId: Long? = null,
-        footprintId: Long? = null,
         isPrivate: Boolean = false
     ): Long {
         val entryEntity = CachedEntryEntity(
@@ -827,11 +707,7 @@ class SyncManager private constructor(private val context: Context) {
             content = content,
             occurredAt = occurredAt,
             location = location,
-            cityCode = cityCode,
-            cityName = cityName,
-            projectId = projectId,
             wishId = wishId,
-            footprintId = footprintId,
             isPrivate = isPrivate,
             attachmentsJson = json.encodeToString(attachments),
             syncStatus = STATUS_PENDING_CREATE,
@@ -844,12 +720,8 @@ class SyncManager private constructor(private val context: Context) {
             content = content,
             occurredAt = occurredAt,
             location = location,
-            cityCode = cityCode,
-            cityName = cityName,
             attachmentIds = attachmentIds,
-            projectId = projectId,
             wishId = wishId,
-            footprintId = footprintId,
             isPrivate = isPrivate,
             clientRequestId = UUID.randomUUID().toString()
         )
@@ -905,20 +777,7 @@ class SyncManager private constructor(private val context: Context) {
             content = req.content,
             occurredAt = req.occurredAt,
             location = req.location,
-            // ── 契约 A 的本地落地 ──────────────────────────────
-            // 服务端对省略的 city_code 走「保持原值」，清空城市必须靠 clear_city: true。
-            // 本地乐观写必须同步清空，否则本地显示「无属地」、服务端仍是旧城市，
-            // 两端分叉，下一次增量拉取又把城市「复活」回来。
-            cityCode = if (req.clearCity) null else req.cityCode,
-            cityName = if (req.clearCity) null else (req.cityName ?: entity.cityName),
-            // ── 归属绑定的本地落地（MOB 表单审计 #5）──────────
-            // 服务端对 project_id / wish_id 是「携带即写入」，编辑弹窗按类型门控：
-            // 非 project/wish 类型显式发 null = 解绑。本地无法区分「缺省」与「显式 null」，
-            // 按类型同口径落地——类型不是 project/wish 时本地同样解绑，
-            // 否则服务端已解绑、本地仍挂着旧归属，下一次拉取又跳回去。
-            projectId = if (req.type == "project") (req.projectId ?: entity.projectId) else null,
             wishId = if (req.type == "wish") (req.wishId ?: entity.wishId) else null,
-            footprintId = req.footprintId ?: entity.footprintId,
             isPrivate = req.isPrivate ?: entity.isPrivate,
             // ── 契约 B 的本地落地 ──────────────────────────────
             // attachmentIds 非 null 表示「附件集合就是这份」：删掉的照片立即从本地
@@ -1123,9 +982,7 @@ class SyncManager private constructor(private val context: Context) {
             database.withTransaction {
                 database.entryDao().clearAll()
                 database.outboxDao().clearAll()
-                database.projectDao().clearAll()
                 database.wishDao().clearAll()
-                database.footprintDao().clearAll()
             }
             syncPrefs.edit().clear().apply()
             runCatching {
@@ -1152,37 +1009,22 @@ class SyncManager private constructor(private val context: Context) {
      */
     enum class SyncDataset {
         ENTRIES,
-        PROJECTS,
-        WISHES,
-        FOOTPRINTS
+        WISHES
     }
 
     suspend fun pullRemoteData(
         forceFull: Boolean = false,
-        datasets: Set<SyncDataset> = setOf(SyncDataset.ENTRIES, SyncDataset.PROJECTS, SyncDataset.WISHES, SyncDataset.FOOTPRINTS)
+        datasets: Set<SyncDataset> = setOf(SyncDataset.ENTRIES, SyncDataset.WISHES)
     ): Result<Unit> = pullMutex.withLock {
-        // MOB-P0-04：调用方（Compose 的 rememberCoroutineScope）可能在主线程发起拉取，
-        // 而函数体内的游标计算、对象映射、合并都是纯 CPU 的重活：
-        // 上万条记录时 maxUpdatedCursor 要做上万个 DateTimeFormatter.parse，
-        // 全部落在主线程 ⇒ 下拉刷新时界面直接冻结数百毫秒。
-        // 这里整体切到 IO 调度器，调用方无需关心线程。
         withContext(Dispatchers.IO) {
         kotlin.runCatching {
-            // 不在这里内联 flush：多图上传可能要几十秒，会把「下拉刷新」卡死在发件箱上。
-            // 每次入队都已 scheduleSync()，Worker 受网络约束自会跑；此处只做拉取。
             val failures = mutableListOf<String>()
 
             if (SyncDataset.ENTRIES in datasets) {
                 pullEntriesDataset(forceFull)?.let { failures += it }
             }
-            if (SyncDataset.PROJECTS in datasets) {
-                pullProjectsDataset(forceFull)?.let { failures += it }
-            }
             if (SyncDataset.WISHES in datasets) {
                 pullWishesDataset(forceFull)?.let { failures += it }
-            }
-            if (SyncDataset.FOOTPRINTS in datasets) {
-                pullFootprintsDataset(forceFull)?.let { failures += it }
             }
 
             if (failures.isNotEmpty()) {
@@ -1302,25 +1144,16 @@ class SyncManager private constructor(private val context: Context) {
         return null
     }
 
-    private suspend fun pullProjectsDataset(forceFull: Boolean): String? =
-        projectSync.pullDataset(forceFull)
-
     private suspend fun pullWishesDataset(forceFull: Boolean): String? =
         wishSync.pullDataset(forceFull)
-
-    private suspend fun pullFootprintsDataset(forceFull: Boolean): String? =
-        footprintSync.pullDataset(forceFull)
 
     /** MOB-P1-37：时间流页面专用拉取（只拉生活档案） */
     suspend fun pullStreamData(forceFull: Boolean = false): Result<Unit> =
         pullRemoteData(forceFull, setOf(SyncDataset.ENTRIES))
 
-    /** MOB-P1-37：造物 / 心愿 / 足迹页面专用拉取 */
-    suspend fun pullProjectsWishesData(forceFull: Boolean = false): Result<Unit> =
-        pullRemoteData(
-            forceFull,
-            setOf(SyncDataset.PROJECTS, SyncDataset.WISHES, SyncDataset.FOOTPRINTS)
-        )
+    /** 心愿单页面专用拉取 */
+    suspend fun pullWishesData(forceFull: Boolean = false): Result<Unit> =
+        pullRemoteData(forceFull, setOf(SyncDataset.WISHES))
 
 
     /** 游标只认「能解析成时间」的值，并按绝对时刻取最大，避免字符串比较在混合时区下失效。 */
@@ -1424,15 +1257,6 @@ class SyncManager private constructor(private val context: Context) {
         }
     }
 
-    suspend fun createProjectOrQueue(req: CreateProjectRequest): Boolean =
-        projectSync.createOrQueue(req)
-
-    suspend fun updateProjectOrQueue(id: Long, req: CreateProjectRequest): Boolean =
-        projectSync.updateOrQueue(id, req)
-
-    suspend fun deleteProjectOrQueue(id: Long): Boolean =
-        projectSync.deleteOrQueue(id)
-
     suspend fun createWishOrQueue(req: CreateWishRequest): Boolean =
         wishSync.createOrQueue(req)
 
@@ -1485,15 +1309,6 @@ class SyncManager private constructor(private val context: Context) {
             }
         }
     }
-
-    suspend fun createFootprintOrQueue(req: CreateFootprintRequest): Boolean =
-        footprintSync.createOrQueue(req)
-
-    suspend fun updateFootprintOrQueue(id: Long, req: CreateFootprintRequest): Boolean =
-        footprintSync.updateOrQueue(id, req)
-
-    suspend fun deleteFootprintOrQueue(id: Long): Boolean =
-        footprintSync.deleteOrQueue(id)
 
     /**
      * 执行单条 Outbox 事件的远端投递
@@ -1606,9 +1421,7 @@ class SyncManager private constructor(private val context: Context) {
                 }
             }
             "media_entry" -> mediaCoordinator.replayOutboxEvent(event)
-            SimpleEntitySync.PROJECT -> projectSync.replayOutboxEvent(event, onPayloadSuperseded)
             SimpleEntitySync.WISH -> wishSync.replayOutboxEvent(event, onPayloadSuperseded)
-            SimpleEntitySync.FOOTPRINT -> footprintSync.replayOutboxEvent(event, onPayloadSuperseded)
             else -> {
                 // 未知事件类型不再静默删除：标记失败并保留原始载荷，交给用户处置
                 database.outboxDao().markFailed(
@@ -1641,31 +1454,11 @@ fun CachedEntryEntity.toDomainModel(
         content = content,
         occurredAt = occurredAt,
         location = location,
-        cityCode = cityCode,
-        cityName = cityName,
-        projectId = projectId,
         wishId = wishId,
-        footprintId = footprintId,
         isPrivate = isPrivate,
         attachments = atts,
         syncStatus = syncStatus,
         createdAt = createdAt
-    )
-}
-
-fun CachedProjectEntity.toProject(): Project {
-    return Project(
-        id = id,
-        title = title,
-        subtitle = subtitle,
-        description = description,
-        story = story,
-        category = category,
-        status = status,
-        githubUrl = githubUrl,
-        order = order,
-        isPrivate = isPrivate,
-        updatedAt = updatedAt
     )
 }
 
@@ -1681,8 +1474,6 @@ fun CachedWishEntity.toWish(json: Json): Wish {
         kind = kind,
         note = note,
         spec = spec,
-        cityCode = cityCode,
-        cityName = cityName,
         budget = budget,
         actualCost = actualCost,
         resolutionType = resolutionType,
@@ -1690,34 +1481,8 @@ fun CachedWishEntity.toWish(json: Json): Wish {
         status = status,
         targetDate = targetDate,
         fulfilledAt = fulfilledAt,
-        gearId = gearId,
         isPrivate = isPrivate,
         attachments = atts,
-        updatedAt = updatedAt
-    )
-}
-
-fun CachedFootprintEntity.toFootprint(json: Json): Footprint {
-    val atts = try {
-        json.decodeFromString<List<com.looseleaf.app.model.Attachment>>(attachmentsJson)
-    } catch (_: Exception) {
-        emptyList()
-    }
-    return Footprint(
-        id = id,
-        cityCode = cityCode,
-        cityName = cityName,
-        title = title,
-        visitedAt = visitedAt,
-        departedAt = departedAt,
-        note = note,
-        lifeEntryId = lifeEntryId,
-        wishId = wishId,
-        isPrivate = isPrivate,
-        attachments = atts,
-        entriesCount = entriesCount,
-        totalSpent = totalSpent,
-        transactionCount = transactionCount,
         updatedAt = updatedAt
     )
 }
@@ -1734,28 +1499,11 @@ fun LifeEntry.toCacheEntity(localId: Long, json: Json): CachedEntryEntity = Cach
     // 混入 "Z"/其它偏移会让同一天的记录落到错误月份。
     occurredAt = FormatUtils.normalizeBeijingIsoOrRaw(occurredAt),
     location = location,
-    cityCode = cityCode,
-    cityName = cityName,
-    projectId = projectId,
     wishId = wishId,
-    footprintId = footprintId,
     isPrivate = isPrivate,
     attachmentsJson = json.encodeToString(attachments),
     syncStatus = SyncManager.STATUS_SYNCED,
     createdAt = createdAt ?: occurredAt
-)
-
-fun Project.toCacheEntity(): CachedProjectEntity = CachedProjectEntity(
-    id = id,
-    title = title,
-    subtitle = subtitle,
-    description = description,
-    story = story,
-    category = category,
-    status = status,
-    githubUrl = githubUrl,
-    order = order,
-    updatedAt = updatedAt
 )
 
 fun Wish.toCacheEntity(json: Json): CachedWishEntity = CachedWishEntity(
@@ -1764,8 +1512,6 @@ fun Wish.toCacheEntity(json: Json): CachedWishEntity = CachedWishEntity(
     kind = kind ?: "item",
     note = note,
     spec = spec,
-    cityCode = cityCode,
-    cityName = cityName,
     budget = budget,
     actualCost = actualCost,
     resolutionType = resolutionType,
@@ -1773,26 +1519,7 @@ fun Wish.toCacheEntity(json: Json): CachedWishEntity = CachedWishEntity(
     status = status,
     targetDate = targetDate,
     fulfilledAt = fulfilledAt,
-    gearId = gearId,
     isPrivate = isPrivate,
     attachmentsJson = json.encodeToString(attachments),
-    updatedAt = updatedAt
-)
-
-fun Footprint.toCacheEntity(json: Json): CachedFootprintEntity = CachedFootprintEntity(
-    id = id,
-    cityCode = cityCode,
-    cityName = cityName,
-    title = title,
-    visitedAt = visitedAt,
-    departedAt = departedAt,
-    note = note,
-    lifeEntryId = lifeEntryId,
-    wishId = wishId,
-    isPrivate = isPrivate,
-    attachmentsJson = json.encodeToString(attachments),
-    entriesCount = entriesCount,
-    totalSpent = totalSpent,
-    transactionCount = transactionCount,
     updatedAt = updatedAt
 )

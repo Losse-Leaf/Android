@@ -37,7 +37,6 @@ class CredentialStore private constructor(context: Context) {
         private const val KEY_BIOMETRICS_ENABLED = "biometrics_enabled"
         private const val KEY_DARKROOM_MODE = "darkroom_mode"
         private const val KEY_APPEARANCE_MODE = "appearance_mode"
-        private const val KEY_CACHED_PROFILE = "cached_profile_json"
 
         /**
          * MOB-P0-10：配对态镜像标记（普通 Prefs，非机密）。
@@ -113,10 +112,6 @@ class CredentialStore private constructor(context: Context) {
         }
         if (!settings.contains(KEY_BIOMETRICS_ENABLED) && legacy.contains(KEY_BIOMETRICS_ENABLED)) {
             editor.putBoolean(KEY_BIOMETRICS_ENABLED, legacy.getBoolean(KEY_BIOMETRICS_ENABLED, false))
-            dirty = true
-        }
-        if (!settings.contains(KEY_CACHED_PROFILE) && legacy.contains(KEY_CACHED_PROFILE)) {
-            editor.putString(KEY_CACHED_PROFILE, legacy.getString(KEY_CACHED_PROFILE, null))
             dirty = true
         }
         if (!settings.contains(KEY_DEVICE_NAME) && legacy.contains(KEY_DEVICE_NAME)) {
@@ -233,12 +228,6 @@ class CredentialStore private constructor(context: Context) {
                 .apply()
         }
 
-    var cachedProfileJson: String?
-        get() = settings.getString(KEY_CACHED_PROFILE, null)
-        set(value) {
-            settings.edit().putString(KEY_CACHED_PROFILE, value).apply()
-        }
-
     /**
      * 是否已入网。
      *
@@ -266,7 +255,7 @@ class CredentialStore private constructor(context: Context) {
             ?.apply()
         settings.edit()
             .remove(KEY_DEVICE_NAME)
-            .remove(KEY_CACHED_PROFILE)
+            .remove("cached_profile_json")
             .remove(KEY_PAIRED_FLAG)
             .apply()
     }

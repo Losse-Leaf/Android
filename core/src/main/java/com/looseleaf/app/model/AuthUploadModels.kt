@@ -38,7 +38,6 @@ data class CuratorProfile(
     val manifesto: String = "",
     val email: String? = null,
     val github: String? = null,
-    @SerialName("edc_gear") val edcGear: List<GearItem> = emptyList(),
     @SerialName("updated_at") val updatedAt: String? = null
 )
 
@@ -60,16 +59,13 @@ data class UpdateProfileRequest(
 data class GlobalSearchResponse(
     val query: String = "",
     val entries: List<LifeEntry> = emptyList(),
-    val footprints: List<Footprint> = emptyList(),
-    val wishes: List<Wish> = emptyList(),
-    val projects: List<Project> = emptyList()
+    val wishes: List<Wish> = emptyList()
 )
 
 @Serializable
 data class GlobalStats(
     @SerialName("total_entries") val totalEntries: Int = 0,
     @SerialName("total_photos") val totalPhotos: Int = 0,
-    @SerialName("total_projects") val totalProjects: Int = 0,
     @SerialName("month_expense") val monthExpense: Long = 0,
     @SerialName("current_year") val currentYear: Int = 0,
     @SerialName("current_month") val currentMonth: Int = 0

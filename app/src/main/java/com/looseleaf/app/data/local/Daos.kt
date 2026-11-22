@@ -81,22 +81,17 @@ interface EntryDao {
      * MOB-P1-32：时间流的**分页查询**（列表只物化可见窗口，不再全表驻留）。
      *
      * filter 语义（**SQL 即唯一事实源**，Kotlin 侧不再保留第二份实现以免语义漂移）：
-     * - all     → 全部
-     * - travel  → type='travel' 或有属地城市
-     * - project → type='project' 或关联了造物
-     * - wish    → type='wish' 或关联了心愿
-     * - daily   → 日常且无属地/无造物/无心愿
+     * - all   → 全部
+     * - wish  → type='wish' 或关联了心愿
+     * - daily → 日常且无心愿归属
      */
     @Query(
         "SELECT * FROM cached_entries WHERE sync_status != 'PENDING_DELETE' " +
             "AND (:year IS NULL OR substr(occurred_at, 1, 4) = :year) " +
             "AND (" +
             "  :filter = 'all' " +
-            "  OR (:filter = 'travel' AND (lower(type) = 'travel' OR city_code IS NOT NULL)) " +
-            "  OR (:filter = 'project' AND (lower(type) = 'project' OR project_id > 0)) " +
             "  OR (:filter = 'wish' AND (lower(type) = 'wish' OR wish_id > 0)) " +
             "  OR (:filter IN ('daily','life') AND lower(type) IN ('life','daily') " +
-            "     AND city_code IS NULL AND (project_id IS NULL OR project_id <= 0) " +
             "     AND (wish_id IS NULL OR wish_id <= 0))" +
             ") ORDER BY occurred_at DESC LIMIT :limit OFFSET :offset"
     )
@@ -123,11 +118,8 @@ interface EntryDao {
             "AND (:year IS NULL OR substr(occurred_at, 1, 4) = :year) " +
             "AND (" +
             "  :filter = 'all' " +
-            "  OR (:filter = 'travel' AND (lower(type) = 'travel' OR city_code IS NOT NULL)) " +
-            "  OR (:filter = 'project' AND (lower(type) = 'project' OR project_id > 0)) " +
             "  OR (:filter = 'wish' AND (lower(type) = 'wish' OR wish_id > 0)) " +
             "  OR (:filter IN ('daily','life') AND lower(type) IN ('life','daily') " +
-            "     AND city_code IS NULL AND (project_id IS NULL OR project_id <= 0) " +
             "     AND (wish_id IS NULL OR wish_id <= 0))" +
             ")"
     )
@@ -144,9 +136,7 @@ interface EntryDao {
           AND (:month IS NULL OR substr(occurred_at, 6, 2) = :month)
           AND (
             :hasCategories = 0
-            OR (:includeDaily = 1 AND lower(type) IN ('life','daily') AND city_code IS NULL AND (project_id IS NULL OR project_id <= 0) AND (wish_id IS NULL OR wish_id <= 0))
-            OR (:includeTravel = 1 AND (lower(type) = 'travel' OR city_code IS NOT NULL))
-            OR (:includeProject = 1 AND (lower(type) = 'project' OR project_id > 0))
+            OR (:includeDaily = 1 AND lower(type) IN ('life','daily') AND (wish_id IS NULL OR wish_id <= 0))
             OR (:includeWish = 1 AND (lower(type) = 'wish' OR wish_id > 0))
           )
           AND (:hasImage = 0 OR (attachments_json != '[]' AND attachments_json != '' AND attachments_json IS NOT NULL))
@@ -164,8 +154,6 @@ interface EntryDao {
         month: String?,
         hasCategories: Boolean,
         includeDaily: Boolean,
-        includeTravel: Boolean,
-        includeProject: Boolean,
         includeWish: Boolean,
         hasImage: Boolean,
         isPending: Boolean,
@@ -183,9 +171,7 @@ interface EntryDao {
           AND (:month IS NULL OR substr(occurred_at, 6, 2) = :month)
           AND (
             :hasCategories = 0
-            OR (:includeDaily = 1 AND lower(type) IN ('life','daily') AND city_code IS NULL AND (project_id IS NULL OR project_id <= 0) AND (wish_id IS NULL OR wish_id <= 0))
-            OR (:includeTravel = 1 AND (lower(type) = 'travel' OR city_code IS NOT NULL))
-            OR (:includeProject = 1 AND (lower(type) = 'project' OR project_id > 0))
+            OR (:includeDaily = 1 AND lower(type) IN ('life','daily') AND (wish_id IS NULL OR wish_id <= 0))
             OR (:includeWish = 1 AND (lower(type) = 'wish' OR wish_id > 0))
           )
           AND (:hasImage = 0 OR (attachments_json != '[]' AND attachments_json != '' AND attachments_json IS NOT NULL))
@@ -201,8 +187,6 @@ interface EntryDao {
         month: String?,
         hasCategories: Boolean,
         includeDaily: Boolean,
-        includeTravel: Boolean,
-        includeProject: Boolean,
         includeWish: Boolean,
         hasImage: Boolean,
         isPending: Boolean,
@@ -418,13 +402,13 @@ interface OutboxDao {
     suspend fun rebindFollowUpsToServerId(entityType: String, tempLocalTargetId: Long, serverId: Long)
 
     /**
-     * P0-3：旧版本把 project/wish/footprint 的临时目标写成
+     * P0-3：旧版本把 wish 的临时目标写成
      * `local_target_id = -1, server_target_id = 负数临时 id`。
      * 启动时一次性迁移到新模型：`local_target_id = 临时 id, server_target_id = NULL`。
      */
     @Query(
         "UPDATE outbox_events SET local_target_id = server_target_id, server_target_id = NULL " +
-            "WHERE entity_type IN ('project', 'wish', 'footprint') " +
+            "WHERE entity_type = 'wish' " +
             "AND local_target_id = -1 AND server_target_id IS NOT NULL AND server_target_id < 0"
     )
     suspend fun repairLegacyNegativeSimpleEntityTargets(): Int
@@ -435,7 +419,7 @@ interface OutboxDao {
      */
     @Query(
         "UPDATE outbox_events SET local_target_id = server_target_id " +
-            "WHERE entity_type IN ('project', 'wish', 'footprint') " +
+            "WHERE entity_type = 'wish' " +
             "AND local_target_id = -1 AND server_target_id IS NOT NULL AND server_target_id > 0"
     )
     suspend fun repairLegacyPositiveSimpleEntityTargets(): Int
@@ -493,37 +477,6 @@ interface OutboxDao {
 }
 
 @Dao
-interface ProjectDao {
-    @Query("SELECT * FROM cached_projects ORDER BY `order` ASC, id DESC")
-    fun getAllProjectsFlow(): Flow<List<CachedProjectEntity>>
-
-    @Query("SELECT * FROM cached_projects WHERE id = :id LIMIT 1")
-    suspend fun getById(id: Long): CachedProjectEntity?
-
-    @Query("SELECT EXISTS(SELECT 1 FROM cached_projects LIMIT 1)")
-    suspend fun hasAny(): Boolean
-
-    /** P0-3：整表拉取对账用，包含负数临时行。 */
-    @Query("SELECT id FROM cached_projects")
-    suspend fun getAllIds(): List<Long>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(project: CachedProjectEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAll(projects: List<CachedProjectEntity>)
-
-    @Query("DELETE FROM cached_projects WHERE id = :id")
-    suspend fun deleteById(id: Long)
-
-    @Query("DELETE FROM cached_projects WHERE id IN (:ids)")
-    suspend fun deleteByIds(ids: List<Long>)
-
-    @Query("DELETE FROM cached_projects")
-    suspend fun clearAll()
-}
-
-@Dao
 interface WishDao {
     @Query("SELECT * FROM cached_wishes ORDER BY id DESC")
     fun getAllWishesFlow(): Flow<List<CachedWishEntity>>
@@ -551,36 +504,5 @@ interface WishDao {
     suspend fun deleteByIds(ids: List<Long>)
 
     @Query("DELETE FROM cached_wishes")
-    suspend fun clearAll()
-}
-
-@Dao
-interface FootprintDao {
-    @Query("SELECT * FROM cached_footprints ORDER BY visited_at DESC")
-    fun getAllFootprintsFlow(): Flow<List<CachedFootprintEntity>>
-
-    @Query("SELECT * FROM cached_footprints WHERE id = :id LIMIT 1")
-    suspend fun getById(id: Long): CachedFootprintEntity?
-
-    @Query("SELECT EXISTS(SELECT 1 FROM cached_footprints LIMIT 1)")
-    suspend fun hasAny(): Boolean
-
-    /** P0-3：整表拉取对账用，包含负数临时行。 */
-    @Query("SELECT id FROM cached_footprints")
-    suspend fun getAllIds(): List<Long>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(footprint: CachedFootprintEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAll(footprints: List<CachedFootprintEntity>)
-
-    @Query("DELETE FROM cached_footprints WHERE id = :id")
-    suspend fun deleteById(id: Long)
-
-    @Query("DELETE FROM cached_footprints WHERE id IN (:ids)")
-    suspend fun deleteByIds(ids: List<Long>)
-
-    @Query("DELETE FROM cached_footprints")
     suspend fun clearAll()
 }

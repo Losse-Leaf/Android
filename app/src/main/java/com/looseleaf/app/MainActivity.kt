@@ -35,19 +35,25 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.looseleaf.app.data.security.BiometricHelper
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.data.security.AppearanceMode
 import com.looseleaf.app.data.sync.SyncManager
+import com.looseleaf.app.model.Wish
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.feature.ledger.LedgerEntry
+import com.looseleaf.feature.ledger.LedgerModule
 import com.looseleaf.app.ui.pairing.PairingScreen
 import com.looseleaf.app.ui.components.SpineBottomBar
-import com.looseleaf.app.ui.profile.ProfileScreen
-import com.looseleaf.app.ui.projectswishes.ProjectsWishesScreen
+import com.looseleaf.app.ui.projectswishes.CreateWishSheet
+import com.looseleaf.app.ui.projectswishes.EditWishSheetDialog
+import com.looseleaf.app.ui.projectswishes.ResolveWishSheet
+import com.looseleaf.app.ui.projectswishes.WishesList
+import com.looseleaf.app.ui.settings.SettingsHost
 import com.looseleaf.app.ui.stream.StreamScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -74,7 +80,7 @@ class MainActivity : FragmentActivity() {
         private var sessionUnlocked = false
 
         /** MOB-P0-11：已知的一级路由白名单（桌面快捷方式 / 深链据此校验） */
-        private val KNOWN_ROUTES = setOf("stream", "ledger", "workshop", "projects", "footprints", "wishes", "profile")
+        private val KNOWN_ROUTES = setOf("stream", "ledger", "wishes")
 
         /** MOB-P1-60：系统大字体缩放上限（超过会撑破固定高度的键盘与顶栏布局） */
         private const val MAX_FONT_SCALE = 1.5f
@@ -275,57 +281,44 @@ class MainActivity : FragmentActivity() {
         )) { mutableStateListOf<String>() }
 
         fun sectionOf(route: String): String = when (route) {
-            // 工坊（造物 / 心愿 / 足迹）同属一个分段，内部切换不单独入栈
-            "workshop", "footprints", "projects", "wishes" -> "workshop"
+            "wishes" -> "ledger"
             else -> route
         }
+
+        var showSettings by rememberSaveable { mutableStateOf(false) }
+        var requestedLedgerTab by rememberSaveable { mutableStateOf<Int?>(null) }
 
         // MOB-P0-09：稳定的路由切换回调（键为状态对象本身，引用恒定）
         val onRouteSelected: (String) -> Unit = remember(currentRouteState) {
             { route: String ->
+                val normalized = if (route == "wishes") {
+                    requestedLedgerTab = 1
+                    "ledger"
+                } else {
+                    route
+                }
                 val current = currentRouteState.value
-                val alreadyInWorkshop = route == "workshop" && sectionOf(current) == "workshop"
-                if (route != current && !alreadyInWorkshop) {
+                if (normalized != current) {
                     val fromSection = sectionOf(current)
-                    val toSection = sectionOf(route)
+                    val toSection = sectionOf(normalized)
                     if (fromSection != toSection) {
-                        // MOB-P1-08：彻底消除往复回跳栈 —— 切换分段时移除历史中的现有记录并重新压入，避免形成 [stream, ledger, stream]
                         routeStack.removeAll { it == toSection || it == fromSection }
                         routeStack.add(fromSection)
                     }
-                    currentRouteState.value = route
-                }
-            }
-        }
-        // 二级 Tab（造物 / 心愿 / 足迹）切换时同步路由状态，底栏「工坊」保持常亮高亮
-        val onSubTabChanged: (Int) -> Unit = remember(currentRouteState) {
-            { tab: Int ->
-                val target = when (tab) {
-                    2 -> "footprints"
-                    1 -> "wishes"
-                    else -> "projects"
-                }
-                if (target != currentRouteState.value) {
-                    if (sectionOf(target) != sectionOf(currentRouteState.value)) {
-                        val fromSection = sectionOf(currentRouteState.value)
-                        routeStack.removeAll { it == sectionOf(target) || it == fromSection }
-                        routeStack.add(fromSection)
-                    }
-                    currentRouteState.value = target
+                    currentRouteState.value = normalized
                 }
             }
         }
 
-        // 跨页跳转意图（RG-30 / RG-31）：一次性消费，消费方负责回调清空，
-        // 否则用户切走再切回会被反复拽回同一条记录。
-        var pendingWorkshopTarget by remember { mutableStateOf<WorkshopTarget?>(null) }
+        // 跨页跳转意图：一次性消费
         var pendingContentFilter by remember { mutableStateOf<Set<String>?>(null) }
-        var pendingGearId by remember { mutableStateOf<String?>(null) }
 
         val openWorkshopTarget: (String, Long) -> Unit = remember(onRouteSelected) {
-            { kind: String, id: Long ->
-                pendingWorkshopTarget = WorkshopTarget(kind, id)
-                onRouteSelected("workshop")
+            { kind: String, _: Long ->
+                if (kind == "wish") {
+                    requestedLedgerTab = 1
+                    onRouteSelected("ledger")
+                }
             }
         }
 
@@ -333,7 +326,14 @@ class MainActivity : FragmentActivity() {
         LaunchedEffect(pendingShortcut) {
             val target = pendingShortcut
             if (!target.isNullOrBlank()) {
-                currentRouteState.value = if (target in KNOWN_ROUTES) target else "stream"
+                when (target) {
+                    "wishes" -> {
+                        requestedLedgerTab = 1
+                        currentRouteState.value = "ledger"
+                    }
+                    in KNOWN_ROUTES -> currentRouteState.value = target
+                    else -> currentRouteState.value = "stream"
+                }
                 requestedRouteState.value = null
             }
         }
@@ -569,8 +569,10 @@ class MainActivity : FragmentActivity() {
             PredictiveBackHandler { progress ->
                 try {
                     progress.collect { /* 手势进度事件：目前不驱动额外动画，只消费掉 */ }
-                    // 手势完成 —— MOB-P2-73：优先逐级回退到上一个分段；栈空后才回时间流 / 退出
                     when {
+                        showSettings -> {
+                            showSettings = false
+                        }
                         routeStack.isNotEmpty() -> {
                             currentRouteState.value = routeStack.removeAt(routeStack.lastIndex)
                         }
@@ -588,96 +590,151 @@ class MainActivity : FragmentActivity() {
                         }
                     }
                 } catch (e: CancellationException) {
-                    // 手势被取消（滑回原处）—— 什么都不做
                     throw e
                 }
             }
 
             val saveableStateHolder = rememberSaveableStateHolder()
-            var showBottomBar by remember { mutableStateOf(true) }
+            val scope = rememberCoroutineScope()
+            val wishes by syncManager.wishesFlow.collectAsStateWithLifecycle()
+            val wantingWishCount = remember(wishes) { wishes.count { it.status == "wanting" } }
+
+            var showCreateWishSheet by rememberSaveable { mutableStateOf(false) }
+            var editingWish by remember { mutableStateOf<Wish?>(null) }
+            var resolvingWish by remember { mutableStateOf<Wish?>(null) }
+            var deletingWish by remember { mutableStateOf<Wish?>(null) }
+
+            LaunchedEffect(currentRoute) {
+                if (currentRoute == "ledger" && !SyncManager.isSessionPullDone("wishes")) {
+                    SyncManager.markSessionPullDone("wishes")
+                    syncManager.pullWishesData(forceFull = false)
+                }
+            }
+
+            if (showCreateWishSheet) {
+                CreateWishSheet(
+                    syncManager = syncManager,
+                    onDismiss = { showCreateWishSheet = false },
+                    onCreated = {
+                        syncManager.pullWishesData(forceFull = false)
+                        syncManager.pullStreamData(forceFull = false)
+                    }
+                )
+            }
+
+            editingWish?.let { wish ->
+                EditWishSheetDialog(
+                    wish = wish,
+                    apiClient = apiClient,
+                    onDismiss = { editingWish = null },
+                    onSaved = {
+                        scope.launch {
+                            syncManager.pullWishesData(forceFull = false)
+                            syncManager.pullStreamData(forceFull = false)
+                        }
+                    }
+                )
+            }
+
+            resolvingWish?.let { wish ->
+                ResolveWishSheet(
+                    wish = wish,
+                    apiClient = apiClient,
+                    syncManager = syncManager,
+                    onDismiss = { resolvingWish = null },
+                    onResolved = {
+                        syncManager.pullWishesData(forceFull = false)
+                        syncManager.pullStreamData(forceFull = false)
+                        runCatching { LedgerModule.syncTransactions(force = true) }
+                    }
+                )
+            }
+
+            deletingWish?.let { wish ->
+                ArchiveConfirmDialog(
+                    title = "删除心愿",
+                    content = "确定要删除「${wish.title}」吗？",
+                    confirmText = "删除",
+                    isDestructive = true,
+                    onConfirm = {
+                        deletingWish = null
+                        scope.launch {
+                            runCatching {
+                                val queued = syncManager.deleteWishOrQueue(wish.id)
+                                if (queued) ArchiveToastManager.show("已离线排队删除心愿")
+                                else ArchiveToastManager.show("心愿已删除")
+                                syncManager.pullWishesData(forceFull = false)
+                            }.onFailure {
+                                ArchiveToastManager.show("删除失败: ${it.message}", isError = true)
+                            }
+                        }
+                    },
+                    onDismiss = { deletingWish = null }
+                )
+            }
 
             Box(modifier = modifier.fillMaxSize()) {
-                Scaffold(
-                    bottomBar = {
-                        if (showBottomBar) {
+                if (showSettings) {
+                    SettingsHost(
+                        appearanceMode = appearanceModeState.value,
+                        onAppearanceModeChanged = onAppearanceModeChanged,
+                        onUnpair = {
+                            showSettings = false
+                            isPaired = false
+                            credentialStore.deviceToken = null
+                            syncManager.cancelScheduledSync()
+                        },
+                        onBack = { showSettings = false }
+                    )
+                } else {
+                    Scaffold(
+                        bottomBar = {
                             LooseLeafBottomBar(
                                 currentRoute = currentRoute,
                                 onRouteSelected = onRouteSelected
                             )
                         }
-                    }
-                ) { innerPadding ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                    ) {
-                        // 工坊（造物 / 心愿 / 足迹）共用同一个 SaveableState 桶，
-                        // 内部 Tab 回传导致 route 变化时页面不会被重建、Tab 状态得以平滑保持
-                        val stateKey = if (currentRoute in setOf("workshop", "footprints", "projects", "wishes")) {
-                            "workshop"
-                        } else {
-                            currentRoute
-                        }
-                        saveableStateHolder.SaveableStateProvider(stateKey) {
-                            when (currentRoute) {
-                                "stream" -> StreamScreen(
-                                    onOpenWorkshopTarget = openWorkshopTarget,
-                                    initialContentFilter = pendingContentFilter,
-                                    onContentFilterConsumed = { pendingContentFilter = null }
-                                )
-                                "ledger" -> LedgerEntry(
-                                    // P0「变天」修复：账本必须跟随应用内三态外观，
-                                    // 不能自己去问 isSystemInDarkTheme()。
-                                    isDarkTheme = isDarkTheme,
-                                    focusGearId = pendingGearId,
-                                    onFocusConsumed = { pendingGearId = null }
-                                )
-                                "workshop" -> ProjectsWishesScreen(
-                                    initialTab = null,
-                                    onTabChanged = onSubTabChanged,
-                                    initialTarget = pendingWorkshopTarget,
-                                    onTargetConsumed = { pendingWorkshopTarget = null }
-                                )
-                                "projects" -> ProjectsWishesScreen(
-                                    initialTab = 0,
-                                    onTabChanged = onSubTabChanged
-                                )
-                                "wishes" -> ProjectsWishesScreen(
-                                    initialTab = 1,
-                                    onTabChanged = onSubTabChanged
-                                )
-                                "footprints" -> ProjectsWishesScreen(
-                                    initialTab = 2,
-                                    onTabChanged = onSubTabChanged
-                                )
-                                "profile" -> ProfileScreen(
-                                    onUnpair = {
-                                        isPaired = false
-                                        // 彻底清除会话状态
-                                        credentialStore.deviceToken = null
-                                        syncManager.cancelScheduledSync()
-                                    },
-                                    onAppearanceModeChanged = onAppearanceModeChanged,
-                                    onNavigateToRoute = onRouteSelected,
-                                    onOpenImageEntries = {
-                                        pendingContentFilter = setOf("has_image")
-                                        onRouteSelected("stream")
-                                    },
-                                    onOpenGear = { gearId ->
-                                        pendingGearId = gearId
-                                        onRouteSelected("ledger")
-                                    },
-                                    onBottomBarVisibilityChanged = { visible ->
-                                        showBottomBar = visible
-                                    }
-                                )
-                                // MOB-P0-11：未知路由兜底 —— 任何脏数据 / 过期快捷方式
-                                // 都不再渲染成空白页，而是回到时间流并给出提示。
-                                else -> {
-                                    LaunchedEffect(currentRoute) {
-                                        ArchiveToastManager.show("该入口已下线，已返回时间流", isError = true)
-                                        currentRouteState.value = "stream"
+                    ) { innerPadding ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding)
+                        ) {
+                            val stateKey = sectionOf(currentRoute)
+                            saveableStateHolder.SaveableStateProvider(stateKey) {
+                                when (currentRoute) {
+                                    "stream" -> StreamScreen(
+                                        onOpenWorkshopTarget = openWorkshopTarget,
+                                        initialContentFilter = pendingContentFilter,
+                                        onContentFilterConsumed = { pendingContentFilter = null },
+                                        onOpenSettings = { showSettings = true }
+                                    )
+                                    "ledger", "wishes" -> LedgerEntry(
+                                        isDarkTheme = isDarkTheme,
+                                        requestedTab = requestedLedgerTab,
+                                        onRequestedTabConsumed = { requestedLedgerTab = null },
+                                        wishlistTabContent = { tabMod ->
+                                            WishesList(
+                                                wishes = wishes,
+                                                onResolveClick = { resolvingWish = it },
+                                                onEditClick = { editingWish = it },
+                                                onDeleteClick = { deletingWish = it },
+                                                onNewWishClick = { showCreateWishSheet = true },
+                                                modifier = tabMod
+                                            )
+                                        },
+                                        wishlistCount = wantingWishCount,
+                                        onRefreshWishlist = {
+                                            syncManager.pullWishesData(forceFull = false)
+                                        },
+                                        onAddWishClick = { showCreateWishSheet = true },
+                                        onOpenSettings = { showSettings = true }
+                                    )
+                                    else -> {
+                                        LaunchedEffect(currentRoute) {
+                                            ArchiveToastManager.show("该入口已下线，已返回散页", isError = true)
+                                            currentRouteState.value = "stream"
+                                        }
                                     }
                                 }
                             }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -54,6 +55,7 @@ internal fun StreamCoverHeader(
     failedCount: Int,
     onFailedStampClick: () -> Unit,
     onPendingStampClick: () -> Unit,
+    onOpenSettings: (() -> Unit)? = null,
     onTitleLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -164,6 +166,20 @@ internal fun StreamCoverHeader(
                     onFailedClick = onFailedStampClick,
                     onPendingClick = onPendingStampClick
                 )
+
+                if (onOpenSettings != null) {
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = "设置",
+                            tint = colors.inkPrimary,
+                            modifier = Modifier.size(21.dp)
+                        )
+                    }
+                }
             }
         }
 

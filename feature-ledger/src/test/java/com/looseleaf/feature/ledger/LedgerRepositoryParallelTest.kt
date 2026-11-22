@@ -1,14 +1,13 @@
 package com.looseleaf.feature.ledger
 
-import com.looseleaf.app.model.AssetsOverview
 import com.looseleaf.app.model.CategoryOption
 import com.looseleaf.app.model.CreditChannel
+import com.looseleaf.app.model.InstallmentPlanItemSummary
 import com.looseleaf.feature.ledger.data.LedgerRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -53,7 +52,7 @@ class LedgerRepositoryParallelTest {
             LedgerRepository.refreshAll(
                 fetchCategories = { tracked(categories) },
                 fetchCreditChannels = { tracked(listOf(CreditChannel(code = "huabei", name = "花呗"))) },
-                fetchAssetsOverview = { tracked(AssetsOverview(netWorth = 12345)) }
+                fetchInstallments = { tracked(listOf(InstallmentPlanItemSummary(id = 1L, title = "MacBook"))) }
             )
         }
 
@@ -64,7 +63,7 @@ class LedgerRepositoryParallelTest {
         assertEquals(listOf("薪资"), snapshot.incomeCategories)
         assertEquals(listOf("微信支付"), snapshot.paymentMethods)
         assertEquals("花呗", snapshot.creditChannels.single().name)
-        assertEquals(12345L, snapshot.assetsOverview?.netWorth)
+        assertEquals("MacBook", snapshot.installmentPlans.single().title)
     }
 
     @Test
@@ -72,13 +71,12 @@ class LedgerRepositoryParallelTest {
         LedgerRepository.refreshAll(
             fetchCategories = { throw IllegalStateException("分类接口挂了") },
             fetchCreditChannels = { listOf(CreditChannel(code = "huabei", name = "花呗")) },
-            fetchAssetsOverview = { AssetsOverview(netWorth = 999) }
+            fetchInstallments = { listOf(InstallmentPlanItemSummary(id = 2L, title = "iPad")) }
         )
         val snapshot = LedgerRepository.snapshot.value
         assertEquals(DefaultExpenseCategoriesForTest, snapshot.expenseCategories)
         assertEquals("花呗", snapshot.creditChannels.single().name)
-        assertNotNull(snapshot.assetsOverview)
-        assertEquals(999L, snapshot.assetsOverview?.netWorth)
+        assertEquals("iPad", snapshot.installmentPlans.single().title)
     }
 
     private companion object {

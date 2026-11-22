@@ -34,16 +34,10 @@ import androidx.core.app.ActivityCompat
 import com.looseleaf.app.BuildConfig
 import com.looseleaf.app.R
 import com.looseleaf.app.data.security.AppearanceMode
-import com.looseleaf.app.model.CuratorProfile
-import com.looseleaf.app.model.UpdateProfileRequest
 import com.looseleaf.app.theme.ArchiveFontFamilies
-import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.*
-import com.looseleaf.app.ui.profile.ProfileInfoRow
-import com.looseleaf.app.ui.profile.TrustedDeviceRow
 import com.looseleaf.app.updater.UpdateChecker
-import com.looseleaf.app.utils.CityDictionary
 
 
 /**

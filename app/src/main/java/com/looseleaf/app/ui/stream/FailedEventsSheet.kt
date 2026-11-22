@@ -80,9 +80,7 @@ internal suspend fun discardOutboxEvent(
                         }
                     }
                 }
-                "project" -> database.projectDao().deleteById(evt.localTargetId)
                 "wish" -> database.wishDao().deleteById(evt.localTargetId)
-                "footprint" -> database.footprintDao().deleteById(evt.localTargetId)
             }
         } else {
             when (evt.entityType) {

@@ -10,26 +10,36 @@ import com.looseleaf.feature.ledger.ui.LedgerScreen
  * 内部自动包裹 LedgerTheme，确保视觉风格独立通透，与主应用纸墨装饰彻底解耦。
  *
  * [isDarkTheme] 必须由宿主传入「应用自己解析好的外观三态」结果。
- *
- * 【刻意不留默认值】这里曾经是 `= isSystemInDarkTheme()`，那正是 P0「变天」Bug 本身 ——
- * 用户选「暖色棉纸」而系统是深色时，一进账本就整页变黑。正确性全靠"每个调用方记得传"，
- * 漏一个就静默退回原 Bug。改成必填后，新增调用点（例如第 2 批宽屏同屏两处账本）
- * 漏传会直接编译失败，而不是上线后才被用户发现。
  */
 @Composable
 fun LedgerEntry(
     /** 当前生效的深色外观（由宿主三态 system/paper/darkroom 解析得出，必填） */
     isDarkTheme: Boolean,
     modifier: Modifier = Modifier,
-    /** 需要定位并高亮的装备 id（展台「随行装备」跳转用），消费后由调用方清空 */
-    focusGearId: String? = null,
-    onFocusConsumed: (() -> Unit)? = null
+    /** 外部请求切换到的子分段（0 = 流水，1 = 心愿单），消费后由调用方清空 */
+    requestedTab: Int? = null,
+    onRequestedTabConsumed: (() -> Unit)? = null,
+    /** 心愿单子 Tab 内容槽（由宿主注入，连接 SyncManager.wishesFlow） */
+    wishlistTabContent: (@Composable (Modifier) -> Unit)? = null,
+    /** 心愿单条目数量（用于 Tab 徽标展示） */
+    wishlistCount: Int? = null,
+    /** 心愿单子 Tab 下拉刷新动作 */
+    onRefreshWishlist: (suspend () -> Unit)? = null,
+    /** 心愿单子 Tab 右下角新增按钮动作 */
+    onAddWishClick: (() -> Unit)? = null,
+    /** 顶栏更多菜单中的设置入口 */
+    onOpenSettings: (() -> Unit)? = null
 ) {
     LedgerTheme(darkTheme = isDarkTheme) {
         LedgerScreen(
             modifier = modifier,
-            focusGearId = focusGearId,
-            onFocusConsumed = onFocusConsumed
+            requestedTab = requestedTab,
+            onRequestedTabConsumed = onRequestedTabConsumed,
+            wishlistTabContent = wishlistTabContent,
+            wishlistCount = wishlistCount,
+            onRefreshWishlist = onRefreshWishlist,
+            onAddWishClick = onAddWishClick,
+            onOpenSettings = onOpenSettings
         )
     }
 }

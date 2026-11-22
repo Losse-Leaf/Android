@@ -3,7 +3,6 @@ package com.looseleaf.app.data.sync
 import android.content.Context
 import androidx.work.WorkManager
 import com.looseleaf.app.data.local.AppDatabase
-import com.looseleaf.app.data.local.ProfileRepository
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.reminder.InstallmentReminderWorker
 import com.looseleaf.feature.ledger.LedgerModule
@@ -54,10 +53,7 @@ object LocalDataResetCoordinator {
         // 3. 清理独立账本数据库 (looseleaf_ledger.db) 全部表、游标与快照（内部持账本同步互斥锁）
         LedgerModule.clearAllLocalData(context)
 
-        // 4. 清理主理人档案与快照
-        ProfileRepository.clearCache(context)
-
-        // 5. 清理本地暂存相纸、缓存缩略图与下载目录
+        // 4. 清理本地暂存相纸、缓存缩略图与下载目录
         runCatching {
             File(context.filesDir, "outbox_media").deleteRecursively()
             File(context.cacheDir, "image_cache").deleteRecursively()

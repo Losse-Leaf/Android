@@ -1,28 +1,27 @@
-package com.looseleaf.app.ui.profile
+package com.looseleaf.app.ui.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.looseleaf.app.utils.FormatUtils
+import com.looseleaf.app.R
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.LooseLeafTheme
-import com.looseleaf.app.ui.components.*
-import androidx.compose.ui.res.stringResource
-import com.looseleaf.app.R
-import androidx.compose.ui.res.painterResource
+import com.looseleaf.app.utils.FormatUtils
+
 @Composable
 internal fun ProfileInfoRow(label: String, value: String) {
     val colors = LooseLeafTheme.colors
@@ -59,7 +58,6 @@ internal fun TrustedDeviceRow(
             .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // 第一行：平台图标 + 设备名称（全宽舒展展示，不与操作按钮硬挤！）+ 平台雅致轻胶囊
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -86,7 +84,11 @@ internal fun TrustedDeviceRow(
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
                     .background(if (isLocal) colors.accentMoss.copy(alpha = 0.12f) else colors.archivePaper)
-                    .border(1.dp, if (isLocal) colors.accentMoss.copy(alpha = 0.3f) else colors.borderSubtle, RoundedCornerShape(4.dp))
+                    .border(
+                        1.dp,
+                        if (isLocal) colors.accentMoss.copy(alpha = 0.3f) else colors.borderSubtle,
+                        RoundedCornerShape(4.dp)
+                    )
                     .padding(horizontal = 6.dp, vertical = 1.dp)
             ) {
                 Text(
@@ -101,7 +103,6 @@ internal fun TrustedDeviceRow(
             }
         }
 
-        // 第二行：设备全局唯一标识与活跃时间（左侧）······ 操作按钮（右侧靠齐，不挤占第一行！）
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,

@@ -54,7 +54,7 @@ import java.time.format.DateTimeFormatter
  * - 纯纸色底，无投影、无卡片
  * - 衬线大标题 + 等宽数字
  * - 赤陶色作为主要交互强调色
- * - 顶部排布：顶栏 -> 月份 / 截至今天 -> 纯文字视图切换 -> 错误条 -> 列表内容
+ * - 顶部排布：顶栏 -> 纯文字视图切换（流水 | 心愿单） -> 错误条 -> 列表内容
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,8 +62,13 @@ fun LedgerScreen(
     apiClient: APIClient = APIClient.getInstance(LocalContext.current),
     credentialStore: CredentialStore = CredentialStore.getInstance(LocalContext.current),
     modifier: Modifier = Modifier,
-    focusGearId: String? = null,
-    onFocusConsumed: (() -> Unit)? = null
+    requestedTab: Int? = null,
+    onRequestedTabConsumed: (() -> Unit)? = null,
+    wishlistTabContent: (@Composable (Modifier) -> Unit)? = null,
+    wishlistCount: Int? = null,
+    onRefreshWishlist: (suspend () -> Unit)? = null,
+    onAddWishClick: (() -> Unit)? = null,
+    onOpenSettings: (() -> Unit)? = null
 ) {
     val colors = LedgerTheme.colors
     val context = LocalContext.current
@@ -84,16 +89,16 @@ fun LedgerScreen(
     val incomeCategories = ledgerSnapshot.incomeCategories
     val paymentMethods = ledgerSnapshot.paymentMethods
     val creditChannels = ledgerSnapshot.creditChannels
-    val assetsOverview = ledgerSnapshot.assetsOverview
-    val isLoadingAssets = ledgerSnapshot.isLoadingAssets
 
-    var selectedTab by rememberSaveable { mutableStateOf(0) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
-    // 从展台点某件装备进来：落到资产大盘分段，由 AssetsAndGearTab 负责滚动与高亮。
-    // 不去动「无跳转时」的 selectedTab，否则用户上次停留的分段会被重置。
-    LaunchedEffect(focusGearId) {
-        if (focusGearId != null) selectedTab = 1
+    LaunchedEffect(requestedTab) {
+        if (requestedTab != null) {
+            selectedTab = requestedTab.coerceIn(0, 1)
+            onRequestedTabConsumed?.invoke()
+        }
     }
+
     var showQuickRecordSheet by rememberSaveable { mutableStateOf(false) }
     var isPrivacyMasked by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -101,13 +106,9 @@ fun LedgerScreen(
     var showPendingConfirmSheet by remember { mutableStateOf(false) }
 
     var editingTransaction by remember { mutableStateOf<Transaction?>(null) }
-    var showCalibrateBalanceDialog by remember { mutableStateOf(false) }
-    var showAddGearDialog by remember { mutableStateOf(false) }
-    var viewingGearItem by remember { mutableStateOf<GearItem?>(null) }
-    var editingGearItem by remember { mutableStateOf<GearItem?>(null) }
-    var sellingGearItem by remember { mutableStateOf<GearItem?>(null) }
 
     // 真实分期相关状态 (RC-140)
+    var showInstallmentPlansSheet by remember { mutableStateOf(false) }
     var showNewInstallmentSheet by remember { mutableStateOf(false) }
     var viewingInstallmentPlanDetail by remember { mutableStateOf<InstallmentPlanDetailResponse?>(null) }
     var editingInstallmentPlanDetail by remember { mutableStateOf<InstallmentPlanDetailResponse?>(null) }
@@ -120,7 +121,6 @@ fun LedgerScreen(
 
     var snackbarData by remember { mutableStateOf<ArchiveSnackbarData?>(null) }
 
-    // 8 秒自动消失（撤销类提示留足操作时间；key 仍为 snackbarData，保持「新消息替换旧消息」语义）
     LaunchedEffect(snackbarData) {
         if (snackbarData != null) {
             delay(8000)
@@ -139,9 +139,9 @@ fun LedgerScreen(
 
     var ledgerLoadError by remember { mutableStateOf<String?>(null) }
     var isRefreshingLedger by remember { mutableStateOf(false) }
+    var isRefreshingWishlist by remember { mutableStateOf(false) }
 
     val transactionsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
-    val assetsListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
     var isScrollingUp by remember { mutableStateOf(true) }
     var prevScrollIndex by remember { mutableIntStateOf(0) }
@@ -160,12 +160,14 @@ fun LedgerScreen(
             }
     }
 
-    // 资产大盘与空账单状态均隐藏 FAB（空状态已自带实心主按钮），向下滚动时平滑收起
-    val isFabVisible by remember {
+    val isFabVisible by remember(onAddWishClick, wishlistCount) {
         derivedStateOf {
-            selectedTab == 0 &&
-                transactions.isNotEmpty() &&
-                (isScrollingUp || transactionsListState.firstVisibleItemIndex == 0)
+            when (selectedTab) {
+                0 -> transactions.isNotEmpty() &&
+                    (isScrollingUp || transactionsListState.firstVisibleItemIndex == 0)
+                1 -> onAddWishClick != null && (wishlistCount == null || wishlistCount > 0)
+                else -> false
+            }
         }
     }
 
@@ -185,6 +187,18 @@ fun LedgerScreen(
         }
     }
 
+    fun refreshCurrentTab() {
+        if (selectedTab == 0) {
+            refreshAllData(force = true)
+        } else if (onRefreshWishlist != null && !isRefreshingWishlist) {
+            scope.launch {
+                isRefreshingWishlist = true
+                runCatching { onRefreshWishlist() }
+                isRefreshingWishlist = false
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         refreshAllData(force = false)
     }
@@ -198,7 +212,7 @@ fun LedgerScreen(
                     subtitle = if (selectedTab == 0) {
                         "${selectedYearMonth.year} 年 ${selectedYearMonth.monthValue} 月 ▾"
                     } else {
-                        "截至今天"
+                        "心愿与向往"
                     },
                     onSubtitleClick = if (selectedTab == 0) {
                         { showMonthPickerSheet = true }
@@ -206,8 +220,6 @@ fun LedgerScreen(
                         null
                     },
                     actions = {
-                        // 自动记账从「更多」菜单提上来（RG-28）：它是 Android 端独有的能力，
-                        // 埋在三级菜单里等于没做。点进去是权限状态 + 保活检查 + 模拟测试页。
                         IconButton(onClick = { showKeepAliveScreen = true }) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_auto_record),
@@ -264,6 +276,34 @@ fun LedgerScreen(
                                         }
                                     }
                                 )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "分期计划",
+                                            fontFamily = LedgerTheme.typography.serif,
+                                            color = colors.textPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        showInstallmentPlansSheet = true
+                                    }
+                                )
+                                if (onOpenSettings != null) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "设置",
+                                                fontFamily = LedgerTheme.typography.serif,
+                                                color = colors.textPrimary
+                                            )
+                                        },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            onOpenSettings()
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -276,12 +316,18 @@ fun LedgerScreen(
                 )
                 ArchiveFab(
                     visible = isFabVisible,
-                    onClick = { showQuickRecordSheet = true },
+                    onClick = {
+                        if (selectedTab == 0) {
+                            showQuickRecordSheet = true
+                        } else {
+                            onAddWishClick?.invoke()
+                        }
+                    },
                     modifier = Modifier.offset(y = fabOffset),
                     icon = {
                         Icon(
                             imageVector = Icons.Outlined.Add,
-                            contentDescription = "记一笔",
+                            contentDescription = if (selectedTab == 0) "记一笔" else "许下心愿",
                             tint = colors.background,
                             modifier = Modifier.size(22.dp)
                         )
@@ -295,55 +341,57 @@ fun LedgerScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                // 月份 / 「截至今天」并入顶栏副标题，省掉原先独占 34dp 的一行，
-                // 首屏多出约一条账目的高度。
-                // 3. 视图切换（账单明细 / 资产大盘）
+                // 视图切换（流水 / 心愿单）
                 Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                     ArchiveSegmentedTabs(
-                        tabs = listOf("账单明细", "资产大盘"),
+                        tabs = listOf("流水", "心愿单"),
                         selectedIndex = selectedTab,
-                        onTabSelected = { selectedTab = it }
+                        onTabSelected = { selectedTab = it },
+                        counts = wishlistCount?.let { listOf(transactions.size, it) }
                     )
                 }
 
-                // 错误提示条
-                ledgerLoadError?.let { msg ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(colors.accent.copy(alpha = 0.1f))
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Warning,
-                            contentDescription = null,
-                            tint = colors.accent,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = msg,
-                            style = LedgerTheme.typography.caption,
-                            fontFamily = LedgerTheme.typography.serif,
-                            color = colors.accent,
-                            modifier = Modifier.weight(1f)
-                        )
+                // 错误提示条（仅流水 Tab 展示账本同步错误）
+                if (selectedTab == 0) {
+                    ledgerLoadError?.let { msg ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(colors.accent.copy(alpha = 0.1f))
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Warning,
+                                contentDescription = null,
+                                tint = colors.accent,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = msg,
+                                style = LedgerTheme.typography.caption,
+                                fontFamily = LedgerTheme.typography.serif,
+                                color = colors.accent,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
 
-                // 原生下拉刷新包装器（黄铜回形针指示器，未下拉时不显示任何异常底圈）
+                // 原生下拉刷新包装器
+                val isCurrentlyRefreshing = if (selectedTab == 0) isRefreshingLedger else isRefreshingWishlist
                 val pullToRefreshState = rememberPullToRefreshState()
                 PullToRefreshBox(
-                    isRefreshing = isRefreshingLedger,
-                    onRefresh = { refreshAllData(force = true) },
+                    isRefreshing = isCurrentlyRefreshing,
+                    onRefresh = { refreshCurrentTab() },
                     state = pullToRefreshState,
                     indicator = {
                         PaperclipPullIndicator(
                             state = pullToRefreshState,
-                            isRefreshing = isRefreshingLedger
+                            isRefreshing = isCurrentlyRefreshing
                         )
                     },
                     modifier = Modifier.fillMaxSize()
@@ -386,36 +434,20 @@ fun LedgerScreen(
                             )
                         }
                         1 -> {
-                            AssetsAndGearTab(
-                                overview = assetsOverview,
-                                isLoading = isLoadingAssets,
-                                isPrivacyMasked = isPrivacyMasked,
-                                installmentPlans = ledgerSnapshot.installmentPlans,
-                                onCalibrateBalanceClick = { showCalibrateBalanceDialog = true },
-                                onAddGearClick = { showAddGearDialog = true },
-                                onSellGearClick = { viewingGearItem = it },
-                                onNewInstallmentClick = { showNewInstallmentSheet = true },
-                                onPlanClick = { planSummary ->
-                                    scope.launch {
-                                        runCatching {
-                                            apiClient.fetchInstallmentPlanDetail(planSummary.id)
-                                        }.onSuccess {
-                                            viewingInstallmentPlanDetail = it
-                                        }
-                                    }
-                                },
-                                focusGearId = focusGearId,
-                                onFocusConsumed = onFocusConsumed,
-                                listState = assetsListState,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            if (wishlistTabContent != null) {
+                                wishlistTabContent(Modifier.fillMaxSize())
+                            } else {
+                                ArchiveEmptyState(
+                                    title = "心愿单暂未接入",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // 浮动在底部的 ArchiveSnackbar（在底栏上方，停留 8 秒）
         AnimatedVisibility(
             visible = snackbarData != null,
             enter = fadeIn() + slideInVertically { it },
@@ -439,7 +471,6 @@ fun LedgerScreen(
         }
     }
 
-    // 月份选择弹层
     if (showMonthPickerSheet) {
         ArchiveMonthPickerSheet(
             selectedYearMonth = selectedYearMonth,
@@ -448,7 +479,6 @@ fun LedgerScreen(
         )
     }
 
-    // 预留待确认列表占位弹层
     if (showPendingConfirmSheet) {
         val pendingItems = remember(transactions) { transactions.filter { it.syncStatus == "PENDING_CREATE" } }
         ArchiveSheet(
@@ -504,7 +534,6 @@ fun LedgerScreen(
         }
     }
 
-    // 极速记账工作抽屉
     if (showQuickRecordSheet) {
         QuickRecordSheet(
             onDismiss = { showQuickRecordSheet = false },
@@ -520,7 +549,6 @@ fun LedgerScreen(
         )
     }
 
-    // 编辑流水抽屉
     editingTransaction?.let { tx ->
         EditTransactionSheet(
             tx = tx,
@@ -537,71 +565,34 @@ fun LedgerScreen(
         )
     }
 
-    // 校准余额抽屉
-    if (showCalibrateBalanceDialog) {
-        CalibrateBalanceSheet(
-            currentLiquidCents = assetsOverview?.liquidBalance ?: 0L,
-            apiClient = apiClient,
-            onDismiss = { showCalibrateBalanceDialog = false },
-            onCalibrated = { refreshAllData() }
-        )
-    }
-
-    // 登记在役新装备
-    if (showAddGearDialog) {
-        AddGearSheet(
-            creditChannels = creditChannels,
-            apiClient = apiClient,
-            onDismiss = { showAddGearDialog = false },
-            onSubmitted = { refreshAllData() }
-        )
-    }
-
-    // 固资装备详情抽屉
-    viewingGearItem?.let { gear ->
-        GearDetailSheet(
-            gear = gear,
-            allGearItems = assetsOverview?.gearSummary?.items ?: emptyList(),
-            isPrivacyMasked = isPrivacyMasked,
-            apiClient = apiClient,
-            onDismiss = { viewingGearItem = null },
-            onEditClick = { editingGearItem = it },
-            onSellClick = { sellingGearItem = it },
-            onDeletedWithUndo = { snackbarData = it },
-            onRefreshAll = { refreshAllData() }
-        )
-    }
-
-    // 编辑装备抽屉
-    editingGearItem?.let { gear ->
-        EditGearSheet(
-            gear = gear,
-            allGearItems = assetsOverview?.gearSummary?.items ?: emptyList(),
-            apiClient = apiClient,
-            onDismiss = { editingGearItem = null },
-            onSaved = { refreshAllData() }
-        )
-    }
-
-    // 变卖装备抽屉
-    sellingGearItem?.let { gear ->
-        SellGearSheet(
-            gear = gear,
-            apiClient = apiClient,
-            onDismiss = { sellingGearItem = null },
-            onSold = { refreshAllData() }
-        )
-    }
-
     // ───────────────────────────────────────────────
     // 真实分期体系弹层与确认对话框 (RC-140)
     // ───────────────────────────────────────────────
 
-    // 1. 新建分期计划抽屉
+    if (showInstallmentPlansSheet) {
+        InstallmentPlansSheet(
+            plans = ledgerSnapshot.installmentPlans,
+            isPrivacyMasked = isPrivacyMasked,
+            onDismissRequest = { showInstallmentPlansSheet = false },
+            onNewInstallmentClick = { showNewInstallmentSheet = true },
+            onPlanClick = { planSummary ->
+                showInstallmentPlansSheet = false
+                scope.launch {
+                    runCatching {
+                        apiClient.fetchInstallmentPlanDetail(planSummary.id)
+                    }.onSuccess {
+                        viewingInstallmentPlanDetail = it
+                    }.onFailure { err ->
+                        ArchiveToastManager.show("加载分期计划失败: ${err.message}", isError = true)
+                    }
+                }
+            }
+        )
+    }
+
     if (showNewInstallmentSheet) {
         CreateInstallmentSheet(
             creditChannels = creditChannels,
-            existingGears = assetsOverview?.gearSummary?.items ?: emptyList(),
             expenseCategories = expenseCategories,
             onDismissRequest = { showNewInstallmentSheet = false },
             onCreateChannel = { name, repayDay ->
@@ -609,7 +600,7 @@ fun LedgerScreen(
                     val created = apiClient.createCreditChannel(
                         CreateCreditChannelRequest(name = name, repaymentDay = repayDay)
                     )
-                    LedgerRepository.refreshAssets(apiClient)
+                    LedgerRepository.refreshInstallments(apiClient)
                     refreshAllData()
                     created
                 }.onFailure { err ->
@@ -619,7 +610,7 @@ fun LedgerScreen(
             onSubmit = { req ->
                 runCatching {
                     apiClient.createInstallmentPlan(req)
-                    LedgerRepository.refreshAssets(apiClient)
+                    LedgerRepository.refreshInstallments(apiClient)
                     refreshAllData()
                     ArchiveToastManager.show("分期计划创建成功")
                 }.onFailure { err ->
@@ -629,7 +620,6 @@ fun LedgerScreen(
         )
     }
 
-    // 2. 分期计划详情抽屉 (全高)
     viewingInstallmentPlanDetail?.let { detail ->
         InstallmentPlanDetailSheet(
             detail = detail,
@@ -652,7 +642,6 @@ fun LedgerScreen(
         )
     }
 
-    // 2.5 编辑分期计划抽屉
     editingInstallmentPlanDetail?.let { detail ->
         EditInstallmentPlanSheet(
             detail = detail,
@@ -668,7 +657,7 @@ fun LedgerScreen(
                         }
                         val updated = apiClient.fetchInstallmentPlanDetail(detail.plan.id)
                         viewingInstallmentPlanDetail = updated
-                        LedgerRepository.refreshAssets(apiClient)
+                        LedgerRepository.refreshInstallments(apiClient)
                         refreshAllData()
                         ArchiveToastManager.show("分期计划已更新")
                     }.onSuccess {
@@ -681,7 +670,6 @@ fun LedgerScreen(
         )
     }
 
-    // 3. 标记单期已还抽屉
     payingInstallmentItem?.let { (item, planTitle) ->
         PayInstallmentSheet(
             item = item,
@@ -697,7 +685,7 @@ fun LedgerScreen(
                         )
                         val updated = apiClient.fetchInstallmentPlanDetail(item.planId)
                         viewingInstallmentPlanDetail = updated
-                        LedgerRepository.refreshAssets(apiClient)
+                        LedgerRepository.refreshInstallments(apiClient)
                         refreshAllData()
                         ArchiveToastManager.show("已标记第 ${item.seq} 期已还")
                     }.onSuccess {
@@ -710,7 +698,6 @@ fun LedgerScreen(
         )
     }
 
-    // 4. 提前结清抽屉
     settlingInstallmentPlan?.let { (plan, remainingPrincipal) ->
         SettleInstallmentSheet(
             plan = plan,
@@ -726,7 +713,7 @@ fun LedgerScreen(
                         )
                         val updated = apiClient.fetchInstallmentPlanDetail(plan.id)
                         viewingInstallmentPlanDetail = updated
-                        LedgerRepository.refreshAssets(apiClient)
+                        LedgerRepository.refreshInstallments(apiClient)
                         refreshAllData()
                         ArchiveToastManager.show("已提前结清")
                     }.onSuccess {
@@ -739,7 +726,6 @@ fun LedgerScreen(
         )
     }
 
-    // 5. 本月待还列表抽屉
     if (showUpcomingInstallmentsSheet) {
         UpcomingInstallmentsSheet(
             items = ledgerSnapshot.upcomingInstallmentItems,
@@ -756,7 +742,7 @@ fun LedgerScreen(
                                 paidAt = todayStr
                             )
                         )
-                        LedgerRepository.refreshAssets(apiClient)
+                        LedgerRepository.refreshInstallments(apiClient)
                         refreshAllData()
                         snackbarData = ArchiveSnackbarData(
                             message = "已标记 ${item.planTitle} 第 ${item.seq} 期已还",
@@ -765,7 +751,7 @@ fun LedgerScreen(
                                 scope.launch {
                                     runCatching {
                                         apiClient.unpayInstallmentItem(item.itemId)
-                                        LedgerRepository.refreshAssets(apiClient)
+                                        LedgerRepository.refreshInstallments(apiClient)
                                         refreshAllData()
                                     }
                                 }
@@ -780,11 +766,10 @@ fun LedgerScreen(
         )
     }
 
-    // 6. 二次确认弹窗：撤销已还记录
     showUnpayInstallmentConfirm?.let { item ->
         ArchiveConfirmDialog(
             title = "撤销该期还款？",
-            content = "撤销后将恢复该期待还本金，冲销还款支出流水，并回滚负债大盘。",
+            content = "撤销后将恢复该期待还本金并冲销还款支出流水。",
             confirmText = "确认撤销",
             isDestructive = true,
             onDismiss = { showUnpayInstallmentConfirm = null },
@@ -794,7 +779,7 @@ fun LedgerScreen(
                         apiClient.unpayInstallmentItem(item.id)
                         val updated = apiClient.fetchInstallmentPlanDetail(item.planId)
                         viewingInstallmentPlanDetail = updated
-                        LedgerRepository.refreshAssets(apiClient)
+                        LedgerRepository.refreshInstallments(apiClient)
                         refreshAllData()
                         ArchiveToastManager.show("已撤销还款")
                     }.onFailure { err ->
@@ -806,7 +791,6 @@ fun LedgerScreen(
         )
     }
 
-    // 7. 二次确认弹窗：取消分期计划
     showCancelInstallmentConfirm?.let { plan ->
         ArchiveConfirmDialog(
             title = "取消分期计划？",
@@ -820,7 +804,7 @@ fun LedgerScreen(
                     runCatching {
                         apiClient.deleteInstallmentPlan(plan.id)
                         viewingInstallmentPlanDetail = null
-                        LedgerRepository.refreshAssets(apiClient)
+                        LedgerRepository.refreshInstallments(apiClient)
                         refreshAllData()
                         ArchiveToastManager.show("已取消分期计划")
                     }.onFailure { err ->
@@ -832,11 +816,10 @@ fun LedgerScreen(
         )
     }
 
-    // 8. 二次确认弹窗：删除分期还款账目联动撤销
     showDeleteTxRepayConfirm?.let { tx ->
         ArchiveConfirmDialog(
             title = "删除此还款账目？",
-            content = "删除此分期还款账目将同时撤销对应的分期还款期次，并恢复待还负债本金。",
+            content = "删除此分期还款账目将同时撤销对应的分期还款期次，并恢复待还本金。",
             confirmText = "确认删除",
             isDestructive = true,
             onDismiss = { showDeleteTxRepayConfirm = null },
@@ -844,7 +827,7 @@ fun LedgerScreen(
                 scope.launch {
                     runCatching {
                         LedgerRepository.deleteTransaction(tx.id)
-                        LedgerRepository.refreshAssets(apiClient)
+                        LedgerRepository.refreshInstallments(apiClient)
                         refreshAllData()
                         ArchiveToastManager.show("已删除账目并撤销还款")
                     }.onFailure { err ->

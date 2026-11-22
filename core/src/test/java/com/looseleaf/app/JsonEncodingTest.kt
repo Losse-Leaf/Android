@@ -1,6 +1,5 @@
 package com.looseleaf.app
 
-import com.looseleaf.app.model.AddGearAssetRequest
 import com.looseleaf.app.model.CreateEntryRequest
 import com.looseleaf.app.model.CreateTransactionRequest
 import kotlinx.serialization.encodeToString
@@ -43,29 +42,26 @@ class JsonEncodingTest {
         // 必填字段必须还在
         assertTrue(payload.contains("\"title\":\"一则随笔\""))
         assertTrue(payload.contains("\"occurred_at\":\"2026-01-01T08:00:00+08:00\""))
-        // project_id / wish_id 携带 @EncodeDefault(ALWAYS)：编辑散页切换类型时
-        // 必须显式下发 null 才能让服务端解绑(携带即写语义),因此这两个键
-        // 恒出现、且允许为 null —— 服务端对 null 等价缺省,创建路径无行为变化。
-        // 除这两个键外,其余可空字段仍按省略语义不出现。
+        // wish_id 携带 @EncodeDefault(ALWAYS)：编辑散页切换类型时
+        // 必须显式下发 null 才能让服务端解绑（携带即写语义），因此该键恒出现。
         assertTrue(
-            "project_id/wish_id 必须显式携带(允许 null,供编辑解绑)",
-            payload.contains("\"project_id\":null") && payload.contains("\"wish_id\":null")
+            "wish_id 必须显式携带(允许 null,供编辑解绑)",
+            payload.contains("\"wish_id\":null")
         )
         assertFalse("其它可空字段仍应省略", payload.contains("\"location\""))
-        assertFalse("其它可空字段仍应省略", payload.contains("\"city_code\""))
     }
 
     @Test
     fun `非默认的类型仍然下发`() {
         val payload = json.encodeToString(
             CreateEntryRequest(
-                type = "travel",
-                title = "一次远行",
+                type = "wish",
+                title = "心愿印记",
                 content = "正文",
                 occurredAt = "2026-01-01T08:00:00+08:00"
             )
         )
-        assertTrue("非默认值的 type 必须照常下发", payload.contains("\"type\":\"travel\""))
+        assertTrue("非默认值的 type 必须照常下发", payload.contains("\"type\":\"wish\""))
     }
 
     @Test
@@ -80,18 +76,5 @@ class JsonEncodingTest {
         )
         assertFalse(payload.contains("\"type\""))
         assertTrue(payload.contains("\"amount\":1800"))
-    }
-
-    @Test
-    fun `随设备的建账开关永远下发`() {
-        // createTransaction 的客户端默认值是 true、服务端默认值是 false，
-        // 一旦被省略就会悄悄少记一笔账 —— 因此模型里去掉了默认值，它必须永远出现。
-        val payload = json.encodeToString(
-            AddGearAssetRequest(name = "一台相机", createTransaction = true)
-        )
-        assertTrue(
-            "create_transaction 必须永远随请求下发",
-            payload.contains("\"create_transaction\":true")
-        )
     }
 }

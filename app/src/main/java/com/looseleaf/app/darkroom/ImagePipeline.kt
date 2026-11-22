@@ -15,7 +15,6 @@ import com.looseleaf.app.data.api.fileRequestBody
 import com.looseleaf.app.model.Attachment
 import com.looseleaf.app.model.CompleteUploadRequest
 import com.looseleaf.app.model.PresignUploadRequest
-import com.looseleaf.app.utils.CityDictionary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -39,9 +38,7 @@ data class ExtractedExif(
     val iso: String? = null,
     val dateTimeOriginal: String? = null,
     val latitude: Double? = null,
-    val longitude: Double? = null,
-    val inferredCityCode: String? = null,
-    val inferredCityName: String? = null
+    val longitude: Double? = null
 )
 
 data class ProcessedImageResult(
@@ -84,9 +81,6 @@ object ImagePipeline {
                 val latLong = ex.latLong
                 val lat = latLong?.get(0)
                 val lng = latLong?.get(1)
-                val nearestCity = if (lat != null && lng != null) {
-                    CityDictionary.nearestCityForCoordinates(lat, lng)
-                } else null
 
                 ExtractedExif(
                     make = make,
@@ -98,9 +92,7 @@ object ImagePipeline {
                     iso = iso,
                     dateTimeOriginal = date,
                     latitude = lat,
-                    longitude = lng,
-                    inferredCityCode = nearestCity?.first,
-                    inferredCityName = nearestCity?.second
+                    longitude = lng
                 )
             } ?: ExtractedExif()
         } catch (e: Exception) {

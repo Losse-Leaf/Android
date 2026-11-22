@@ -193,10 +193,7 @@ internal class StreamRowsBuilder {
             localKey = key,
             gapDays = gapDays,
             displayTime = FormatUtils.formatDisplayDateTime(entry.occurredAt),
-            displayPlace = listOfNotNull(entry.cityName, entry.location)
-                .distinct()
-                .filter { it.isNotBlank() }
-                .joinToString(" · "),
+            displayPlace = entry.location?.trim().orEmpty(),
             previousKey = previousKey,
             isFirstOfMonth = isFirstOfMonth,
             isFirstOfDay = isFirstOfDay,
