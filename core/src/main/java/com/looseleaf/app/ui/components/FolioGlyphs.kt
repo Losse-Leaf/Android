@@ -1,12 +1,12 @@
 package com.looseleaf.app.ui.components
 
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
+import com.looseleaf.app.theme.LightArchiveColors
 
 /**
  * 散页 · Folio 线性图形集
@@ -30,7 +30,7 @@ object FolioGlyphs {
     ).apply {
         path(
             fill = null,
-            stroke = SolidColor(Color.Black),
+            stroke = SolidColor(LightArchiveColors.inkPrimary),
             strokeLineWidth = width,
             strokeLineCap = StrokeCap.Round,
             strokeLineJoin = StrokeJoin.Round,
