@@ -52,6 +52,30 @@ class JsonEncodingTest {
     }
 
     @Test
+    fun `原生分类恒显式下发，日常为空串`() {
+        val daily = json.encodeToString(
+            CreateEntryRequest(
+                title = "",
+                content = "正文",
+                occurredAt = "2026-01-01T08:00:00+08:00"
+            )
+        )
+        // category 携带 @EncodeDefault(ALWAYS)：把「摄影」改回「日常」时必须显式写入空串，
+        // 否则服务端按「缺省 = 保持」处理，分类永远改不回来。
+        assertTrue("日常分类必须显式下发空串", daily.contains("\"category\":\"\""))
+
+        val photo = json.encodeToString(
+            CreateEntryRequest(
+                title = "",
+                content = "正文",
+                occurredAt = "2026-01-01T08:00:00+08:00",
+                category = "Still Life"
+            )
+        )
+        assertTrue(photo.contains("\"category\":\"Still Life\""))
+    }
+
+    @Test
     fun `非默认的类型仍然下发`() {
         val payload = json.encodeToString(
             CreateEntryRequest(

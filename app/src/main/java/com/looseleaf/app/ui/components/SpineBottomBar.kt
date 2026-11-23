@@ -3,6 +3,9 @@ package com.looseleaf.app.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -150,6 +153,12 @@ private fun DockItem(
     val colors = LooseLeafTheme.colors
     val haptic = LocalHapticFeedback.current
     val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.94f else 1f,
+        animationSpec = ArchiveMotion.press(),
+        label = "dockItemPress"
+    )
 
     val contentColor by animateColorAsState(
         targetValue = if (isSelected) colors.inverseInk else colors.inkSecondary,
@@ -159,6 +168,10 @@ private fun DockItem(
 
     Row(
         modifier = modifier
+            .graphicsLayer {
+                scaleX = pressScale
+                scaleY = pressScale
+            }
             .clip(ArchiveShapes.full)
             .semantics { selected = isSelected }
             .clickable(

@@ -15,7 +15,7 @@ import java.io.File
         OutboxEventEntity::class,
         CachedWishEntity::class
     ],
-    version = 12,
+    version = 13,
     // 导出 schema 到 app/schemas，后续迁移必须能和它逐字段对齐
     exportSchema = true
 )
@@ -101,13 +101,6 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_outbox_events_failed_at` ON `outbox_events` (`failed_at`)")
 
                 db.execSQL(
-                    "CREATE TABLE IF NOT EXISTS `cached_projects` (" +
-                        "`id` INTEGER NOT NULL, `title` TEXT NOT NULL, `subtitle` TEXT, `description` TEXT, " +
-                        "`story` TEXT, `category` TEXT, `status` TEXT, `github_url` TEXT, " +
-                        "`order` INTEGER, `updated_at` TEXT, PRIMARY KEY(`id`))"
-                )
-
-                db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `cached_wishes` (" +
                         "`id` INTEGER NOT NULL, `title` TEXT NOT NULL, `kind` TEXT NOT NULL, `note` TEXT, " +
                         "`spec` TEXT, `city_code` TEXT, `city_name` TEXT, `budget` INTEGER NOT NULL, " +
@@ -116,14 +109,9 @@ abstract class AppDatabase : RoomDatabase() {
                         "`attachments_json` TEXT NOT NULL, `updated_at` TEXT, PRIMARY KEY(`id`))"
                 )
 
-                db.execSQL(
-                    "CREATE TABLE IF NOT EXISTS `cached_footprints` (" +
-                        "`id` INTEGER NOT NULL, `city_code` TEXT NOT NULL, `city_name` TEXT NOT NULL, " +
-                        "`title` TEXT, `visited_at` TEXT, `departed_at` TEXT, `note` TEXT, " +
-                        "`life_entry_id` INTEGER, `wish_id` INTEGER, `attachments_json` TEXT NOT NULL, " +
-                        "`entries_count` INTEGER, `total_spent` INTEGER, `transaction_count` INTEGER, " +
-                        "`updated_at` TEXT, PRIMARY KEY(`id`))"
-                )
+                // 造物（cached_projects）与足迹（cached_footprints）已在 v12 退场：
+                // 兜底重建不再创建这两张表（上方 DROP IF EXISTS 仍保留，确保残表被清掉）。
+                // 后续迁移对这两张表的操作均已改为「表存在才执行」。
 
                 // MOB-P1-50：重建完成后把发件箱回灌（未同步记录得以保留并继续上传）
                 exportedOutbox?.let { restoreOutboxAfterReset(db, it) }
@@ -549,9 +537,14 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `cached_entries` ADD COLUMN `is_private` INTEGER NOT NULL DEFAULT 0")
-                db.execSQL("ALTER TABLE `cached_projects` ADD COLUMN `is_private` INTEGER NOT NULL DEFAULT 0")
+                // 造物 / 足迹表可能已不存在（经 2 → 6 兜底重建的安装不再创建它们），存在才补列
+                if (tableExists(db, "cached_projects")) {
+                    db.execSQL("ALTER TABLE `cached_projects` ADD COLUMN `is_private` INTEGER NOT NULL DEFAULT 0")
+                }
                 db.execSQL("ALTER TABLE `cached_wishes` ADD COLUMN `is_private` INTEGER NOT NULL DEFAULT 0")
-                db.execSQL("ALTER TABLE `cached_footprints` ADD COLUMN `is_private` INTEGER NOT NULL DEFAULT 0")
+                if (tableExists(db, "cached_footprints")) {
+                    db.execSQL("ALTER TABLE `cached_footprints` ADD COLUMN `is_private` INTEGER NOT NULL DEFAULT 0")
+                }
             }
         }
 
@@ -562,6 +555,28 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("DELETE FROM `outbox_events` WHERE `entity_type` IN ('project', 'footprint')")
             }
         }
+
+        /**
+         * 12 → 13：散页原生分类（方式 A，与 Vesper Space 1:1 投影）。
+         * 纯加列，存量记录一律为日常（空串）；下次增量拉取时由服务端权威值回填。
+         * 用 addColumnIfMissing 保证重复执行幂等。
+         */
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                addColumnIfMissing(
+                    db,
+                    "cached_entries",
+                    "category",
+                    "ALTER TABLE `cached_entries` ADD COLUMN `category` TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
+        private fun tableExists(db: SupportSQLiteDatabase, table: String): Boolean =
+            db.query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+                arrayOf(table)
+            ).use { it.moveToFirst() }
 
         /** MIGRATION_8_9 的单表归一：只回写「归一结果与原文不同」的行，幂等且最小化写放大。 */
         private fun normalizeOccurredAtInPlace(db: SupportSQLiteDatabase, table: String) {
@@ -601,7 +616,8 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_8_9,
                     MIGRATION_9_10,
                     MIGRATION_10_11,
-                    MIGRATION_11_12
+                    MIGRATION_11_12,
+                    MIGRATION_12_13
                 )
                 // 只在「降级安装」时清库；版本前进时缺迁移宁可显式失败，也不静默抹掉未同步数据。
                 .fallbackToDestructiveMigrationOnDowngrade()

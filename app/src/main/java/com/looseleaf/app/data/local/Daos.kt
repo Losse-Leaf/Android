@@ -127,6 +127,12 @@ interface EntryDao {
 
     /**
      * 时间流的**全能组合筛选分页查询**
+     *
+     * 分类口径（方式 A，与 Vesper Space 共享）：
+     * - 日常：life 且无心愿归属且 category 为空串
+     * - 心愿：type = wish 或挂着心愿
+     * - 画廊分类（摄影 / 旅途 / 静物 / 影像）：life 且 category 命中 [galleryCategories]
+     * 多个分类之间为「或」。galleryCategories 为空时调用方需传入占位值，避免生成空 IN 列表。
      */
     @Query(
         """
@@ -136,8 +142,9 @@ interface EntryDao {
           AND (:month IS NULL OR substr(occurred_at, 6, 2) = :month)
           AND (
             :hasCategories = 0
-            OR (:includeDaily = 1 AND lower(type) IN ('life','daily') AND (wish_id IS NULL OR wish_id <= 0))
+            OR (:includeDaily = 1 AND lower(type) IN ('life','daily') AND (wish_id IS NULL OR wish_id <= 0) AND category = '')
             OR (:includeWish = 1 AND (lower(type) = 'wish' OR wish_id > 0))
+            OR (:includeGallery = 1 AND lower(type) IN ('life','daily') AND (wish_id IS NULL OR wish_id <= 0) AND category IN (:galleryCategories))
           )
           AND (:hasImage = 0 OR (attachments_json != '[]' AND attachments_json != '' AND attachments_json IS NOT NULL))
           AND (
@@ -155,6 +162,8 @@ interface EntryDao {
         hasCategories: Boolean,
         includeDaily: Boolean,
         includeWish: Boolean,
+        includeGallery: Boolean,
+        galleryCategories: List<String>,
         hasImage: Boolean,
         isPending: Boolean,
         isFailed: Boolean,
@@ -171,8 +180,9 @@ interface EntryDao {
           AND (:month IS NULL OR substr(occurred_at, 6, 2) = :month)
           AND (
             :hasCategories = 0
-            OR (:includeDaily = 1 AND lower(type) IN ('life','daily') AND (wish_id IS NULL OR wish_id <= 0))
+            OR (:includeDaily = 1 AND lower(type) IN ('life','daily') AND (wish_id IS NULL OR wish_id <= 0) AND category = '')
             OR (:includeWish = 1 AND (lower(type) = 'wish' OR wish_id > 0))
+            OR (:includeGallery = 1 AND lower(type) IN ('life','daily') AND (wish_id IS NULL OR wish_id <= 0) AND category IN (:galleryCategories))
           )
           AND (:hasImage = 0 OR (attachments_json != '[]' AND attachments_json != '' AND attachments_json IS NOT NULL))
           AND (
@@ -188,6 +198,8 @@ interface EntryDao {
         hasCategories: Boolean,
         includeDaily: Boolean,
         includeWish: Boolean,
+        includeGallery: Boolean,
+        galleryCategories: List<String>,
         hasImage: Boolean,
         isPending: Boolean,
         isFailed: Boolean

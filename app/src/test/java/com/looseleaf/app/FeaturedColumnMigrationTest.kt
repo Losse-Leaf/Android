@@ -165,15 +165,16 @@ class FeaturedColumnMigrationTest {
         helper.close()
 
         val context = ApplicationProvider.getApplicationContext<Context>()
-        // 用 Room 打开同一个文件：Room 会跑 MIGRATION_7_8 → ... → MIGRATION_11_12，
-        // 并在迁移后用 12.json 校验真实表结构 —— 结构对不上会直接抛异常。
+        // 用 Room 打开同一个文件：Room 会跑 MIGRATION_7_8 → ... → MIGRATION_12_13，
+        // 并在迁移后按当前实体定义校验真实表结构 —— 结构对不上会直接抛异常。
         val room = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
             .addMigrations(
                 AppDatabase.MIGRATION_7_8,
                 AppDatabase.MIGRATION_8_9,
                 AppDatabase.MIGRATION_9_10,
                 AppDatabase.MIGRATION_10_11,
-                AppDatabase.MIGRATION_11_12
+                AppDatabase.MIGRATION_11_12,
+                AppDatabase.MIGRATION_12_13
             )
             .allowMainThreadQueries()
             .build()
@@ -190,6 +191,15 @@ class FeaturedColumnMigrationTest {
             "cached_entries 仍残留 featured 列，实际列：$columns",
             "featured" in columns
         )
+        // v12 -> v13 新增原生分类列
+        assertTrue(
+            "cached_entries 缺少 category 列，实际列：$columns",
+            "category" in columns
+        )
+        sqlite.query("SELECT category FROM cached_entries WHERE local_id = 1").use { c ->
+            assertTrue(c.moveToNext())
+            assertEquals("", c.getString(0))
+        }
 
         // 2. 数据未丢
         sqlite.query("SELECT title FROM cached_entries WHERE local_id = 1").use { c ->
@@ -231,7 +241,8 @@ class FeaturedColumnMigrationTest {
                 AppDatabase.MIGRATION_8_9,
                 AppDatabase.MIGRATION_9_10,
                 AppDatabase.MIGRATION_10_11,
-                AppDatabase.MIGRATION_11_12
+                AppDatabase.MIGRATION_11_12,
+                AppDatabase.MIGRATION_12_13
             )
             .allowMainThreadQueries()
             .build()

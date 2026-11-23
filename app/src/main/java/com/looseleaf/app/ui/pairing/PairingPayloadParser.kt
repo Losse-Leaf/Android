@@ -18,7 +18,7 @@ object PairingPayloadParser {
      * 智能从二维码内容或配对链接中提取中枢 Hub URL 与 Ticket
      * 支持格式：
      * 1. 散页官方协议: looseleaf://pair?hub=http://192.168.1.5:8088&ticket=pair_tk_123456
-     * 2. Web 展厅深链: http://192.168.1.5:8088/pair?ticket=pair_tk_123456
+     * 2. Web 管理端深链: http://192.168.1.5:8088/pair?ticket=pair_tk_123456
      * 3. 结构化 JSON: {"hub_url": "...", "ticket": "..."}
      * 4. 纯键值文本: hub=http://...&ticket=...
      */

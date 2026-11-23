@@ -25,6 +25,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
@@ -60,6 +63,7 @@ fun ArchiveSwipeRevealRow(
     val actionWidthPx = with(density) { actionWidth.toPx() }
     val offsetX = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
 
     Box(
         modifier = modifier
@@ -74,9 +78,11 @@ fun ArchiveSwipeRevealRow(
             contentAlignment = Alignment.CenterEnd
         ) {
             val revealFraction = (-offsetX.value / actionWidthPx).coerceIn(0f, 1f)
+            // 橡皮筋区里按钮跟着变宽，填满露出的空隙
+            val revealedWidth = with(density) { (-offsetX.value).coerceAtLeast(actionWidthPx).toDp() }
             Box(
                 modifier = Modifier
-                    .width(actionWidth)
+                    .width(revealedWidth)
                     .fillMaxHeight()
                     .padding(vertical = 6.dp, horizontal = 6.dp)
                     .graphicsLayer {
@@ -123,14 +129,27 @@ fun ArchiveSwipeRevealRow(
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
                 .background(backgroundColor)
                 .pointerInput(actionWidthPx) {
+                    val velocityTracker = VelocityTracker()
+                    var thresholdArmed = false
                     detectHorizontalDragGestures(
+                        onDragStart = {
+                            velocityTracker.resetTracking()
+                            thresholdArmed = offsetX.value < -actionWidthPx / 2f
+                        },
                         onDragEnd = {
+                            val velocity = velocityTracker.calculateVelocity().x
+                            // 快速甩动优先于位置判定：左甩必开，右甩必收
+                            val open = when {
+                                velocity < -FLING_VELOCITY -> true
+                                velocity > FLING_VELOCITY -> false
+                                else -> offsetX.value < -actionWidthPx / 2f
+                            }
                             coroutineScope.launch {
-                                if (offsetX.value < -actionWidthPx / 2f) {
-                                    offsetX.animateTo(-actionWidthPx, ArchiveMotion.glide())
-                                } else {
-                                    offsetX.animateTo(0f, ArchiveMotion.glide())
-                                }
+                                offsetX.animateTo(
+                                    targetValue = if (open) -actionWidthPx else 0f,
+                                    animationSpec = ArchiveMotion.glide(),
+                                    initialVelocity = velocity
+                                )
                             }
                         },
                         onDragCancel = {
@@ -138,10 +157,17 @@ fun ArchiveSwipeRevealRow(
                         },
                         onHorizontalDrag = { change, dragAmount ->
                             change.consume()
-                            coroutineScope.launch {
-                                val target = (offsetX.value + dragAmount).coerceIn(-actionWidthPx, 0f)
-                                offsetX.snapTo(target)
+                            velocityTracker.addPosition(change.uptimeMillis, change.position)
+                            val current = offsetX.value
+                            // 超过按钮宽度后进入橡皮筋区：阻尼 0.3，最多再拉出 30%
+                            val resisted = if (current + dragAmount < -actionWidthPx) dragAmount * 0.3f else dragAmount
+                            val target = (current + resisted).coerceIn(-actionWidthPx * 1.3f, 0f)
+                            val beyondHalf = target < -actionWidthPx / 2f
+                            if (beyondHalf != thresholdArmed) {
+                                thresholdArmed = beyondHalf
+                                if (beyondHalf) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             }
+                            coroutineScope.launch { offsetX.snapTo(target) }
                         }
                     )
                 }
@@ -163,3 +189,6 @@ fun ArchiveSwipeRevealRow(
         }
     }
 }
+
+/** 甩动判定阈值（px/s） */
+private const val FLING_VELOCITY = 900f

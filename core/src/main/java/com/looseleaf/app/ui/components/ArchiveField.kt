@@ -69,7 +69,8 @@ fun ArchiveField(
     isNumeric: Boolean = false,
     singleLine: Boolean = true,
     minLines: Int = 1,
-    maxLines: Int = if (singleLine) 1 else minLines,
+    // 多行输入默认不封顶：随内容生长，由外层滚动容器负责滚动
+    maxLines: Int = if (singleLine) 1 else Int.MAX_VALUE,
     trailingText: String? = null,
     trailingContent: (@Composable () -> Unit)? = null,
     readOnly: Boolean = false,
@@ -163,7 +164,8 @@ fun ArchiveField(
                     }
                 )
                 .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            // 多行输入从顶部排布：居中对齐会让多行文本与尾部图标上下错位，且首行像被「压」在中间
+            verticalAlignment = if (!singleLine && minLines > 1) Alignment.Top else Alignment.CenterVertically
         ) {
             Box(modifier = Modifier.weight(1f)) {
                 if (value.isEmpty() && placeholder.isNotEmpty()) {

@@ -22,6 +22,17 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
+import com.looseleaf.app.theme.ArchiveMotion
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -431,7 +442,7 @@ class MainActivity : FragmentActivity() {
             ArchiveConfirmDialog(
                 title = stringResource(R.string.main_activity_title_02),
                 content = "上次打开散页时发生了意外中断，记录与账目都已安全保存在本机。" +
-                    "你可以继续使用；若反复出现，可在展台页反馈这个问题。",
+                    "你可以继续使用；若反复出现，可在设置页检查版本更新。",
                 confirmText = stringResource(R.string.main_activity_confirmText_01),
                 dismissText = null,
                 onConfirm = {
@@ -678,7 +689,14 @@ class MainActivity : FragmentActivity() {
             }
 
             Box(modifier = modifier.fillMaxSize()) {
-                if (showSettings) {
+                // 设置页：自右推入、返回时退回右侧；主界面同时后退 1/5 屏并淡出，形成层级纵深
+                AnimatedContent(
+                    targetState = showSettings,
+                    transitionSpec = { settingsPushTransition() },
+                    label = "settingsPush",
+                    modifier = Modifier.fillMaxSize()
+                ) { settingsVisible ->
+                if (settingsVisible) {
                     SettingsHost(
                         appearanceMode = appearanceModeState.value,
                         onAppearanceModeChanged = onAppearanceModeChanged,
@@ -704,9 +722,16 @@ class MainActivity : FragmentActivity() {
                                 .fillMaxSize()
                                 .padding(innerPadding)
                         ) {
-                            val stateKey = sectionOf(currentRoute)
+                            // 一级页切换：淡出旧页 → 稍作停顿 → 新页轻微放大淡入（fade through）
+                            AnimatedContent(
+                                targetState = currentRoute,
+                                transitionSpec = { routeFadeThrough() },
+                                label = "routeFadeThrough",
+                                modifier = Modifier.fillMaxSize()
+                            ) { route ->
+                            val stateKey = sectionOf(route)
                             saveableStateHolder.SaveableStateProvider(stateKey) {
-                                when (currentRoute) {
+                                when (route) {
                                     "stream" -> StreamScreen(
                                         onOpenWishTarget = onOpenWishTarget,
                                         initialContentFilter = pendingContentFilter,
@@ -735,15 +760,17 @@ class MainActivity : FragmentActivity() {
                                         onOpenSettings = { showSettings = true }
                                     )
                                     else -> {
-                                        LaunchedEffect(currentRoute) {
+                                        LaunchedEffect(route) {
                                             ArchiveToastManager.show("该入口已下线，已返回散页", isError = true)
                                             currentRouteState.value = "stream"
                                         }
                                     }
                                 }
                             }
+                            }
                         }
                     }
+                }
                 }
             }
         }
@@ -867,4 +894,33 @@ fun LooseLeafBottomBar(
         currentRoute = currentRoute,
         onRouteSelected = onRouteSelected
     )
+}
+
+/**
+ * 一级页切换（fade through）：旧页 90ms 淡出，新页延后 70ms 以 98.5% 起始比例放大淡入。
+ */
+private fun AnimatedContentTransitionScope<String>.routeFadeThrough(): ContentTransform {
+    val enter = fadeIn(tween(220, delayMillis = 70)) +
+        scaleIn(
+            animationSpec = tween(280, delayMillis = 70, easing = ArchiveMotion.EaseOutEmphasized),
+            initialScale = 0.985f
+        )
+    val exit = fadeOut(tween(90))
+    return enter togetherWith exit
+}
+
+/**
+ * 设置页推入 / 退出：打开时设置页在上层自右滑入；返回时设置页仍在上层滑出到右侧。
+ */
+private fun AnimatedContentTransitionScope<Boolean>.settingsPushTransition(): ContentTransform {
+    val opening = targetState
+    val slideSpec = tween<androidx.compose.ui.unit.IntOffset>(ArchiveMotion.DurationBase + 40, easing = ArchiveMotion.EaseOutEmphasized)
+    val transform = if (opening) {
+        slideInHorizontally(slideSpec) { width -> width } togetherWith
+            (slideOutHorizontally(slideSpec) { width -> -width / 5 } + fadeOut(tween(ArchiveMotion.DurationBase)))
+    } else {
+        (slideInHorizontally(slideSpec) { width -> -width / 5 } + fadeIn(tween(ArchiveMotion.DurationBase))) togetherWith
+            slideOutHorizontally(slideSpec) { width -> width }
+    }
+    return transform.apply { targetContentZIndex = if (opening) 1f else -1f }
 }

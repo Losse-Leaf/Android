@@ -37,14 +37,14 @@
     <string name="pairing_screen_sso_launched_hint">已在系统浏览器打开认证页。验证完成后会自动跳回散页；若浏览器拦截唤起，可展开下方兜底通道粘贴授权深链。</string>
     <string name="pairing_screen_fallback_toggle">扫码或手动输入深链（局域网 / 备用兜底）</string>
     <string name="pairing_screen_text_03">粘贴配对链接</string>
-    <string name="pairing_screen_text_04">粘贴 Web 展厅或授权中转页生成的配对链接：</string>
+    <string name="pairing_screen_text_04">粘贴 Web 管理端或授权中转页生成的配对链接：</string>
     <string name="pairing_screen_placeholder_01">looseleaf://pair?hub=https://leaf.starryheavens.uk&amp;ticket=...</string>
     <string name="pairing_screen_text_05">正在握手接入数据中枢，请稍候...</string>
     <string name="pairing_screen_text_06">中枢握手成功！</string>
     <string name="pairing_screen_text_07">本设备已获得专属子钥匙授权，现可自定义展示名称</string>
     <string name="pairing_screen_text_08">授权凭证信息</string>
     <string name="pairing_screen_text_09">本设备展示名称</string>
-    <string name="pairing_screen_text_10">此名称将展示在 Web 展厅的「受信任设备」列表中，方便您识别与管理</string>
+    <string name="pairing_screen_text_10">此名称将展示在数据中枢的「受信任设备」列表中，方便您识别与管理</string>
     <string name="pairing_screen_placeholder_02">设备名称</string>
     <string name="pairing_screen_text_11">完成设置，进入散页</string>
     <string name="pairing_screen_title_01">确认配对到该中枢？</string>
@@ -97,7 +97,7 @@
     <string name="stream_dialogs_placeholder_01">标题</string>
     <string name="stream_dialogs_placeholder_02">正文手记...</string>
     <string name="stream_dialogs_text_01">上传中…</string>
-    <string name="stream_dialogs_text_02">+ 补选相纸照片</string>
+    <string name="stream_dialogs_text_02">添置相纸</string>
     <string name="stream_dialogs_contentDescription_01">撕除此照片</string>
     <string name="stream_dialogs_text_03">保存修订</string>
     <string name="stream_dialogs_confirmText_01">合上</string>

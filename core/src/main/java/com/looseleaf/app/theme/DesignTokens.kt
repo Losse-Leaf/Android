@@ -115,9 +115,12 @@ object ArchiveMotion {
         stiffness = 420f
     )
 
-    /** 按压缩放：快速回弹 */
+    /** 按压缩放：按下即响应（约 120ms 到位），松手无过冲 */
     fun <T> press(): SpringSpec<T> = spring(
         dampingRatio = Spring.DampingRatioNoBouncy,
-        stiffness = Spring.StiffnessMediumLow
+        stiffness = 700f
     )
+
+    /** 内容进出场（列表项淡入、计数滚动）的标准时长 */
+    const val DurationEnter: Int = 240
 }

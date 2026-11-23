@@ -1,6 +1,19 @@
 package com.looseleaf.feature.ledger.ui
 
 import androidx.compose.animation.animateColorAsState
+import kotlinx.coroutines.launch
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -132,6 +146,11 @@ internal fun TransactionsLedgerTab(
 
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     val monthSwipeThresholdPx = with(LocalDensity.current) { 140.dp.toPx() }
+    // 视觉位移与判定位移分离：卡片以 0.35 的阻尼跟手，越过阈值时给一次轻触感，松手阻尼回位
+    val swipeScope = rememberCoroutineScope()
+    val swipeVisual = remember { Animatable(0f) }
+    val haptic = LocalHapticFeedback.current
+    var thresholdArmed by remember { mutableStateOf(false) }
     val monthSwipeModifier = Modifier.pointerInput(selectedYearMonth, monthSwipeThresholdPx) {
         detectHorizontalDragGestures(
             onDragEnd = {
@@ -141,10 +160,23 @@ internal fun TransactionsLedgerTab(
                     onMonthChange(selectedYearMonth.plusMonths(1))
                 }
                 dragOffsetX = 0f
+                thresholdArmed = false
+                swipeScope.launch { swipeVisual.animateTo(0f, ArchiveMotion.glide()) }
+            },
+            onDragCancel = {
+                dragOffsetX = 0f
+                thresholdArmed = false
+                swipeScope.launch { swipeVisual.animateTo(0f, ArchiveMotion.glide()) }
             },
             onHorizontalDrag = { change, dragAmount ->
                 change.consume()
                 dragOffsetX += dragAmount
+                val beyond = kotlin.math.abs(dragOffsetX) > monthSwipeThresholdPx
+                if (beyond != thresholdArmed) {
+                    thresholdArmed = beyond
+                    if (beyond) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
+                swipeScope.launch { swipeVisual.snapTo(dragOffsetX * 0.35f) }
             }
         )
     }
@@ -199,6 +231,12 @@ internal fun TransactionsLedgerTab(
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(monthSwipeModifier)
+                        .graphicsLayer {
+                            translationX = swipeVisual.value
+                            val progress = (kotlin.math.abs(swipeVisual.value) / (monthSwipeThresholdPx * 0.35f)).coerceIn(0f, 1f)
+                            alpha = 1f - 0.25f * progress
+                            rotationZ = swipeVisual.value / 400f
+                        }
                         .clip(ArchiveShapes.xl)
                         .background(colors.surface)
                         .border(ArchiveLines.hairline, colors.archive.borderCard, ArchiveShapes.xl)
@@ -512,10 +550,34 @@ internal fun TransactionsLedgerTab(
 }
 
 /**
- * 英雄数字：货币符号缩小上浮，整数部分大号衬线，小数部分降一档。
+ * 英雄数字：数值变化（切月 / 新记一笔）时像计数器一样滚动 —— 变大从下方升起，变小从上方落下。
  */
 @Composable
 private fun HeroAmount(cents: Long, masked: Boolean) {
+    AnimatedContent(
+        targetState = HeroValue(cents, masked),
+        transitionSpec = {
+            val rising = targetState.cents >= initialState.cents
+            val enter = slideInVertically(
+                animationSpec = tween(ArchiveMotion.DurationBase, easing = ArchiveMotion.EaseOutEmphasized)
+            ) { height -> if (rising) height / 2 else -height / 2 } + fadeIn(tween(ArchiveMotion.DurationBase))
+            val exit = slideOutVertically(
+                animationSpec = tween(ArchiveMotion.DurationFast, easing = ArchiveMotion.EaseIn)
+            ) { height -> if (rising) -height / 2 else height / 2 } + fadeOut(tween(ArchiveMotion.DurationFast))
+            (enter togetherWith exit).using(SizeTransform(clip = false))
+        },
+        contentAlignment = Alignment.CenterStart,
+        label = "heroAmount"
+    ) { value ->
+        HeroAmountText(cents = value.cents, masked = value.masked)
+    }
+}
+
+private data class HeroValue(val cents: Long, val masked: Boolean)
+
+/** 英雄数字排版：货币符号缩小、整数部分大号衬线、小数部分降一档。 */
+@Composable
+private fun HeroAmountText(cents: Long, masked: Boolean) {
     val colors = LedgerTheme.colors
     if (masked) {
         Text(

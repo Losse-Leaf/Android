@@ -371,7 +371,7 @@ private fun FailedEventItemRow(
                     text = event.lastError ?: "连接中枢受阻",
                     style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
                     color = colors.inkMuted,
-                    maxLines = 1,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
             }

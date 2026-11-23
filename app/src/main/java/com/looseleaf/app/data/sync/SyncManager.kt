@@ -59,6 +59,9 @@ class SyncManager private constructor(private val context: Context) {
     companion object {
         private const val TAG = "SyncManager"
 
+        /** 画廊分类筛选为空时的占位取值：避免 Room 生成空 IN 列表，且永远不会命中真实分类 */
+        private const val NO_GALLERY_CATEGORY = "\u0000"
+
         /**
          * MOB-P2-37：发件箱同步状态的**唯一事实源**。
          * 原先这些值是散落 10+ 处的裸字符串（"SYNCED" / "PENDING_CREATE" …），
@@ -593,6 +596,7 @@ class SyncManager private constructor(private val context: Context) {
         val hasCategories = categories.isNotEmpty()
         val includeDaily = categories.contains("daily")
         val includeWish = categories.contains("wish")
+        val gallery = galleryCategoriesOf(categories)
         val hasImage = contents.contains("has_image")
         val isPending = contents.contains("pending")
         val isFailed = contents.contains("failed")
@@ -603,6 +607,8 @@ class SyncManager private constructor(private val context: Context) {
             hasCategories = hasCategories,
             includeDaily = includeDaily,
             includeWish = includeWish,
+            includeGallery = gallery.isNotEmpty(),
+            galleryCategories = gallery.ifEmpty { listOf(NO_GALLERY_CATEGORY) },
             hasImage = hasImage,
             isPending = isPending,
             isFailed = isFailed,
@@ -616,6 +622,8 @@ class SyncManager private constructor(private val context: Context) {
             hasCategories = hasCategories,
             includeDaily = includeDaily,
             includeWish = includeWish,
+            includeGallery = gallery.isNotEmpty(),
+            galleryCategories = gallery.ifEmpty { listOf(NO_GALLERY_CATEGORY) },
             hasImage = hasImage,
             isPending = isPending,
             isFailed = isFailed
@@ -640,10 +648,18 @@ class SyncManager private constructor(private val context: Context) {
             hasCategories = categories.isNotEmpty(),
             includeDaily = categories.contains("daily"),
             includeWish = categories.contains("wish"),
+            includeGallery = galleryCategoriesOf(categories).isNotEmpty(),
+            galleryCategories = galleryCategoriesOf(categories).ifEmpty { listOf(NO_GALLERY_CATEGORY) },
             hasImage = contents.contains("has_image"),
             isPending = contents.contains("pending"),
             isFailed = contents.contains("failed")
         )
+    }
+
+    /** 从筛选键集合中挑出画廊分类（摄影 / 旅途 / 静物 / 影像）的后端取值 */
+    private fun galleryCategoriesOf(categories: Set<String>): List<String> {
+        val galleryCodes = com.looseleaf.app.model.EntryCategory.gallery.map { it.code }.toSet()
+        return categories.filter { it in galleryCodes }
     }
 
     /** 查询某年份下实际有记录的月份列表 (1~12) */
@@ -697,7 +713,8 @@ class SyncManager private constructor(private val context: Context) {
         attachmentIds: List<Long>? = null,
         attachments: List<Attachment> = emptyList(),
         wishId: Long? = null,
-        isPrivate: Boolean = false
+        isPrivate: Boolean = false,
+        category: String = ""
     ): Long {
         val entryEntity = CachedEntryEntity(
             localId = 0,
@@ -711,7 +728,8 @@ class SyncManager private constructor(private val context: Context) {
             isPrivate = isPrivate,
             attachmentsJson = json.encodeToString(attachments),
             syncStatus = STATUS_PENDING_CREATE,
-            createdAt = FormatUtils.beijingNowIsoString()
+            createdAt = FormatUtils.beijingNowIsoString(),
+            category = category
         )
         // 契约 C：幂等创建键在事件创建时生成、随载荷持久化，重试复用（见 createMediaEntryOffline）
         val req = CreateEntryRequest(
@@ -723,7 +741,8 @@ class SyncManager private constructor(private val context: Context) {
             attachmentIds = attachmentIds,
             wishId = wishId,
             isPrivate = isPrivate,
-            clientRequestId = UUID.randomUUID().toString()
+            clientRequestId = UUID.randomUUID().toString(),
+            category = category
         )
 
         val localId = database.withTransaction {
@@ -779,6 +798,8 @@ class SyncManager private constructor(private val context: Context) {
             location = req.location,
             wishId = if (req.type == "wish") (req.wishId ?: entity.wishId) else null,
             isPrivate = req.isPrivate ?: entity.isPrivate,
+            // 心愿条目不携带画廊分类
+            category = if (req.type == "wish") "" else req.category,
             // ── 契约 B 的本地落地 ──────────────────────────────
             // attachmentIds 非 null 表示「附件集合就是这份」：删掉的照片立即从本地
             // 消失（原先不重写 attachmentsJson，删掉的照片要等下一次拉取才消失，
@@ -1454,7 +1475,8 @@ fun CachedEntryEntity.toDomainModel(
         isPrivate = isPrivate,
         attachments = atts,
         syncStatus = syncStatus,
-        createdAt = createdAt
+        createdAt = createdAt,
+        category = category
     )
 }
 
@@ -1499,7 +1521,8 @@ fun LifeEntry.toCacheEntity(localId: Long, json: Json): CachedEntryEntity = Cach
     isPrivate = isPrivate,
     attachmentsJson = json.encodeToString(attachments),
     syncStatus = SyncManager.STATUS_SYNCED,
-    createdAt = createdAt ?: occurredAt
+    createdAt = createdAt ?: occurredAt,
+    category = category
 )
 
 fun Wish.toCacheEntity(json: Json): CachedWishEntity = CachedWishEntity(

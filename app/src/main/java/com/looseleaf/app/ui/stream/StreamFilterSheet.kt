@@ -29,7 +29,8 @@ import com.looseleaf.app.ui.components.ArchiveSheet
  * 筛选条件持久化模型
  */
 data class StreamFilterCriteria(
-    val categories: Set<String> = emptySet(), // subset of "daily", "wish"
+    // "daily"、"wish"，以及画廊分类的后端取值 "Photography" / "Travel" / "Still Life" / "Motion"
+    val categories: Set<String> = emptySet(),
     val year: Int? = null,
     val month: Int? = null, // 1..12
     val contents: Set<String> = emptySet() // subset of "has_image", "pending", "failed"
@@ -49,6 +50,9 @@ data class StreamFilterCriteria(
         val parts = mutableListOf<String>()
         if (categories.contains("daily")) parts.add("日常")
         if (categories.contains("wish")) parts.add("心愿")
+        com.looseleaf.app.model.EntryCategory.gallery.forEach { category ->
+            if (categories.contains(category.code)) parts.add(category.label)
+        }
 
         if (year != null) {
             if (month != null) {
@@ -94,12 +98,12 @@ val StreamFilterCriteriaSaver = listSaver<StreamFilterCriteria, Any>(
 /**
  * 散页时间流 · 筛选面板 (Stream Filter Bottom Sheet)
  *
- * - 分类：日常 / 心愿（多选，全不选等于全部）
+ * - 分类：日常 / 心愿 / 摄影 / 旅途 / 静物 / 影像（多选，全不选等于全部；FlowRow 自动换行）
  * - 时间：年份（全部 / 有记录的年份）；选某年后展开 12 个月份格
  * - 内容：有图、待放行、待重验（多选）
  * - 底部固定一行：左侧"清除"，右侧主按钮"查看 N 条"
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun StreamFilterSheet(
     criteria: StreamFilterCriteria,
@@ -161,15 +165,18 @@ internal fun StreamFilterSheet(
             FilterGroupLabel("分类")
             Spacer(modifier = Modifier.height(10.dp))
 
-            val categoryItems = listOf(
-                Triple("daily", "日常", colors.tagDaily),
-                Triple("wish", "心愿", colors.tagWish)
-            )
+            val categoryItems = buildList {
+                add(Triple("daily", "日常", colors.tagDaily))
+                add(Triple("wish", "心愿", colors.tagWish))
+                com.looseleaf.app.model.EntryCategory.gallery.forEach { category ->
+                    add(Triple(category.code, category.label, entryCategoryTint(category, colors)))
+                }
+            }
 
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 for ((key, label, dotColor) in categoryItems) {
                     val isSelected = tempCriteria.categories.contains(key)

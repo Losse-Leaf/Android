@@ -76,7 +76,16 @@ data class ArchiveColors(
     /** 悬浮层：底部导航胶囊、下拉菜单 */
     val surfaceRaised: Color = archiveCard,
     /** 画布顶部的一层极淡暖光，给页面一点纵深 */
-    val canvasGlow: Color = Color.Transparent
+    val canvasGlow: Color = Color.Transparent,
+    // ---------- 原生分类色点（与 Vesper Space 画廊共享）：四种低饱和矿物色 ----------
+    /** 摄影：石青 */
+    val tagPhotography: Color = if (isDark) Color(0xFF7CC2C4) else Color(0xFF2C7779),
+    /** 旅途：花青 */
+    val tagTravel: Color = if (isDark) Color(0xFF9DB3CF) else Color(0xFF4E6B8A),
+    /** 静物：赭石 */
+    val tagStillLife: Color = if (isDark) Color(0xFFE09A7C) else Color(0xFFA9573A),
+    /** 影像：青莲 */
+    val tagMotion: Color = if (isDark) Color(0xFFB9A2DE) else Color(0xFF6F5296)
 ) {
     // ---------- 语义别名 ----------
     val canvas: Color get() = archivePaper

@@ -45,7 +45,8 @@ class StreamQueryTest {
         type: String = "life",
         occurredAt: String = "2026-03-0${id}T10:00:00+08:00",
         wishId: Long? = null,
-        title: String = "条目 $id"
+        title: String = "条目 $id",
+        category: String = ""
     ) = CachedEntryEntity(
         localId = id,
         serverId = id,
@@ -55,7 +56,8 @@ class StreamQueryTest {
         occurredAt = occurredAt,
         wishId = wishId,
         attachmentsJson = "[]",
-        syncStatus = "SYNCED"
+        syncStatus = "SYNCED",
+        category = category
     )
 
     private fun seed() {
@@ -160,6 +162,8 @@ class StreamQueryTest {
                 hasCategories = true,
                 includeDaily = true,
                 includeWish = false,
+                includeGallery = false,
+                galleryCategories = listOf("\u0000"),
                 hasImage = false,
                 isPending = false,
                 isFailed = false,
@@ -174,6 +178,8 @@ class StreamQueryTest {
                 hasCategories = true,
                 includeDaily = true,
                 includeWish = false,
+                includeGallery = false,
+                galleryCategories = listOf("\u0000"),
                 hasImage = false,
                 isPending = false,
                 isFailed = false
@@ -231,6 +237,8 @@ class StreamQueryTest {
                 hasCategories = false,
                 includeDaily = false,
                 includeWish = false,
+                includeGallery = false,
+                galleryCategories = listOf("\u0000"),
                 hasImage = true,
                 isPending = false,
                 isFailed = false,
@@ -248,6 +256,8 @@ class StreamQueryTest {
                 hasCategories = false,
                 includeDaily = false,
                 includeWish = false,
+                includeGallery = false,
+                galleryCategories = listOf("\u0000"),
                 hasImage = false,
                 isPending = true,
                 isFailed = false,
@@ -257,6 +267,62 @@ class StreamQueryTest {
         }
         assertEquals(1, pendingRows.size)
         assertEquals("待放行条目", pendingRows.first().title)
+    }
+
+    @Test
+    fun `原生分类筛选：日常只收无分类的散页，画廊分类按取值命中`() {
+        seed()
+        val dao = db.entryDao()
+        runBlocking {
+            dao.insertAll(
+                listOf(
+                    entry(6, type = "life", title = "一卷胶片", category = "Photography"),
+                    entry(7, type = "life", title = "海边旅途", category = "Travel"),
+                    entry(8, type = "life", title = "窗台静物", category = "Still Life")
+                )
+            )
+        }
+        fun query(daily: Boolean, wish: Boolean, gallery: List<String>): Set<String> = runBlocking {
+            dao.getEntriesPageFiltered(
+                year = null,
+                month = null,
+                hasCategories = true,
+                includeDaily = daily,
+                includeWish = wish,
+                includeGallery = gallery.isNotEmpty(),
+                galleryCategories = gallery.ifEmpty { listOf("\u0000") },
+                hasImage = false,
+                isPending = false,
+                isFailed = false,
+                limit = 100,
+                offset = 0
+            )
+        }.map { it.title }.toSet()
+
+        // 日常不再吞掉带画廊分类的散页
+        assertEquals(setOf("纯日常", "另一种日常", "旧年份"), query(daily = true, wish = false, gallery = emptyList()))
+        // 单一画廊分类
+        assertEquals(setOf("一卷胶片"), query(daily = false, wish = false, gallery = listOf("Photography")))
+        // 多个分类之间为「或」
+        assertEquals(
+            setOf("一卷胶片", "海边旅途", "心愿条目", "日常但挂着心愿"),
+            query(daily = false, wish = true, gallery = listOf("Photography", "Travel"))
+        )
+        val count = runBlocking {
+            dao.countEntriesFiltered(
+                year = null,
+                month = null,
+                hasCategories = true,
+                includeDaily = false,
+                includeWish = false,
+                includeGallery = true,
+                galleryCategories = listOf("Still Life", "Motion"),
+                hasImage = false,
+                isPending = false,
+                isFailed = false
+            )
+        }
+        assertEquals(1, count)
     }
 
     /** 简单的协程桥接（测试里都是 suspend DAO 调用） */

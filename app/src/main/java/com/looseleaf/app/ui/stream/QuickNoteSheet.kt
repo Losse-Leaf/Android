@@ -144,6 +144,12 @@ private fun QuickNoteSheetBody(
     var noteContent by remember { mutableStateOf(draftStore.getString("${draftPrefix}content").orEmpty()) }
     var noteLocation by remember { mutableStateOf(draftStore.getString("${draftPrefix}location").orEmpty()) }
     var isPrivate by remember { mutableStateOf(false) }
+    // 方式 A 原生分类：空串 = 日常；草稿里保留上次选择
+    var noteCategory by remember {
+        mutableStateOf(
+            com.looseleaf.app.model.EntryCategory.fromCode(draftStore.getString("${draftPrefix}category")).code
+        )
+    }
     var isLocating by remember { mutableStateOf(false) }
     var noteOccurredAt by remember {
         mutableStateOf(
@@ -158,8 +164,9 @@ private fun QuickNoteSheetBody(
     }
     var isSubmitting by remember { mutableStateOf(false) }
 
-    LaunchedEffect(noteTitle, noteContent, noteLocation, noteOccurredAt) {
+    LaunchedEffect(noteTitle, noteContent, noteLocation, noteOccurredAt, noteCategory) {
         delay(300)
+        draftStore.putString("${draftPrefix}category", noteCategory)
         draftStore.putString("${draftPrefix}title", noteTitle)
         draftStore.putString("${draftPrefix}content", noteContent)
         draftStore.putString("${draftPrefix}location", noteLocation)
@@ -250,9 +257,7 @@ private fun QuickNoteSheetBody(
                     if (newItems.isNotEmpty()) {
                         attachedPhotos = (attachedPhotos + newItems).take(9)
                         val first = newItems.first()
-                        if (noteTitle.isBlank()) {
-                            noteTitle = "现场记录 · " + (first.processed.exif.model ?: "相纸影像")
-                        }
+                        // 标题保持选填：不再自动塞入「现场记录」之类的占位标题
                         first.processed.exif.dateTimeOriginal?.let { raw ->
                             runCatching { noteOccurredAt = FormatUtils.parseToLocalDateTime(raw) }
                         }
@@ -279,13 +284,8 @@ private fun QuickNoteSheetBody(
         isSubmitting = true
         scope.launch {
             try {
-                val effectiveTitle = noteTitle.ifBlank {
-                    if (attachedPhotos.isNotEmpty()) {
-                        "现场快门 · " + (attachedPhotos.first().processed.exif.model ?: "胶片相纸")
-                    } else {
-                        "无题随笔"
-                    }
-                }
+                // 未填标题时如实提交空串：卡片与详情页会直接展示正文，不再出现占位标题
+                val effectiveTitle = noteTitle.trim()
                 val occurredAtIso = FormatUtils.toBeijingIsoString(noteOccurredAt)
                 val trimmedContent = noteContent.trim()
                 val trimmedLocation = noteLocation.trim().takeIf { it.isNotBlank() }
@@ -306,7 +306,8 @@ private fun QuickNoteSheetBody(
                         content = trimmedContent,
                         occurredAt = occurredAtIso,
                         location = trimmedLocation,
-                        isPrivate = isPrivate
+                        isPrivate = isPrivate,
+                        category = noteCategory
                     )
                     syncManager.createMediaEntryOffline(
                         localImageFilePath = primary.savedFile.absolutePath,
@@ -324,7 +325,8 @@ private fun QuickNoteSheetBody(
                         content = trimmedContent,
                         occurredAt = occurredAtIso,
                         location = trimmedLocation,
-                        isPrivate = isPrivate
+                        isPrivate = isPrivate,
+                        category = noteCategory
                     )
                     ArchiveToastManager.show("随笔已归册")
                 }
@@ -368,12 +370,20 @@ private fun QuickNoteSheetBody(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 ArchiveSelectableCapsule(
-                    text = if (isPrivate) "仅自己可见" else "随展厅公开",
+                    text = if (isPrivate) "仅自己可见" else "公开 · 含图同步至 Space",
                     selected = isPrivate,
                     onClick = { isPrivate = !isPrivate },
                     leadingDotColor = if (isPrivate) colors.accentWarm else colors.inkMuted
                 )
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 原生分类（与 Vesper Space 画廊共享）：日常为默认，不强加画廊分类
+            EntryCategoryPicker(
+                selectedCode = noteCategory,
+                onSelect = { noteCategory = it }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -415,7 +425,8 @@ private fun QuickNoteSheetBody(
                 onValueChange = { noteContent = it },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(168.dp),
+                    // 随内容自然向下生长，由外层 verticalScroll 负责滚动，不再在固定框内裁切
+                    .heightIn(min = 168.dp),
                 textStyle = com.looseleaf.app.theme.ArchiveTextStyles.essay.copy(
                     fontSize = 16.sp,
                     lineHeight = 28.sp,

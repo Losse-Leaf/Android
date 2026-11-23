@@ -1,6 +1,14 @@
 package com.looseleaf.feature.ledger.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import com.looseleaf.app.theme.ArchiveMotion
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -391,51 +399,59 @@ fun LedgerScreen(
                     },
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    when (selectedTab) {
-                        0 -> {
-                            TransactionsLedgerTab(
-                                transactions = transactions,
-                                isPrivacyMasked = isPrivacyMasked,
-                                installmentSummary = ledgerSnapshot.installmentSummary,
-                                onOpenUpcomingInstallments = { showUpcomingInstallmentsSheet = true },
-                                selectedYearMonth = selectedYearMonth,
-                                onMonthChange = { selectedYearMonth = it },
-                                onOpenMonthPicker = { showMonthPickerSheet = true },
-                                onEdit = { editingTransaction = it },
-                                onDelete = { tx ->
-                                    if (tx.source == "installment_repay") {
-                                        showDeleteTxRepayConfirm = tx
-                                    } else {
-                                        scope.launch {
-                                            val ticket = LedgerRepository.deleteTransaction(tx.id)
-                                            if (ticket != null) {
-                                                snackbarData = ArchiveSnackbarData(
-                                                    message = "已删除账目",
-                                                    actionLabel = "撤销",
-                                                    onActionClick = {
-                                                        scope.launch {
-                                                            LedgerRepository.undoDeleteTransaction(ticket)
+                    // 流水 / 心愿单切换：按方向轻推 + 淡入，旧页先行淡出
+                    AnimatedContent(
+                        targetState = selectedTab,
+                        transitionSpec = { ledgerTabTransition() },
+                        label = "ledgerTab",
+                        modifier = Modifier.fillMaxSize()
+                    ) { tab ->
+                        when (tab) {
+                            0 -> {
+                                TransactionsLedgerTab(
+                                    transactions = transactions,
+                                    isPrivacyMasked = isPrivacyMasked,
+                                    installmentSummary = ledgerSnapshot.installmentSummary,
+                                    onOpenUpcomingInstallments = { showUpcomingInstallmentsSheet = true },
+                                    selectedYearMonth = selectedYearMonth,
+                                    onMonthChange = { selectedYearMonth = it },
+                                    onOpenMonthPicker = { showMonthPickerSheet = true },
+                                    onEdit = { editingTransaction = it },
+                                    onDelete = { tx ->
+                                        if (tx.source == "installment_repay") {
+                                            showDeleteTxRepayConfirm = tx
+                                        } else {
+                                            scope.launch {
+                                                val ticket = LedgerRepository.deleteTransaction(tx.id)
+                                                if (ticket != null) {
+                                                    snackbarData = ArchiveSnackbarData(
+                                                        message = "已删除账目",
+                                                        actionLabel = "撤销",
+                                                        onActionClick = {
+                                                            scope.launch {
+                                                                LedgerRepository.undoDeleteTransaction(ticket)
+                                                            }
                                                         }
-                                                    }
-                                                )
+                                                    )
+                                                }
                                             }
                                         }
-                                    }
-                                },
-                                onNavigateToKeypad = { showQuickRecordSheet = true },
-                                onNavigateToPending = { showPendingConfirmSheet = true },
-                                listState = transactionsListState,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                        1 -> {
-                            if (wishlistTabContent != null) {
-                                wishlistTabContent(Modifier.fillMaxSize())
-                            } else {
-                                ArchiveEmptyState(
-                                    title = "心愿单暂未接入",
+                                    },
+                                    onNavigateToKeypad = { showQuickRecordSheet = true },
+                                    onNavigateToPending = { showPendingConfirmSheet = true },
+                                    listState = transactionsListState,
                                     modifier = Modifier.fillMaxSize()
                                 )
+                            }
+                            1 -> {
+                                if (wishlistTabContent != null) {
+                                    wishlistTabContent(Modifier.fillMaxSize())
+                                } else {
+                                    ArchiveEmptyState(
+                                        title = "心愿单暂未接入",
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
                             }
                         }
                     }
@@ -833,4 +849,18 @@ fun LedgerScreen(
             }
         )
     }
+}
+
+/**
+ * 账本分页切换：前进（流水 → 心愿单）从右侧轻推进入，后退反之；位移只有 1/8 屏宽，避免晃眼。
+ */
+private fun AnimatedContentTransitionScope<Int>.ledgerTabTransition(): ContentTransform {
+    val forward = targetState > initialState
+    val enter = slideInHorizontally(
+        animationSpec = tween(ArchiveMotion.DurationBase, easing = ArchiveMotion.EaseOutEmphasized)
+    ) { width -> if (forward) width / 8 else -width / 8 } + fadeIn(tween(ArchiveMotion.DurationBase))
+    val exit = slideOutHorizontally(
+        animationSpec = tween(ArchiveMotion.DurationFast, easing = ArchiveMotion.EaseIn)
+    ) { width -> if (forward) -width / 8 else width / 8 } + fadeOut(tween(ArchiveMotion.DurationFast))
+    return enter togetherWith exit
 }

@@ -21,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -269,6 +271,17 @@ internal fun QuickRecordSheet(
     val amountTint = if (isIncome) colors.income else colors.expense
     val isAmountEmpty = inputAmountString == FormatUtils.AmountInput.EMPTY || inputAmountString == "0"
 
+    // 每敲一个键，金额轻轻「顿」一下（放大 3% 后阻尼回位），让键盘与读数之间有因果感
+    val amountTick = remember { androidx.compose.animation.core.Animatable(1f) }
+    var lastAmountString by remember { mutableStateOf(inputAmountString) }
+    LaunchedEffect(inputAmountString) {
+        if (inputAmountString != lastAmountString) {
+            lastAmountString = inputAmountString
+            amountTick.snapTo(1.03f)
+            amountTick.animateTo(1f, com.looseleaf.app.theme.ArchiveMotion.glide())
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = dismissSheet,
         sheetState = sheetState,
@@ -376,7 +389,13 @@ internal fun QuickRecordSheet(
                         color = if (isAmountEmpty) colors.textMuted.copy(alpha = 0.6f) else colors.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .graphicsLayer {
+                                scaleX = amountTick.value
+                                scaleY = amountTick.value
+                                transformOrigin = TransformOrigin(0f, 1f)
+                            }
                     )
                 }
                 Spacer(modifier = Modifier.height(10.dp))
@@ -475,7 +494,8 @@ internal fun QuickRecordSheet(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(46.dp)
+                                        // 最小 46dp，极端字号下允许长高而不是截断
+                                        .heightIn(min = 46.dp)
                                         .clip(com.looseleaf.app.theme.ArchiveShapes.md)
                                         .background(
                                             if (isSelected) catColor.copy(alpha = if (colors.isDark) 0.20f else 0.12f)
@@ -487,12 +507,13 @@ internal fun QuickRecordSheet(
                                             com.looseleaf.app.theme.ArchiveShapes.md
                                         )
                                         .clickable(role = Role.RadioButton) { selectedCategory = cat }
-                                        .padding(horizontal = 8.dp)
+                                        .padding(horizontal = 6.dp, vertical = 6.dp)
                                 ) {
+                                    // 紧凑方印（20dp）+ 5dp 间距：360dp 屏三列下，四字分类名也有约 64dp 可用宽度
                                     Box(
                                         modifier = Modifier
-                                            .size(26.dp)
-                                            .clip(com.looseleaf.app.theme.ArchiveShapes.sm)
+                                            .size(20.dp)
+                                            .clip(com.looseleaf.app.theme.ArchiveShapes.xs)
                                             .background(catColor.copy(alpha = if (isSelected) 1f else 0.14f)),
                                         contentAlignment = Alignment.Center
                                     ) {
@@ -500,18 +521,23 @@ internal fun QuickRecordSheet(
                                             text = cat.take(1),
                                             fontFamily = com.looseleaf.app.theme.ArchiveFontFamilies.Display,
                                             fontWeight = FontWeight.SemiBold,
-                                            fontSize = 13.sp,
+                                            fontSize = 11.sp,
                                             color = if (isSelected) colors.onAccent else catColor
                                         )
                                     }
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Spacer(modifier = Modifier.width(5.dp))
                                     Text(
                                         text = cat,
-                                        style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                                        style = com.looseleaf.app.theme.ArchiveTextStyles.label.copy(
+                                            fontSize = 13.sp,
+                                            lineHeight = 16.sp,
+                                            letterSpacing = 0.sp
+                                        ),
                                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                         color = if (isSelected) colors.textPrimary else colors.textSecondary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        // 绝不省略：放不下时换到第二行（单元格最小高度会随之长高）
+                                        maxLines = 2,
+                                        softWrap = true
                                     )
                                 }
                             }

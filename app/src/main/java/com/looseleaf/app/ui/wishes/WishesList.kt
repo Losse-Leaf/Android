@@ -63,6 +63,7 @@ import com.looseleaf.app.utils.FormatUtils
  * - 向往中的条目行尾是一枚「达成」描边胶囊；其余状态行尾显示日期；
  * - 左滑删除，点击编辑。
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun WishesList(
     wishes: List<Wish>,
@@ -110,7 +111,7 @@ internal fun WishesList(
                 )
             }
             itemsIndexed(wantingWishes, key = { _, it -> it.id }) { index, wish ->
-                WishCardSlot(index = index, total = wantingWishes.size) {
+                WishCardSlot(index = index, total = wantingWishes.size, modifier = Modifier.animateItem()) {
                     ArchiveSwipeRevealRow(
                         onDelete = { onDeleteClick(wish) },
                         modifier = Modifier.fillMaxWidth(),
@@ -140,7 +141,7 @@ internal fun WishesList(
             }
             if (isFulfilledExpanded) {
                 itemsIndexed(fulfilledWishes, key = { _, it -> it.id }) { index, wish ->
-                    WishCardSlot(index = index, total = fulfilledWishes.size) {
+                    WishCardSlot(index = index, total = fulfilledWishes.size, modifier = Modifier.animateItem()) {
                         ArchiveSwipeRevealRow(
                             onDelete = { onDeleteClick(wish) },
                             modifier = Modifier.fillMaxWidth(),
@@ -171,7 +172,7 @@ internal fun WishesList(
             }
             if (isRelinquishedExpanded) {
                 itemsIndexed(relinquishedWishes, key = { _, it -> it.id }) { index, wish ->
-                    WishCardSlot(index = index, total = relinquishedWishes.size) {
+                    WishCardSlot(index = index, total = relinquishedWishes.size, modifier = Modifier.animateItem()) {
                         ArchiveSwipeRevealRow(
                             onDelete = { onDeleteClick(wish) },
                             modifier = Modifier.fillMaxWidth(),
@@ -198,6 +199,7 @@ internal fun WishesList(
 private fun WishCardSlot(
     index: Int,
     total: Int,
+    modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
@@ -209,7 +211,7 @@ private fun WishCardSlot(
         bottomEnd = if (index == total - 1) radius else 0.dp
     )
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(shape)
             .background(colors.archiveCard)

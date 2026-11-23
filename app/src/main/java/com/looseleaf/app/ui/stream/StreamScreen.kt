@@ -93,6 +93,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
@@ -170,7 +171,7 @@ fun StreamScreen(
     }
     var showFilterSheet by remember { mutableStateOf(false) }
 
-    // 外部带筛选进来（展台「有图手记」）：应用一次后立即回调清空，
+    // 外部带筛选进来：应用一次后立即回调清空，
     // 否则用户手动清掉筛选、切走再切回时会被重新加回来。
     LaunchedEffect(initialContentFilter) {
         val contents = initialContentFilter ?: return@LaunchedEffect
@@ -227,12 +228,54 @@ fun StreamScreen(
     var showFailedEventsSheet by remember { mutableStateOf(false) }
 
 
-    // 封面区折叠比例 (0f = 完全展开, 1f = 折叠为细栏)
+    // ============================================================
+    // 刊头收起：嵌套滚动驱动（exitUntilCollapsed 语义）
+    // ============================================================
+    // 原实现按列表滚动距离推算刊头高度，但刊头在列表外部，收起时会把视口再顶上去，
+    // 内容以两倍速度上移。现在由嵌套滚动先「吃掉」上滑距离收起刊头，收满后才交给列表；
+    // 下拉时只有列表已在顶部才展开刊头（在下拉刷新之前处理）。松手后吸附到最近的端点。
+    val mastheadDensity = androidx.compose.ui.platform.LocalDensity.current
+    // 可收起高度 = 刊头展开区的实测高度（由 StreamCoverHeader 回报），首帧前用 56dp 兜底
+    var mastheadRangePx by remember { mutableStateOf(with(mastheadDensity) { 56.dp.toPx() }) }
+    var mastheadOffsetPx by rememberSaveable { mutableStateOf(0f) }
+    val mastheadScroll = remember(listState) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: androidx.compose.ui.geometry.Offset, source: NestedScrollSource): androidx.compose.ui.geometry.Offset {
+                val dy = available.y
+                val range = mastheadRangePx
+                if (range <= 0f) return androidx.compose.ui.geometry.Offset.Zero
+                val listAtTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+                val shouldHandle = dy < 0f || (dy > 0f && listAtTop)
+                if (!shouldHandle) return androidx.compose.ui.geometry.Offset.Zero
+                val old = mastheadOffsetPx
+                val next = (old + dy).coerceIn(-range, 0f)
+                mastheadOffsetPx = next
+                return androidx.compose.ui.geometry.Offset(0f, next - old)
+            }
+        }
+    }
     val coverCollapseFraction by remember {
         derivedStateOf {
-            if (listState.firstVisibleItemIndex > 0) 1f
-            else (listState.firstVisibleItemScrollOffset / 120f).coerceIn(0f, 1f)
+            val range = mastheadRangePx
+            if (range <= 0f) 0f else (-mastheadOffsetPx / range).coerceIn(0f, 1f)
         }
+    }
+    // 松手吸附：滚动一停就把半收起的刊头送到最近的端点；新一轮滚动会取消进行中的吸附
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .collectLatest { scrolling ->
+                if (scrolling) return@collectLatest
+                val current = mastheadOffsetPx
+                val range = mastheadRangePx
+                if (current == 0f || current <= -range) return@collectLatest
+                val listAtTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+                val target = if (listAtTop && current > -range / 2f) 0f else -range
+                androidx.compose.animation.core.animate(
+                    initialValue = current,
+                    targetValue = target,
+                    animationSpec = ArchiveMotion.glide()
+                ) { value, _ -> mastheadOffsetPx = value }
+            }
     }
 
     // 单条档案详情与编辑弹窗状态
@@ -478,6 +521,7 @@ fun StreamScreen(
                     .fillMaxHeight()
                     .widthIn(max = 680.dp)
                     .align(Alignment.TopCenter)
+                    .nestedScroll(mastheadScroll)
             ) {
             // 顶栏：本子封面条 (Collapsible Book Cover Header)
             StreamCoverHeader(
@@ -495,7 +539,16 @@ fun StreamScreen(
                         syncManager.scheduleSync()
                     }
                 },
-                onOpenSettings = onOpenSettings
+                onOpenSettings = onOpenSettings,
+                onCollapsibleHeightChanged = { h ->
+                    val range = h.toFloat()
+                    if (range > 0f && range != mastheadRangePx) {
+                        // 字号或方向变化导致展开区高度改变时，保持当前收起比例
+                        val ratio = if (mastheadRangePx > 0f) mastheadOffsetPx / mastheadRangePx else 0f
+                        mastheadRangePx = range
+                        mastheadOffsetPx = (ratio * range).coerceIn(-range, 0f)
+                    }
+                }
             )
 
             // 顶栏下沿 1dp 淡线：只在列表滚动、内容上移时出现，平时不显示
@@ -612,6 +665,7 @@ fun StreamScreen(
     // 切换筛选后滚回顶部
     LaunchedEffect(filterCriteria) {
         listState.scrollToItem(0)
+        mastheadOffsetPx = 0f
     }
 
             // 时间流列表：封面区下方直接接列表，间距 16dp 由 LazyColumn contentPadding.top 提供
@@ -847,7 +901,13 @@ fun StreamScreen(
                                 onClick = onEntryClick,
                                 onDelete = onEntryDelete,
                                 onPhotoClick = onPhotoClick,
-                                modifier = Modifier.fillMaxWidth()
+                                // 新增 / 撤销删除 / 翻页追加时淡入并平滑让位，而不是整列跳变
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .animateItem(
+                                        fadeInSpec = tween(ArchiveMotion.DurationBase),
+                                        fadeOutSpec = tween(ArchiveMotion.DurationFast)
+                                    )
                             )
                         }
                     }
@@ -1004,7 +1064,11 @@ fun StreamScreen(
         entryToDelete?.let { entry ->
             ArchiveConfirmDialog(
                 title = stringResource(R.string.stream_screen_title_01),
-                content = "确认从生活时间流中彻底移除《${entry.title.ifBlank { "无题随笔" }}》？",
+                content = run {
+                    val name = if (entry.hasDistinctTitle()) entry.title
+                    else entry.content.trim().lineSequence().firstOrNull().orEmpty().let { if (it.length > 16) it.take(16) + "…" else it }
+                    if (name.isBlank()) "确认从生活时间流中彻底移除这一页散页？" else "确认从生活时间流中彻底移除《$name》？"
+                },
                 confirmText = stringResource(R.string.stream_screen_confirmText_01),
                 isDestructive = true,
                 onConfirm = {

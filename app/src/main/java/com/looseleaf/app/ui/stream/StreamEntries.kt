@@ -163,13 +163,13 @@ internal fun OnThisDayCard(
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = item.title.ifBlank { "无题" },
+                                text = if (item.hasDistinctTitle()) item.title else item.content.lineSequence().firstOrNull().orEmpty().ifBlank { "图文散页" },
                                 style = ArchiveTextStyles.essay.copy(fontWeight = FontWeight.Medium),
                                 color = colors.inkPrimary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            if (item.content.isNotBlank()) {
+                            if (item.hasDistinctTitle() && item.content.isNotBlank()) {
                                 Text(
                                     text = item.content,
                                     style = ArchiveTextStyles.meta,
@@ -446,10 +446,10 @@ internal fun StreamEntryCard(
         else -> "同步遇到问题待重验"
     }
 
-    val (tagLabel, tagTint) = when (entry.type) {
-        "wish" -> "心愿" to colors.tagWish
-        else -> "日常" to colors.tagDaily
-    }
+    // 心愿 / 画廊分类（摄影、旅途、静物、影像）/ 日常
+    val (tagLabel, tagTint) = entryTagOf(entry, colors)
+    // 标题若只是正文首句的派生或历史占位，就不单独成行，避免同一句话出现两次
+    val showTitle = remember(entry.title, entry.content) { entry.hasDistinctTitle() }
 
     Column(
         modifier = modifier
@@ -545,7 +545,7 @@ internal fun StreamEntryCard(
                 Spacer(modifier = Modifier.height(10.dp))
             }
 
-            if (entry.title.isNotBlank()) {
+            if (showTitle) {
                 Text(
                     text = entry.title,
                     style = ArchiveTextStyles.essayTitle,
@@ -556,12 +556,13 @@ internal fun StreamEntryCard(
             }
 
             if (entry.content.isNotBlank() && entry.content != "无文字记录") {
-                Spacer(modifier = Modifier.height(if (entry.title.isNotBlank()) 6.dp else 0.dp))
+                Spacer(modifier = Modifier.height(if (showTitle) 6.dp else 0.dp))
                 Text(
                     text = entry.content,
                     style = ArchiveTextStyles.essay,
-                    color = colors.inkSecondary,
-                    maxLines = 3,
+                    // 没有独立标题时正文就是这一页的全部，给它更多行数
+                    color = if (showTitle) colors.inkSecondary else colors.inkPrimary.copy(alpha = 0.86f),
+                    maxLines = if (showTitle) 8 else 10,
                     overflow = TextOverflow.Ellipsis
                 )
             }

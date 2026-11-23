@@ -38,7 +38,10 @@ data class CachedEntryEntity(
     @ColumnInfo(name = "is_private", defaultValue = "0") val isPrivate: Boolean = false,
     @ColumnInfo(name = "attachments_json") val attachmentsJson: String = "[]",
     @ColumnInfo(name = "sync_status") val syncStatus: String = "SYNCED", // 'SYNCED', 'PENDING_CREATE', 'PENDING_UPDATE', 'PENDING_DELETE'
-    @ColumnInfo(name = "created_at") val createdAt: String = FormatUtils.beijingNowIsoString()
+    @ColumnInfo(name = "created_at") val createdAt: String = FormatUtils.beijingNowIsoString(),
+    // v13：与 Vesper Space 共享的原生分类；空串 = 日常。
+    // Room 的 defaultValue 是 SQL 表达式，空字符串字面量必须写成 "''"，与迁移里的 DEFAULT '' 对齐。
+    @ColumnInfo(name = "category", defaultValue = "''") val category: String = ""
 )
 
 /**

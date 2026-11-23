@@ -98,12 +98,14 @@ fun EntryDetailSheetDialog(
     // 若以对象作 key，用户正在输入的内容会被重置回服务器旧值。
     var isEditing by remember(entry.id) { mutableStateOf(false) }
     var editType by remember(entry.id) { mutableStateOf(if (entry.type == "wish") "wish" else "life") }
-    var editTitle by remember(entry.id) { mutableStateOf(entry.title) }
+    // 派生 / 占位标题进入修订态时视为未填写，避免保存后又把首句写回标题
+    var editTitle by remember(entry.id) { mutableStateOf(if (entry.hasDistinctTitle()) entry.title else "") }
     var editContent by remember(entry.id) { mutableStateOf(entry.content) }
     var editLocation by remember(entry.id) { mutableStateOf(entry.location ?: "") }
     var editOccurredAt by remember(entry.id) { mutableStateOf(FormatUtils.parseToLocalDateTime(entry.occurredAt)) }
     var editIsPrivate by remember(entry.id) { mutableStateOf(entry.isPrivate) }
     var editAttachments by remember(entry.id) { mutableStateOf(entry.attachments) }
+    var editCategory by remember(entry.id) { mutableStateOf(com.looseleaf.app.model.EntryCategory.fromCode(entry.category).code) }
     var isUploadingPhoto by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -144,7 +146,9 @@ fun EntryDetailSheetDialog(
             wishId = if (editType == "wish") entry.wishId else null,
             isPrivate = editIsPrivate,
             attachmentIds = finalAttachmentIds,
-            clearAttachments = finalAttachmentIds.isEmpty()
+            clearAttachments = finalAttachmentIds.isEmpty(),
+            // 心愿印记不携带画廊分类；日常随笔按所选分类同步到后端与 Vesper Space
+            category = if (editType == "wish") "" else editCategory
         )
         onSaveEdit(req, editAttachments)
     }
@@ -187,6 +191,15 @@ fun EntryDetailSheetDialog(
                         selected = editType == "wish",
                         leadingDotColor = colors.tagWish,
                         onClick = { editType = "wish" }
+                    )
+                }
+
+                if (editType == "life") {
+                    Spacer(modifier = Modifier.height(18.dp))
+                    EditSectionLabel("分类")
+                    EntryCategoryPicker(
+                        selectedCode = editCategory,
+                        onSelect = { editCategory = it }
                     )
                 }
 
@@ -259,7 +272,7 @@ fun EntryDetailSheetDialog(
                             color = colors.inkPrimary
                         )
                         Text(
-                            text = if (editIsPrivate) "这一页不会出现在展厅" else "这一页会随展厅公开",
+                            text = if (editIsPrivate) "仅保存在散页，不对外公开或投射" else "公开记录，带图散页将自动同步至 Vesper Space",
                             style = ArchiveTextStyles.meta,
                             color = colors.inkMuted
                         )
@@ -377,7 +390,9 @@ fun EntryDetailSheetDialog(
                                 text = stringResource(R.string.stream_dialogs_text_02),
                                 style = ArchiveTextStyles.meta,
                                 color = colors.inkSecondary,
-                                maxLines = 1
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -392,7 +407,9 @@ fun EntryDetailSheetDialog(
                 Spacer(modifier = Modifier.height(8.dp))
             } else {
                 // ---------- 阅读态 ----------
-                val (tagLabel, tagTint) = if (entry.type == "wish") "心愿" to colors.tagWish else "日常" to colors.tagDaily
+                val (tagLabel, tagTint) = entryTagOf(entry, colors)
+                // 标题若只是正文首句的派生或占位，阅读态不再重复渲染
+                val showTitle = entry.hasDistinctTitle()
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -442,7 +459,7 @@ fun EntryDetailSheetDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                if (entry.title.isNotBlank()) {
+                if (showTitle) {
                     Text(
                         text = entry.title,
                         style = ArchiveTextStyles.pageTitle.copy(fontSize = 26.sp, lineHeight = 34.sp),
@@ -714,7 +731,9 @@ internal fun GlobalSearchDialog(
                                 trailing = FormatUtils.formatDisplayDate(entry.occurredAt)
                             ) {
                                 SearchHighlightText(
-                                    text = entry.title.ifBlank { stringResource(R.string.stream_dialogs_untitled) },
+                                    text = if (entry.hasDistinctTitle()) entry.title
+                                        else entry.content.lineSequence().firstOrNull()?.trim().orEmpty()
+                                            .ifBlank { stringResource(R.string.stream_dialogs_untitled) },
                                     query = searchQuery,
                                     fontSize = 15.sp,
                                     fontFamily = ArchiveFontFamilies.Reading,

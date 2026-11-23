@@ -158,7 +158,8 @@ internal class MediaOutboxCoordinator(
             isPrivate = idempotentReq.isPrivate == true,
             attachmentsJson = json.encodeToString(previewAttachments),
             syncStatus = SyncManager.STATUS_PENDING_CREATE,
-            createdAt = FormatUtils.beijingNowIsoString()
+            createdAt = FormatUtils.beijingNowIsoString(),
+            category = idempotentReq.category
         )
 
         val localId = database.withTransaction {
