@@ -47,7 +47,7 @@ object LocalDataResetCoordinator {
             CredentialStore.getInstance(context).isInstallmentReminderEnabled = false
         }
 
-        // 2. 清理主数据库（生活档案、造物、心愿、足迹、主库 outbox、媒体暂存）
+        // 2. 清理主数据库（散页档案、心愿单、主库 outbox、媒体暂存）
         syncManager.clearAllLocalData()
 
         // 3. 清理独立账本数据库 (looseleaf_ledger.db) 全部表、游标与快照（内部持账本同步互斥锁）

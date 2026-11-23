@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -28,7 +29,7 @@ import com.looseleaf.app.ui.components.ArchiveSheet
  * 筛选条件持久化模型
  */
 data class StreamFilterCriteria(
-    val categories: Set<String> = emptySet(), // subset of "daily", "travel", "project", "wish"
+    val categories: Set<String> = emptySet(), // subset of "daily", "wish"
     val year: Int? = null,
     val month: Int? = null, // 1..12
     val contents: Set<String> = emptySet() // subset of "has_image", "pending", "failed"
@@ -47,8 +48,6 @@ data class StreamFilterCriteria(
     fun buildSummaryText(): String {
         val parts = mutableListOf<String>()
         if (categories.contains("daily")) parts.add("日常")
-        if (categories.contains("travel")) parts.add("游历")
-        if (categories.contains("project")) parts.add("造物")
         if (categories.contains("wish")) parts.add("心愿")
 
         if (year != null) {
@@ -95,14 +94,10 @@ val StreamFilterCriteriaSaver = listSaver<StreamFilterCriteria, Any>(
 /**
  * 散页时间流 · 筛选面板 (Stream Filter Bottom Sheet)
  *
- * 规范要求：
- * - 底部弹层，纸色，无投影
- * - 四组组间只用间距分隔，不加线、不加卡片
- * - 分类：日常 / 游历 / 造物 / 心愿，多选，前置 6dp 色点，选中为正文色加粗 + 对勾，未选中为次要色；全不选等于全部
- * - 时间：年份（全部 / 有记录的年份）；选某年后展开 12 个月份文字格，有记录可点，无记录置灰
+ * - 分类：日常 / 心愿（多选，全不选等于全部）
+ * - 时间：年份（全部 / 有记录的年份）；选某年后展开 12 个月份格
  * - 内容：有图、待放行、待重验（多选）
- * - 底部固定一行：左侧"清除"，右侧赤陶主按钮"查看 N 条"，N 随选择实时变化
- * - 所有可点击项热区 >= 48dp，字号与正文一致，衬线 + 等宽数字
+ * - 底部固定一行：左侧"清除"，右侧主按钮"查看 N 条"
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -163,272 +158,135 @@ internal fun StreamFilterSheet(
                     .verticalScroll(rememberScrollState())
             ) {
                 // ================= 1. 分类组 =================
-            Text(
-                text = "分类",
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = 13.sp,
-                color = colors.inkMuted
-            )
-            Spacer(modifier = Modifier.height(4.dp))
+            FilterGroupLabel("分类")
+            Spacer(modifier = Modifier.height(10.dp))
 
             val categoryItems = listOf(
                 Triple("daily", "日常", colors.tagDaily),
-                Triple("travel", "游历", colors.tagTravel),
-                Triple("project", "造物", colors.tagProject),
                 Triple("wish", "心愿", colors.tagWish)
             )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 for ((key, label, dotColor) in categoryItems) {
                     val isSelected = tempCriteria.categories.contains(key)
-                    Row(
-                        modifier = Modifier
-                            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                val nextCats = if (isSelected) {
-                                    tempCriteria.categories - key
-                                } else {
-                                    tempCriteria.categories + key
-                                }
-                                tempCriteria = tempCriteria.copy(categories = nextCats)
+                    com.looseleaf.app.ui.components.ArchiveSelectableCapsule(
+                        text = label,
+                        selected = isSelected,
+                        leadingDotColor = dotColor,
+                        onClick = {
+                            val nextCats = if (isSelected) {
+                                tempCriteria.categories - key
+                            } else {
+                                tempCriteria.categories + key
                             }
-                            .padding(horizontal = 4.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .background(dotColor, CircleShape)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = label,
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 15.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) colors.inkPrimary else colors.inkSecondary
-                        )
-                        if (isSelected) {
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "✓",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.inkPrimary
-                            )
+                            tempCriteria = tempCriteria.copy(categories = nextCats)
                         }
-                    }
+                    )
                 }
             }
 
-            // 组间仅用间距分隔
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(26.dp))
 
             // ================= 2. 时间组 =================
-            Text(
-                text = "时间",
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = 13.sp,
-                color = colors.inkMuted
-            )
-            Spacer(modifier = Modifier.height(4.dp))
+            FilterGroupLabel("时间")
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // 年份选项横向排列
             val yearScrollState = rememberScrollState()
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(yearScrollState),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // "全部"年份
                 val isAllYear = tempCriteria.year == null
-                Box(
-                    modifier = Modifier
-                        .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            tempCriteria = tempCriteria.copy(year = null, month = null)
-                        }
-                        .padding(horizontal = 4.dp, vertical = 12.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "全部",
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 15.sp,
-                            fontWeight = if (isAllYear) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isAllYear) colors.inkPrimary else colors.inkSecondary
-                        )
-                        if (isAllYear) {
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "✓",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.inkPrimary
-                            )
-                        }
-                    }
-                }
-
-                // 有记录的年份列表
+                com.looseleaf.app.ui.components.ArchiveSelectableCapsule(
+                    text = "全部",
+                    selected = isAllYear,
+                    onClick = { tempCriteria = tempCriteria.copy(year = null, month = null) }
+                )
                 for (y in availableYears) {
                     val isYearSelected = tempCriteria.year == y
-                    Box(
-                        modifier = Modifier
-                            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                tempCriteria = if (isYearSelected) {
-                                    tempCriteria.copy(year = null, month = null)
-                                } else {
-                                    tempCriteria.copy(year = y, month = null)
-                                }
-                            }
-                            .padding(horizontal = 4.dp, vertical = 12.dp),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "${y}年",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 15.sp,
-                                fontWeight = if (isYearSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isYearSelected) colors.inkPrimary else colors.inkSecondary
-                            )
-                            if (isYearSelected) {
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text(
-                                    text = "✓",
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = colors.inkPrimary
-                                )
+                    com.looseleaf.app.ui.components.ArchiveSelectableCapsule(
+                        text = "${y}年",
+                        selected = isYearSelected,
+                        isMonospace = true,
+                        onClick = {
+                            tempCriteria = if (isYearSelected) {
+                                tempCriteria.copy(year = null, month = null)
+                            } else {
+                                tempCriteria.copy(year = y, month = null)
                             }
                         }
-                    }
+                    )
                 }
             }
 
-            // 选了某一年后，下方出现 12 个月份文字格
+            // 选了某一年后，下方出现 12 个月份格（两行六列）
             if (tempCriteria.year != null) {
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // 第一行：1~6 月
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Spacer(modifier = Modifier.height(12.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(ArchiveShapes.lg)
+                        .background(colors.archiveSubtle)
+                        .padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    for (m in 1..6) {
-                        val isAvailable = availableMonths.contains(m)
-                        val isMonthSelected = tempCriteria.month == m
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .defaultMinSize(minHeight = 48.dp)
-                                .then(
-                                    if (isAvailable) {
-                                        Modifier.clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null
-                                        ) {
-                                            tempCriteria = tempCriteria.copy(
-                                                month = if (isMonthSelected) null else m
-                                            )
-                                        }
-                                    } else Modifier
-                                )
-                                .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center
+                    for (rowMonths in listOf(1..6, 7..12)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text(
-                                text = "${m}月",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 14.sp,
-                                fontWeight = if (isMonthSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = when {
-                                    !isAvailable -> colors.inkMuted.copy(alpha = 0.35f)
-                                    isMonthSelected -> colors.inkPrimary
-                                    else -> colors.inkSecondary
-                                }
-                            )
-                        }
-                    }
-                }
-
-                // 第二行：7~12 月
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    for (m in 7..12) {
-                        val isAvailable = availableMonths.contains(m)
-                        val isMonthSelected = tempCriteria.month == m
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .defaultMinSize(minHeight = 48.dp)
-                                .then(
-                                    if (isAvailable) {
-                                        Modifier.clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = null
-                                        ) {
-                                            tempCriteria = tempCriteria.copy(
-                                                month = if (isMonthSelected) null else m
-                                            )
+                            for (m in rowMonths) {
+                                val isAvailable = availableMonths.contains(m)
+                                val isMonthSelected = tempCriteria.month == m
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(42.dp)
+                                        .clip(ArchiveShapes.full)
+                                        .background(if (isMonthSelected) colors.inverseSurface else Color.Transparent)
+                                        .then(
+                                            if (isAvailable) {
+                                                Modifier.clickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null
+                                                ) {
+                                                    tempCriteria = tempCriteria.copy(
+                                                        month = if (isMonthSelected) null else m
+                                                    )
+                                                }
+                                            } else Modifier
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "${m}月",
+                                        style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                                        fontWeight = if (isMonthSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = when {
+                                            isMonthSelected -> colors.inverseInk
+                                            !isAvailable -> colors.inkMuted.copy(alpha = 0.35f)
+                                            else -> colors.inkSecondary
                                         }
-                                    } else Modifier
-                                )
-                                .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "${m}月",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 14.sp,
-                                fontWeight = if (isMonthSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = when {
-                                    !isAvailable -> colors.inkMuted.copy(alpha = 0.35f)
-                                    isMonthSelected -> colors.inkPrimary
-                                    else -> colors.inkSecondary
+                                    )
                                 }
-                            )
+                            }
                         }
                     }
                 }
             }
 
-            // 组间仅用间距分隔
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(26.dp))
 
             // ================= 3. 内容组 =================
-            Text(
-                text = "内容",
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = 13.sp,
-                color = colors.inkMuted
-            )
-            Spacer(modifier = Modifier.height(4.dp))
+            FilterGroupLabel("内容")
+            Spacer(modifier = Modifier.height(10.dp))
 
             val contentItems = listOf(
                 "has_image" to "有图",
@@ -438,46 +296,23 @@ internal fun StreamFilterSheet(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 for ((key, label) in contentItems) {
                     val isSelected = tempCriteria.contents.contains(key)
-                    Row(
-                        modifier = Modifier
-                            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                val nextContents = if (isSelected) {
-                                    tempCriteria.contents - key
-                                } else {
-                                    tempCriteria.contents + key
-                                }
-                                tempCriteria = tempCriteria.copy(contents = nextContents)
+                    com.looseleaf.app.ui.components.ArchiveSelectableCapsule(
+                        text = label,
+                        selected = isSelected,
+                        onClick = {
+                            val nextContents = if (isSelected) {
+                                tempCriteria.contents - key
+                            } else {
+                                tempCriteria.contents + key
                             }
-                            .padding(horizontal = 4.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = label,
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 15.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) colors.inkPrimary else colors.inkSecondary
-                        )
-                        if (isSelected) {
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "✓",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.inkPrimary
-                            )
+                            tempCriteria = tempCriteria.copy(contents = nextContents)
                         }
-                    }
+                    )
                 }
             }
 
@@ -503,26 +338,26 @@ internal fun StreamFilterSheet(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
                 ) {
                     Text(
-                        text = "清除",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 15.sp,
-                        color = colors.inkMuted
+                        text = "重置",
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                        color = colors.inkSecondary
                     )
                 }
 
-                // 右侧赤陶主按钮"查看 N 条"
+                // 右侧主按钮"查看 N 条"
                 Button(
                     onClick = {
                         onApply(tempCriteria)
                         onDismiss()
                     },
-                    shape = RoundedCornerShape(4.dp),
+                    shape = ArchiveShapes.full,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.accentWarm,
-                        contentColor = colors.archivePaper
+                        contentColor = colors.onAccent
                     ),
-                    modifier = Modifier.defaultMinSize(minHeight = 48.dp),
-                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                    modifier = Modifier.defaultMinSize(minHeight = 50.dp),
+                    contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -548,4 +383,15 @@ internal fun StreamFilterSheet(
             }
         }
     }
+}
+
+/** 筛选分组小标：加宽字距的无衬线小字 */
+@Composable
+private fun FilterGroupLabel(text: String) {
+    val colors = LooseLeafTheme.colors
+    Text(
+        text = text,
+        style = com.looseleaf.app.theme.ArchiveTextStyles.overline,
+        color = colors.inkMuted
+    )
 }

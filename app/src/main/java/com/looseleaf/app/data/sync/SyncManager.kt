@@ -329,7 +329,7 @@ class SyncManager private constructor(private val context: Context) {
     }
 
     /**
-     * P0-3：旧版本把 project / wish / footprint 的临时目标写成
+     * P0-3：旧版本把 wish 的临时目标写成
      * `local_target_id = -1, server_target_id = 负数`，导致 Worker 删除 -1、
      * UPDATE / DELETE 直接消费事件，离线修改与删除静默丢失。
      *
@@ -972,7 +972,7 @@ class SyncManager private constructor(private val context: Context) {
      *
      * 必须在 outboxMutex + pullMutex 双临界区内执行：cancelScheduledSync 只取消
      * 后续调度，拦不住**正在运行**的 Worker 与在途拉取——清库后它们的成功回调
-     * （如 project CREATE 的缓存回插、整表重灌）会把旧中枢的数据重新写回空库，
+     * （如离线 CREATE 的缓存回插、整表重灌）会把旧中枢的数据重新写回空库，
      * 「解除并清除本机数据」变得不彻底。双锁顺序 outbox → pull 与既有用法
      * （两把锁各自单独使用、从不同时嵌套）不构成反向等待，无死锁风险。
      */
@@ -1001,11 +1001,7 @@ class SyncManager private constructor(private val context: Context) {
      * 4. 任一分段失败都不推进该分段的游标，避免永久漏数据。
      */
     /**
-     * MOB-P1-37：可按数据集独立拉取。
-     *
-     * 原先一次 pullRemoteData 会把 **五类数据** 全部拉一遍 ——
-     * 于是「切到造物页」也会连带把用户根本看不到的生活档案与账目流水重拉一遍，
-     * 流量与耗时都是白给。现在每个页面只拉自己渲染的那一类。
+     * MOB-P1-37：可按数据集独立拉取（散页与心愿按页面按需同步）。
      */
     enum class SyncDataset {
         ENTRIES,

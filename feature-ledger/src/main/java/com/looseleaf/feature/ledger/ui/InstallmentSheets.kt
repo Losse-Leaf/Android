@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.looseleaf.app.model.*
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
@@ -219,200 +220,258 @@ fun InstallmentPlanDetailSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 4.dp)
+                .padding(horizontal = 16.dp, vertical = 14.dp)
         ) {
-            // 标题与渠道
+            val isSettled = plan.status == "settled"
             val channelMeta = buildString {
                 append(plan.channelName ?: plan.channelCode)
                 plan.categoryName?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
             }
-            Text(
-                text = channelMeta,
-                style = LedgerTheme.typography.caption,
-                fontFamily = LedgerTheme.typography.serif,
-                color = colors.textSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
 
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // 大号等宽剩余本金
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                Column {
-                    Text(
-                        text = "剩余待还本金",
-                        style = LedgerTheme.typography.caption,
-                        color = colors.textSecondary,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = FormatUtils.formatMoney(detail.remainingPrincipal),
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = ArchiveTypeScale.h1,
-                        fontWeight = FontWeight.Bold,
-                        color = if (detail.remainingPrincipal > 0) colors.expense else colors.income,
-                        maxLines = 1
-                    )
-                }
-
-                if (plan.status == "settled") {
-                    Text(
-                        text = "已结清",
-                        fontFamily = LedgerTheme.typography.serif,
-                        fontSize = ArchiveTypeScale.body,
-                        color = colors.income,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1
-                    )
-                }
-            }
-
-            // 次要行：剩余待还期次
-            val subText = if (detail.paidFee > 0) {
-                "剩余应还总额 ${FormatUtils.formatMoney(detail.remainingTotal)} · 已付手续费 ${FormatUtils.formatMoney(detail.paidFee)}"
-            } else {
-                "剩余待还 ${detail.plan.periods - detail.paidPeriods} 期 · 已还 ${detail.paidPeriods}/${detail.plan.periods} 期"
-            }
-            Text(
-                text = subText,
-                fontFamily = ArchiveFontFamilies.MonoScale,
-                fontSize = ArchiveTypeScale.caption,
-                color = colors.textSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
-            )
-
-            ArchiveDivider()
-
-            // 还款计划期次列表
+            // 总览卡：剩余本金英雄数字 + 进度条
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                    .clip(ArchiveShapes.xl)
+                    .background(colors.surface)
+                    .border(ArchiveLines.hairline, colors.archive.borderCard, ArchiveShapes.xl)
+                    .padding(20.dp)
             ) {
-                for (itm in items) {
-                    val isPaid = itm.status == "paid"
-                    val todayStr = LocalDate.now(FormatUtils.BeijingZone).format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-                    val isOverdue = !isPaid && itm.dueDate < todayStr
-                    val isDueThisMonth = !isPaid && !isOverdue && itm.dueDate.startsWith(todayStr.take(7))
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(ArchiveShapes.small)
-                            .clickable {
-                                if (isPaid) {
-                                    onUnpayItemClick(itm)
-                                } else {
-                                    onPayItemClick(itm)
-                                }
-                            }
-                            .padding(vertical = 6.dp, horizontal = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // 左列：第 N 期 · 到期日
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (isDueThisMonth) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(colors.accent)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                }
-                                Text(
-                                    text = "第 ${itm.seq}/${plan.periods} 期 · ${itm.dueDate}",
-                                    style = LedgerTheme.typography.body,
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    color = colors.textPrimary,
-                                    fontSize = ArchiveTypeScale.body,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            if (itm.feePart > 0) {
-                                Text(
-                                    text = "本金 ${FormatUtils.formatMoney(itm.principalPart)} + 手续费 ${FormatUtils.formatMoney(itm.feePart)}",
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = ArchiveTypeScale.micro,
-                                    color = colors.textSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
-                        // 右列：金额与状态文字
-                        Column(horizontalAlignment = Alignment.End) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = channelMeta,
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.overline,
+                        color = colors.textMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (isSettled) {
+                        Box(
+                            modifier = Modifier
+                                .clip(ArchiveShapes.full)
+                                .background(colors.incomeSoft)
+                                .padding(horizontal = 10.dp, vertical = 3.dp)
+                        ) {
                             Text(
-                                text = FormatUtils.formatMoney(itm.principalPart + itm.FeePartSafe()),
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = ArchiveTypeScale.body,
-                                fontWeight = FontWeight.Medium,
-                                color = if (isPaid) colors.textSecondary else colors.textPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            val statusText = when {
-                                isPaid -> "已还"
-                                isOverdue -> "逾期"
-                                isDueThisMonth -> "本月待还"
-                                else -> "未到期"
-                            }
-                            val statusColor = when {
-                                isPaid -> colors.textMuted
-                                isOverdue -> colors.alertRed
-                                isDueThisMonth -> colors.accent
-                                else -> colors.textSecondary
-                            }
-                            Text(
-                                text = statusText,
-                                style = LedgerTheme.typography.caption,
-                                fontFamily = LedgerTheme.typography.serif,
-                                color = statusColor,
-                                fontWeight = if (isOverdue || isDueThisMonth) FontWeight.Medium else FontWeight.Normal,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                text = "已结清",
+                                style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.income
                             )
                         }
                     }
                 }
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = "剩余待还本金",
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                    color = colors.textMuted
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = FormatUtils.formatMoney(detail.remainingPrincipal),
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.amountHero.copy(fontSize = 38.sp),
+                    color = if (detail.remainingPrincipal > 0) colors.expense else colors.income,
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                val progress = if (plan.periods > 0) detail.paidPeriods.toFloat() / plan.periods else 0f
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(ArchiveShapes.full)
+                        .background(colors.surfaceElevated)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress.coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .clip(ArchiveShapes.full)
+                            .background(colors.income)
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "已还 ${detail.paidPeriods}/${plan.periods} 期",
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.textPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = if (detail.paidFee > 0) {
+                            "应还 ${FormatUtils.formatMoney(detail.remainingTotal)} · 手续费 ${FormatUtils.formatMoney(detail.paidFee)}"
+                        } else {
+                            "剩 ${plan.periods - detail.paidPeriods} 期"
+                        },
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                        color = colors.textMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
-            ArchiveDivider()
+            Spacer(modifier = Modifier.height(22.dp))
+            Text(
+                text = "还款计划",
+                style = com.looseleaf.app.theme.ArchiveTextStyles.overline,
+                color = colors.textMuted,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+            )
 
-            // 底部操作按钮栏
+            // 期次时间轴：左侧节点 + 竖线，点击未还期次标记还款，点击已还期次撤销
+            val todayStr = LocalDate.now(FormatUtils.BeijingZone).format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+            items.forEachIndexed { index, itm ->
+                val isPaid = itm.status == "paid"
+                val isOverdue = !isPaid && itm.dueDate < todayStr
+                val isDueThisMonth = !isPaid && !isOverdue && itm.dueDate.startsWith(todayStr.take(7))
+                val nodeColor = when {
+                    isPaid -> colors.income
+                    isOverdue -> colors.alertRed
+                    isDueThisMonth -> colors.accent
+                    else -> colors.border
+                }
+                val statusText = when {
+                    isPaid -> "已还"
+                    isOverdue -> "逾期"
+                    isDueThisMonth -> "本月待还"
+                    else -> "未到期"
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min)
+                        .clip(ArchiveShapes.md)
+                        .clickable {
+                            if (isPaid) onUnpayItemClick(itm) else onPayItemClick(itm)
+                        }
+                        .padding(end = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 节点列
+                    Box(
+                        modifier = Modifier
+                            .width(36.dp)
+                            .fillMaxHeight(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxHeight(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(1.5.dp)
+                                    .weight(1f)
+                                    .background(if (index == 0) androidx.compose.ui.graphics.Color.Transparent else colors.borderSubtle)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .width(1.5.dp)
+                                    .weight(1f)
+                                    .background(if (index == items.lastIndex) androidx.compose.ui.graphics.Color.Transparent else colors.borderSubtle)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(if (isPaid) 18.dp else 12.dp)
+                                .clip(CircleShape)
+                                .background(if (isPaid) nodeColor else colors.background)
+                                .border(if (isPaid) 0.dp else 2.dp, nodeColor, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isPaid) {
+                                Icon(
+                                    imageVector = FolioGlyphs.Check,
+                                    contentDescription = null,
+                                    tint = colors.onAccent,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 12.dp)
+                    ) {
+                        Text(
+                            text = "第 ${itm.seq} 期",
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                            color = if (isPaid) colors.textSecondary else colors.textPrimary
+                        )
+                        Text(
+                            text = if (itm.feePart > 0) {
+                                "${itm.dueDate} · 本金 ${FormatUtils.formatMoney(itm.principalPart)} + 手续费 ${FormatUtils.formatMoney(itm.feePart)}"
+                            } else {
+                                itm.dueDate
+                            },
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                            color = colors.textMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = FormatUtils.formatMoney(itm.principalPart + itm.FeePartSafe()),
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.amount.copy(fontSize = 15.sp),
+                            color = if (isPaid) colors.textMuted else colors.textPrimary,
+                            maxLines = 1
+                        )
+                        Text(
+                            text = statusText,
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                            fontWeight = if (isOverdue || isDueThisMonth) FontWeight.SemiBold else FontWeight.Normal,
+                            color = when {
+                                isPaid -> colors.income
+                                isOverdue -> colors.alertRed
+                                isDueThisMonth -> colors.archive.accentSmallText
+                                else -> colors.textMuted
+                            },
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // 取消计划 (砖红，仅无已还记录时可用)
-                ArchiveTextButton(
+                ArchiveSecondaryButton(
                     text = "取消计划",
                     isDestructive = true,
                     onClick = onCancelPlanClick,
-                    enabled = !hasPaid && plan.status != "settled"
+                    enabled = !hasPaid && !isSettled,
+                    modifier = Modifier.weight(1f)
                 )
-
-                ArchiveTextButton(
+                ArchivePrimaryButton(
                     text = "提前结清",
                     onClick = onSettleClick,
-                    enabled = plan.status != "settled" && detail.remainingPrincipal > 0
+                    enabled = !isSettled && detail.remainingPrincipal > 0,
+                    modifier = Modifier.weight(1f)
                 )
             }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "点按未还期次标记还款，点按已还期次可撤销",
+                style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                color = colors.textMuted,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
         }
     }
 }
@@ -667,93 +726,89 @@ fun UpcomingInstallmentsSheet(
 
     ArchiveSheet(
         onDismissRequest = onDismissRequest,
-        title = "本月待还与逾期分期",
+        title = "本月待还",
         cancelText = "关闭"
     ) {
         if (items.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "本月暂无待还分期",
-                    style = LedgerTheme.typography.body,
-                    fontFamily = LedgerTheme.typography.serif,
-                    color = colors.textSecondary
-                )
-            }
+            ArchiveEmptyState(
+                title = "本月没有待还分期",
+                subtitle = "到期前一天与当天会提醒你",
+                imageVector = FolioGlyphs.Check
+            )
         } else {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(items, key = { it.itemId }) { itm ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(ArchiveShapes.medium)
-                            .background(colors.surfaceElevated)
-                            .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.medium)
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                            .clip(ArchiveShapes.leaf)
+                            .background(colors.surface)
+                            .border(
+                                ArchiveLines.hairline,
+                                if (itm.isOverdue) colors.alertRed.copy(alpha = 0.4f) else colors.archive.borderCard,
+                                ArchiveShapes.leaf
+                            )
+                            .padding(start = 16.dp, end = 10.dp, top = 14.dp, bottom = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (itm.isOverdue) {
-                                    Text(
-                                        text = "已逾期 ${itm.overdueDays} 天",
-                                        fontFamily = LedgerTheme.typography.serif,
-                                        fontSize = ArchiveTypeScale.caption,
-                                        color = colors.alertRed,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(colors.accent)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "到期日 ${itm.dueDate}",
-                                        fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = ArchiveTypeScale.caption,
-                                        color = colors.textSecondary
-                                    )
-                                }
+                            Box(
+                                modifier = Modifier
+                                    .clip(ArchiveShapes.full)
+                                    .background(if (itm.isOverdue) colors.archive.negativeTint else colors.accentSoft)
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = if (itm.isOverdue) "已逾期 ${itm.overdueDays} 天" else "到期 ${itm.dueDate}",
+                                    style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (itm.isOverdue) colors.alertRed else colors.archive.accentSmallText
+                                )
                             }
-
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "${itm.planTitle} · 第 ${itm.seq}/${itm.totalPeriods} 期",
-                                style = LedgerTheme.typography.body,
-                                fontFamily = LedgerTheme.typography.serif,
-                                fontWeight = FontWeight.Medium,
+                                text = itm.planTitle,
+                                style = com.looseleaf.app.theme.ArchiveTextStyles.rowTitle,
                                 color = colors.textPrimary,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(top = 2.dp)
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "${itm.channelName} · 应还 ${FormatUtils.formatMoney(itm.totalPart)}",
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = ArchiveTypeScale.caption,
-                                color = colors.textSecondary,
+                                text = "${itm.channelName} · 第 ${itm.seq}/${itm.totalPeriods} 期",
+                                style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                                color = colors.textMuted,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-
-                        // 一键已还
-                        ArchiveTextButton(
-                            text = "已还",
-                            onClick = { onQuickPayItem(itm) }
-                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = FormatUtils.formatMoney(itm.totalPart),
+                                style = com.looseleaf.app.theme.ArchiveTextStyles.amount,
+                                color = colors.textPrimary
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(ArchiveShapes.full)
+                                    .background(colors.inverseSurface)
+                                    .clickable(role = androidx.compose.ui.semantics.Role.Button) { onQuickPayItem(itm) }
+                                    .padding(horizontal = 14.dp, vertical = 7.dp)
+                            ) {
+                                Text(
+                                    text = "已还",
+                                    style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.inverseInk
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -881,10 +936,11 @@ fun EditInstallmentPlanSheet(
                             )
                             if (!isPaid) {
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "›",
-                                    color = colors.textSecondary,
-                                    fontSize = ArchiveTypeScale.body
+                                Icon(
+                                    imageVector = FolioGlyphs.ChevronRight,
+                                    contentDescription = null,
+                                    tint = colors.textSecondary,
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
@@ -927,7 +983,7 @@ fun InstallmentPlansSheet(
         onDismissRequest = onDismissRequest,
         title = "分期计划",
         cancelText = "关闭",
-        actionText = "+ 新建分期",
+        actionText = "新建",
         isActionEnabled = true,
         onAction = {
             onDismissRequest()
@@ -935,35 +991,25 @@ fun InstallmentPlansSheet(
         }
     ) {
         if (plans.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "暂无分期计划",
-                    style = LedgerTheme.typography.body,
-                    fontFamily = LedgerTheme.typography.serif,
-                    color = colors.textSecondary
-                )
-            }
+            ArchiveEmptyState(
+                title = "还没有分期计划",
+                subtitle = "大件支出可以拆成若干期，到期自动提醒",
+                actionText = "新建分期",
+                onActionClick = {
+                    onDismissRequest()
+                    onNewInstallmentClick()
+                }
+            )
         } else {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 if (activePlans.isNotEmpty()) {
                     item(key = "hdr_active_plans") {
-                        Text(
-                            text = "进行中 (${activePlans.size})",
-                            style = LedgerTheme.typography.caption,
-                            fontFamily = LedgerTheme.typography.serif,
-                            color = colors.textSecondary,
-                            modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
-                        )
+                        PlanGroupLabel(text = "进行中", count = activePlans.size)
                     }
                     items(activePlans, key = { "plan_${it.id}" }) { plan ->
                         InstallmentPlanSummaryRow(
@@ -975,13 +1021,7 @@ fun InstallmentPlansSheet(
                 }
                 if (settledPlans.isNotEmpty()) {
                     item(key = "hdr_settled_plans") {
-                        Text(
-                            text = "已结清 (${settledPlans.size})",
-                            style = LedgerTheme.typography.caption,
-                            fontFamily = LedgerTheme.typography.serif,
-                            color = colors.textMuted,
-                            modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
-                        )
+                        PlanGroupLabel(text = "已结清", count = settledPlans.size)
                     }
                     items(settledPlans, key = { "plan_done_${it.id}" }) { plan ->
                         InstallmentPlanSummaryRow(
@@ -997,57 +1037,99 @@ fun InstallmentPlansSheet(
 }
 
 @Composable
+private fun PlanGroupLabel(text: String, count: Int) {
+    val colors = LedgerTheme.colors
+    Row(
+        modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = text, style = com.looseleaf.app.theme.ArchiveTextStyles.overline, color = colors.textMuted)
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = count.toString(),
+            style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.textPrimary
+        )
+    }
+}
+
+@Composable
 private fun InstallmentPlanSummaryRow(
     plan: InstallmentPlanItemSummary,
     isPrivacyMasked: Boolean,
     onClick: () -> Unit
 ) {
     val colors = LedgerTheme.colors
-    Row(
+    val isSettled = plan.status == "settled"
+    val progress = if (plan.periods > 0) plan.paidPeriods.toFloat() / plan.periods else 0f
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(ArchiveShapes.medium)
-            .background(colors.surfaceElevated)
-            .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.medium)
+            .clip(ArchiveShapes.leaf)
+            .background(colors.surface)
+            .border(
+                ArchiveLines.hairline,
+                if (plan.isOverdue) colors.alertRed.copy(alpha = 0.4f) else colors.archive.borderCard,
+                ArchiveShapes.leaf
+            )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(16.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = plan.title,
-                style = LedgerTheme.typography.body,
-                fontFamily = LedgerTheme.typography.serif,
-                fontWeight = FontWeight.Medium,
-                color = colors.textPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = "${plan.channelName ?: plan.channelCode} · 已还 ${plan.paidPeriods}/${plan.periods} 期",
-                fontFamily = ArchiveFontFamilies.MonoScale,
-                fontSize = ArchiveTypeScale.caption,
-                color = colors.textSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = plan.title,
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.rowTitle,
+                    color = if (isSettled) colors.textSecondary else colors.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = plan.channelName ?: plan.channelCode,
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                    color = colors.textMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = if (isPrivacyMasked) "¥ ••••" else FormatUtils.formatMoney(plan.remainingPrincipal),
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.amount,
+                    color = if (plan.remainingPrincipal > 0) colors.expense else colors.income
+                )
+                Text(
+                    text = if (isSettled) "已结清" else if (plan.isOverdue) "已逾期" else "待还本金",
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                    fontWeight = if (plan.isOverdue) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (plan.isOverdue) colors.alertRed else if (isSettled) colors.income else colors.textMuted
+                )
+            }
         }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(horizontalAlignment = Alignment.End) {
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(5.dp)
+                    .clip(ArchiveShapes.full)
+                    .background(colors.surfaceElevated)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .clip(ArchiveShapes.full)
+                        .background(if (plan.isOverdue) colors.alertRed else colors.income)
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = if (isPrivacyMasked) "¥ ••••" else FormatUtils.formatMoney(plan.remainingPrincipal),
-                fontFamily = ArchiveFontFamilies.MonoScale,
-                fontSize = ArchiveTypeScale.body,
-                fontWeight = FontWeight.Medium,
-                color = if (plan.remainingPrincipal > 0) colors.expense else colors.income
-            )
-            Text(
-                text = if (plan.status == "settled") "已结清" else if (plan.isOverdue) "已逾期" else "待还本金",
-                fontFamily = LedgerTheme.typography.serif,
-                fontSize = ArchiveTypeScale.caption,
-                color = if (plan.isOverdue) colors.alertRed else colors.textMuted
+                text = "${plan.paidPeriods}/${plan.periods} 期",
+                style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                color = colors.textSecondary
             )
         }
     }

@@ -7,8 +7,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -53,6 +51,8 @@ fun ArchiveLightboxViewer(
     requestOriginalResolution: Boolean = false
 ) {
     val colors = LooseLeafTheme.colors
+    // 灯箱永远是暗房：无论应用处于宣 / 墨，均取「墨」色板的文字色作为前景
+    val darkroomInk = com.looseleaf.app.theme.DarkArchiveColors.inkPrimary
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
@@ -74,7 +74,7 @@ fun ArchiveLightboxViewer(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(colors.frameShadowSpot.copy(alpha = 0.94f))
+                .background(colors.cameraViewfinderBg.copy(alpha = 0.96f))
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
@@ -84,14 +84,14 @@ fun ArchiveLightboxViewer(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(16.dp)
-                    .size(36.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
-                    .background(colors.archivePaper.copy(alpha = 0.15f))
+                    .background(darkroomInk.copy(alpha = 0.14f))
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Close,
+                    imageVector = FolioGlyphs.Close,
                     contentDescription = stringResource(R.string.archive_lightbox_viewer_contentDescription_01),
-                    tint = colors.archivePaper,
+                    tint = darkroomInk,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -196,17 +196,17 @@ fun ArchiveLightboxViewer(
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .background(colors.frameShadowSpot.copy(alpha = 0.75f))
-                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                        .padding(horizontal = 20.dp, vertical = 18.dp)
+                        .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                        .background(darkroomInk.copy(alpha = 0.12f))
+                        .padding(horizontal = 16.dp, vertical = 9.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = metadataText,
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 12.sp,
-                        letterSpacing = 1.sp,
-                        color = colors.archivePaper.copy(alpha = 0.9f),
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                        letterSpacing = 0.6.sp,
+                        color = darkroomInk.copy(alpha = 0.9f),
                         textAlign = TextAlign.Center
                     )
                 }

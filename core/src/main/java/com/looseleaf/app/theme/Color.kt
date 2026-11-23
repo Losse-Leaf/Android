@@ -4,157 +4,189 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 
 /**
- * 散页 (Loose Leaf) · 自然大地色盘 (Earthy Palette) 跨端实现
- * 严格遵循 docs/ecosystem.md §4.2 与 docs/web.md §2.2 / §2.3 规范定义
+ * 散页 · Folio 色彩体系
+ *
+ * 设计意图：一张安静的书桌。
+ * - 「宣」浅色：微暖的生宣底（canvas）上放着更白的散页（surface），凹槽用熟宣色（sunken）。
+ * - 「墨」深色：松烟墨底，纸页是略亮一档的墨灰，文字是旧纸色而非纯白。
+ * - 全局只有一种彩色强调：朱砂（accent），像每页角落的一枚小印，克制使用。
+ * - 正向（收入 / 完成 / 已同步）用松绿；异常与破坏性操作用胭脂（与朱砂拉开色相）；心愿用赭金。
+ *
+ * 字段名保留了既有调用点使用的旧名（archivePaper / accentWarm / accentMoss …），
+ * 同时提供语义别名（canvas / surface / sunken / accent / positive / negative …）供新代码使用。
  */
 @Immutable
 data class ArchiveColors(
+    /** 页面底色（canvas）：书桌 */
     val archivePaper: Color,
+    /** 凹陷层：输入槽、分段控件轨道、骨架屏、次级按钮底 */
     val archiveSubtle: Color,
+    /** 纸页层：卡片、对话框、浮层 */
     val archiveCard: Color = archiveSubtle,
     val inkPrimary: Color,
     val inkSecondary: Color,
     val inkMuted: Color,
+    /** 极淡分隔：卡片描边、列表内缩分隔线 */
     val borderSubtle: Color,
+    /** 稍重分隔：分组边界、聚焦前的输入轮廓 */
     val borderDivider: Color,
     val borderCard: Color = borderSubtle,
+    /** 主强调色：朱砂 */
     val accentWarm: Color,
+    /** 正向色：松绿 */
     val accentMoss: Color,
+    /** 背景肌理叠加色（Folio 不再使用噪点，保留字段以兼容） */
     val grainColor: Color,
     val frameShadowAmbient: Color,
     val frameShadowSpot: Color,
     val cardShadowAmbient: Color = frameShadowAmbient,
     val cardShadowSpot: Color = frameShadowSpot,
+    /** 照片衬底：图片加载前与留边处的中性色 */
     val filmMatteBg: Color,
-    /** 手账低饱和四色分类 */
+    /** 分类标签色：日常与心愿 */
     val tagDaily: Color = accentMoss,
-    val tagTravel: Color = Color(0xFF3B5B75),
-    val tagProject: Color = Color(0xFF825C2C),
-    val tagWish: Color = Color(0xFF8B4E4E),
-    /** 相机取景框的纯黑衬底：Preview surface 外的 letterbox 必须是绝对黑，两种模式共用 */
+    val tagWish: Color = Color(0xFF9A6A1F),
+    /** 取景框背景色 */
     val cameraViewfinderBg: Color = Color(0xFF000000),
     val isDark: Boolean = false,
-    /** 低饱和砖红（异常 / 警告 / 破坏性操作专用） */
-    val alertRed: Color = if (isDark) Color(0xFFD08888) else Color(0xFFA04848),
-
-    // ——— 语义态令牌（第 1 批新增，注意：默认值按「纸」推导，暗房需显式覆写）———
-
-    /**
-     * 按压态叠加层：盖在原色上的一层极淡墨（纸）／极淡白（暗房）。
-     * 用于 `indication = null` 的手写按压反馈，替代 Material 默认涟漪。
-     */
+    /** 异常 / 警告 / 破坏性操作：胭脂 */
+    val alertRed: Color = if (isDark) Color(0xFFF08A95) else Color(0xFFA3263A),
+    /** 按压叠加层 */
     val pressOverlay: Color = inkPrimary.copy(alpha = 0.06f),
-    /**
-     * 结构性细边：比 [borderSubtle]（9%）/[borderDivider]（13%）更明确的一档（16%），
-     * 用于输入框下划线、卡片轮廓等「需要被看见」的边界。
-     */
-    val lineEdge: Color = inkPrimary.copy(alpha = 0.16f),
-    /**
-     * 禁用态轮廓：32% 墨，只表「这里有个控件」，不表达层级与可点性。
-     * WCAG 1.4.11 明确豁免禁用控件，故不追求 4.5:1；但必须比 [lineEdge]（16%）重一档，
-     * 否则 48dp 的 `archiveSubtle` 灰板在纸面上（1.04:1）等于凭空消失。
-     */
-    val lineDisabled: Color = inkPrimary.copy(alpha = 0.32f),
-    /** 全屏遮罩（弹窗/抽屉背后），黑 32% */
-    val scrim: Color = Color(0x52000000),
-    /**
-     * 主色按压态：主按钮按下时的底色。
-     * **必填**——它不能靠 alpha 叠加推导：浅底主题按下要更深、深底主题按下要更亮，
-     * 一律 alpha 会让深底主题按下瞬间文字对比度崩到 3.72:1。
-     */
+    /** 结构线：输入框常态描边、空状态线稿 */
+    val lineEdge: Color = inkPrimary.copy(alpha = 0.14f),
+    /** 禁用态轮廓线 */
+    val lineDisabled: Color = inkPrimary.copy(alpha = 0.26f),
+    /** 弹层背后遮罩 */
+    val scrim: Color = Color(0x66000000),
+    /** 主色按压态 */
     val accentPress: Color,
-    /**
-     * 小字号赤陶（11–14sp 标签、角标、选中态小字）。
-     * **必填**——纸面不能用 [accentWarm]：赤陶小字最常见的落点是「12% 赤陶淡底」，
-     * 同值时只有 4.28:1 不达标。纸 #8E4423 / 暗房 #E28A63。
-     */
+    /** 小号文本与选中标签强调色（对比度达标的朱砂） */
     val accentSmallText: Color,
-    /**
-     * 禁用态前景：只表达「不可用」，不追求 4.5:1 —— WCAG 明确豁免禁用控件。
-     * 但必须与「正常次要文字」[inkMuted] 有肉眼可辨的落差，否则用户会反复点击。
-     */
-    val inkDisabled: Color = inkMuted
-)
+    val inkDisabled: Color = inkMuted,
+    /** 主色之上的前景（按钮文字、FAB 图标） */
+    val onAccent: Color = archivePaper,
+    /** 反相浮层（Toast、撤销条、导航滑块）底色与前景 */
+    val inverseSurface: Color = inkPrimary,
+    val inverseInk: Color = archivePaper,
+    /** 反相浮层上的强调色（如撤销按钮） */
+    val inverseAccent: Color = accentWarm,
+    /** 反相浮层上的警示色 */
+    val inverseAlert: Color = alertRed,
+    /** 悬浮层：底部导航胶囊、下拉菜单 */
+    val surfaceRaised: Color = archiveCard,
+    /** 画布顶部的一层极淡暖光，给页面一点纵深 */
+    val canvasGlow: Color = Color.Transparent
+) {
+    // ---------- 语义别名 ----------
+    val canvas: Color get() = archivePaper
+    val surface: Color get() = archiveCard
+    val sunken: Color get() = archiveSubtle
+    val raised: Color get() = surfaceRaised
+    val ink: Color get() = inkPrimary
+    val accent: Color get() = accentWarm
+    val positive: Color get() = accentMoss
+    val negative: Color get() = alertRed
+    val wish: Color get() = tagWish
+    val hairline: Color get() = borderSubtle
 
-// 暖色棉纸模式 (Paper Mode)
+    /** 选中态淡底（与 ArchiveAlpha.selectedTint 配套） */
+    val accentTint: Color get() = accentWarm.copy(alpha = ArchiveAlpha.selectedTint)
+    val positiveTint: Color get() = accentMoss.copy(alpha = ArchiveAlpha.selectedTint)
+    val negativeTint: Color get() = alertRed.copy(alpha = ArchiveAlpha.selectedTint)
+    val wishTint: Color get() = tagWish.copy(alpha = ArchiveAlpha.selectedTint)
+}
+
+/**
+ * 常用透明度台阶。
+ */
+object ArchiveAlpha {
+    /** 选中 / 当前态淡底：胶囊、分段、日期格 */
+    const val selectedTint: Float = 0.12f
+    /** 悬停 / 按压淡底 */
+    const val pressTint: Float = 0.06f
+    /** 深色模式下 Material 容器色透明度 */
+    const val containerDark: Float = 0.22f
+    /** 浅色模式下 Material 容器色透明度 */
+    const val containerLight: Float = 0.12f
+    /** 禁用内容 */
+    const val disabled: Float = 0.38f
+}
+
+// ---------- 宣（浅色） ----------
 val LightArchiveColors = ArchiveColors(
-    archivePaper = Color(0xFFF6F0E4),   // 暖米色纸底
-    archiveSubtle = Color(0xFFF0ECE3),
-    archiveCard = Color(0xFFFCFAF5),    // 散页物理纸片：比背景略亮的米白
-    inkPrimary = Color(0xFF1D1B18),     // 碳素深棕黑
-    inkSecondary = Color(0xFF5C574F),   // 暖木炭灰
-    inkMuted = Color(0xFF6E6860),       // 原 #787268 只有 4.20:1(canvas)/4.04:1(surface)，改后 4.85/4.67
-    borderSubtle = Color(0x183A2E1C),   // 暖纸裁切折痕
-    borderDivider = Color(0x223A2E1C),
-    borderCard = Color(0x1A3A2E1C),     // 散页微纸边
-    accentWarm = Color(0xFFA24F2B),     // 暖赭石/赤陶
-    accentMoss = Color(0xFF4A6753),     // 苔藓绿
-    grainColor = Color(0x0A3A2E1C),
-    frameShadowAmbient = Color(0x1F181716),
-    frameShadowSpot = Color(0x2E181716),
-    cardShadowAmbient = Color(0x122C2216), // 温暖棕灰柔和阴影，绝非冷黑
-    cardShadowSpot = Color(0x182C2216),
-    filmMatteBg = Color(0xFFE8E5DF),
-    tagDaily = Color(0xFF4A6753),       // 日常：苔绿
-    tagTravel = Color(0xFF3B5B75),      // 游历：靛蓝
-    // 造物：琥珀。原 #9E723B 在 canvas 上 3.76:1、在自身 10% 淡底上仅 3.36:1；
-    // 设计给的 #855F2E 在 10% 淡底上仍只有 4.45:1（差 0.05），故再深半档到 #825C2C。
-    tagProject = Color(0xFF825C2C),     // canvas 5.26:1 / 10% 淡底 4.61:1
-    tagWish = Color(0xFF8B4E4E),        // 心愿：枯茶红。原 #945353 已达标(5.11)，加深后 5.61 留出小字余量
+    archivePaper = Color(0xFFF4F1EA),
+    archiveSubtle = Color(0xFFEAE5DA),
+    archiveCard = Color(0xFFFEFCF8),
+    inkPrimary = Color(0xFF1D1B17),
+    inkSecondary = Color(0xFF57524A),
+    inkMuted = Color(0xFF6F695F),
+    borderSubtle = Color(0x141D1B17),
+    borderDivider = Color(0x261D1B17),
+    borderCard = Color(0x121D1B17),
+    accentWarm = Color(0xFFB4442B),
+    accentMoss = Color(0xFF3B6B53),
+    grainColor = Color(0x00000000),
+    frameShadowAmbient = Color(0x142A2116),
+    frameShadowSpot = Color(0x242A2116),
+    cardShadowAmbient = Color(0x0D2A2116),
+    cardShadowSpot = Color(0x1A2A2116),
+    filmMatteBg = Color(0xFFE6E0D4),
+    tagDaily = Color(0xFF3B6B53),
+    tagWish = Color(0xFF9A6A1F),
     isDark = false,
-    // 异常/警告/破坏性：原 #B35C5C 只有 4.02:1，改后 5.26:1（10% 淡底 4.58:1）
-    alertRed = Color(0xFFA04848),
-    accentPress = Color(0xFF8B4022),    // 主色按压：canvas 6.48:1
-    // 11–14sp 小字赤陶。**不能等于 accentWarm**：全站最常见的选中表达是
-    // 「12% 赤陶淡底 + 赤陶小字」（年份 chip、分段计数徽标、筛选胶囊），
-    // #A24F2B 压在 12% 淡底 #EADBCD 上只有 4.28:1，不达标；
-    // #8E4423 在 canvas 6.17 / surface 5.93 / 12% 淡底 5.17 / 8% 淡底 5.49，全过。
-    accentSmallText = Color(0xFF8E4423),
-    inkDisabled = Color(0xFF9A9389),    // 禁用态：与 inkMuted 肉眼可辨，WCAG 豁免
-    pressOverlay = Color(0xFF1D1B18).copy(alpha = 0.06f),
-    lineEdge = Color(0xFF1D1B18).copy(alpha = 0.16f),
-    lineDisabled = Color(0xFF1D1B18).copy(alpha = 0.32f)
+    alertRed = Color(0xFFA3263A),
+    pressOverlay = Color(0xFF1D1B17).copy(alpha = 0.05f),
+    lineEdge = Color(0xFF1D1B17).copy(alpha = 0.14f),
+    lineDisabled = Color(0xFF1D1B17).copy(alpha = 0.24f),
+    scrim = Color(0x731D1B17),
+    accentPress = Color(0xFF963622),
+    accentSmallText = Color(0xFFA43C25),
+    inkDisabled = Color(0xFFA9A398),
+    onAccent = Color(0xFFFFF9F3),
+    inverseSurface = Color(0xFF221F1B),
+    inverseInk = Color(0xFFF4F1EA),
+    inverseAccent = Color(0xFFF09B7E),
+    inverseAlert = Color(0xFFF2959F),
+    surfaceRaised = Color(0xFFFFFDFA),
+    canvasGlow = Color(0x66FFFFFF)
 )
 
-// 暗房安全灯模式 (Darkroom Mode)
+// ---------- 墨（深色） ----------
 val DarkArchiveColors = ArchiveColors(
-    archivePaper = Color(0xFF181512),   // 夜间台灯下的熟牛皮纸底
-    archiveSubtle = Color(0xFF221F1B),
-    archiveCard = Color(0xFF23201C),    // 纸面略亮
-    inkPrimary = Color(0xFFEDE5D8),     // 暖乳白墨迹
-    inkSecondary = Color(0xFFAFA89B),
-    inkMuted = Color(0xFF968F83),       // 原 #8A8377 只有 4.32:1(card)，改后 5.67/5.12
-    borderSubtle = Color(0x1CEEE6D8),
-    borderDivider = Color(0x2CEEE6D8),
-    borderCard = Color(0x20EEE6D8),
-    accentWarm = Color(0xFFD0603D),     // 暗房安全灯赤红（提亮）
-    accentMoss = Color(0xFF6E9479),     // 苔藓绿提亮
-    grainColor = Color(0x06FFFFFF),
-    frameShadowAmbient = Color(0x26000000),
-    frameShadowSpot = Color(0x40000000),
-    cardShadowAmbient = Color(0x26000000),
-    cardShadowSpot = Color(0x40000000),
-    filmMatteBg = Color(0xFF0D0C0B),
-    tagDaily = Color(0xFF6E9479),       // 日常：苔绿（提亮）
-    tagTravel = Color(0xFF698DAA),      // 游历：靛蓝（提亮）
-    // 造物/心愿/砖红三色「同比例加深」在暗房里是反向操作：
-    // 暗房是浅字压深底，加深等于降对比。实测同比例 ×0.842 后
-    // tagProject 4.67、tagWish 3.60、alertRed 4.28 —— 后两者直接跌破 4.5。
-    // 故暗房保持原值（均已 ≥4.88），只提亮、不加深。
-    tagProject = Color(0xFFC79A63),     // 造物：琥珀（7.13:1）
-    tagWish = Color(0xFFC27878),        // 心愿：枯茶红（5.41:1，10% 淡底 4.78:1）
+    archivePaper = Color(0xFF121110),
+    archiveSubtle = Color(0xFF25231F),
+    archiveCard = Color(0xFF1B1A17),
+    inkPrimary = Color(0xFFEDE7DB),
+    inkSecondary = Color(0xFFB7B0A3),
+    inkMuted = Color(0xFF928B7E),
+    borderSubtle = Color(0x14EDE7DB),
+    borderDivider = Color(0x26EDE7DB),
+    borderCard = Color(0x12EDE7DB),
+    accentWarm = Color(0xFFE5806A),
+    accentMoss = Color(0xFF7FC0A0),
+    grainColor = Color(0x00000000),
+    frameShadowAmbient = Color(0x47000000),
+    frameShadowSpot = Color(0x70000000),
+    cardShadowAmbient = Color(0x33000000),
+    cardShadowSpot = Color(0x52000000),
+    filmMatteBg = Color(0xFF0A0909),
+    tagDaily = Color(0xFF7FC0A0),
+    tagWish = Color(0xFFDDB265),
     isDark = true,
-    alertRed = Color(0xFFD08888),       // 6.55:1，10% 淡底 5.71:1
-    // 按下态规则：**相对亮度必须朝"与文字相反方向"移动** ——
-    // 浅底主题按下要更深（文字仍是纸白），深底主题按下要更亮（文字是深纸色）。
-    // 原先这里写 accentWarm.copy(alpha = 0.85f)，合成到 #181512 上得到 #B45537，
-    // 按下瞬间文字 #181512 压上去只有 3.72:1，字会糊。改成不透明的 #E28A63（6.97:1）。
-    accentPress = Color(0xFFE28A63),
-    // 11–12sp 小字赤陶：accentWarm 在 surface 上只有 4.24:1，小字余量太薄
-    accentSmallText = Color(0xFFE28A63), // 6.97:1 / surface 6.29 / 12% 淡底 5.82
-    inkDisabled = Color(0xFF6B655B),
-    pressOverlay = Color(0xFFFFFFFF).copy(alpha = 0.06f),
-    lineEdge = Color(0xFFFFFFFF).copy(alpha = 0.16f),
-    lineDisabled = Color(0xFFFFFFFF).copy(alpha = 0.32f)
+    alertRed = Color(0xFFF08A95),
+    pressOverlay = Color(0xFFEDE7DB).copy(alpha = 0.06f),
+    lineEdge = Color(0xFFEDE7DB).copy(alpha = 0.14f),
+    lineDisabled = Color(0xFFEDE7DB).copy(alpha = 0.24f),
+    scrim = Color(0xA6000000),
+    accentPress = Color(0xFFEE9A86),
+    accentSmallText = Color(0xFFEA8D77),
+    inkDisabled = Color(0xFF5E5950),
+    onAccent = Color(0xFF1A110D),
+    inverseSurface = Color(0xFFEDE7DB),
+    inverseInk = Color(0xFF151412),
+    inverseAccent = Color(0xFFA43C25),
+    inverseAlert = Color(0xFFA3263A),
+    surfaceRaised = Color(0xFF23211E),
+    canvasGlow = Color(0x0FFFF3E0)
 )
-

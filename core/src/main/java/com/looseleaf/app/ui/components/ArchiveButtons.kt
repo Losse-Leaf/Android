@@ -1,30 +1,43 @@
 package com.looseleaf.app.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveLines
+import com.looseleaf.app.theme.ArchiveMotion
 import com.looseleaf.app.theme.ArchiveShapes
-import com.looseleaf.app.theme.ArchiveTypeScale
+import com.looseleaf.app.theme.ArchiveTextStyles
 import com.looseleaf.app.theme.LooseLeafTheme
 
 /**
- * 散页统一文字按钮 (ArchiveTextButton)
- * - 4dp 圆角、48dp 最小触控热区、衬线字体
- * - 普通操作用赤陶色，破坏性操作用低饱和砖红 (alertRed)，禁用时次要色
+ * 文字按钮 (ArchiveTextButton)
+ * - 无底色，按下时浮现一层极淡的墨色胶囊
+ * - 普通操作用朱砂，破坏性操作用胭脂，禁用时退为禁用墨色
+ * - 保持 48dp 最小热区
  */
 @Composable
 fun ArchiveTextButton(
@@ -36,35 +49,53 @@ fun ArchiveTextButton(
     modifier: Modifier = Modifier
 ) {
     val colors = LooseLeafTheme.colors
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
     val finalTextColor = textColor ?: when {
         !enabled -> colors.inkDisabled
         isDestructive -> colors.alertRed
-        else -> colors.accentWarm
+        else -> colors.accentSmallText
     }
+    val pressBg by animateColorAsState(
+        targetValue = if (isPressed && enabled) colors.pressOverlay else Color.Transparent,
+        animationSpec = tween(ArchiveMotion.DurationFast),
+        label = "textButtonPress"
+    )
+
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
-            .clip(ArchiveShapes.small)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontWeight = if (enabled && textColor == null) FontWeight.SemiBold else FontWeight.Medium,
-            fontSize = ArchiveTypeScale.body,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = finalTextColor
-        )
+        Box(
+            modifier = Modifier
+                .clip(ArchiveShapes.full)
+                .background(pressBg)
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                style = ArchiveTextStyles.label,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = finalTextColor
+            )
+        }
     }
 }
 
 /**
- * 散页抽屉顶栏主动作按钮 (ArchiveSheetActionButton)
- * - 解决纯文字主操作辨识度过弱问题：启用时使用实心赤陶色（或砖红破坏色）+ 反白粗体，禁用时使用淡纸底灰字
- * - 保持外围 ≥48dp 触控热区
+ * 抽屉顶栏主动作按钮 (ArchiveSheetActionButton)
+ * - 实心胶囊：启用时朱砂 / 胭脂底 + 反白字；禁用时凹槽底 + 禁用墨色字
+ * - 外围保持 ≥48dp 热区，按下轻微收缩
  */
 @Composable
 fun ArchiveSheetActionButton(
@@ -76,17 +107,27 @@ fun ArchiveSheetActionButton(
 ) {
     val colors = LooseLeafTheme.colors
     val haptic = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed && enabled) 0.95f else 1f,
+        animationSpec = ArchiveMotion.press(),
+        label = "sheetActionScale"
+    )
     val bgColor = when {
         !enabled -> colors.archiveSubtle
         isDestructive -> colors.alertRed
+        isPressed -> colors.accentPress
         else -> colors.accentWarm
     }
-    val contentColor = if (enabled) colors.archivePaper else colors.inkDisabled
+    val contentColor = if (enabled) colors.onAccent else colors.inkDisabled
 
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .clickable(
+                interactionSource = interactionSource,
+                indication = null,
                 enabled = enabled,
                 role = Role.Button,
                 onClick = {
@@ -99,16 +140,18 @@ fun ArchiveSheetActionButton(
     ) {
         Box(
             modifier = Modifier
-                .clip(ArchiveShapes.small)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .clip(ArchiveShapes.full)
                 .background(bgColor)
-                .padding(horizontal = 14.dp, vertical = 6.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = text,
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontWeight = FontWeight.Bold,
-                fontSize = ArchiveTypeScale.body,
+                style = ArchiveTextStyles.label,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 color = contentColor
@@ -118,16 +161,10 @@ fun ArchiveSheetActionButton(
 }
 
 /**
- * 散页统一主按钮 (ArchivePrimaryButton)
- * - 实心赤陶底色、4dp 圆角、48dp 高度、纸白衬线文字 + 轻触感
- * - 禁用态：**不再是「赤陶 38% alpha + 纸白字」**（那是 ~2:1 对比，按钮像糊了一块脏色），
- *   改为「纸面底 + inkDisabled 字」—— 一眼看出"按不了"，且禁用时页面上不再出现赤陶。
- * - 禁用态仍需可见轮廓：`archiveSubtle` 与页面底 `archivePaper` 只差 1.04:1，
- *   只换填色等于"按钮凭空消失"。故补一条 1dp `lineDisabled`（墨 32%）描边 ——
- *   禁用控件的可辨识度靠**轮廓**而不是填色。它比输入框禁用下划线（lineEdge 60%，
- *   约 9.6% 墨）重一档：按钮是整块可点区域，需要更强的形状提示；
- *   若改成 borderDivider 那一档填色，48dp 高的灰板会被读成"已按下的深色按钮"，
- *   与启用态的赤陶实心语义打架。
+ * 主按钮 (ArchivePrimaryButton)
+ * - 52dp 高的满宽朱砂胶囊，反白无衬线字 + 轻触感
+ * - 按下：加深一档并收缩 2%，松手阻尼回弹
+ * - 禁用：凹槽底 + 禁用墨色字 + 一圈禁用轮廓线，靠轮廓而不是褪色表达「按不了」
  */
 @Composable
 fun ArchivePrimaryButton(
@@ -138,17 +175,40 @@ fun ArchivePrimaryButton(
 ) {
     val colors = LooseLeafTheme.colors
     val haptic = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed && enabled) 0.98f else 1f,
+        animationSpec = ArchiveMotion.press(),
+        label = "primaryScale"
+    )
+    val bg by animateColorAsState(
+        targetValue = when {
+            !enabled -> colors.archiveSubtle
+            isPressed -> colors.accentPress
+            else -> colors.accentWarm
+        },
+        animationSpec = tween(ArchiveMotion.DurationFast),
+        label = "primaryBg"
+    )
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(48.dp)
-            .clip(ArchiveShapes.small)
-            .background(if (enabled) colors.accentWarm else colors.archiveSubtle)
+            .height(52.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(ArchiveShapes.full)
+            .background(bg)
             .then(
                 if (enabled) Modifier
-                else Modifier.border(1.dp, colors.lineDisabled, ArchiveShapes.small)
+                else Modifier.border(ArchiveLines.hairline, colors.lineDisabled, ArchiveShapes.full)
             )
             .clickable(
+                interactionSource = interactionSource,
+                indication = null,
                 enabled = enabled,
                 role = Role.Button,
                 onClick = {
@@ -160,12 +220,61 @@ fun ArchivePrimaryButton(
     ) {
         Text(
             text = text,
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = ArchiveTypeScale.bodyLarge,
+            style = ArchiveTextStyles.button,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            color = if (enabled) colors.archivePaper else colors.inkDisabled
+            color = if (enabled) colors.onAccent else colors.inkDisabled
+        )
+    }
+}
+
+/**
+ * 次级按钮 (ArchiveSecondaryButton)
+ * - 与主按钮同尺寸的描边胶囊，用于「次要但同等重要」的并列动作
+ */
+@Composable
+fun ArchiveSecondaryButton(
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    isDestructive: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val colors = LooseLeafTheme.colors
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val fg = when {
+        !enabled -> colors.inkDisabled
+        isDestructive -> colors.alertRed
+        else -> colors.inkPrimary
+    }
+    val border = when {
+        !enabled -> colors.lineDisabled
+        isDestructive -> colors.alertRed.copy(alpha = 0.45f)
+        else -> colors.borderDivider
+    }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(ArchiveShapes.full)
+            .background(if (isPressed && enabled) colors.pressOverlay else Color.Transparent)
+            .border(ArchiveLines.hairline, border, ArchiveShapes.full)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            style = ArchiveTextStyles.button,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            color = fg
         )
     }
 }

@@ -1,13 +1,25 @@
 package com.looseleaf.feature.ledger.ui
 
 import android.view.HapticFeedbackConstants
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -18,25 +30,36 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveMotion
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTextStyles
+import com.looseleaf.app.ui.components.FolioGlyphs
 import com.looseleaf.feature.ledger.theme.LedgerTheme
 import kotlinx.coroutines.delay
 
 /**
- * 共享等宽数字键盘 (TactileKeypad)
- * 遵循「散页」第四轮规范：
- * - 去框（无按键外轮廓实线，纯净纸色贴合）
- * - 四列布局：左三列为数字（1-9、0、小数点、C 清空），右列为 退格 / + / 确认
- * - 4dp 微圆角、等宽数字与古典衬线确认按钮
+ * 触感数字键盘 (TactileKeypad)
+ *
+ * Folio 版本：像一块嵌在纸面里的计算尺。
+ * - 四列：左三列数字（1-9、小数点、0、清空），右列为 退格 / 加号 / 跨两行的确认键；
+ * - 数字键：凹槽色圆角方块，22sp 等宽数字；功能键：更深一档凹槽 + 线性图形；
+ * - 按下：键面缩到 94% 并浮出墨色薄层，松手阻尼回弹，配合键盘触感；
+ * - 确认键：朱砂实心，禁用时退为凹槽色 + 禁用墨色字；
+ * - 数字键与退格键长按连发（系统长按阈值后每 80ms 一次）。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -53,18 +76,17 @@ fun TactileKeypad(
     modifier: Modifier = Modifier,
     keyHeight: Dp = 46.dp
 ) {
-    val spacing = 6.dp
+    val spacing = 8.dp
     val colors = LedgerTheme.colors
     val view = LocalView.current
-    val shape = RoundedCornerShape(4.dp)
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = spacing),
+            .padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(spacing)
     ) {
-        // 左侧三列：数字区域
+        // 左侧三列：数字区
         Column(
             modifier = Modifier.weight(3f),
             verticalArrangement = Arrangement.spacedBy(spacing)
@@ -85,6 +107,12 @@ fun TactileKeypad(
                             label = item,
                             height = keyHeight,
                             modifier = Modifier.weight(1f),
+                            isAction = item == "C",
+                            accessibilityLabel = when (item) {
+                                "." -> "小数点"
+                                "C" -> "清空"
+                                else -> null
+                            },
                             onClick = {
                                 when (item) {
                                     "." -> onDotClick()
@@ -92,7 +120,6 @@ fun TactileKeypad(
                                     else -> onDigitClick(item)
                                 }
                             },
-                            // 数字键长按连发同一数字；小数点与 C 不参与连发
                             onRepeat = if (item == "." || item == "C") null else ({ onDigitClick(item) })
                         )
                     }
@@ -100,14 +127,15 @@ fun TactileKeypad(
             }
         }
 
-        // 右侧第四列：操作区域（退格 / + / 确认）
+        // 右侧第四列：退格 / + / 确认
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(spacing)
         ) {
-            // 第 1 行：退格（长按连续退位，清空交给左区「C」键）
             TactileKeyButton(
-                label = "⌫",
+                label = "",
+                glyph = FolioGlyphs.Backspace,
+                accessibilityLabel = "退格",
                 height = keyHeight,
                 modifier = Modifier.fillMaxWidth(),
                 isAction = true,
@@ -115,10 +143,11 @@ fun TactileKeypad(
                 onRepeat = onBackspaceClick
             )
 
-            // 第 2 行：+（或清空占位）
             if (showPlus) {
                 TactileKeyButton(
-                    label = "+",
+                    label = "",
+                    glyph = FolioGlyphs.Plus,
+                    accessibilityLabel = "加",
                     height = keyHeight,
                     modifier = Modifier.fillMaxWidth(),
                     isAction = true,
@@ -127,6 +156,7 @@ fun TactileKeypad(
             } else {
                 TactileKeyButton(
                     label = "C",
+                    accessibilityLabel = "清空",
                     height = keyHeight,
                     modifier = Modifier.fillMaxWidth(),
                     isAction = true,
@@ -134,20 +164,42 @@ fun TactileKeypad(
                 )
             }
 
-            // 第 3 & 4 行：确认主按钮（高度跨两行）
+            // 确认主键（跨两行）
             val confirmHeight = keyHeight * 2 + spacing
-            val confirmBg = if (isConfirmEnabled) colors.accent else colors.surfaceElevated
-            val confirmTextColor = if (isConfirmEnabled) colors.background else colors.textMuted
+            val enabled = isConfirmEnabled && onConfirm != null
+            val interactionSource = remember { MutableInteractionSource() }
+            val isPressed by interactionSource.collectIsPressedAsState()
+            val confirmBg by animateColorAsState(
+                targetValue = when {
+                    !isConfirmEnabled -> colors.surfaceElevated
+                    isPressed -> colors.archive.accentPress
+                    else -> colors.accent
+                },
+                animationSpec = tween(ArchiveMotion.DurationFast),
+                label = "confirmKeyBg"
+            )
+            val confirmScale by animateFloatAsState(
+                targetValue = if (isPressed && enabled) 0.95f else 1f,
+                animationSpec = ArchiveMotion.press(),
+                label = "confirmKeyScale"
+            )
+            val confirmTextColor = if (isConfirmEnabled) colors.onAccent else colors.textMuted
 
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(confirmHeight)
-                    .clip(shape)
-                    .background(confirmBg, shape)
+                    .graphicsLayer {
+                        scaleX = confirmScale
+                        scaleY = confirmScale
+                    }
+                    .clip(ArchiveShapes.md)
+                    .background(confirmBg)
                     .combinedClickable(
-                        enabled = isConfirmEnabled && onConfirm != null,
+                        interactionSource = interactionSource,
+                        indication = null,
+                        enabled = enabled,
                         role = Role.Button,
                         onClick = {
                             view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
@@ -155,13 +207,32 @@ fun TactileKeypad(
                         }
                     )
             ) {
-                Text(
-                    text = confirmText,
-                    fontFamily = LedgerTheme.typography.serif,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = confirmTextColor
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = FolioGlyphs.Check,
+                        contentDescription = null,
+                        tint = confirmTextColor,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    if (confirmText.length <= 4) {
+                        Text(
+                            text = confirmText,
+                            style = ArchiveTextStyles.label,
+                            fontWeight = FontWeight.SemiBold,
+                            color = confirmTextColor,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    } else {
+                        Text(
+                            text = confirmText,
+                            style = ArchiveTextStyles.meta,
+                            fontWeight = FontWeight.SemiBold,
+                            color = confirmTextColor,
+                            modifier = Modifier.padding(top = 4.dp, start = 4.dp, end = 4.dp),
+                            maxLines = 2
+                        )
+                    }
+                }
             }
         }
     }
@@ -175,24 +246,35 @@ private fun TactileKeyButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isAction: Boolean = false,
+    glyph: ImageVector? = null,
+    accessibilityLabel: String? = null,
     onLongClick: (() -> Unit)? = null,
     onRepeat: (() -> Unit)? = null
 ) {
     val colors = LedgerTheme.colors
     val view = LocalView.current
-    val shape = RoundedCornerShape(4.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressedVisual by interactionSource.collectIsPressedAsState()
 
-    // 去框：纯净平贴纸色底，背景根据动作类型低调微调
-    val bgColor = if (isAction) colors.surfaceElevated else colors.surfaceElevated.copy(alpha = 0.5f)
+    val baseColor = if (isAction) colors.surfaceElevated else colors.surfaceElevated.copy(alpha = 0.55f)
+    val pressedColor = if (isAction) colors.border else colors.surfaceElevated
+    val bgColor by animateColorAsState(
+        targetValue = if (isPressedVisual) pressedColor else baseColor,
+        animationSpec = tween(ArchiveMotion.DurationFast),
+        label = "keyBg"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (isPressedVisual) 0.94f else 1f,
+        animationSpec = ArchiveMotion.press(),
+        label = "keyScale"
+    )
 
     val longClickAction = onLongClick
     val repeatAction = onRepeat
     val longPressTimeout = LocalViewConfiguration.current.longPressTimeoutMillis
     var isPressed by remember { mutableStateOf(false) }
 
-    // 数字 / 退格键：按住超过系统长按阈值后按 80ms 间隔连发。
-    // 抬手时 isPressed 置 false，LaunchedEffect 的 key 变化会取消协程，连发随之停止
-    // （全程 delay 挂起，不阻塞主线程；协程随组合 / key 变化自动取消，无泄漏）。
+    // 数字 / 退格键：按住超过系统长按阈值后按 80ms 间隔连发；抬手即停（协程随 key 变化取消）。
     LaunchedEffect(isPressed) {
         if (isPressed && repeatAction != null) {
             delay(longPressTimeout)
@@ -207,11 +289,9 @@ private fun TactileKeyButton(
     val pressModifier = if (repeatAction != null) {
         Modifier.pointerInput(Unit) {
             awaitEachGesture {
-                // 手势被父级抢走 / 组合销毁时也要复位，否则连发协程停不下来
                 try {
                     awaitFirstDown(requireUnconsumed = false)
                     isPressed = true
-                    // awaitAllPointersUp() 是 Compose 内部 API，这里手动等待所有指针抬起
                     do {
                         val event = awaitPointerEvent()
                     } while (event.changes.any { it.pressed })
@@ -224,8 +304,7 @@ private fun TactileKeyButton(
         Modifier
     }
 
-    // 连发键用一个占位的 onLongClick 消费长按手势，避免抬手时 combinedClickable 再补一次 onClick；
-    // 连发本身由上面的 LaunchedEffect 完成，这里只保留一次长按震动。
+    // 连发键用一个占位 onLongClick 消费长按，避免抬手时 combinedClickable 再补一次 onClick。
     val combinedLongClick: (() -> Unit)? = if (longClickAction != null || repeatAction != null) {
         val action = longClickAction ?: {}
         {
@@ -241,9 +320,20 @@ private fun TactileKeyButton(
         modifier = modifier
             .height(height)
             .then(pressModifier)
-            .clip(shape)
-            .background(bgColor, shape)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(ArchiveShapes.md)
+            .background(bgColor)
+            .then(
+                if (accessibilityLabel != null) {
+                    Modifier.semantics { contentDescription = accessibilityLabel }
+                } else Modifier
+            )
             .combinedClickable(
+                interactionSource = interactionSource,
+                indication = null,
                 role = Role.Button,
                 onClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
@@ -252,12 +342,24 @@ private fun TactileKeyButton(
                 onLongClick = combinedLongClick
             )
     ) {
-        Text(
-            text = label,
-            fontFamily = FontFamily.Monospace,
-            fontSize = if (label == "⌫") 18.sp else 20.sp,
-            fontWeight = FontWeight.Medium,
-            color = colors.textPrimary
-        )
+        if (glyph != null) {
+            Icon(
+                imageVector = glyph,
+                contentDescription = null,
+                tint = colors.textPrimary,
+                modifier = Modifier.size(22.dp)
+            )
+        } else {
+            Text(
+                text = label,
+                style = TextStyle(
+                    fontFamily = ArchiveFontFamilies.Numeric,
+                    fontWeight = if (label == "C") FontWeight.Medium else FontWeight.Normal,
+                    fontSize = if (label == "C") 17.sp else 23.sp,
+                    fontFeatureSettings = "tnum, lnum"
+                ),
+                color = if (label == "C") colors.accent else colors.textPrimary
+            )
+        }
     }
 }

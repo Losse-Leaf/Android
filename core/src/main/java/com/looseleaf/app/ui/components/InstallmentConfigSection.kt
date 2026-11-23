@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -236,30 +237,20 @@ fun InstallmentConfigSection(
                 if (!toggleLabel.isNullOrBlank()) {
                     Text(
                         text = toggleLabel,
-                        fontSize = ArchiveTypeScale.caption,
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                        fontWeight = FontWeight.Medium,
                         color = colors.inkSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    ArchiveChoiceItem(
-                        text = "一次付清",
-                        isSelected = payMethodChoice == "full",
-                        onClick = { onPayMethodChoiceChange?.invoke("full") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    ArchiveChoiceItem(
-                        text = "分期付款",
-                        isSelected = payMethodChoice == "installment",
-                        onClick = { onPayMethodChoiceChange?.invoke("installment") },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                ArchiveSegmentedTabs(
+                    tabs = listOf("一次付清", "分期付款"),
+                    selectedIndex = if (payMethodChoice == "installment") 1 else 0,
+                    onTabSelected = { idx ->
+                        onPayMethodChoiceChange?.invoke(if (idx == 1) "installment" else "full")
+                    }
+                )
             }
         }
 
@@ -297,9 +288,8 @@ fun InstallmentConfigSection(
                 ) {
                     Text(
                         text = "常用",
-                        fontSize = ArchiveTypeScale.caption,
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        color = colors.inkSecondary,
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                        color = colors.inkMuted,
                         maxLines = 1
                     )
                     periodPresets.forEach { p ->
@@ -361,32 +351,44 @@ fun InstallmentConfigSection(
                     ) {
                         Text(
                             text = "还款渠道",
-                            fontSize = ArchiveTypeScale.caption,
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                            fontWeight = FontWeight.Medium,
                             color = colors.inkSecondary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         if (onCreateChannel != null) {
-                            Text(
-                                text = "+ 新建",
-                                fontSize = ArchiveTypeScale.caption,
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                color = colors.accentWarm,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
+                                    .clip(ArchiveShapes.full)
                                     .clickable { showCreateChannelDialog = true }
-                                    .padding(start = 4.dp)
-                            )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = FolioGlyphs.Plus,
+                                    contentDescription = null,
+                                    tint = colors.accentSmallText,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = "新建",
+                                    style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.accentSmallText,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(ArchiveShapes.small)
-                            .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.small)
+                            .defaultMinSize(minHeight = 48.dp)
+                            .clip(ArchiveShapes.field)
+                            .background(colors.archiveSubtle)
                             .clickable(enabled = channels.isNotEmpty() || onCreateChannel != null) {
                                 if (channels.isEmpty() && onCreateChannel != null) {
                                     showCreateChannelDialog = true
@@ -394,7 +396,7 @@ fun InstallmentConfigSection(
                                     showChannelSelectDialog = true
                                 }
                             }
-                            .padding(horizontal = 10.dp, vertical = 9.dp)
+                            .padding(horizontal = 14.dp, vertical = 13.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -414,13 +416,22 @@ fun InstallmentConfigSection(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false)
                             )
-                            Text(
-                                text = selectedChannel?.let { "每月${it.repaymentDay}日" } ?: "▾",
-                                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                fontSize = ArchiveTypeScale.caption,
-                                color = colors.inkSecondary,
-                                maxLines = 1
-                            )
+                            if (selectedChannel != null) {
+                                Text(
+                                    text = "每月${selectedChannel.repaymentDay}日",
+                                    fontFamily = ArchiveFontFamilies.MonoScale,
+                                    fontSize = ArchiveTypeScale.caption,
+                                    color = colors.inkSecondary,
+                                    maxLines = 1
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = FolioGlyphs.ChevronDown,
+                                    contentDescription = null,
+                                    tint = colors.inkSecondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -429,20 +440,21 @@ fun InstallmentConfigSection(
                     Column(modifier = Modifier.weight(0.9f)) {
                         Text(
                             text = "首期还款月份",
-                            fontSize = ArchiveTypeScale.caption,
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                            fontWeight = FontWeight.Medium,
                             color = colors.inkSecondary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(ArchiveShapes.small)
-                                .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.small)
+                                .defaultMinSize(minHeight = 48.dp)
+                                .clip(ArchiveShapes.field)
+                                .background(colors.archiveSubtle)
                                 .clickable { showMonthPicker = true }
-                                .padding(horizontal = 10.dp, vertical = 9.dp)
+                                .padding(horizontal = 14.dp, vertical = 13.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -461,11 +473,11 @@ fun InstallmentConfigSection(
                                     color = colors.inkPrimary,
                                     maxLines = 1
                                 )
-                                Text(
-                                    text = "▾",
-                                    color = colors.inkSecondary,
-                                    fontSize = ArchiveTypeScale.caption,
-                                    maxLines = 1
+                                Icon(
+                                    imageVector = FolioGlyphs.ChevronDown,
+                                    contentDescription = null,
+                                    tint = colors.inkSecondary,
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
@@ -483,31 +495,50 @@ fun InstallmentConfigSection(
                 }.getOrDefault("----")
                 val hasValidPreview = principalCents > 0 && effectivePeriods > 0
 
-                Box(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(ArchiveShapes.small)
-                        .background(colors.archiveSubtle)
-                        .border(
-                            ArchiveLines.hairline,
-                            if (hasValidPreview) colors.accentWarm.copy(alpha = 0.45f) else colors.borderSubtle,
-                            ArchiveShapes.small
-                        )
-                        .padding(horizontal = 12.dp, vertical = 9.dp)
+                        .clip(ArchiveShapes.md)
+                        .background(if (hasValidPreview) colors.accentTint else colors.archiveSubtle)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = if (hasValidPreview) {
-                            "每期约 ${FormatUtils.formatMoney(approxMonthly)} · 共 $effectivePeriods 期 · 末期 $endYm"
-                        } else {
-                            emptyPreviewHint
-                        },
-                        fontFamily = if (hasValidPreview) ArchiveFontFamilies.MonoScale else ArchiveFontFamilies.EditorialSerif,
-                        fontSize = ArchiveTypeScale.caption,
-                        fontWeight = if (hasValidPreview) FontWeight.Medium else FontWeight.Normal,
-                        color = if (hasValidPreview) colors.accentWarm else colors.inkSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (hasValidPreview) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "每期约",
+                                style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                                color = colors.inkMuted
+                            )
+                            Text(
+                                text = FormatUtils.formatMoney(approxMonthly),
+                                style = com.looseleaf.app.theme.ArchiveTextStyles.amount,
+                                color = colors.accentSmallText,
+                                maxLines = 1
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = "共 $effectivePeriods 期",
+                                style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.inkPrimary
+                            )
+                            Text(
+                                text = "末期 $endYm",
+                                style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                                color = colors.inkMuted
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = emptyPreviewHint,
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                            color = colors.inkMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }

@@ -1,6 +1,8 @@
 package com.looseleaf.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,8 +40,8 @@ fun ArchiveReleaseDialog(
     onDownloadAndInstall: () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
-    val cardShape = RoundedCornerShape(12.dp)
-    val buttonShape = RoundedCornerShape(4.dp)
+    val cardShape = com.looseleaf.app.theme.ArchiveShapes.lg
+    val buttonShape = com.looseleaf.app.theme.ArchiveShapes.full
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -60,140 +62,141 @@ fun ArchiveReleaseDialog(
                     .fillMaxWidth()
                     .widthIn(max = 400.dp)
                     .shadow(
-                        elevation = 8.dp,
+                        elevation = com.looseleaf.app.theme.ArchiveShadows.dialogElevation,
                         shape = cardShape,
                         spotColor = colors.frameShadowSpot,
                         ambientColor = colors.frameShadowAmbient
                     )
                     .clip(cardShape)
-                    .background(colors.archivePaper)
-                    .border(0.5.dp, colors.borderDivider, cardShape)
-                    .padding(24.dp)
+                    .background(colors.surfaceRaised)
+                    .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 16.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = stringResource(R.string.archive_release_dialog_text_01),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 18.sp,
-                        color = colors.inkPrimary
-                    )
-
-                    PaperBadge(
-                        text = release.tagName,
-                        containerColor = colors.accentWarm.copy(alpha = 0.12f),
-                        textColor = colors.accentWarm
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(com.looseleaf.app.theme.ArchiveShapes.md)
+                            .background(colors.accentWarm),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "新",
+                            fontFamily = ArchiveFontFamilies.Display,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                            color = colors.onAccent
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.archive_release_dialog_text_01),
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.sheetTitle,
+                            color = colors.inkPrimary
+                        )
+                        Text(
+                            // 安装前把「版本 / 体积 / 来源」说清楚（签名校验已在 UpdateChecker 内完成）
+                            text = buildString {
+                                append(
+                                    if (release.versionName.isNotBlank()) "版本 ${release.versionName}" else release.tagName
+                                )
+                                val sizeMb = release.apkSizeBytes?.let { it / 1024.0 / 1024.0 }
+                                if (sizeMb != null && sizeMb > 0) {
+                                    append(String.format(java.util.Locale.US, " · %.1f MB", sizeMb))
+                                }
+                                append(" · GitHub Releases")
+                            },
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                            color = colors.inkMuted
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    // MOB-P2-50：安装前把「版本 / 体积 / 来源」说清楚，
-                    // 让用户确认自己装的是官方包（签名校验已在 UpdateChecker 内完成）。
-                    text = buildString {
-                        append(
-                            if (release.versionName.isNotBlank()) {
-                                "版本 ${release.versionName}"
-                            } else {
-                                "版本更新与体验修缮"
-                            }
-                        )
-                        val sizeMb = release.apkSizeBytes?.let { it / 1024.0 / 1024.0 }
-                        if (sizeMb != null && sizeMb > 0) {
-                            append(String.format(java.util.Locale.US, " · %.1f MB", sizeMb))
-                        }
-                        append(" · 来源 GitHub Releases")
-                    },
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 14.sp,
-                    color = colors.inkSecondary
-                )
-
                 if (release.body.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
+                    Text(
+                        text = "更新说明",
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.overline,
+                        color = colors.inkMuted
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 180.dp)
-                            .clip(RoundedCornerShape(2.dp))
+                            .heightIn(max = 200.dp)
+                            .clip(com.looseleaf.app.theme.ArchiveShapes.md)
                             .background(colors.archiveSubtle)
-                            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(2.dp))
-                            .padding(12.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(14.dp)
                     ) {
                         Text(
                             text = release.body,
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 12.sp,
-                            lineHeight = 18.sp,
-                            color = colors.inkPrimary
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.body,
+                            color = colors.inkSecondary
                         )
                     }
                 }
 
                 if (isDownloading) {
                     Spacer(modifier = Modifier.height(18.dp))
-                    Text(
-                        text = if (downloadProgress != null) "正在装载新版底片... ${(downloadProgress * 100).toInt()}%" else "正在装载新版底片...",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 12.sp,
-                        color = colors.accentSmallText
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "正在下载新版本",
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                            color = colors.inkPrimary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (downloadProgress != null) {
+                            Text(
+                                text = "${(downloadProgress * 100).toInt()}%",
+                                style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.accentSmallText
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
                     if (downloadProgress != null) {
                         LinearProgressIndicator(
                             progress = { downloadProgress },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(3.dp),
+                                .height(6.dp)
+                                .clip(com.looseleaf.app.theme.ArchiveShapes.full),
                             color = colors.accentWarm,
-                            trackColor = colors.borderDivider
+                            trackColor = colors.archiveSubtle
                         )
                     } else {
                         LinearProgressIndicator(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(3.dp),
+                                .height(6.dp)
+                                .clip(com.looseleaf.app.theme.ArchiveShapes.full),
                             color = colors.accentWarm,
-                            trackColor = colors.borderDivider
+                            trackColor = colors.archiveSubtle
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(
+                    ArchiveTextButton(
+                        text = stringResource(R.string.archive_release_dialog_remind_later),
                         onClick = onDismiss,
                         enabled = !isDownloading,
-                        shape = buttonShape,
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Text(stringResource(R.string.archive_release_dialog_remind_later), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp, color = colors.inkMuted)
-                    }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    Button(
+                        textColor = if (isDownloading) colors.inkDisabled else colors.inkSecondary
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    ArchiveSheetActionButton(
+                        text = stringResource(R.string.archive_release_dialog_update_now),
                         onClick = onDownloadAndInstall,
-                        enabled = !isDownloading,
-                        shape = buttonShape,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = colors.accentWarm,
-                            contentColor = colors.archivePaper
-                        ),
-                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
-                    ) {
-                        Text(stringResource(R.string.archive_release_dialog_update_now), fontFamily = ArchiveFontFamilies.EditorialSerif, fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                    }
+                        enabled = !isDownloading
+                    )
                 }
             }
         }

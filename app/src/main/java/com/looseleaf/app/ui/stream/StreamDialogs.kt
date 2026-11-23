@@ -1,65 +1,86 @@
 package com.looseleaf.app.ui.stream
 
-import androidx.compose.foundation.BorderStroke
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.LocationOn
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import kotlinx.coroutines.CancellationException
-import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.looseleaf.app.R
 import com.looseleaf.app.darkroom.ImagePipeline
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.model.Attachment
 import com.looseleaf.app.model.CreateEntryRequest
 import com.looseleaf.app.model.LifeEntry
 import com.looseleaf.app.theme.ArchiveFontFamilies
-import com.looseleaf.app.theme.ArchiveShadows
+import com.looseleaf.app.theme.ArchiveLines
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTextStyles
 import com.looseleaf.app.theme.LooseLeafTheme
-import com.looseleaf.app.ui.components.*
-import com.looseleaf.app.utils.FormatUtils
-import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.LocalDateTime
 import com.looseleaf.app.ui.components.ArchiveConfirmDialog
-import androidx.compose.ui.res.stringResource
-import com.looseleaf.app.R
-import androidx.compose.ui.res.painterResource
+import com.looseleaf.app.ui.components.ArchiveDateTimeSplitRow
+import com.looseleaf.app.ui.components.ArchiveField
+import com.looseleaf.app.ui.components.ArchiveSecondaryButton
+import com.looseleaf.app.ui.components.ArchiveSelectableCapsule
+import com.looseleaf.app.ui.components.ArchiveSheet
+import com.looseleaf.app.ui.components.ArchiveToastManager
+import com.looseleaf.app.ui.components.FolioGlyphs
+import com.looseleaf.app.utils.FormatUtils
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+
+/**
+ * 散页详情 / 修订抽屉
+ *
+ * 阅读态：一页排版好的书 —— 日期小标与分类签、衬线大标题、朱砂短线、宽行距衬线正文、
+ *        地点、配图，最后是描边的「删除这一页」。
+ * 修订态：类型胶囊、标题 / 正文输入槽、时间、地点、私密开关、配图管理（含「添加」方块）。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EntryDetailSheetDialog(
@@ -73,13 +94,8 @@ fun EntryDetailSheetDialog(
     val colors = LooseLeafTheme.colors
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    // MOB-P1-xx：编辑态的 key 用 **entry.id** 而不是 entry 对象本身。
-    //
-    // 为什么：同步刷新（entriesRevisionFlow → 列表重载）会用**同一条记录的新实例**
-    // 替换掉旧实例（数据类按值比较，内容一样但引用不同）。
-    // 若用 remember(entry) 作 key，新实例一到，remember 的 key 就变了 ⇒
-    // 用户正在输入的标题/正文被**重置回服务器上的旧值** —— 表现为「打字打到一半被清空」。
-    // 用 entry.id 作 key：同一条记录的刷新不会打断输入；切换到另一条记录才重置。
+    // 编辑态的 key 用 entry.id 而不是 entry 本身：同步刷新会用同一条记录的新实例替换旧实例，
+    // 若以对象作 key，用户正在输入的内容会被重置回服务器旧值。
     var isEditing by remember(entry.id) { mutableStateOf(false) }
     var editType by remember(entry.id) { mutableStateOf(if (entry.type == "wish") "wish" else "life") }
     var editTitle by remember(entry.id) { mutableStateOf(entry.title) }
@@ -91,8 +107,8 @@ fun EntryDetailSheetDialog(
     var isUploadingPhoto by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = // MOB-P2-68：统一走系统照片选择器（与全局策略一致，无需任何存储权限）
-        ActivityResultContracts.PickMultipleVisualMedia(maxItems = 9)
+        // 统一走系统照片选择器，无需任何存储权限
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 9)
     ) { uris ->
         if (uris.isNotEmpty()) {
             coroutineScope.launch {
@@ -135,12 +151,12 @@ fun EntryDetailSheetDialog(
 
     ArchiveSheet(
         onDismissRequest = onDismiss,
-        title = if (isEditing) "修订散页档案" else "散页档案阅览",
-        cancelText = if (isEditing) "取消编辑" else "关闭",
+        title = if (isEditing) "修订这一页" else "散页",
+        cancelText = if (isEditing) "取消修订" else "关闭",
         onCancel = {
             if (isEditing) isEditing = false else onDismiss()
         },
-        actionText = if (isEditing) stringResource(R.string.stream_dialogs_text_03) else "编辑",
+        actionText = if (isEditing) stringResource(R.string.stream_dialogs_text_03) else "修订",
         isActionEnabled = !isEditing || editTitle.isNotBlank() || editContent.isNotBlank(),
         onAction = {
             if (isEditing) saveAction() else isEditing = true
@@ -150,34 +166,36 @@ fun EntryDetailSheetDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .padding(horizontal = 22.dp, vertical = 18.dp)
         ) {
             if (isEditing) {
-                // 类型切换
-                val typeOptions = listOf(
-                    "life" to "日常随笔",
-                    "wish" to "心愿印记"
-                )
+                EditSectionLabel("类型")
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    for ((k, label) in typeOptions) {
-                        ArchiveSelectableCapsule(
-                            text = label,
-                            selected = editType == k,
-                            onClick = { editType = k }
-                        )
-                    }
+                    ArchiveSelectableCapsule(
+                        text = "日常随笔",
+                        selected = editType == "life",
+                        leadingDotColor = colors.tagDaily,
+                        onClick = { editType = "life" }
+                    )
+                    ArchiveSelectableCapsule(
+                        text = "心愿印记",
+                        selected = editType == "wish",
+                        leadingDotColor = colors.tagWish,
+                        onClick = { editType = "wish" }
+                    )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 ArchiveField(
                     value = editTitle,
                     onValueChange = { editTitle = it },
+                    label = "标题",
                     placeholder = stringResource(R.string.stream_dialogs_placeholder_01),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -188,246 +206,331 @@ fun EntryDetailSheetDialog(
                 ArchiveField(
                     value = editContent,
                     onValueChange = { editContent = it },
+                    label = "正文",
                     placeholder = stringResource(R.string.stream_dialogs_placeholder_02),
                     singleLine = false,
-                    minLines = 3,
+                    minLines = 4,
+                    maxLines = 12,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
+                EditSectionLabel("时间")
                 ArchiveDateTimeSplitRow(
                     selectedDateTime = editOccurredAt,
                     onDateTimeSelected = { editOccurredAt = it }
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 ArchiveField(
                     value = editLocation,
                     onValueChange = { editLocation = it },
+                    label = "地点",
                     placeholder = stringResource(R.string.quick_note_sheet_text_04),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
+                // 私密开关：整行可点，右侧为状态胶囊
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(ArchiveShapes.md)
+                        .background(colors.archiveSubtle)
+                        .clickable(role = Role.Switch) { editIsPrivate = !editIsPrivate }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = FolioGlyphs.Lock,
+                        contentDescription = null,
+                        tint = if (editIsPrivate) colors.accentSmallText else colors.inkMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "仅自己可见",
+                            style = ArchiveTextStyles.label,
+                            color = colors.inkPrimary
+                        )
+                        Text(
+                            text = if (editIsPrivate) "这一页不会出现在展厅" else "这一页会随展厅公开",
+                            style = ArchiveTextStyles.meta,
+                            color = colors.inkMuted
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(ArchiveShapes.full)
+                            .background(if (editIsPrivate) colors.inverseSurface else colors.archiveCard)
+                            .padding(horizontal = 12.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            text = if (editIsPrivate) "私密" else "公开",
+                            style = ArchiveTextStyles.meta,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (editIsPrivate) colors.inverseInk else colors.inkSecondary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // 配图管理
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "仅自己可见（私密）",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 13.sp,
-                        color = colors.inkPrimary
+                        text = stringResource(R.string.stream_dialogs_text_tpl_01, editAttachments.size),
+                        style = ArchiveTextStyles.overline,
+                        color = colors.inkMuted,
+                        modifier = Modifier.weight(1f)
                     )
-                    ArchiveSelectableCapsule(
-                        text = if (editIsPrivate) "已设为私密" else "随展厅公开",
-                        selected = editIsPrivate,
-                        onClick = { editIsPrivate = !editIsPrivate },
-                        leadingDotColor = if (editIsPrivate) colors.accentWarm else colors.inkMuted
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // 照片附件管理与增删
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = stringResource(R.string.stream_dialogs_text_tpl_01, editAttachments.size),
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = colors.inkPrimary
+                    if (isUploadingPhoto) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(13.dp),
+                            strokeWidth = 1.5.dp,
+                            color = colors.accentWarm,
+                            trackColor = colors.borderSubtle
                         )
-                        if (isUploadingPhoto) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(12.dp),
-                                    strokeWidth = 1.5.dp,
-                                    color = colors.accentWarm
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = stringResource(R.string.stream_dialogs_text_01),
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = 11.sp,
-                                    color = colors.accentSmallText
-                                )
-                            }
-                        } else {
-                            TextButton(
-                                onClick = {
-                                    photoPickerLauncher.launch(
-                                        androidx.activity.result.PickVisualMediaRequest(
-                                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
-                                        )
-                                    )
-                                },
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.stream_dialogs_text_01),
+                            style = ArchiveTextStyles.meta,
+                            color = colors.accentSmallText
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (att in editAttachments) {
+                        val fullUrl = apiClient.resolveMediaUrl(att.url)
+                        Box(
+                            modifier = Modifier
+                                .size(84.dp)
+                                .clip(ArchiveShapes.md)
+                                .background(colors.filmMatteBg)
+                        ) {
+                            AsyncImage(
+                                model = fullUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(4.dp)
+                                    .size(22.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.inverseSurface.copy(alpha = 0.78f))
+                                    .clickable(role = Role.Button) {
+                                        editAttachments = editAttachments.filter { it.id != att.id }
+                                    },
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = stringResource(R.string.stream_dialogs_text_02),
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontSize = 12.sp,
-                                    color = colors.accentSmallText
+                                Icon(
+                                    imageVector = FolioGlyphs.Close,
+                                    contentDescription = stringResource(R.string.stream_dialogs_contentDescription_01),
+                                    tint = colors.inverseInk,
+                                    modifier = Modifier.size(12.dp)
                                 )
                             }
                         }
                     }
-
-                    if (editAttachments.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
+                    if (!isUploadingPhoto && editAttachments.size < 9) {
+                        Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            for (att in editAttachments) {
-                                val fullUrl = apiClient.resolveMediaUrl(att.url)
-                                Box(
-                                    modifier = Modifier
-                                        .size(72.dp)
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
-                                ) {
-                                    AsyncImage(
-                                        model = fullUrl,
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.TopEnd)
-                                            .padding(2.dp)
-                                            .size(18.dp)
-                                            .clip(CircleShape)
-                                            .background(colors.inkPrimary.copy(alpha = 0.7f))
-                                            .clickable {
-                                                editAttachments = editAttachments.filter { it.id != att.id }
-                                            },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Close,
-                                            contentDescription = stringResource(R.string.stream_dialogs_contentDescription_01),
-                                            tint = colors.archivePaper,
-                                            modifier = Modifier.size(12.dp)
+                                .size(84.dp)
+                                .clip(ArchiveShapes.md)
+                                .background(colors.archiveSubtle)
+                                .border(ArchiveLines.hairline, colors.borderDivider, ArchiveShapes.md)
+                                .clickable(role = Role.Button) {
+                                    photoPickerLauncher.launch(
+                                        androidx.activity.result.PickVisualMediaRequest(
+                                            ActivityResultContracts.PickVisualMedia.ImageOnly
                                         )
-                                    }
-                                }
-                            }
+                                    )
+                                },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = FolioGlyphs.Plus,
+                                contentDescription = null,
+                                tint = colors.inkSecondary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = stringResource(R.string.stream_dialogs_text_02),
+                                style = ArchiveTextStyles.meta,
+                                color = colors.inkSecondary,
+                                maxLines = 1
+                            )
                         }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(28.dp))
+                ArchiveSecondaryButton(
+                    text = "删除这一页",
+                    isDestructive = true,
+                    onClick = onDelete
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            } else {
+                // ---------- 阅读态 ----------
+                val (tagLabel, tagTint) = if (entry.type == "wish") "心愿" to colors.tagWish else "日常" to colors.tagDaily
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = FormatUtils.formatDisplayDateTime(entry.occurredAt),
+                        style = ArchiveTextStyles.overline,
+                        color = colors.inkMuted,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (entry.isPrivate) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(ArchiveShapes.full)
+                                .background(colors.archiveSubtle)
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Icon(
+                                imageVector = FolioGlyphs.Lock,
+                                contentDescription = null,
+                                tint = colors.inkSecondary,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(text = "私密", style = ArchiveTextStyles.meta, color = colors.inkSecondary)
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(ArchiveShapes.full)
+                            .background(tagTint.copy(alpha = 0.12f))
+                            .padding(horizontal = 9.dp, vertical = 3.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(tagTint)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(text = tagLabel, style = ArchiveTextStyles.meta, fontWeight = FontWeight.Medium, color = tagTint)
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
-                ArchiveDivider()
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    ArchiveTextButton(
-                        text = "删除此手记",
-                        isDestructive = true,
-                        onClick = onDelete
-                    )
-                }
-            } else {
-                // 阅览模式
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
+
+                if (entry.title.isNotBlank()) {
                     Text(
-                        text = FormatUtils.formatDisplayDateTime(entry.occurredAt),
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 12.sp,
-                        color = colors.inkMuted
+                        text = entry.title,
+                        style = ArchiveTextStyles.pageTitle.copy(fontSize = 26.sp, lineHeight = 34.sp),
+                        color = colors.inkPrimary
                     )
-                    ArchiveTextButton(
-                        text = "删除",
-                        isDestructive = true,
-                        onClick = onDelete
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+                Box(
+                    modifier = Modifier
+                        .width(28.dp)
+                        .height(2.dp)
+                        .clip(ArchiveShapes.full)
+                        .background(colors.accentWarm)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                if (entry.content.isNotBlank() && entry.content != "无文字记录") {
+                    Text(
+                        text = entry.content,
+                        style = ArchiveTextStyles.essay.copy(fontSize = 16.sp, lineHeight = 29.sp),
+                        color = colors.inkPrimary.copy(alpha = 0.86f)
                     )
                 }
 
                 val detailPlace = entry.location?.trim().orEmpty()
                 if (detailPlace.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Outlined.LocationOn,
-                            contentDescription = null,
-                            tint = colors.accentWarm,
-                            modifier = Modifier.size(14.dp)
+                            imageVector = FolioGlyphs.Pin,
+                            contentDescription = "地点",
+                            tint = colors.inkMuted,
+                            modifier = Modifier.size(15.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = detailPlace,
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 12.sp,
+                            style = ArchiveTextStyles.meta,
                             color = colors.inkSecondary
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = entry.title,
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 20.sp,
-                    color = colors.inkPrimary
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                    text = entry.content,
-                    fontFamily = ArchiveFontFamilies.BodySans,
-                    fontSize = 15.sp,
-                    lineHeight = 24.sp,
-                    color = colors.inkSecondary
-                )
-
                 if (entry.attachments.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
                     EntryAttachmentsGrid(
                         attachments = entry.attachments,
                         apiClient = apiClient,
                         onPhotoClick = onPhotoClick
                     )
                 }
+
+                Spacer(modifier = Modifier.height(32.dp))
+                ArchiveSecondaryButton(
+                    text = "删除这一页",
+                    isDestructive = true,
+                    onClick = onDelete
+                )
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
 }
 
+@Composable
+private fun EditSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = ArchiveTextStyles.overline,
+        color = LooseLeafTheme.colors.inkMuted,
+        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+    )
+}
+
+/**
+ * 全局检索抽屉
+ *
+ * 顶部为凹槽搜索槽（放大镜 + 输入 + 清除 / 加载），结果按「散页」「心愿」分组，
+ * 每条左侧为类型方印，命中关键词以朱砂淡底高亮。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun GlobalSearchDialog(
     apiClient: APIClient,
     onDismiss: () -> Unit,
     onSelectEntry: (LifeEntry) -> Unit,
-    /**
-     * 足迹 / 心愿 / 造物结果跳转（RG-31）。
-     *
-     * 传 null 时退回旧行为（弹只读文本），保留给尚未接入路由的调用方。
-     */
-    onOpenTarget: ((String, Long) -> Unit)? = null
+    /** 命中心愿时跳转到心愿单；传 null 时展示只读摘要弹窗。 */
+    onOpenWish: ((Long) -> Unit)? = null
 ) {
     val colors = LooseLeafTheme.colors
     var searchQuery by remember { mutableStateOf("") }
@@ -437,9 +540,6 @@ internal fun GlobalSearchDialog(
     var searchJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val scope = rememberCoroutineScope()
 
-    // MOB-P2-43：原先用的是 Material3 原生 AlertDialog ——
-    // 圆角、字体、按钮排布与全站纸墨弹窗家族完全不同，深色模式下还会带上 M3 默认紫调。
-    // 这里统一迁移到自研 ArchiveConfirmDialog（只保留一个「合上」动作）。
     viewingDetail?.let { (title, content) ->
         ArchiveConfirmDialog(
             title = title,
@@ -460,207 +560,212 @@ internal fun GlobalSearchDialog(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .padding(horizontal = 20.dp, vertical = 14.dp)
         ) {
-            // 便签纸条搜索栏 (Sticky Memo Note Search Bar)
-            Surface(
-                shape = RoundedCornerShape(4.dp),
-                color = colors.archivePaper,
-                border = BorderStroke(1.dp, colors.borderSubtle),
-                shadowElevation = ArchiveShadows.stickerElevation,
-                modifier = Modifier.fillMaxWidth()
+            // 搜索槽
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(ArchiveShapes.full)
+                    .background(colors.archiveSubtle)
+                    .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        // 便签上沿和纸胶带装饰痕迹
+                Icon(
+                    imageVector = FolioGlyphs.Search,
+                    contentDescription = null,
+                    tint = colors.inkMuted,
+                    modifier = Modifier.size(19.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                BasicTextField(
+                    value = searchQuery,
+                    onValueChange = { q ->
+                        searchQuery = q
+                        searchJob?.cancel()
+                        if (q.trim().length >= 2) {
+                            searchJob = scope.launch {
+                                kotlinx.coroutines.delay(280)
+                                isSearching = true
+                                runCatching {
+                                    searchResult = apiClient.searchGlobalArchive(q)
+                                }
+                                isSearching = false
+                            }
+                        } else {
+                            searchResult = null
+                            isSearching = false
+                        }
+                    },
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        fontFamily = ArchiveFontFamilies.Text,
+                        fontSize = 15.sp,
+                        color = colors.inkPrimary
+                    ),
+                    cursorBrush = SolidColor(colors.accentWarm),
+                    decorationBox = { innerTextField ->
+                        Box(modifier = Modifier.padding(vertical = 8.dp)) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = stringResource(R.string.stream_dialogs_placeholder_03),
+                                    style = ArchiveTextStyles.body,
+                                    color = colors.inkMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier.size(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isSearching) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = colors.accentWarm,
+                            trackColor = colors.borderSubtle
+                        )
+                    } else if (searchQuery.isNotEmpty()) {
                         Box(
                             modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .width(46.dp)
-                                .height(4.dp)
-                                .clip(RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 2.dp))
-                                .background(colors.accentWarm.copy(alpha = 0.35f))
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .background(colors.inkMuted.copy(alpha = 0.18f))
+                                .clickable(role = Role.Button) {
+                                    searchQuery = ""
+                                    searchResult = null
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.Search,
-                                contentDescription = null,
-                                tint = colors.inkMuted,
-                                modifier = Modifier.size(18.dp)
+                                imageVector = FolioGlyphs.Close,
+                                contentDescription = "清除",
+                                tint = colors.inkSecondary,
+                                modifier = Modifier.size(13.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            BasicTextField(
-                                value = searchQuery,
-                                onValueChange = { q ->
-                                    searchQuery = q
-                                    searchJob?.cancel()
-                                    if (q.trim().length >= 2) {
-                                        searchJob = scope.launch {
-                                            kotlinx.coroutines.delay(280)
-                                            isSearching = true
-                                            runCatching {
-                                                searchResult = apiClient.searchGlobalArchive(q)
-                                            }
-                                            isSearching = false
-                                        }
-                                    } else {
-                                        searchResult = null
-                                        isSearching = false
-                                    }
-                                },
-                                singleLine = true,
-                                textStyle = TextStyle(
-                                    fontFamily = ArchiveFontFamilies.BodySans,
-                                    fontSize = 14.sp,
-                                    color = colors.inkPrimary
-                                ),
-                                cursorBrush = SolidColor(colors.accentWarm),
-                                decorationBox = { innerTextField ->
-                                    if (searchQuery.isEmpty()) {
-                                        Text(
-                                            text = stringResource(R.string.stream_dialogs_placeholder_03),
-                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                            fontSize = 13.sp,
-                                            color = colors.inkMuted
-                                        )
-                                    }
-                                    innerTextField()
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-                            Box(
-                                modifier = Modifier.size(20.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isSearching) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp,
-                                        color = colors.accentWarm
-                                    )
-                                } else if (searchQuery.isNotEmpty()) {
-                                    IconButton(
-                                        onClick = {
-                                            searchQuery = ""
-                                            searchResult = null
-                                        },
-                                        modifier = Modifier.size(20.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Close,
-                                            contentDescription = "清除",
-                                            tint = colors.inkMuted,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    }
-                                }
-                            }
                         }
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-                val res = searchResult
-                if (res == null || (res.entries.isEmpty() && res.wishes.isEmpty())) {
+            val res = searchResult
+            if (res == null || (res.entries.isEmpty() && res.wishes.isEmpty())) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 260.dp, max = 380.dp)
+                ) {
                     Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 380.dp)
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(colors.archiveSubtle),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (searchQuery.isBlank()) "输入关键词检索所有归册记忆" else "未找到匹配的生活碎片",
-                            fontSize = 12.sp,
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            color = colors.inkMuted
+                        Icon(
+                            imageVector = FolioGlyphs.Search,
+                            contentDescription = null,
+                            tint = colors.inkMuted,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp, max = 460.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        if (res.entries.isNotEmpty()) {
-                            item {
-                                Text(stringResource(R.string.stream_dialogs_entries_count, res.entries.size), fontSize = 11.sp, color = colors.inkMuted)
-                            }
-                            items(res.entries, key = { "e_${it.id}" }) { entry ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(colors.archiveSubtle)
-                                        .clickable {
-                                            onSelectEntry(entry)
-                                            onDismiss()
-                                        }
-                                        .padding(8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        SearchHighlightText(
-                                            text = entry.title.ifBlank { stringResource(R.string.stream_dialogs_untitled) },
-                                            query = searchQuery,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = colors.inkPrimary
-                                        )
-                                        if (entry.content.isNotBlank()) {
-                                            SearchHighlightText(
-                                                text = entry.content,
-                                                query = searchQuery,
-                                                fontSize = 11.sp,
-                                                color = colors.inkSecondary,
-                                                maxLines = 1
-                                            )
-                                        }
-                                    }
-                                    Text(FormatUtils.formatDisplayDate(entry.occurredAt), fontSize = 11.sp, color = colors.inkMuted)
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = if (searchQuery.isBlank()) "检索所有归册的记忆" else "没有找到匹配的生活碎片",
+                        style = ArchiveTextStyles.essayTitle.copy(fontSize = 16.sp, lineHeight = 22.sp),
+                        color = colors.inkPrimary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (searchQuery.isBlank()) "输入至少两个字，标题、正文与心愿都会被搜到" else "换个关键词，或少输几个字试试",
+                        style = ArchiveTextStyles.meta,
+                        color = colors.inkMuted
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 260.dp, max = 480.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (res.entries.isNotEmpty()) {
+                        item {
+                            SearchGroupLabel(stringResource(R.string.stream_dialogs_entries_count, res.entries.size))
+                        }
+                        items(res.entries, key = { "e_${it.id}" }) { entry ->
+                            SearchResultRow(
+                                badge = if (entry.type == "wish") "愿" else "页",
+                                badgeTint = if (entry.type == "wish") colors.tagWish else colors.tagDaily,
+                                onClick = {
+                                    onSelectEntry(entry)
+                                    onDismiss()
+                                },
+                                trailing = FormatUtils.formatDisplayDate(entry.occurredAt)
+                            ) {
+                                SearchHighlightText(
+                                    text = entry.title.ifBlank { stringResource(R.string.stream_dialogs_untitled) },
+                                    query = searchQuery,
+                                    fontSize = 15.sp,
+                                    fontFamily = ArchiveFontFamilies.Reading,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.inkPrimary,
+                                    maxLines = 1
+                                )
+                                if (entry.content.isNotBlank()) {
+                                    SearchHighlightText(
+                                        text = entry.content,
+                                        query = searchQuery,
+                                        fontSize = 12.sp,
+                                        color = colors.inkSecondary,
+                                        maxLines = 1
+                                    )
                                 }
                             }
                         }
+                    }
 
-                        if (res.wishes.isNotEmpty()) {
-                            item {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(stringResource(R.string.stream_dialogs_wishes_count, res.wishes.size), fontSize = 11.sp, color = colors.inkMuted)
-                            }
-                            items(res.wishes, key = { "w_${it.id}" }) { wish ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(colors.archiveSubtle)
-                                        .clickable {
-                                            if (onOpenTarget != null) {
-                                                onOpenTarget("wish", wish.id)
-                                            } else {
-                                                viewingDetail = "心愿清单 · ${wish.title}" to listOfNotNull(
-                                                    "心愿类别: ${if (wish.kind == "travel") "旅程" else if (wish.kind == "milestone") "里程碑" else "好物"}",
-                                                    if (wish.budget > 0) "意向预算: ${FormatUtils.centsToYuanString(wish.budget)}" else null,
-                                                    wish.note?.takeIf { it.isNotBlank() }?.let { "手记备忘: $it" }
-                                                ).joinToString("\n\n")
-                                            }
-                                        }
-                                        .padding(8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    SearchHighlightText(
-                                        text = wish.title,
-                                        query = searchQuery,
-                                        fontSize = 12.sp,
-                                        color = colors.inkPrimary
-                                    )
-                                    if (wish.budget > 0) {
-                                        Text(FormatUtils.centsToYuanString(wish.budget), fontSize = 11.sp, color = colors.accentSmallText)
+                    if (res.wishes.isNotEmpty()) {
+                        item {
+                            SearchGroupLabel(stringResource(R.string.stream_dialogs_wishes_count, res.wishes.size))
+                        }
+                        items(res.wishes, key = { "w_${it.id}" }) { wish ->
+                            SearchResultRow(
+                                badge = "愿",
+                                badgeTint = colors.tagWish,
+                                onClick = {
+                                    if (onOpenWish != null) {
+                                        onOpenWish(wish.id)
+                                    } else {
+                                        viewingDetail = "心愿清单 · ${wish.title}" to listOfNotNull(
+                                            "心愿类别: ${if (wish.kind == "travel") "旅程" else if (wish.kind == "milestone") "里程碑" else "好物"}",
+                                            if (wish.budget > 0) "意向预算: ${FormatUtils.centsToYuanString(wish.budget)}" else null,
+                                            wish.note?.takeIf { it.isNotBlank() }?.let { "手记备忘: $it" }
+                                        ).joinToString("\n\n")
                                     }
-                                }
+                                },
+                                trailing = if (wish.budget > 0) FormatUtils.centsToYuanString(wish.budget) else null,
+                                trailingTint = colors.tagWish
+                            ) {
+                                SearchHighlightText(
+                                    text = wish.title,
+                                    query = searchQuery,
+                                    fontSize = 15.sp,
+                                    fontFamily = ArchiveFontFamilies.Reading,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.inkPrimary,
+                                    maxLines = 1
+                                )
                             }
                         }
                     }
@@ -668,9 +773,70 @@ internal fun GlobalSearchDialog(
             }
         }
     }
+}
+
+@Composable
+private fun SearchGroupLabel(text: String) {
+    Text(
+        text = text,
+        style = ArchiveTextStyles.overline,
+        color = LooseLeafTheme.colors.inkMuted,
+        modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp)
+    )
+}
+
+@Composable
+private fun SearchResultRow(
+    badge: String,
+    badgeTint: Color,
+    onClick: () -> Unit,
+    trailing: String?,
+    trailingTint: Color? = null,
+    content: @Composable () -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(ArchiveShapes.md)
+            .background(colors.archiveCard)
+            .border(ArchiveLines.hairline, colors.borderCard, ArchiveShapes.md)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(ArchiveShapes.sm)
+                .background(badgeTint.copy(alpha = 0.13f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = badge,
+                fontFamily = ArchiveFontFamilies.Display,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                color = badgeTint
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            content()
+        }
+        if (!trailing.isNullOrBlank()) {
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = trailing,
+                style = ArchiveTextStyles.meta,
+                color = trailingTint ?: colors.inkMuted
+            )
+        }
+    }
+}
 
 /**
- * 搜索关键词高亮文本：赤陶色下划线笔痕，绝无刺眼色块底色
+ * 搜索关键词高亮：命中片段为朱砂字 + 朱砂淡底
  */
 @Composable
 private fun SearchHighlightText(
@@ -685,7 +851,9 @@ private fun SearchHighlightText(
 ) {
     val colors = LooseLeafTheme.colors
     val trimmed = query.trim()
-    val annotated = remember(text, trimmed, colors.accentWarm) {
+    val highlightFg = colors.accentSmallText
+    val highlightBg = colors.accentTint
+    val annotated = remember(text, trimmed, highlightFg, highlightBg) {
         buildAnnotatedString {
             if (trimmed.isEmpty()) {
                 append(text)
@@ -703,8 +871,8 @@ private fun SearchHighlightText(
                     val matchEnd = index + trimmed.length
                     pushStyle(
                         SpanStyle(
-                            color = colors.accentWarm,
-                            textDecoration = TextDecoration.Underline,
+                            color = highlightFg,
+                            background = highlightBg,
                             fontWeight = FontWeight.SemiBold
                         )
                     )
@@ -720,7 +888,7 @@ private fun SearchHighlightText(
         text = annotated,
         fontSize = fontSize,
         color = color,
-        fontFamily = fontFamily,
+        fontFamily = fontFamily ?: ArchiveFontFamilies.Text,
         fontWeight = fontWeight,
         maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,

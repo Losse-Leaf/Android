@@ -16,8 +16,11 @@ import com.looseleaf.core.R
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import com.looseleaf.app.theme.ArchiveTextStyles
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -44,7 +47,7 @@ import kotlinx.coroutines.launch
  * 散页纸墨风日期选择器 (ArchiveDatePickerSheet)
  * 采用温润纸色居中弹窗形态（无投影，4dp 微圆角，极细发丝沉墨边），
  * 彻底避免在底部抽屉表单中唤起时出现「底抽叠底抽」的层级冲突。
- * - 顶部显示 "2026 年 10 月 ▾"，点击平滑切换为 4×3 月份网格
+ * - 顶部显示「2026 年 10 月」与下拉箭头，点击平滑切换为 4×3 月份网格
  * - 纸色月历网格，周一为起始，固定中文星期（"一" ~ "日"）
  * - 选中日使用赤陶实心小圆与反白字，今天使用次要色细圈
  * - 底栏：左侧取消、右侧确定文字按钮
@@ -79,10 +82,15 @@ fun ArchiveDatePickerSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 360.dp)
-                    .clip(ArchiveShapes.radiusSmall)
-                    .background(colors.archivePaper)
-                    .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.radiusSmall)
-                    .padding(horizontal = 20.dp, vertical = 18.dp)
+                    .shadow(
+                        elevation = com.looseleaf.app.theme.ArchiveShadows.dialogElevation,
+                        shape = ArchiveShapes.lg,
+                        spotColor = colors.frameShadowSpot,
+                        ambientColor = colors.frameShadowAmbient
+                    )
+                    .clip(ArchiveShapes.lg)
+                    .background(colors.surfaceRaised)
+                    .padding(horizontal = 18.dp, vertical = 18.dp)
             ) {
                 // 顶栏：月份切换头与左右切月
                 Row(
@@ -115,11 +123,18 @@ fun ArchiveDatePickerSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (isMonthPickerMode) "${currentYearMonth.year} 年" else "${currentYearMonth.year} 年 ${currentYearMonth.monthValue} 月 ▾",
+                            text = if (isMonthPickerMode) "${currentYearMonth.year} 年" else "${currentYearMonth.year} 年 ${currentYearMonth.monthValue} 月",
                             fontFamily = ArchiveFontFamilies.EditorialSerif,
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp,
                             color = colors.inkPrimary
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = if (isMonthPickerMode) FolioGlyphs.ChevronUp else FolioGlyphs.ChevronDown,
+                            contentDescription = null,
+                            tint = colors.inkSecondary,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
 
@@ -240,7 +255,7 @@ fun ArchiveDatePickerSheet(
                                                 .then(
                                                     when {
                                                         isSelected -> Modifier.background(colors.accentWarm)
-                                                        isToday -> Modifier.border(ArchiveLines.hairline, colors.inkSecondary, CircleShape)
+                                                        isToday -> Modifier.background(colors.accentTint)
                                                         else -> Modifier
                                                     }
                                                 )
@@ -250,11 +265,11 @@ fun ArchiveDatePickerSheet(
                                         ) {
                                             Text(
                                                 text = dayNum.toString(),
-                                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                fontSize = 13.sp,
+                                                fontFamily = ArchiveFontFamilies.Numeric,
+                                                fontWeight = if (isSelected || isToday) FontWeight.SemiBold else FontWeight.Normal,
+                                                fontSize = 14.sp,
                                                 color = when {
-                                                    isSelected -> colors.archivePaper
+                                                    isSelected -> colors.onAccent
                                                     isToday -> colors.accentSmallText
                                                     else -> colors.inkPrimary
                                                 }
@@ -285,9 +300,8 @@ fun ArchiveDatePickerSheet(
                         onClick = onDismissRequest
                     )
 
-                    ArchiveTextButton(
+                    ArchiveSheetActionButton(
                         text = "确定",
-                        textColor = colors.accentWarm,
                         onClick = {
                             onDateSelected(tempDate)
                             onDismissRequest()
@@ -363,9 +377,14 @@ fun ArchiveTimePickerSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 340.dp)
-                    .clip(ArchiveShapes.radiusSmall)
-                    .background(colors.archivePaper)
-                    .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.radiusSmall)
+                    .shadow(
+                        elevation = com.looseleaf.app.theme.ArchiveShadows.dialogElevation,
+                        shape = ArchiveShapes.lg,
+                        spotColor = colors.frameShadowSpot,
+                        ambientColor = colors.frameShadowAmbient
+                    )
+                    .clip(ArchiveShapes.lg)
+                    .background(colors.surfaceRaised)
                     .padding(horizontal = 24.dp, vertical = 20.dp)
             ) {
                 // 顶栏：标题与"现在"
@@ -526,8 +545,8 @@ fun ArchiveTimePickerSheet(
 }
 
 /**
- * 散页底线式日期与时间拆分输入行 (ArchiveDateTimeSplitRow)
- * 规则：顶部衬线标签、两个无框底线式子字段（日期 / 时间），点击分别唤起 ArchiveDatePickerSheet 与 ArchiveTimePickerSheet
+ * 日期 + 时间拆分行 (ArchiveDateTimeSplitRow)
+ * 上方可选标签；下方两枚凹槽输入槽（日期 / 时间），点击分别唤起日期、时间选择器。
  */
 @Composable
 fun ArchiveDateTimeSplitRow(
@@ -536,7 +555,6 @@ fun ArchiveDateTimeSplitRow(
     label: String? = null,
     modifier: Modifier = Modifier
 ) {
-    val colors = LooseLeafTheme.colors
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
 
@@ -548,78 +566,28 @@ fun ArchiveDateTimeSplitRow(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        if (!label.isNullOrBlank()) {
-            Text(
-                text = label,
-                fontSize = 12.sp,
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                color = colors.inkSecondary
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-        }
-
+        PickerLabel(label)
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 日期字段
-            Column(
-                modifier = Modifier
-                    .weight(1.3f)
-                    .clickable { showDatePicker = true }
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = dateStr,
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 14.sp,
-                        color = colors.inkPrimary
-                    )
-                    Text(
-                        text = "▾",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 12.sp,
-                        color = colors.inkSecondary
-                    )
-                }
-                ArchiveDivider()
-            }
-
-            // 时间字段
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { showTimePicker = true }
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = timeStr,
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 14.sp,
-                        color = colors.inkPrimary
-                    )
-                    Text(
-                        text = "▾",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 12.sp,
-                        color = colors.inkSecondary
-                    )
-                }
-                ArchiveDivider()
-            }
+            PickerSlot(
+                value = dateStr,
+                isPlaceholder = false,
+                numeric = true,
+                trailingGlyph = FolioGlyphs.ChevronDown,
+                onClick = { showDatePicker = true },
+                modifier = Modifier.weight(1.35f)
+            )
+            PickerSlot(
+                value = timeStr,
+                isPlaceholder = false,
+                numeric = true,
+                trailingGlyph = FolioGlyphs.Clock,
+                onClick = { showTimePicker = true },
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 
@@ -645,8 +613,8 @@ fun ArchiveDateTimeSplitRow(
 }
 
 /**
- * 散页底线式单日期选择字段 (ArchiveDatePickerField)
- * 支持可选清除回调 onClear（如「期许达成日期：未设置」）
+ * 单日期选择字段 (ArchiveDatePickerField)
+ * 凹槽输入槽；有值且提供 onClear 时右侧出现圆形清除按钮。
  */
 @Composable
 fun ArchiveDatePickerField(
@@ -661,55 +629,33 @@ fun ArchiveDatePickerField(
     var showSheet by remember { mutableStateOf(false) }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        if (!label.isNullOrBlank()) {
-            Text(
-                text = label,
-                fontSize = 12.sp,
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                color = colors.inkSecondary
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showSheet = true }
-                .padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = selectedDate?.let { String.format(Locale.US, "%04d-%02d-%02d", it.year, it.monthValue, it.dayOfMonth) } ?: placeholder,
-                fontFamily = if (selectedDate != null) ArchiveFontFamilies.MonoScale else ArchiveFontFamilies.EditorialSerif,
-                fontSize = 14.sp,
-                color = if (selectedDate != null) colors.inkPrimary else colors.inkMuted
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (selectedDate != null && onClear != null) {
-                    Text(
-                        text = "清除",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 12.sp,
-                        color = colors.inkMuted,
+        PickerLabel(label)
+        PickerSlot(
+            value = selectedDate?.let { String.format(Locale.US, "%04d-%02d-%02d", it.year, it.monthValue, it.dayOfMonth) } ?: placeholder,
+            isPlaceholder = selectedDate == null,
+            numeric = selectedDate != null,
+            trailingGlyph = FolioGlyphs.ChevronDown,
+            onClick = { showSheet = true },
+            extraTrailing = if (selectedDate != null && onClear != null) {
+                {
+                    Box(
                         modifier = Modifier
-                            .clip(ArchiveShapes.small)
-                            .clickable(onClick = onClear)
-                            .padding(horizontal = 4.dp, vertical = 2.dp)
-                    )
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(colors.inkMuted.copy(alpha = 0.16f))
+                            .clickable(role = Role.Button, onClick = onClear),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = FolioGlyphs.Close,
+                            contentDescription = "清除",
+                            tint = colors.inkSecondary,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
                 }
-                Text(
-                    text = "▾",
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 12.sp,
-                    color = colors.inkSecondary
-                )
-            }
-        }
-        ArchiveDivider()
+            } else null
+        )
     }
 
     if (showSheet) {
@@ -722,8 +668,8 @@ fun ArchiveDatePickerField(
 }
 
 /**
- * 散页底线式通用单选字段 (ArchiveSelectField)
- * 顶部衬线标签 + 值 + ▾ + 底部 1dp 淡线，点击唤起统一 ArchiveDialog 选项列表
+ * 通用单选字段 (ArchiveSelectField)
+ * 凹槽输入槽 + 下拉箭头，点击唤起统一 ArchiveDialog 选项列表；选中项为朱砂淡底行 + 对勾。
  */
 @Composable
 fun <T> ArchiveSelectField(
@@ -741,38 +687,14 @@ fun <T> ArchiveSelectField(
     val hasValue = selectedValue != null && !selectedLabel.isNullOrBlank()
 
     Column(modifier = modifier.fillMaxWidth()) {
-        if (!label.isNullOrBlank()) {
-            Text(
-                text = label,
-                fontSize = 12.sp,
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                color = colors.inkSecondary
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showDialog = true }
-                .padding(vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = selectedLabel ?: placeholder,
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = 14.sp,
-                color = if (hasValue) colors.inkPrimary else colors.inkMuted
-            )
-            Text(
-                text = "▾",
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = 12.sp,
-                color = colors.inkSecondary
-            )
-        }
-        ArchiveDivider()
+        PickerLabel(label)
+        PickerSlot(
+            value = selectedLabel ?: placeholder,
+            isPlaceholder = !hasValue,
+            numeric = false,
+            trailingGlyph = FolioGlyphs.ChevronDown,
+            onClick = { showDialog = true }
+        )
     }
 
     if (showDialog) {
@@ -784,10 +706,9 @@ fun <T> ArchiveSelectField(
             ) {
                 Text(
                     text = dialogTitle,
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.inkPrimary
+                    style = ArchiveTextStyles.sheetTitle,
+                    color = colors.inkPrimary,
+                    modifier = Modifier.weight(1f)
                 )
                 ArchiveTextButton(
                     text = "关闭",
@@ -799,42 +720,98 @@ fun <T> ArchiveSelectField(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 320.dp)
+                    .heightIn(max = 340.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 items(options) { (optVal, optLabel) ->
                     val isSelected = optVal == selectedValue
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clip(ArchiveShapes.md)
+                            .background(if (isSelected) colors.accentTint else Color.Transparent)
                             .clickable {
                                 onValueSelected(optVal)
                                 showDialog = false
                             }
-                            .padding(vertical = 12.dp, horizontal = 4.dp),
+                            .padding(vertical = 13.dp, horizontal = 14.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = optLabel,
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 14.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            style = ArchiveTextStyles.body,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                             color = if (isSelected) colors.accentSmallText else colors.inkPrimary
                         )
                         if (isSelected) {
-                            Text(
-                                text = "✓",
-                                fontFamily = ArchiveFontFamilies.MonoScale,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.accentSmallText
+                            Icon(
+                                imageVector = FolioGlyphs.Check,
+                                contentDescription = "已选",
+                                tint = colors.accentSmallText,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
-                    ArchiveDivider()
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PickerLabel(label: String?) {
+    if (label.isNullOrBlank()) return
+    Text(
+        text = label,
+        style = ArchiveTextStyles.meta,
+        fontWeight = FontWeight.Medium,
+        color = LooseLeafTheme.colors.inkSecondary,
+        modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
+    )
+}
+
+/**
+ * 选择器触发槽：与 ArchiveField 同一套凹槽外观（熟宣底、14dp 圆角、50dp 高）。
+ */
+@Composable
+private fun PickerSlot(
+    value: String,
+    isPlaceholder: Boolean,
+    numeric: Boolean,
+    trailingGlyph: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    extraTrailing: (@Composable () -> Unit)? = null
+) {
+    val colors = LooseLeafTheme.colors
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 50.dp)
+            .clip(ArchiveShapes.field)
+            .background(colors.archiveSubtle)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = value,
+            style = if (numeric) ArchiveTextStyles.amount.copy(fontSize = 15.sp, fontWeight = FontWeight.Medium) else ArchiveTextStyles.body.copy(fontSize = 15.sp),
+            color = if (isPlaceholder) colors.inkMuted else colors.inkPrimary,
+            maxLines = 1,
+            modifier = Modifier.weight(1f)
+        )
+        if (extraTrailing != null) {
+            extraTrailing()
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        Icon(
+            imageVector = trailingGlyph,
+            contentDescription = null,
+            tint = colors.inkMuted,
+            modifier = Modifier.size(17.dp)
+        )
     }
 }
 
@@ -857,8 +834,10 @@ fun ArchiveMonthPickerSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
         containerColor = colors.archivePaper,
+        scrimColor = colors.scrim,
         shape = ArchiveShapes.sheetTop,
         tonalElevation = 0.dp,
+        dragHandle = { ArchiveSheetGrip(modifier = Modifier.padding(bottom = 8.dp)) },
         contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
     ) {
         Column(
@@ -883,9 +862,7 @@ fun ArchiveMonthPickerSheet(
                 }
                 Text(
                     text = "${currentYear} 年",
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = ArchiveTypeScale.h2,
+                    style = ArchiveTextStyles.pageTitle.copy(fontSize = 24.sp, lineHeight = 30.sp),
                     color = colors.inkPrimary
                 )
                 IconButton(onClick = { currentYear++ }) {
@@ -909,36 +886,37 @@ fun ArchiveMonthPickerSheet(
                 ) {
                     for (m in row) {
                         val isSelected = currentYear == selectedYearMonth.year && m == selectedYearMonth.monthValue
+                        val nowYm = YearMonth.now(FormatUtils.BeijingZone)
+                        val isCurrent = currentYear == nowYm.year && m == nowYm.monthValue
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
                                 .weight(1f)
-                                .height(48.dp)
-                                .clip(ArchiveShapes.small)
+                                .height(52.dp)
+                                .clip(ArchiveShapes.md)
+                                .background(
+                                    when {
+                                        isSelected -> colors.inverseSurface
+                                        isCurrent -> colors.accentTint
+                                        else -> colors.archiveSubtle
+                                    }
+                                )
                                 .clickable {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     onYearMonthSelected(YearMonth.of(currentYear, m))
                                     onDismissRequest()
                                 }
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = "${m}月",
-                                    fontFamily = if (isSelected) ArchiveFontFamilies.EditorialSerif else ArchiveFontFamilies.MonoScale,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = ArchiveTypeScale.body,
-                                    color = if (isSelected) colors.accentWarm else colors.inkPrimary
-                                )
-                                if (isSelected) {
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .width(16.dp)
-                                            .height(2.dp)
-                                            .background(colors.accentWarm)
-                                    )
+                            Text(
+                                text = "${m}月",
+                                style = ArchiveTextStyles.label,
+                                fontWeight = if (isSelected || isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                                color = when {
+                                    isSelected -> colors.inverseInk
+                                    isCurrent -> colors.accentSmallText
+                                    else -> colors.inkPrimary
                                 }
-                            }
+                            )
                         }
                     }
                 }

@@ -132,15 +132,15 @@ private const val STREAM_PAGE_SIZE = 60
 /** 热力图单元格步长（dp） */
 
 /**
- * 生活时间流主展厅 (StreamScreen) - docs/mobile.md §3 & docs/ecosystem.md §4.1
- * 承载生命之流母体记录，支持相纸画廊、那年今日回响、年度生活年鉴、详情查阅与行内修订、岁月留白切线
+ * 生活时间流主界面 (StreamScreen)
+ * 承载散页随笔与相片记录，支持那年今日回响、多维筛选、全局搜索、详情查阅与行内修订。
  */
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun StreamScreen(
     modifier: Modifier = Modifier,
-    /** 搜索结果跳转到心愿单：kind = wish，id 为服务端主键 */
-    onOpenWorkshopTarget: ((String, Long) -> Unit)? = null,
+    /** 搜索结果跳转到心愿单（参数为心愿服务端主键） */
+    onOpenWishTarget: ((Long) -> Unit)? = null,
     /** 外部指定初始内容筛选 */
     initialContentFilter: Set<String>? = null,
     onContentFilterConsumed: (() -> Unit)? = null,
@@ -264,21 +264,7 @@ fun StreamScreen(
         }
     }
 
-    // 进入时间流时向云端增量拉一次。
-    //
-    // MOB-P1-37 把「一次拉五类数据」拆成「各页只拉自己渲染的那一类」时，
-    // 漏掉了这一处 —— 旧版的 pullRemoteData() 会顺带把时间流也填上，
-    // 拆分后账本页只拉账本、造物页只拉造物，**时间流就成了唯一没人拉的那一类**。
-    // 后果：本地库为空时，时间流既不显示数据、也不会去云端取，
-    // 首屏永远停在「正在翻阅你的时间流…」（firstSyncCompleted 只在成功拉取后才置位）。
-    //
-    // 与其它页面保持一致：进入即增量拉一次（游标推进后几乎不产生流量）。
-    // MOB-P1-xx：拉取失败**必须留痕**。
-    //
-    // 原来这里写的是 runCatching { pullStreamData() } —— 而 pullStreamData 返回的是
-    // Result（失败不抛异常），于是 runCatching 什么也没抓到，失败被**整个吞掉**：
-    // 首屏既不显示数据、也不显示原因，只有 forever 转圈（firstSyncCompleted 永不置位）。
-    // 用户看到的只有「一直转圈」，完全无从判断是没配对、还是服务器挂了、还是网络断了。
+    // 进入时间流时向云端增量拉取一次（游标推进后流量极低），失败时在首屏展示错误原因与重试入口。
     var streamLoadError by remember { mutableStateOf<String?>(null) }
     var isRetryingStream by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
@@ -532,28 +518,26 @@ fun StreamScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(colors.accentSmallText.copy(alpha = 0.08f))
-                        .border(0.5.dp, colors.accentSmallText, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clip(com.looseleaf.app.theme.ArchiveShapes.lg)
+                        .background(colors.archiveCard)
+                        .border(1.dp, colors.borderCard, com.looseleaf.app.theme.ArchiveShapes.lg)
                         .clickable { showCloudUpdateDialog = true }
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(start = 16.dp, end = 10.dp, top = 12.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = stringResource(R.string.stream_screen_text_tpl_03, update.tagName, UpdateChecker.currentVersionName),
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 12.sp,
-                            color = colors.accentSmallText
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                            color = colors.inkPrimary
                         )
                         if (updateController.isDownloading) {
                             Spacer(modifier = Modifier.height(4.dp))
                             LinearProgressIndicator(
                                 progress = { updateController.downloadProgress },
-                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).height(4.dp).clip(com.looseleaf.app.theme.ArchiveShapes.full),
                                 color = colors.accentSmallText,
                                 trackColor = colors.accentSmallText.copy(alpha = 0.2f)
                             )
@@ -583,11 +567,12 @@ fun StreamScreen(
                     if (updateController.downloadedFile != null) {
                         Button(
                             onClick = updateController.installDownloaded,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                            shape = RoundedCornerShape(2.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                            shape = com.looseleaf.app.theme.ArchiveShapes.full,
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.onAccent)
                         ) {
-                            Text(stringResource(R.string.stream_screen_install_now), fontSize = 12.sp, fontFamily = ArchiveFontFamilies.EditorialSerif)
+                            Text(stringResource(R.string.stream_screen_install_now), style = com.looseleaf.app.theme.ArchiveTextStyles.label)
                         }
                     } else if (updateController.isDownloading) {
                         Text(
@@ -600,11 +585,12 @@ fun StreamScreen(
                     } else {
                         Button(
                             onClick = updateController.startDownloadAndInstall,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                            shape = RoundedCornerShape(2.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.archivePaper)
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                            shape = com.looseleaf.app.theme.ArchiveShapes.full,
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = colors.accentWarm, contentColor = colors.onAccent)
                         ) {
-                            Text(stringResource(R.string.stream_screen_in_app_update), fontSize = 12.sp, fontFamily = ArchiveFontFamilies.EditorialSerif)
+                            Text(stringResource(R.string.stream_screen_in_app_update), style = com.looseleaf.app.theme.ArchiveTextStyles.label)
                         }
                     }
                 }
@@ -730,55 +716,68 @@ fun StreamScreen(
                                 .weight(1f)
                                 .fillMaxHeight()
                                 .padding(horizontal = 16.dp),
-                            // 封面区下方直接接列表，间距 16dp；底部留白覆盖底栏与 FAB，彻底防遮挡
-                            contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp)
+                            // 刊头下方直接接列表；底部留白让出朱砂印 FAB，防遮挡
+                            contentPadding = PaddingValues(top = 6.dp, bottom = 112.dp)
                         ) {
-                            // 4. 生效状态提示：有任意筛选生效时，列表顶部显示一行摘要
-                            // "日常 · 游历 · 2026 年 10 月 · 有图"，右侧文字按钮"清除"；点击摘要重新打开面板
-                            // 无筛选时这一行完全不存在，不占高度；不使用 chip、边框、底色
+                            // 生效状态提示：有任意筛选生效时，列表顶部显示一行摘要
+                            // 如 "日常 · 2026 年 10 月 · 有图"，右侧文字按钮"清除"；点击摘要重新打开面板
                             if (filterCriteria.isActive) {
                                 item(key = "stream_active_filter_summary") {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(bottom = 12.dp),
+                                            .padding(top = 4.dp, bottom = 10.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Text(
-                                            text = filterCriteria.buildSummaryText(),
-                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                            fontSize = 12.sp,
-                                            color = colors.inkMuted,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
+                                        Row(
                                             modifier = Modifier
-                                                .weight(1f)
-                                                .clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null
-                                                ) {
-                                                    showFilterSheet = true
-                                                }
-                                                .padding(vertical = 4.dp)
-                                        )
+                                                .weight(1f, fill = false)
+                                                .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                                                .background(colors.archiveSubtle)
+                                                .clickable { showFilterSheet = true }
+                                                .padding(start = 12.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = FolioGlyphs.Filter,
+                                                contentDescription = null,
+                                                tint = colors.accentSmallText,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = filterCriteria.buildSummaryText(),
+                                                style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                                                fontWeight = FontWeight.Medium,
+                                                color = colors.inkPrimary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
 
                                         Spacer(modifier = Modifier.width(8.dp))
 
-                                        Text(
-                                            text = "清除",
-                                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                            fontSize = 12.sp,
-                                            color = colors.inkMuted,
+                                        Row(
                                             modifier = Modifier
-                                                .clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null
-                                                ) {
-                                                    filterCriteria = StreamFilterCriteria()
-                                                }
-                                                .padding(vertical = 4.dp, horizontal = 4.dp)
-                                        )
+                                                .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                                                .clickable { filterCriteria = StreamFilterCriteria() }
+                                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = FolioGlyphs.Close,
+                                                contentDescription = null,
+                                                tint = colors.inkMuted,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "清除",
+                                                style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                                                color = colors.inkMuted
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -795,7 +794,7 @@ fun StreamScreen(
                                         onSelectEntry = { entry ->
                                             selectEntry(entry)
                                         },
-                                        modifier = Modifier.padding(bottom = 10.dp)
+                                        modifier = Modifier.padding(top = 4.dp, bottom = 6.dp)
                                     )
                                 }
                             }
@@ -864,7 +863,8 @@ fun StreamScreen(
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(24.dp),
                                     strokeWidth = 2.dp,
-                                    color = colors.inkMuted.copy(alpha = 0.5f)
+                                    color = colors.accentWarm,
+                                    trackColor = colors.borderSubtle
                                 )
                             }
                         }
@@ -878,7 +878,8 @@ fun StreamScreen(
                             ) {
                                 Row(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
+                                        .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                                        .background(colors.archiveSubtle)
                                         .clickable {
                                             loadMoreFailed = false
                                             scope.launch {
@@ -908,15 +909,15 @@ fun StreamScreen(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Outlined.Refresh,
+                                        imageVector = FolioGlyphs.Sync,
                                         contentDescription = "重试",
-                                        tint = colors.inkMuted,
+                                        tint = colors.inkSecondary,
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Text(
                                         text = "加载失败，点击重试",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = colors.inkMuted
+                                        style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                                        color = colors.inkSecondary
                                     )
                                 }
                             }
@@ -936,13 +937,13 @@ fun StreamScreen(
             onClick = { showQuickNoteDialog = true },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 20.dp, bottom = 20.dp),
+                .padding(end = 22.dp, bottom = 18.dp),
             icon = {
                 Icon(
                     painter = painterResource(R.drawable.ic_fountain_pen),
                     contentDescription = "写一页",
-                    tint = colors.archivePaper,
-                    modifier = Modifier.size(22.dp)
+                    tint = colors.onAccent,
+                    modifier = Modifier.size(23.dp)
                 )
             }
         )
@@ -1068,11 +1069,11 @@ fun StreamScreen(
                 apiClient = apiClient,
                 onDismiss = { showSearchDialog = false },
                 onSelectEntry = { selectEntry(it) },
-                onOpenTarget = onOpenWorkshopTarget?.let { open ->
-                    { kind, id ->
-                        // 先关搜索框再跳转，否则抽屉会盖在工坊页上
+                onOpenWish = onOpenWishTarget?.let { open ->
+                    { wishId ->
+                        // 先关搜索框再跳转，避免抽屉遮挡目标页面
                         showSearchDialog = false
-                        open(kind, id)
+                        open(wishId)
                     }
                 }
             )

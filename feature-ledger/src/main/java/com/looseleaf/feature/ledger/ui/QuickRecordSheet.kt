@@ -59,7 +59,7 @@ import java.time.format.DateTimeFormatter
  * 4. 分类：常用 6 个（色点 + 文字），末尾"更多"展开全部；
  * 5. 默认值：时间 = 现在；账户 = 上次使用；分类 = 常用分类预选；
  * 6. "备注 / 商户 / 时间 / 账户"折叠在"更多"里，默认不展开；
- * 7. 底部主按钮"记下"，赤陶实心；金额为 0 禁用；不丢焦点。
+ * 7. 底部为触感键盘，确认键「记下」朱砂实心；金额为 0 禁用；不丢焦点。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -264,14 +264,20 @@ internal fun QuickRecordSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
-    val maxSheetHeight = (screenHeight - statusBarTop - 16.dp).coerceAtLeast(200.dp)
+    val maxSheetHeight = (screenHeight - statusBarTop - 12.dp).coerceAtLeast(200.dp)
+    val isIncome = selectedType == "income"
+    val amountTint = if (isIncome) colors.income else colors.expense
+    val isAmountEmpty = inputAmountString == FormatUtils.AmountInput.EMPTY || inputAmountString == "0"
 
     ModalBottomSheet(
         onDismissRequest = dismissSheet,
         sheetState = sheetState,
-        containerColor = colors.surface,
-        shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
+        containerColor = colors.background,
+        contentColor = colors.textPrimary,
+        scrimColor = colors.archive.scrim,
+        shape = com.looseleaf.app.theme.ArchiveShapes.sheetTop,
         tonalElevation = 0.dp,
+        dragHandle = null,
         contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -281,21 +287,29 @@ internal fun QuickRecordSheet(
                 .heightIn(max = maxSheetHeight)
                 .navigationBarsPadding()
                 .imePadding()
-                .padding(horizontal = 20.dp, vertical = 6.dp)
         ) {
+            ArchiveSheetGrip()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp)
             ) {
-                // 顶栏：支出 / 收入 文字切换，右侧"取消"与"重置"
+                // 顶栏：支出 / 收入 分段 + 右侧「重置」与关闭
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                            .background(colors.surfaceElevated)
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
                         ArchiveTypeToggleButton(
                             text = "支出",
                             isSelected = selectedType == "expense",
@@ -308,7 +322,7 @@ internal fun QuickRecordSheet(
                         )
                         ArchiveTypeToggleButton(
                             text = "收入",
-                            isSelected = selectedType == "income",
+                            isSelected = isIncome,
                             onClick = {
                                 selectedType = "income"
                                 payMethodChoice = "full"
@@ -318,62 +332,98 @@ internal fun QuickRecordSheet(
                             }
                         )
                     }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        val canReset = inputAmountString != "0"
-                        TextButton(
+                    Spacer(modifier = Modifier.weight(1f))
+                    val canReset = inputAmountString != "0"
+                    if (canReset) {
+                        ArchiveTextButton(
+                            text = "重置",
                             onClick = { clearAll() },
-                            enabled = canReset,
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                        ) {
-                            Text(
-                                text = "重置",
-                                color = if (canReset) colors.textSecondary else Color.Transparent,
-                                fontFamily = LedgerTheme.typography.serif,
-                                fontSize = 13.sp
-                            )
-                        }
-                        TextButton(
-                            onClick = dismissSheet,
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                        ) {
-                            Text("取消", color = colors.textSecondary, fontFamily = LedgerTheme.typography.serif, fontSize = 13.sp)
-                        }
+                            textColor = colors.textSecondary
+                        )
+                    }
+                    ArchiveHeaderIconButton(
+                        onClick = dismissSheet,
+                        contentDescription = "取消",
+                        imageVector = FolioGlyphs.Close,
+                        tint = colors.textSecondary,
+                        iconSize = 20.dp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // 金额：纯展示（唯一写入口是下方自定义数字键盘，避免与系统 IME 叠屏）
+                Text(
+                    text = if (isIncome) "收入金额" else "支出金额",
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.overline,
+                    color = colors.textMuted
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    verticalAlignment = Alignment.Bottom,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = if (isIncome) "+¥" else "¥",
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.amountHero.copy(fontSize = 26.sp),
+                        color = if (isAmountEmpty) colors.textMuted else amountTint,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (inputAmountString == FormatUtils.AmountInput.EMPTY) "0.00" else inputAmountString,
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.amountHero.copy(fontSize = 48.sp),
+                        color = if (isAmountEmpty) colors.textMuted.copy(alpha = 0.6f) else colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                        .background(if (isAmountEmpty) colors.borderSubtle else amountTint.copy(alpha = 0.55f))
+                )
+
+                // 语义识别提示（RG-27）：金额还没敲时，明确告诉用户备注里那串数字会被采纳
+                val activeParsed = if (useParsedNote) parsedNote else null
+                if (activeParsed != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(com.looseleaf.app.theme.ArchiveShapes.md)
+                            .background(colors.accentSoft)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(colors.accent)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "识别到 ${FormatUtils.formatMoney(activeParsed.amountCents)} · ${activeParsed.category}",
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                            color = colors.archive.accentSmallText,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "记下时自动采纳",
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                            color = colors.textSecondary
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // 大金额展示行（等宽数字）。
-                // 金额是**纯展示**：唯一写入口是下方自定义数字键盘，
-                // 若这里挂可编辑输入框，点击会同时唤起系统 IME 与自定义键盘造成叠屏。
-                Row(
-                    verticalAlignment = Alignment.Bottom,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                ) {
-                    Text(
-                        text = if (selectedType == "income") "+ ¥" else "¥",
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (selectedType == "income") colors.income else colors.expense,
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (inputAmountString == FormatUtils.AmountInput.EMPTY) "0.00" else inputAmountString,
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 36.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (inputAmountString == FormatUtils.AmountInput.EMPTY) colors.textMuted else colors.textPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                // 付款方式选择：一次付清 / 分期付款 (仅支出时展示)
+                // 付款方式：一次付清 / 分期付款（仅支出）
                 if (selectedType == "expense") {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
                     InstallmentConfigSection(
                         periodsText = periodsText,
                         onPeriodsTextChange = { periodsText = it },
@@ -399,270 +449,261 @@ internal fun QuickRecordSheet(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
-            // 分类网格：显示常用 6 个（色点 + 文字），末尾"更多"展开全部
-            val categoriesToShow = if (showAllCategories) activeCategories else activeCategories.take(6)
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                categoriesToShow.chunked(3).forEach { rowCats ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        for (cat in rowCats) {
-                            val isSelected = cat == selectedCategory
-                            val dotColor = LedgerCategoryColors.colorForCategory(cat, colors.isDark)
-
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(40.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (isSelected) colors.surfaceElevated else Color.Transparent)
-                                    .border(
-                                        ArchiveLines.hairline,
-                                        if (isSelected) colors.accent else colors.borderSubtle,
-                                        RoundedCornerShape(4.dp)
-                                    )
-                                    .clickable(role = Role.RadioButton) { selectedCategory = cat }
-                                    .padding(horizontal = 8.dp)
-                            ) {
+                // 分类：常用 6 个，「更多」展开全部；每格为分类首字方印 + 名称
+                Text(
+                    text = "分类",
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.overline,
+                    color = colors.textMuted
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                val categoriesToShow = if (showAllCategories) activeCategories else activeCategories.take(6)
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    categoriesToShow.chunked(3).forEach { rowCats ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            for (cat in rowCats) {
+                                val isSelected = cat == selectedCategory
+                                val catColor = LedgerCategoryColors.colorForCategory(cat, colors.isDark)
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(46.dp)
+                                        .clip(com.looseleaf.app.theme.ArchiveShapes.md)
+                                        .background(
+                                            if (isSelected) catColor.copy(alpha = if (colors.isDark) 0.20f else 0.12f)
+                                            else colors.surface
+                                        )
+                                        .border(
+                                            if (isSelected) 1.5.dp else ArchiveLines.hairline,
+                                            if (isSelected) catColor else colors.archive.borderCard,
+                                            com.looseleaf.app.theme.ArchiveShapes.md
+                                        )
+                                        .clickable(role = Role.RadioButton) { selectedCategory = cat }
+                                        .padding(horizontal = 8.dp)
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(dotColor)
-                                    )
+                                            .size(26.dp)
+                                            .clip(com.looseleaf.app.theme.ArchiveShapes.sm)
+                                            .background(catColor.copy(alpha = if (isSelected) 1f else 0.14f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = cat.take(1),
+                                            fontFamily = com.looseleaf.app.theme.ArchiveFontFamilies.Display,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 13.sp,
+                                            color = if (isSelected) colors.onAccent else catColor
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
                                         text = cat,
-                                        fontFamily = LedgerTheme.typography.serif,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        fontSize = 13.sp,
-                                        color = if (isSelected) colors.textPrimary else colors.textSecondary
+                                        style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = if (isSelected) colors.textPrimary else colors.textSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
+                            for (i in 0 until (3 - rowCats.size)) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
                         }
-                        // 填补对齐
-                        for (i in 0 until (3 - rowCats.size)) {
-                            Spacer(modifier = Modifier.weight(1f))
+                    }
+
+                    if (activeCategories.size > 6) {
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                                .clickable(role = Role.Button) { showAllCategories = !showAllCategories }
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (showAllCategories) "收起分类" else "全部 ${activeCategories.size} 个分类",
+                                style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                                color = colors.textSecondary
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Icon(
+                                imageVector = if (showAllCategories) FolioGlyphs.ChevronUp else FolioGlyphs.ChevronDown,
+                                contentDescription = null,
+                                tint = colors.textSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                     }
                 }
 
-                // 展开全部 / 收起更多分类按钮
-                if (activeCategories.size > 6) {
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // 「备注 / 账户 / 时间」折叠条
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(com.looseleaf.app.theme.ArchiveShapes.md)
+                        .background(colors.surfaceElevated)
+                        .clickable(role = Role.Button) {
+                            val expanded = !showMoreDetails
+                            showMoreDetails = expanded
+                            // 收起时若备注框仍有焦点，必须一并收键盘，否则 isNoteEditing 会残留
+                            if (!expanded) {
+                                keyboardController?.hide()
+                                focusManager.clearFocus()
+                                isNoteEditing = false
+                            }
+                        }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (showMoreDetails) "收起详细信息" else "备注、账户与时间",
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                            color = colors.textPrimary
+                        )
+                        val summary = listOfNotNull(
+                            noteText.takeIf { it.isNotBlank() },
+                            if (selectedType == "expense" && payMethodChoice == "installment") null else selectedPaymentMethod
+                        ).joinToString(" · ")
+                        if (!showMoreDetails && summary.isNotBlank()) {
+                            Text(
+                                text = summary,
+                                style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                                color = if (noteText.isNotBlank()) colors.archive.accentSmallText else colors.textMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = if (showMoreDetails) FolioGlyphs.ChevronUp else FolioGlyphs.ChevronDown,
+                        contentDescription = null,
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                if (showMoreDetails) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                    ) {
+                        ArchiveTextField(
+                            value = noteText,
+                            onValueChange = { noteText = it },
+                            placeholder = "商户或备注，可写「42.5 午餐」",
+                            singleLine = true,
+                            modifier = Modifier.onFocusChanged { isNoteEditing = it.isFocused }
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            for (pm in paymentMethods) {
+                                ArchiveSelectableCapsule(
+                                    text = pm,
+                                    selected = pm == selectedPaymentMethod,
+                                    onClick = { selectedPaymentMethod = pm }
+                                )
+                            }
+                        }
+
+                        ArchiveDateTimeSplitRow(
+                            selectedDateTime = txOccurredAt,
+                            onDateTimeSelected = {
+                                txOccurredAtMillis = it.atZone(FormatUtils.BeijingZone).toInstant().toEpochMilli()
+                            }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            // 底部操作区：分期为全宽主按钮；普通记账为触感小键盘；文本输入期间让位给等高占位条
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.background)
+                    .padding(horizontal = 12.dp)
+            ) {
+                ArchiveDivider(color = colors.borderSubtle, modifier = Modifier.padding(horizontal = 8.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+                if (isInstallment) {
+                    ArchivePrimaryButton(
+                        text = if (isSubmitting) "记账中" else "分期记下",
+                        enabled = submitCents > 0 && !isSubmitting && selectedChannel != null && effectivePeriods in 1..60,
+                        onClick = handleSubmit,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp)
+                            .padding(bottom = 12.dp)
+                    )
+                } else if (isNoteEditing) {
+                    // 系统 IME 是唯一键盘：小键盘让位给等高占位（4 行 × 46dp + 3 × 8dp = 208dp）
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showAllCategories = !showAllCategories }
-                            .padding(vertical = 4.dp)
+                            .padding(horizontal = 8.dp)
+                            .height(208.dp)
                     ) {
-                        Text(
-                            text = if (showAllCategories) "收起分类 ▴" else "更多分类 ▾",
-                            fontFamily = LedgerTheme.typography.serif,
-                            fontSize = 12.sp,
-                            color = colors.textSecondary
+                        ArchivePrimaryButton(
+                            text = "完成输入，返回数字键盘",
+                            onClick = {
+                                keyboardController?.hide()
+                                focusManager.clearFocus()
+                                isNoteEditing = false
+                            },
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
+                    Spacer(modifier = Modifier.height(10.dp))
+                } else {
+                    TactileKeypad(
+                        onDigitClick = { appendDigit(it) },
+                        onDotClick = { appendDot() },
+                        onBackspaceClick = { backspace() },
+                        onPlusClick = { appendPlus() },
+                        onClearAll = { clearAll() },
+                        confirmText = if (isSubmitting) "记账中" else "记下",
+                        isConfirmEnabled = submitCents > 0 && !isSubmitting,
+                        onConfirm = handleSubmit,
+                        showPlus = true,
+                        keyHeight = 46.dp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
                 }
-            }
 
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // 语义识别提示（RG-27）：金额还没敲时，明确告诉用户备注里那串数字会被采纳
-            val activeParsed = if (useParsedNote) parsedNote else null
-            if (activeParsed != null) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                // 主按钮禁用时把原因写在按钮外，保持读屏「已禁用」语义
+                if (submitCents <= 0 && !isSubmitting && !isNoteEditing) {
                     Text(
-                        text = "识别到 ${FormatUtils.formatMoney(activeParsed.amountCents)} · ${activeParsed.category}",
-                        fontFamily = LedgerTheme.typography.serif,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.accent
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
-                    Text(
-                        text = "点「记下」自动采纳",
-                        fontFamily = LedgerTheme.typography.serif,
-                        fontSize = 11.sp,
-                        color = colors.textSecondary
-                    )
-                }
-            }
-
-            // "备注 / 商户 / 时间 / 账户" 折叠在"更多"里，默认不展开
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        val expanded = !showMoreDetails
-                        showMoreDetails = expanded
-                        // 收起「更多」时若备注框仍有焦点，必须一并收键盘，
-                        // 否则节点移除后 isNoteEditing 会残留，数字键盘再也回不来。
-                        if (!expanded) {
-                            keyboardController?.hide()
-                            focusManager.clearFocus()
-                            isNoteEditing = false
-                        }
-                    }
-                    .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = if (showMoreDetails) "收起详细信息 ▴" else "添加备注、账户与时间 ▾",
-                    fontFamily = LedgerTheme.typography.serif,
-                    fontSize = 12.sp,
-                    color = colors.textSecondary
-                )
-                if (!showMoreDetails && (noteText.isNotBlank() || selectedPaymentMethod != lastPaymentMethod)) {
-                    Text(
-                        text = listOfNotNull(
-                            noteText.takeIf { it.isNotBlank() },
-                            selectedPaymentMethod.takeIf { it != lastPaymentMethod }
-                        ).joinToString(" · "),
-                        fontFamily = LedgerTheme.typography.serif,
-                        fontSize = 12.sp,
-                        color = colors.accent
-                    )
-                }
-            }
-
-            if (showMoreDetails) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp)
-                ) {
-                    ArchiveTextField(
-                        value = noteText,
-                        onValueChange = { noteText = it },
-                        placeholder = "商户或备注，可写「42.5 午餐」",
-                        singleLine = true,
-                        modifier = Modifier.onFocusChanged { isNoteEditing = it.isFocused }
-                    )
-
-                    // 支付账户选择行
-                    Row(
+                        text = "填好金额后可记下",
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                        color = colors.textMuted,
+                        textAlign = TextAlign.Center,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        for (pm in paymentMethods) {
-                            val isPmSelected = pm == selectedPaymentMethod
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (isPmSelected) colors.surfaceElevated else Color.Transparent)
-                                    .border(
-                                        ArchiveLines.hairline,
-                                        if (isPmSelected) colors.accent else colors.borderSubtle,
-                                        RoundedCornerShape(4.dp)
-                                    )
-                                    .clickable { selectedPaymentMethod = pm }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    text = pm,
-                                    fontFamily = LedgerTheme.typography.serif,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isPmSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isPmSelected) colors.accent else colors.textSecondary
-                                )
-                            }
-                        }
-                    }
-
-                    // 发生时刻选择
-                    ArchiveDateTimeSplitRow(
-                        selectedDateTime = txOccurredAt,
-                        onDateTimeSelected = {
-                            txOccurredAtMillis = it.atZone(FormatUtils.BeijingZone).toInstant().toEpochMilli()
-                        }
+                            .padding(bottom = 10.dp)
                     )
                 }
-            }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // 分期付款使用全宽按钮，普通记账保留快速计算小键盘
-            if (isInstallment) {
-                ArchivePrimaryButton(
-                    text = if (isSubmitting) "记账中…" else "分期记下",
-                    enabled = submitCents > 0 && !isSubmitting && selectedChannel != null && effectivePeriods in 1..60,
-                    onClick = handleSubmit,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 12.dp)
-                )
-            } else if (isNoteEditing) {
-                // 文本输入期间系统 IME 是唯一键盘：小键盘让位给等高占位条
-                //（4 行 × 46dp + 3 × 6dp = 202dp），布局高度不变、两套键盘不再叠屏。
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 6.dp)
-                        .height(202.dp)
-                ) {
-                    ArchivePrimaryButton(
-                        text = "完成输入，返回数字键盘",
-                        onClick = {
-                            keyboardController?.hide()
-                            focusManager.clearFocus()
-                            isNoteEditing = false
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-            } else {
-                TactileKeypad(
-                    onDigitClick = { appendDigit(it) },
-                    onDotClick = { appendDot() },
-                    onBackspaceClick = { backspace() },
-                    onPlusClick = { appendPlus() },
-                    onClearAll = { clearAll() },
-                    confirmText = if (isSubmitting) "记账中…" else "记下",
-                    isConfirmEnabled = submitCents > 0 && !isSubmitting,
-                    onConfirm = handleSubmit,
-                    showPlus = true,
-                    keyHeight = 46.dp
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-            }
-
-            // 主按钮禁用时把「为什么点不了」写在按钮外，而不是让按钮可点再弹 toast：
-            // 后者会破坏 a11y 语义（读屏会播报「按钮」而不是「按钮，已禁用」）。
-            // 用 submitCents 判定：语义解析已给出金额时按钮可点，这句不再出现。
-            if (submitCents <= 0 && !isSubmitting && !isNoteEditing) {
-                Text(
-                    text = "填好金额后可记下",
-                    fontSize = 12.sp,
-                    color = colors.textMuted,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 6.dp, vertical = 4.dp)
-                )
             }
         }
     }

@@ -365,7 +365,7 @@ interface OutboxDao {
 
     /**
      * P0-3：删除临时行时连旧版本「server_target_id = 负数临时 id」的事件一起撤销。
-     * 仅用于 project / wish / footprint —— 其它实体两列数值域不同，不能混用。
+     * 仅用于简单实体（wish）—— 其它实体两列数值域不同，不能混用。
      */
     @Query(
         "DELETE FROM outbox_events WHERE entity_type = :entityType " +

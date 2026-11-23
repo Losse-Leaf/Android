@@ -1,48 +1,67 @@
 package com.looseleaf.feature.ledger.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.model.Transaction
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
+import com.looseleaf.app.theme.ArchiveMotion
 import com.looseleaf.app.theme.ArchiveShapes
-import com.looseleaf.app.theme.ArchiveTypeScale
-import com.looseleaf.app.theme.LooseLeafTheme
-import com.looseleaf.app.ui.components.*
-import androidx.compose.ui.text.TextStyle
+import com.looseleaf.app.theme.ArchiveTextStyles
+import com.looseleaf.app.ui.components.ArchiveDivider
+import com.looseleaf.app.ui.components.ArchiveEmptyState
+import com.looseleaf.app.ui.components.ArchiveSwipeRevealRow
+import com.looseleaf.app.ui.components.FolioGlyphs
 import com.looseleaf.app.utils.FormatUtils
-import com.looseleaf.core.R
 import com.looseleaf.feature.ledger.theme.LedgerCategoryColors
 import com.looseleaf.feature.ledger.theme.LedgerTheme
 import java.time.DayOfWeek
@@ -50,16 +69,17 @@ import java.time.LocalDate
 import java.time.YearMonth
 import kotlin.math.roundToLong
 
+private const val MASK = "••••"
+
 /**
  * 账单明细选项卡
  *
- * 遵循自然大地色盘与时间流规范：
- * 1. 月份切换："2026 年 10 月 ▾"，点击调起月份选择，内容区支持横滑切月；
- * 2. 待确认入口（预留）：>0 时显示一行"待确认 N 条 ›"带 6dp 赤陶小点；
- * 3. 本月概览：纯纸色平铺（无卡片无边框），大号等宽本月支出，下一行小字收入与结余，6dp 占比条与图例；
- * 4. 账目列表：按日分组，分组头"10月27日 · 昨天"与"支 ¥50.00"（无重复¥符号）；
- * 5. 条目：6dp 分类色点，第一行商户/备注，第二行时间与渠道，右侧等宽金额；
- * 6. 左滑删除（去掉垃圾桶图标），支持撤销提示；点击编辑。
+ * 1. 待确认入口：> 0 时显示一枚朱砂淡底胶囊「待确认 N 条」；
+ * 2. 本月总览：一张纸页卡片 —— 小标、衬线英雄数字（本月支出）、收入 / 结余双栏、
+ *    带间隙的分类占比条与图例；有分期时卡片底部追加一行分期摘要；
+ *    整张卡片支持横滑切月；
+ * 3. 账目列表：按日分组，组头为「日期 · 相对日」与当日收支；
+ * 4. 条目：分类首字方印 + 标题 / 时间与渠道 + 右侧等宽金额；左滑删除，点击编辑。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,7 +131,6 @@ internal fun TransactionsLedgerTab(
     }
 
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
-    // 阈值按 dp 换算成像素，避免不同密度屏幕上「轻碰即翻月 / 需大幅拖」的差异
     val monthSwipeThresholdPx = with(LocalDensity.current) { 140.dp.toPx() }
     val monthSwipeModifier = Modifier.pointerInput(selectedYearMonth, monthSwipeThresholdPx) {
         detectHorizontalDragGestures(
@@ -130,25 +149,24 @@ internal fun TransactionsLedgerTab(
         )
     }
 
-    Box(
-        modifier = modifier.fillMaxSize()
-    ) {
+    Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)
+            contentPadding = PaddingValues(top = 8.dp, bottom = 104.dp)
         ) {
-            // 1. 待确认入口（预留）：> 0 时展示，= 0 完全不占位
+            // 1. 待确认入口
             if (pendingCount > 0) {
                 item(key = "pending_confirm_entry") {
                     Row(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(4.dp))
-                            .clickable { onNavigateToPending() }
-                            .padding(vertical = 6.dp, horizontal = 2.dp),
+                            .padding(bottom = 10.dp)
+                            .clip(ArchiveShapes.full)
+                            .background(colors.accentSoft)
+                            .clickable(role = Role.Button) { onNavigateToPending() }
+                            .padding(start = 12.dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
@@ -159,124 +177,144 @@ internal fun TransactionsLedgerTab(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "待确认 $pendingCount 条 ›",
-                            style = LedgerTheme.typography.caption,
-                            fontFamily = LedgerTheme.typography.serif,
-                            color = colors.textSecondary
+                            text = "待确认 $pendingCount 条",
+                            style = ArchiveTextStyles.meta,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.archive.accentSmallText
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Icon(
+                            imageVector = FolioGlyphs.ChevronRight,
+                            contentDescription = null,
+                            tint = colors.archive.accentSmallText,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
                 }
             }
 
-            // 3. 本月概览（无卡片、无边框，靠间距与一条淡线分隔）
+            // 2. 本月总览卡片
             item(key = "monthly_summary_overview") {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(monthSwipeModifier)
-                        .padding(vertical = 4.dp)
+                        .clip(ArchiveShapes.xl)
+                        .background(colors.surface)
+                        .border(ArchiveLines.hairline, colors.archive.borderCard, ArchiveShapes.xl)
                 ) {
-                    Text(
-                        text = "本月支出",
-                        style = LedgerTheme.typography.caption,
-                        fontFamily = LedgerTheme.typography.serif,
-                        color = colors.textSecondary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = if (isPrivacyMasked) "¥ ••••" else FormatUtils.formatMoney(totalExpense),
-                        style = LedgerTheme.typography.amountLarge,
-                        color = colors.expense
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    // 收入与结余一行
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "收入 ${if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(totalIncome)}",
-                            fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontSize = ArchiveTypeScale.caption,
-                            color = colors.income
+                    Column(modifier = Modifier.padding(start = 22.dp, end = 22.dp, top = 20.dp, bottom = 18.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "${selectedYearMonth.monthValue} 月支出",
+                                style = ArchiveTextStyles.overline,
+                                color = colors.textMuted,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "${transactions.size} 笔",
+                                style = ArchiveTextStyles.meta,
+                                color = colors.textMuted
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        HeroAmount(
+                            cents = totalExpense,
+                            masked = isPrivacyMasked
                         )
-                        Text(
-                            text = "·",
-                            color = colors.textMuted,
-                            fontSize = ArchiveTypeScale.caption
-                        )
-                        val balanceColor = if (!isPrivacyMasked && monthBalance < 0) colors.alertRed else colors.textPrimary
-                        Text(
-                            text = "结余 ${if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(monthBalance)}",
-                            fontFamily = ArchiveFontFamilies.MonoScale,
-                            fontSize = ArchiveTypeScale.caption,
-                            color = balanceColor
-                        )
-                    }
 
-                    // 6dp 高分类占比条 + 前 3 个分类图例
-                    if (totalExpense > 0 && categoryTotals.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        // 收入 / 结余双栏
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(50))
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            categoryTotals.forEach { (cat, amt) ->
-                                val weight = (amt.toFloat() / totalExpense.toFloat()).coerceAtLeast(0.01f)
-                                Box(
-                                    modifier = Modifier
-                                        .weight(weight)
-                                        .fillMaxHeight()
-                                        .background(LedgerCategoryColors.colorForCategory(cat, colors.isDark))
-                                )
-                            }
+                            SummaryStat(
+                                label = "收入",
+                                value = if (isPrivacyMasked) MASK else FormatUtils.formatMoney(totalIncome),
+                                valueColor = colors.income,
+                                dotColor = colors.income,
+                                modifier = Modifier.weight(1f)
+                            )
+                            val balanceColor = if (!isPrivacyMasked && monthBalance < 0) colors.alertRed else colors.textPrimary
+                            SummaryStat(
+                                label = "结余",
+                                value = if (isPrivacyMasked) MASK else FormatUtils.formatMoney(monthBalance),
+                                valueColor = balanceColor,
+                                dotColor = if (monthBalance < 0 && !isPrivacyMasked) colors.alertRed else colors.textMuted,
+                                modifier = Modifier.weight(1f)
+                            )
                         }
 
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // 图例：前 3 个分类，其余合并为"其他"
-                        val top3 = categoryTotals.take(3)
-                        val otherSum = categoryTotals.drop(3).sumOf { it.second }
-                        val legendItems = top3 + if (otherSum > 0) listOf("其他" to otherSum) else emptyList()
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            legendItems.forEach { (cat, amt) ->
-                                val pct = (amt * 100.0 / totalExpense).roundToLong()
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
+                        // 分类占比条 + 图例
+                        if (totalExpense > 0 && categoryTotals.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(20.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                categoryTotals.forEach { (cat, amt) ->
+                                    val weight = (amt.toFloat() / totalExpense.toFloat()).coerceAtLeast(0.015f)
                                     Box(
                                         modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
+                                            .weight(weight)
+                                            .fillMaxHeight()
+                                            .clip(ArchiveShapes.full)
                                             .background(LedgerCategoryColors.colorForCategory(cat, colors.isDark))
                                     )
-                                    Text(
-                                        text = "$cat $pct%",
-                                        fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 12.sp,
-                                        color = colors.textSecondary
-                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            val top3 = categoryTotals.take(3)
+                            val otherSum = categoryTotals.drop(3).sumOf { it.second }
+                            val legendItems = top3 + if (otherSum > 0) listOf("其他" to otherSum) else emptyList()
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                legendItems.forEach { (cat, amt) ->
+                                    val pct = (amt * 100.0 / totalExpense).roundToLong()
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(7.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    if (cat == "其他") colors.textMuted
+                                                    else LedgerCategoryColors.colorForCategory(cat, colors.isDark)
+                                                )
+                                        )
+                                        Text(
+                                            text = cat,
+                                            style = ArchiveTextStyles.meta,
+                                            color = colors.textSecondary
+                                        )
+                                        Text(
+                                            text = "$pct%",
+                                            style = ArchiveTextStyles.meta,
+                                            fontWeight = FontWeight.Medium,
+                                            color = colors.textPrimary
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
 
-                    // 分期概览条目行：仅当存在进行中计划且本月有期次、或有逾期时显示 (RC-140)
+                    // 分期摘要（卡片底栏）
                     if (installmentSummary != null && (installmentSummary.thisMonthPaid > 0 || installmentSummary.thisMonthScheduled > 0 || installmentSummary.overdueCount > 0)) {
-                        Spacer(modifier = Modifier.height(10.dp))
                         val today = LocalDate.now(FormatUtils.BeijingZone)
                         val nearestDays = runCatching {
                             installmentSummary.nearestDueDate?.let {
@@ -284,82 +322,68 @@ internal fun TransactionsLedgerTab(
                             }
                         }.getOrNull()
                         val hasUrgent = installmentSummary.overdueCount > 0 || (nearestDays != null && nearestDays in 0..3)
+                        val pendingAmount = if (installmentSummary.overdueCount > 0) {
+                            installmentSummary.thisMonthScheduled + installmentSummary.overdueAmount
+                        } else {
+                            installmentSummary.thisMonthScheduled
+                        }
 
+                        ArchiveDivider(modifier = Modifier.padding(horizontal = 22.dp))
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(ArchiveShapes.small)
-                                .clickable { onOpenUpcomingInstallments() }
-                                .padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .clickable(role = Role.Button) { onOpenUpcomingInstallments() }
+                                .padding(start = 22.dp, end = 14.dp, top = 14.dp, bottom = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (hasUrgent) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(colors.accent)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                }
+                            Box(
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .clip(ArchiveShapes.sm)
+                                    .background(if (hasUrgent) colors.accentSoft else colors.surfaceElevated),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Text(
-                                    text = "分期",
-                                    style = LedgerTheme.typography.body,
-                                    fontFamily = LedgerTheme.typography.serif,
-                                    fontWeight = FontWeight.Medium,
-                                    color = colors.textPrimary,
-                                    fontSize = ArchiveTypeScale.body
+                                    text = "分",
+                                    fontFamily = ArchiveFontFamilies.Display,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = if (hasUrgent) colors.accent else colors.textSecondary
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "本月已还 ${if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(installmentSummary.thisMonthPaid)}",
-                                    fontFamily = ArchiveFontFamilies.MonoScale,
-                                    fontSize = ArchiveTypeScale.caption,
-                                    color = colors.textSecondary
-                                )
-                                Text(
-                                    text = " · ",
-                                    color = colors.textMuted,
-                                    fontSize = ArchiveTypeScale.caption
-                                )
-                                if (installmentSummary.overdueCount > 0) {
-                                    Text(
-                                        text = "待还 ${if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(installmentSummary.thisMonthScheduled + installmentSummary.overdueAmount)} (含逾期)",
-                                        fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = ArchiveTypeScale.caption,
-                                        color = colors.alertRed,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                } else {
-                                    Text(
-                                        text = "待还 ${if (isPrivacyMasked) "••••" else FormatUtils.formatMoney(installmentSummary.thisMonthScheduled)}",
-                                        fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = ArchiveTypeScale.caption,
-                                        color = colors.textSecondary
-                                    )
-                                }
                             }
-
-                            Text(
-                                text = "›",
-                                fontSize = ArchiveTypeScale.bodyLarge,
-                                color = colors.textMuted
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (installmentSummary.overdueCount > 0) "分期 · 含逾期" else "分期",
+                                    style = ArchiveTextStyles.label,
+                                    color = if (installmentSummary.overdueCount > 0) colors.alertRed else colors.textPrimary
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "本月已还 ${if (isPrivacyMasked) MASK else FormatUtils.formatMoney(installmentSummary.thisMonthPaid)}  ·  待还 ${if (isPrivacyMasked) MASK else FormatUtils.formatMoney(pendingAmount)}",
+                                    style = ArchiveTextStyles.meta,
+                                    color = colors.textSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Icon(
+                                imageVector = FolioGlyphs.ChevronRight,
+                                contentDescription = "查看分期",
+                                tint = colors.textMuted,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    ArchiveDivider()
                 }
             }
 
-            // 4. 账目列表：按日分组
+            // 3. 账目列表
             if (transactions.isEmpty()) {
                 item(key = "empty_transactions_state") {
                     ArchiveEmptyState(
                         title = "这个月还没有账目",
+                        subtitle = "左右滑动总览卡片可以翻看其他月份",
                         actionText = "记一笔",
                         onActionClick = onNavigateToKeypad,
                         modifier = monthSwipeModifier
@@ -372,13 +396,11 @@ internal fun TransactionsLedgerTab(
                     .sortedByDescending { it.first }
 
                 groupedTransactions.forEach { (dateString, dayTxs) ->
-                    // 日期分组头
                     item(key = "hdr_$dateString") {
                         val parsedDate = runCatching { LocalDate.parse(dateString) }.getOrNull()
                         val today = LocalDate.now(FormatUtils.BeijingZone)
-                        val dateLabel = parsedDate?.let { d ->
-                            val diff = java.time.temporal.ChronoUnit.DAYS.between(d, today)
-                            val rel = when (diff) {
+                        val relative = parsedDate?.let { d ->
+                            when (java.time.temporal.ChronoUnit.DAYS.between(d, today)) {
                                 0L -> "今天"
                                 1L -> "昨天"
                                 2L -> "前天"
@@ -393,10 +415,9 @@ internal fun TransactionsLedgerTab(
                                     else -> ""
                                 }
                             }
-                            "${d.monthValue}月${d.dayOfMonth}日 · $rel"
-                        } ?: dateString
+                        }
 
-                        // 日结统计口径调整：排除分期还款本金；全为分期本金则显示"分期 ¥X" (RC-140)
+                        // 日结口径：排除分期还款本金；全为分期本金则显示「分期 ¥X」(RC-140)
                         val dayRegularExpense = dayTxs.filter { it.type != "income" && it.source != "installment_repay" }.sumOf { it.amount } +
                             dayTxs.filter { it.source == "installment_repay" }.sumOf { it.feeAmount }
                         val dayInstallmentPrincipal = dayTxs.filter { it.source == "installment_repay" }.sumOf { it.principalAmount }
@@ -405,40 +426,53 @@ internal fun TransactionsLedgerTab(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 18.dp, bottom = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(start = 4.dp, end = 4.dp, top = 24.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = dateLabel,
-                                style = LedgerTheme.typography.caption,
-                                fontFamily = LedgerTheme.typography.serif,
-                                color = colors.textSecondary
-                            )
+                            if (parsedDate != null) {
+                                Text(
+                                    text = "${parsedDate.monthValue}月${parsedDate.dayOfMonth}日",
+                                    style = ArchiveTextStyles.label,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.textPrimary
+                                )
+                                if (!relative.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = relative,
+                                        style = ArchiveTextStyles.meta,
+                                        color = if (relative == "今天") colors.archive.accentSmallText else colors.textMuted
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = dateString,
+                                    style = ArchiveTextStyles.label,
+                                    color = colors.textPrimary
+                                )
+                            }
+                            Spacer(modifier = Modifier.weight(1f))
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 if (dayRegularExpense > 0) {
                                     Text(
-                                        text = "支 ${FormatUtils.formatMoney(dayRegularExpense)}",
-                                        fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 12.sp,
+                                        text = "支 ${if (isPrivacyMasked) MASK else FormatUtils.formatMoney(dayRegularExpense)}",
+                                        style = ArchiveTextStyles.meta,
                                         color = colors.textSecondary
                                     )
                                 } else if (dayInstallmentPrincipal > 0) {
                                     Text(
-                                        text = "分期 ${FormatUtils.formatMoney(dayInstallmentPrincipal)}",
-                                        fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 12.sp,
+                                        text = "分期 ${if (isPrivacyMasked) MASK else FormatUtils.formatMoney(dayInstallmentPrincipal)}",
+                                        style = ArchiveTextStyles.meta,
                                         color = colors.textSecondary
                                     )
                                 }
                                 if (dayIncome > 0) {
                                     Text(
-                                        text = "收 ${FormatUtils.formatMoney(dayIncome)}",
-                                        fontFamily = ArchiveFontFamilies.MonoScale,
-                                        fontSize = 12.sp,
+                                        text = "收 ${if (isPrivacyMasked) MASK else FormatUtils.formatMoney(dayIncome)}",
+                                        style = ArchiveTextStyles.meta,
                                         color = colors.income
                                     )
                                 }
@@ -446,14 +480,14 @@ internal fun TransactionsLedgerTab(
                         }
                     }
 
-                    // 日期下的条目列表（左滑删除，条目间 1dp 淡线，左缩进 22dp，内边距 12dp）
                     items(
                         items = dayTxs,
                         key = { "tx_${it.id}_${it.syncStatus}" }
                     ) { tx ->
                         ArchiveSwipeRevealRow(
                             onDelete = { onDelete(tx) },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            backgroundColor = colors.background
                         ) {
                             Column(
                                 modifier = Modifier
@@ -465,7 +499,9 @@ internal fun TransactionsLedgerTab(
                                     isPrivacyMasked = isPrivacyMasked,
                                     onClick = { onEdit(tx) }
                                 )
-                                ArchiveDivider(modifier = Modifier.padding(start = 22.dp))
+                                if (tx != dayTxs.last()) {
+                                    ArchiveDivider(modifier = Modifier.padding(start = 56.dp, end = 4.dp))
+                                }
                             }
                         }
                     }
@@ -476,12 +512,91 @@ internal fun TransactionsLedgerTab(
 }
 
 /**
+ * 英雄数字：货币符号缩小上浮，整数部分大号衬线，小数部分降一档。
+ */
+@Composable
+private fun HeroAmount(cents: Long, masked: Boolean) {
+    val colors = LedgerTheme.colors
+    if (masked) {
+        Text(
+            text = "¥ $MASK",
+            style = ArchiveTextStyles.amountHero,
+            color = colors.expense
+        )
+        return
+    }
+    val formatted = FormatUtils.formatMoney(cents)
+    val body = formatted.trimStart('¥', ' ', '-', '+')
+    val negative = formatted.contains('-')
+    val dot = body.lastIndexOf('.')
+    val integerPart = if (dot >= 0) body.substring(0, dot) else body
+    val decimalPart = if (dot >= 0) body.substring(dot) else ""
+    val hero = ArchiveTextStyles.amountHero
+    Text(
+        text = buildAnnotatedString {
+            withStyle(SpanStyle(fontSize = 22.sp, fontWeight = FontWeight.Normal, color = colors.textMuted)) {
+                append(if (negative) "-¥ " else "¥ ")
+            }
+            withStyle(SpanStyle(fontSize = hero.fontSize)) {
+                append(integerPart)
+            }
+            if (decimalPart.isNotEmpty()) {
+                withStyle(SpanStyle(fontSize = 24.sp, color = colors.textSecondary)) {
+                    append(decimalPart)
+                }
+            }
+        },
+        style = hero,
+        color = colors.expense,
+        maxLines = 1
+    )
+}
+
+@Composable
+private fun SummaryStat(
+    label: String,
+    value: String,
+    valueColor: Color,
+    dotColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val colors = LedgerTheme.colors
+    Column(
+        modifier = modifier
+            .clip(ArchiveShapes.md)
+            .background(colors.surfaceElevated.copy(alpha = 0.6f))
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(dotColor)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = label,
+                style = ArchiveTextStyles.meta,
+                color = colors.textMuted
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = value,
+            style = ArchiveTextStyles.amount,
+            color = valueColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/**
  * 账目单行条目
- * - 左侧 6dp 分类色点
- * - 第一行：商户或备注，若无则显示分类名
- * - 第二行：时间 · 账户/渠道（次要色小字，不重复分类名）
- * - 右侧：金额（等宽、右对齐，千分位，保留两位小数）
- * - 上下内边距 12dp
+ * - 左：34dp 分类方印（分类色淡底 + 分类首字，衬线）
+ * - 中：标题（商户 / 备注 / 分类名）与「时间 · 渠道」
+ * - 右：等宽金额，收入为松绿带「+」
  */
 @Composable
 private fun TransactionRowItem(
@@ -494,11 +609,11 @@ private fun TransactionRowItem(
     val isIncome = tx.type == "income"
     val isInstallmentRepay = tx.source == "installment_repay"
     val sign = if (isIncome) "+" else "-"
-    val displayAmount = if (isPrivacyMasked) "¥ ••••" else "$sign${FormatUtils.formatMoney(tx.amount)}"
-    val colorDot = if (isInstallmentRepay) LedgerCategoryColors.colorForCategory("利息手续费", colors.isDark) else LedgerCategoryColors.colorForCategory(tx.category, colors.isDark)
+    val displayAmount = if (isPrivacyMasked) "¥ $MASK" else "$sign${FormatUtils.formatMoney(tx.amount)}"
+    val categoryName = if (isInstallmentRepay) "利息手续费" else tx.category
+    val categoryColor = LedgerCategoryColors.colorForCategory(categoryName, colors.isDark)
     val displayTime = remember(tx.occurredAt) { FormatUtils.formatDisplayTime(tx.occurredAt) }
 
-    // 第一行标题：商户或备注，若都没有则显示分类名
     val titleText = remember(tx) {
         val note = tx.note?.trim()
         val title = tx.title.trim()
@@ -509,28 +624,33 @@ private fun TransactionRowItem(
         }
     }
 
-    // 第二行副文案：分期还款显示 手续费 · 账户名；普通账目显示 时间 · 账户/渠道
     val subtitleText = remember(tx, displayTime) {
         if (isInstallmentRepay) {
             val feePart = if (tx.feeAmount > 0) "手续费 ${FormatUtils.formatMoney(tx.feeAmount)}" else null
             val accountPart = tx.paymentMethod?.takeIf { it.isNotBlank() }
-            listOfNotNull(feePart, accountPart).joinToString(" · ")
+            listOfNotNull("分期还款", feePart, accountPart).joinToString(" · ")
         } else {
             val channel = tx.paymentMethod?.takeIf { it.isNotBlank() } ?: "现金"
-            if (displayTime.isNotBlank()) "$displayTime · $channel" else channel
+            listOfNotNull(
+                displayTime.takeIf { it.isNotBlank() },
+                tx.category.takeIf { titleText != tx.category && it.isNotBlank() },
+                channel
+            ).joinToString(" · ")
         }
     }
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    // 与 ArchiveItemRow / StreamEntryCard 同一套纸张按压语言：换一档纸面，不画 Material 涟漪。
-    // 底色取全局纸面色盘的 archiveCard —— LedgerColors 只是 ArchiveColors 的投影，
-    // 两者由同一个三态 isDarkTheme 推导，取值一致。
-    val pressedBg = if (isPressed) LooseLeafTheme.colors.archiveCard else Color.Transparent
+    val pressedBg by animateColorAsState(
+        targetValue = if (isPressed) colors.archive.pressOverlay else Color.Transparent,
+        animationSpec = tween(ArchiveMotion.DurationFast),
+        label = "txPress"
+    )
 
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .clip(ArchiveShapes.md)
             .background(pressedBg)
             .clickable(
                 interactionSource = interactionSource,
@@ -538,56 +658,49 @@ private fun TransactionRowItem(
                 role = Role.Button,
                 onClick = onClick
             )
-            .padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+            .padding(horizontal = 4.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f, fill = false)
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(ArchiveShapes.sm)
+                .background(categoryColor.copy(alpha = if (colors.isDark) 0.18f else 0.12f)),
+            contentAlignment = Alignment.Center
         ) {
-            // 6dp 分类色点
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(colorDot)
+            Text(
+                text = categoryName.take(1).ifBlank { "账" },
+                fontFamily = ArchiveFontFamilies.Display,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                color = categoryColor
             )
-            Spacer(modifier = Modifier.width(16.dp))
+        }
+        Spacer(modifier = Modifier.width(14.dp))
 
-            Column {
-                Text(
-                    text = titleText,
-                    style = LedgerTheme.typography.body,
-                    fontFamily = LedgerTheme.typography.serif,
-                    fontWeight = FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = colors.textPrimary
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = subtitleText,
-                    fontFamily = ArchiveFontFamilies.MonoScale,
-                    fontSize = ArchiveTypeScale.caption,
-                    color = colors.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = titleText,
+                style = ArchiveTextStyles.rowTitle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = colors.textPrimary
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitleText,
+                style = ArchiveTextStyles.meta,
+                color = colors.textMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
 
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(12.dp))
 
-        // 右侧金额：等宽、右对齐
         Text(
             text = displayAmount,
-            style = TextStyle(
-                fontFamily = ArchiveFontFamilies.MonoScale,
-                fontWeight = FontWeight.Medium,
-                fontSize = ArchiveTypeScale.bodyLarge,
-                fontFeatureSettings = "tnum"
-            ),
+            style = ArchiveTextStyles.amount,
             textAlign = TextAlign.End,
             color = if (isIncome) colors.income else colors.expense
         )

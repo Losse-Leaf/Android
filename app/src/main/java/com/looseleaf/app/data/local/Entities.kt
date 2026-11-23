@@ -31,6 +31,7 @@ data class CachedEntryEntity(
     @ColumnInfo(name = "location") val location: String? = null,
     @ColumnInfo(name = "city_code") val cityCode: String? = null,
     @ColumnInfo(name = "city_name") val cityName: String? = null,
+    // 以下两列保留以兼容既有 Room v12 schema，业务层不再读写
     @ColumnInfo(name = "project_id") val projectId: Long? = null,
     @ColumnInfo(name = "wish_id") val wishId: Long? = null,
     @ColumnInfo(name = "footprint_id") val footprintId: Long? = null,

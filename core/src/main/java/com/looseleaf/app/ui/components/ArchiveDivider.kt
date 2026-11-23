@@ -9,7 +9,7 @@ import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.LooseLeafTheme
 
 /**
- * 全页统一 1dp 淡暖灰实线 (ArchiveLines.hairline)
+ * 发丝分隔线 (ArchiveDivider)：默认取最淡的一档分隔色，只在确需分组时出现。
  */
 @Composable
 fun ArchiveDivider(
@@ -17,10 +17,9 @@ fun ArchiveDivider(
     color: Color? = null,
     thickness: Dp = ArchiveLines.hairline
 ) {
-    val dividerColor = color ?: LooseLeafTheme.colors.borderSubtle
     HorizontalDivider(
         modifier = modifier,
         thickness = thickness,
-        color = dividerColor
+        color = color ?: LooseLeafTheme.colors.borderSubtle
     )
 }

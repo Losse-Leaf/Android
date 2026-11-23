@@ -1,13 +1,16 @@
 package com.looseleaf.app.theme
 
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * 散页手账间距阶梯 (Archive Spacing Ladder)
- * 严格遵从 4 / 8 / 12 / 16 / 24 / 32 / 48dp 规范
+ * 间距令牌：4dp 基础栅格，页面版心 20dp。
+ * 节奏原则：同组内 8 / 12，组与组 24，大区块 40。
  */
 object ArchiveSpacing {
     val xxs: Dp = 4.dp
@@ -17,91 +20,104 @@ object ArchiveSpacing {
     val l: Dp = 24.dp
     val xl: Dp = 32.dp
     val xxl: Dp = 48.dp
+
+    /** 一级页面左右版心 */
+    val gutter: Dp = 20.dp
+    /** 大区块间距 */
+    val section: Dp = 40.dp
+    /** 卡片内边距 */
+    val cardPadding: Dp = 18.dp
+    /** 卡片之间的间距 */
+    val cardGap: Dp = 12.dp
+    /** 底部悬浮导航占位（胶囊 56 + 上下留白） */
+    val dockClearance: Dp = 96.dp
+    /** 可读内容最大宽度（平板 / 横屏） */
+    val readableWidth: Dp = 680.dp
 }
 
 /**
- * 散页统一线型 (Archive Lines)
- *
- * 宽度只有两档：1dp 结构线、2dp 状态下划线（ArchiveField 聚焦 / 错误）。
- * 颜色四档由淡到浓，语义令牌定义在 Color.kt，禁止在组件里散写 alpha：
- * - 1dp 墨 12%  lineDivider   ：列表行分隔（borderSubtle / borderDivider）
- * - 1dp 墨 16%  lineEdge      ：输入框常态下划线、卡片轮廓
- * - 1dp 墨 32%  lineDisabled  ：禁用**按钮这类整块可点区域**的轮廓
- *   （只表形状，WCAG 1.4.11 豁免对比度）。输入框禁用态是另一档：
- *   `lineEdge.copy(alpha = 0.6f)`（约 9.6% 墨），它有标签和占位符提供形状线索，
- *   不需要 32% 那么重；两者不是同一个语义，别互相"统一"。
- * - 2dp 赤陶/砖红 状态下划线   ：聚焦 accentWarm、错误 alertRed
- *
- * 禁止 0.5 / 0.6 / 0.8 / 1.5 / 3dp 等非标准宽度，禁止虚线。
+ * 线宽令牌
  */
 object ArchiveLines {
     val hairline: Dp = 1.dp
+    /** 聚焦 / 选中描边 */
+    val emphasis: Dp = 1.5.dp
 }
 
 /**
- * 散页手账圆角体系 (Archive Shapes)
- * 严格收敛为四档，全仓不再允许出现其它数值：
- * - xs  2dp：热力图格子、进度条、内嵌微块（"几乎不圆"的物理裁切感）
- * - sm  4dp：输入框 / 标签 / 紧凑按钮 / 配图
- * - md 12dp：卡片 / 抽屉 / 弹窗 / 浮层
- * - full     ：胶囊 / 圆点 / FAB / 状态徽标
+ * 圆角令牌：小控件收、纸页放，越大的面越圆。
  */
 object ArchiveShapes {
-    /** 微圆角 2dp（热力图格子、进度条、内嵌徽标底） */
-    val xs: RoundedCornerShape = RoundedCornerShape(2.dp)
-
-    /** 小圆角 4dp（输入框、标签、紧凑按钮、配图） */
-    val sm: RoundedCornerShape = RoundedCornerShape(4.dp)
-
-    /** 中圆角 12dp（弹层卡片、汇总卡片） */
-    val md: RoundedCornerShape = RoundedCornerShape(12.dp)
-
-    /** 全圆角（可选胶囊、FAB、分类色点、状态徽标） */
+    val xs: RoundedCornerShape = RoundedCornerShape(6.dp)
+    val sm: RoundedCornerShape = RoundedCornerShape(10.dp)
+    val md: RoundedCornerShape = RoundedCornerShape(16.dp)
+    val lg: RoundedCornerShape = RoundedCornerShape(24.dp)
+    val xl: RoundedCornerShape = RoundedCornerShape(30.dp)
     val full: RoundedCornerShape = RoundedCornerShape(50)
 
-    // ——— 语义别名（第 2/3 批清理前保持兼容，数值一律指向上面四档）———
+    /** 散页卡片 */
+    val leaf: RoundedCornerShape = RoundedCornerShape(20.dp)
+    /** 输入槽 */
+    val field: RoundedCornerShape = RoundedCornerShape(14.dp)
+    /** 底部抽屉顶部圆角 */
+    val sheetTop: RoundedCornerShape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)
 
-    /** @deprecated 用 [sm]；保留仅为避免本轮批量重命名 30+ 处调用 */
+    // 兼容别名
     val small: RoundedCornerShape = sm
-
-    /** @deprecated 用 [md] */
     val medium: RoundedCornerShape = md
-
-    /** 底部抽屉顶边圆角 12dp（只有上两角，属 md 的变体） */
-    val sheetTop: RoundedCornerShape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
-
-    /** 兼容语义别名 */
     val radiusSmall: RoundedCornerShape = sm
     val radiusMedium: RoundedCornerShape = md
     val radiusFull: RoundedCornerShape = full
-    val paperCut: RoundedCornerShape = sm
-    val tagEar: RoundedCornerShape = sm
+    val paperCut: RoundedCornerShape = leaf
+    val tagEar: RoundedCornerShape = xs
     val pill: RoundedCornerShape = full
-    val dialogLayer: RoundedCornerShape = md
-    val washiTape: RoundedCornerShape = sm
+    val dialogLayer: RoundedCornerShape = lg
+    val washiTape: RoundedCornerShape = xs
     val bookmark: RoundedCornerShape = sm
 }
 
 /**
- * 散页手账阴影层级 (Archive Shadows)
- * 贴纸 / 纸页 / 浮层三档，绝非冷黑，配合暖棕灰投影视效
+ * 阴影层级令牌：Folio 以色阶分层为主，阴影只用于真正「浮起来」的东西。
  */
 object ArchiveShadows {
-    val stickerElevation: Dp = 0.5.dp
-    val paperSheetElevation: Dp = 1.5.dp
-    val floatingLayerElevation: Dp = 6.dp
-    val pressedElevation: Dp = 0.5.dp
+    val stickerElevation: Dp = 0.dp
+    val paperSheetElevation: Dp = 0.dp
+    /** 卡片按需的极轻投影 */
+    val leafElevation: Dp = 2.dp
+    val floatingLayerElevation: Dp = 12.dp
+    val pressedElevation: Dp = 0.dp
+    /** 底部导航胶囊 */
+    val dockElevation: Dp = 20.dp
+    /** 对话框 */
+    val dialogElevation: Dp = 24.dp
 }
 
 /**
- * 散页手账动效节奏 (Archive Motion)
- * 全站动效严格 ≤ 300ms，统一经典纸张翻动缓动曲线。
- * 纸是刚性材料，不做回弹（spring）—— 所有过渡必须是 tween + 缓动曲线。
+ * 动效令牌：短、轻、带一点阻尼，不弹跳。
  */
 object ArchiveMotion {
-    const val DurationFast: Int = 120   // 微交互（按压下沉、标签凸起）
-    const val DurationBase: Int = 200   // 状态过渡（分类翻页、折叠封面）
-    const val DurationSlow: Int = 300   // 展开抽屉、卡片落纸
+    const val DurationFast: Int = 160
+    const val DurationBase: Int = 280
+    const val DurationSlow: Int = 420
 
-    val EaseInOutBook: CubicBezierEasing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
+    /** 强调缓出：进入、展开 */
+    val EaseOutEmphasized: CubicBezierEasing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1.0f)
+    /** 标准缓动：状态切换 */
+    val EaseStandard: CubicBezierEasing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)
+    /** 缓入：退出 */
+    val EaseIn: CubicBezierEasing = CubicBezierEasing(0.3f, 0.0f, 0.8f, 0.15f)
+    /** 兼容别名 */
+    val EaseInOutBook: CubicBezierEasing = EaseStandard
+
+    /** 滑块、指示器等位移：柔和阻尼，不过冲 */
+    fun <T> glide(): SpringSpec<T> = spring(
+        dampingRatio = 0.86f,
+        stiffness = 420f
+    )
+
+    /** 按压缩放：快速回弹 */
+    fun <T> press(): SpringSpec<T> = spring(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = Spring.StiffnessMediumLow
+    )
 }

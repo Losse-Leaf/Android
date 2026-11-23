@@ -49,10 +49,10 @@ import com.looseleaf.feature.ledger.LedgerEntry
 import com.looseleaf.feature.ledger.LedgerModule
 import com.looseleaf.app.ui.pairing.PairingScreen
 import com.looseleaf.app.ui.components.SpineBottomBar
-import com.looseleaf.app.ui.projectswishes.CreateWishSheet
-import com.looseleaf.app.ui.projectswishes.EditWishSheetDialog
-import com.looseleaf.app.ui.projectswishes.ResolveWishSheet
-import com.looseleaf.app.ui.projectswishes.WishesList
+import com.looseleaf.app.ui.wishes.CreateWishSheet
+import com.looseleaf.app.ui.wishes.EditWishSheetDialog
+import com.looseleaf.app.ui.wishes.ResolveWishSheet
+import com.looseleaf.app.ui.wishes.WishesList
 import com.looseleaf.app.ui.settings.SettingsHost
 import com.looseleaf.app.ui.stream.StreamScreen
 import kotlinx.coroutines.Dispatchers
@@ -228,8 +228,18 @@ class MainActivity : FragmentActivity() {
                     LocalDensity provides clampedDensity
                 ) {
                     // Toast 宿主挂在最外层（各底层抽屉已自带独立 Window 级 ModalBottomSheet 遮罩）
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        Column(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(LooseLeafTheme.colors.archivePaper)
+                    ) {
+                        // 状态栏内边距在最外层统一消费一次：横幅、配对页、锁屏、设置页与主 Scaffold
+                        // 都不再各自让位，避免「设置页压住状态栏 / 横幅钻进状态栏」这类错位。
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .windowInsetsPadding(WindowInsets.statusBars)
+                        ) {
                             OfflineBanner(
                                 pendingCount = pendingEventCount,
                                 failedCount = failedEventCount,
@@ -269,12 +279,8 @@ class MainActivity : FragmentActivity() {
         }
         val currentRoute by currentRouteState
 
-        // MOB-P2-73：返回栈 —— 此前从「造物」按返回会直接跳到「时间流」，
-        // 用户在多个分段之间来回切换后无法回到原处。
-        // 这里记录「离开时的路由」，返回时逐级回退。
-        // MOB-P1-xx：用 rememberSaveable —— 旋转 / 配置变更后 currentRouteState 会被恢复，
-        // 但普通 remember 的返回栈会一并丢失 ⇒ 返回键行为突变（直接回时间流）。
-        // mutableStateListOf 需要 Saver 才能进 rememberSaveable，这里用数组中转。
+        // MOB-P2-73：返回栈 —— 记录离开时的路由，返回时逐级回退。
+        // 用 rememberSaveable 保证旋转 / 配置变更后返回栈不丢失。
         val routeStack = rememberSaveable(saver = listSaver(
             save = { it.toList() },
             restore = { it.toMutableStateList() }
@@ -313,12 +319,10 @@ class MainActivity : FragmentActivity() {
         // 跨页跳转意图：一次性消费
         var pendingContentFilter by remember { mutableStateOf<Set<String>?>(null) }
 
-        val openWorkshopTarget: (String, Long) -> Unit = remember(onRouteSelected) {
-            { kind: String, _: Long ->
-                if (kind == "wish") {
-                    requestedLedgerTab = 1
-                    onRouteSelected("ledger")
-                }
+        val onOpenWishTarget: (Long) -> Unit = remember(onRouteSelected) {
+            { _: Long ->
+                requestedLedgerTab = 1
+                onRouteSelected("ledger")
             }
         }
 
@@ -704,7 +708,7 @@ class MainActivity : FragmentActivity() {
                             saveableStateHolder.SaveableStateProvider(stateKey) {
                                 when (currentRoute) {
                                     "stream" -> StreamScreen(
-                                        onOpenWorkshopTarget = openWorkshopTarget,
+                                        onOpenWishTarget = onOpenWishTarget,
                                         initialContentFilter = pendingContentFilter,
                                         onContentFilterConsumed = { pendingContentFilter = null },
                                         onOpenSettings = { showSettings = true }
@@ -764,17 +768,6 @@ class MainActivity : FragmentActivity() {
 }
 
 /**
- * 跨页面跳转目标（RG-31）：从全局搜索命中一条足迹 / 心愿 / 造物时，
- * 带上类型与主键跳到工坊对应分段并直接打开详情。
- * kind ∈ { project, wish, footprint }；id 为服务端主键。
- */
-data class WorkshopTarget(val kind: String, val id: Long)
-
-// 底栏页签由 SpineBottomBar 内部的 SpineNavigationItem 持有并 remember 缓存。
-// 这里曾有一套 NavigationTabItem + rememberBottomTabs()，但 LooseLeafBottomBar
-// 调用 SpineBottomBar 时从未传过它，属于零调用死代码，第 2 批删除。
-
-/**
  * MOB-P1-85：全局离线与同步异常横幅。
  * 断网时明确告知「当前离线 · N 项待同步」；发生同步失败时明确提示异常并支持点击查看重试。
  */
@@ -800,34 +793,57 @@ private fun OfflineBanner(
         onDispose { runCatching { cm?.unregisterNetworkCallback(callback) } }
     }
 
-    if (!isOnline || failedCount > 0) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = !isOnline || failedCount > 0,
+        enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+        exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut(),
+        modifier = modifier
+    ) {
         val hasFailed = failedCount > 0
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = modifier
+        val tint = if (hasFailed) colors.alertRed else colors.inkSecondary
+        val container = if (hasFailed) colors.negativeTint else colors.archiveSubtle
+        Box(
+            modifier = Modifier
                 .fillMaxWidth()
-                .background(if (hasFailed) colors.accentWarm else colors.accentWarm.copy(alpha = 0.9f))
-                .then(if (hasFailed) Modifier.clickable(onClick = onOpenFailedSheet) else Modifier)
-                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_cloud_off),
-                contentDescription = stringResource(R.string.main_activity_contentDescription_02),
-                tint = colors.archivePaper,
-                modifier = Modifier.size(14.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = when {
-                    hasFailed && pendingCount > 0 -> "同步异常：$failedCount 项失败 · $pendingCount 项待同步（点击查看）"
-                    hasFailed -> "同步异常：$failedCount 项记录同步失败（点击查看）"
-                    pendingCount > 0 -> "当前离线 · $pendingCount 项待同步（联网后自动上传）"
-                    else -> "当前离线 · 记录会先存到本机"
-                },
-                fontFamily = ArchiveFontFamilies.BodySans,
-                fontSize = 12.sp,
-                color = colors.archivePaper
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                    .background(container)
+                    .then(if (hasFailed) Modifier.clickable(onClick = onOpenFailedSheet) else Modifier)
+                    .padding(start = 12.dp, end = if (hasFailed) 8.dp else 14.dp, top = 7.dp, bottom = 7.dp)
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_cloud_off),
+                    contentDescription = stringResource(R.string.main_activity_contentDescription_02),
+                    tint = tint,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = when {
+                        hasFailed && pendingCount > 0 -> "$failedCount 项同步失败 · $pendingCount 项待同步"
+                        hasFailed -> "$failedCount 项记录同步失败"
+                        pendingCount > 0 -> "当前离线 · $pendingCount 项联网后自动上传"
+                        else -> "当前离线 · 记录会先存在本机"
+                    },
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                    color = tint,
+                    maxLines = 1
+                )
+                if (hasFailed) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = com.looseleaf.app.ui.components.FolioGlyphs.ChevronRight,
+                        contentDescription = "查看失败项",
+                        tint = tint,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
         }
     }
 }

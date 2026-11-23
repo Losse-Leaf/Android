@@ -3,7 +3,16 @@ package com.looseleaf.app.ui.components
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -13,26 +22,25 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveShapes
-import com.looseleaf.app.theme.ArchiveTypeScale
+import com.looseleaf.app.theme.ArchiveTextStyles
 import com.looseleaf.app.theme.LooseLeafTheme
 
 /**
- * 散页统一空状态：上移至内容区上 1/3 + 线稿纸签元素 + 实心赤陶 CTA 按钮
+ * 空状态 (ArchiveEmptyState)
+ * - 版面重心落在内容区上三分之一
+ * - 默认插画为「三张错落的散页 + 一枚朱砂小印」几何线稿；传入图标时改为凹槽圆底图标
+ * - 衬线标题 + 无衬线说明 + 朱砂胶囊行动按钮
  */
 @Composable
 fun ArchiveEmptyState(
@@ -50,58 +58,64 @@ fun ArchiveEmptyState(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 56.dp, bottom = 32.dp, start = 24.dp, end = 24.dp),
+            .padding(top = 64.dp, bottom = 32.dp, start = 32.dp, end = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top
     ) {
         when {
-            imageVector != null -> {
-                Icon(
-                    imageVector = imageVector,
-                    contentDescription = null,
-                    tint = colors.inkMuted.copy(alpha = 0.55f),
-                    modifier = Modifier.size(36.dp)
-                )
+            imageVector != null || icon != null -> {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(ArchiveShapes.full)
+                        .background(colors.archiveSubtle),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (imageVector != null) {
+                        Icon(
+                            imageVector = imageVector,
+                            contentDescription = null,
+                            tint = colors.inkMuted,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    } else if (icon != null) {
+                        Icon(
+                            painter = icon,
+                            contentDescription = null,
+                            tint = colors.inkMuted,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
             }
-            icon != null -> {
-                Icon(
-                    painter = icon,
-                    contentDescription = null,
-                    tint = colors.inkMuted.copy(alpha = 0.55f),
-                    modifier = Modifier.size(36.dp)
-                )
-            }
-            else -> {
-                ArchivePaperSlipOrnament()
-            }
+            else -> FolioLeavesOrnament()
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(22.dp))
 
         Text(
             text = title,
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontWeight = FontWeight.Medium,
-            fontSize = ArchiveTypeScale.bodyLarge,
-            color = colors.inkSecondary,
-            textAlign = TextAlign.Center
+            style = ArchiveTextStyles.essayTitle,
+            color = colors.inkPrimary,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.widthIn(max = 320.dp)
         )
         if (!subtitle.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = subtitle,
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = ArchiveTypeScale.caption,
+                style = ArchiveTextStyles.body,
                 color = colors.inkMuted,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(max = 300.dp)
             )
         }
         if (!actionText.isNullOrBlank() && onActionClick != null) {
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(26.dp))
             Box(
                 modifier = Modifier
                     .defaultMinSize(minHeight = 48.dp)
-                    .clip(ArchiveShapes.small)
+                    .clip(ArchiveShapes.full)
                     .background(colors.accentWarm)
                     .clickable(
                         role = Role.Button,
@@ -110,17 +124,15 @@ fun ArchiveEmptyState(
                             onActionClick()
                         }
                     )
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                    .padding(horizontal = 26.dp, vertical = 13.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = actionText,
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = ArchiveTypeScale.body,
+                    style = ArchiveTextStyles.button,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = colors.archivePaper
+                    color = colors.onAccent
                 )
             }
         }
@@ -128,67 +140,52 @@ fun ArchiveEmptyState(
 }
 
 /**
- * 折角纸签线稿插画：克制的 1.2dp 墨线折页 + 一枚赤陶小书签印记
+ * 散页插画：三张以不同角度叠放的纸，最上一张带两行字迹与一枚朱砂小印。
  */
 @Composable
-private fun ArchivePaperSlipOrnament() {
+fun FolioLeavesOrnament(modifier: Modifier = Modifier) {
     val colors = LooseLeafTheme.colors
-    val lineColor = colors.inkMuted.copy(alpha = 0.42f)
-    val accentColor = colors.accentWarm.copy(alpha = 0.72f)
+    val back = colors.archiveSubtle
+    val mid = colors.borderDivider
+    val front = colors.archiveCard
+    val line = colors.inkMuted.copy(alpha = 0.55f)
+    val seal = colors.accentWarm
 
-    Canvas(modifier = Modifier.size(width = 36.dp, height = 44.dp)) {
-        val stroke = 1.25.dp.toPx()
-        val fold = 9.dp.toPx()
-        val w = size.width
-        val h = size.height
+    Canvas(modifier = modifier.size(width = 96.dp, height = 84.dp)) {
+        val w = 54.dp.toPx()
+        val h = 66.dp.toPx()
+        val r = CornerRadius(8.dp.toPx(), 8.dp.toPx())
+        val origin = Offset((size.width - w) / 2f, (size.height - h) / 2f)
+        val stroke = 1.2.dp.toPx()
 
-        val outline = Path().apply {
-            moveTo(0f, 0f)
-            lineTo(w - fold, 0f)
-            lineTo(w, fold)
-            lineTo(w, h)
-            lineTo(0f, h)
-            close()
+        rotate(degrees = -14f, pivot = Offset(size.width / 2f, size.height / 2f)) {
+            drawRoundRect(color = back, topLeft = origin, size = Size(w, h), cornerRadius = r)
         }
-        drawPath(
-            path = outline,
-            color = lineColor,
-            style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        )
-
-        val dogEar = Path().apply {
-            moveTo(w - fold, 0f)
-            lineTo(w - fold, fold)
-            lineTo(w, fold)
+        rotate(degrees = 8f, pivot = Offset(size.width / 2f, size.height / 2f)) {
+            drawRoundRect(color = mid, topLeft = origin, size = Size(w, h), cornerRadius = r, style = Stroke(stroke))
         }
-        drawPath(
-            path = dogEar,
-            color = lineColor,
-            style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        )
+        drawRoundRect(color = front, topLeft = origin, size = Size(w, h), cornerRadius = r)
+        drawRoundRect(color = line.copy(alpha = 0.35f), topLeft = origin, size = Size(w, h), cornerRadius = r, style = Stroke(stroke))
 
-        // 顶部左侧赤陶小书签贴条
+        val pad = 10.dp.toPx()
+        drawLine(
+            color = line,
+            start = Offset(origin.x + pad, origin.y + h * 0.34f),
+            end = Offset(origin.x + w - pad, origin.y + h * 0.34f),
+            strokeWidth = stroke
+        )
+        drawLine(
+            color = line.copy(alpha = 0.4f),
+            start = Offset(origin.x + pad, origin.y + h * 0.50f),
+            end = Offset(origin.x + w - pad * 1.8f, origin.y + h * 0.50f),
+            strokeWidth = stroke
+        )
+        val sealSize = 11.dp.toPx()
         drawRoundRect(
-            color = accentColor,
-            topLeft = Offset(6.dp.toPx(), 0f),
-            size = Size(5.dp.toPx(), 9.dp.toPx()),
-            cornerRadius = CornerRadius(1.dp.toPx(), 1.dp.toPx())
-        )
-
-        // 纸面两道极淡横格线
-        drawLine(
-            color = lineColor.copy(alpha = 0.28f),
-            start = Offset(7.dp.toPx(), h * 0.52f),
-            end = Offset(w - 7.dp.toPx(), h * 0.52f),
-            strokeWidth = 1.dp.toPx(),
-            cap = StrokeCap.Round
-        )
-        drawLine(
-            color = lineColor.copy(alpha = 0.28f),
-            start = Offset(7.dp.toPx(), h * 0.70f),
-            end = Offset(w - 13.dp.toPx(), h * 0.70f),
-            strokeWidth = 1.dp.toPx(),
-            cap = StrokeCap.Round
+            color = seal,
+            topLeft = Offset(origin.x + w - pad - sealSize, origin.y + h - pad - sealSize),
+            size = Size(sealSize, sealSize),
+            cornerRadius = CornerRadius(2.5.dp.toPx(), 2.5.dp.toPx())
         )
     }
 }

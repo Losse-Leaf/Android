@@ -255,32 +255,45 @@ fun PairingScreen(
                 // 阶段一：Vesper Auth 通行证主通道 + 扫码/深链次级兜底
                 // ==========================================
 
+                // 品牌方印：与锁屏 / 刊头同一枚朱砂印，接入页即是这本书的扉页
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(com.looseleaf.app.theme.ArchiveShapes.lg)
+                        .background(colors.accentWarm),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "散",
+                        fontFamily = ArchiveFontFamilies.Display,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 32.sp,
+                        color = colors.onAccent
+                    )
+                }
+                Spacer(modifier = Modifier.height(20.dp))
                 Text(
                     text = stringResource(R.string.pairing_screen_text_01),
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 26.sp,
-                    letterSpacing = 2.sp,
-                    color = colors.inkPrimary
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.pageTitle,
+                    color = colors.inkPrimary,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = stringResource(R.string.pairing_screen_text_02),
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 13.sp,
-                    color = colors.inkSecondary
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.body,
+                    color = colors.inkSecondary,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(22.dp))
+                Spacer(modifier = Modifier.height(28.dp))
 
                 // 1. 顶部主通道：Vesper Auth 统一单点登录一键接入
                 PaperCard(modifier = Modifier.fillMaxWidth()) {
                     Column {
                         Text(
                             text = stringResource(R.string.pairing_screen_sso_title),
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 16.sp,
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.essayTitle,
                             color = colors.inkPrimary
                         )
                         Spacer(modifier = Modifier.height(6.dp))
@@ -331,9 +344,9 @@ fun PairingScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(com.looseleaf.app.theme.ArchiveShapes.sm)
                                     .background(colors.archiveSubtle)
-                                    .border(0.5.dp, colors.borderDivider, RoundedCornerShape(8.dp))
+                                    .border(1.dp, colors.borderCard, com.looseleaf.app.theme.ArchiveShapes.sm)
                                     .padding(10.dp)
                             ) {
                                 Text(
@@ -357,9 +370,9 @@ fun PairingScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .defaultMinSize(minHeight = 48.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(com.looseleaf.app.theme.ArchiveShapes.sm)
                         .background(colors.archiveSubtle)
-                        .border(0.5.dp, colors.borderDivider, RoundedCornerShape(10.dp))
+                        .border(1.dp, colors.borderCard, com.looseleaf.app.theme.ArchiveShapes.sm)
                         .clickable(role = Role.Button) {
                             showFallbackMethods = !showFallbackMethods
                         }
@@ -389,9 +402,8 @@ fun PairingScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(com.looseleaf.app.theme.ArchiveShapes.full)
                             .background(colors.archiveSubtle)
-                            .border(0.5.dp, colors.borderDivider, RoundedCornerShape(12.dp))
                             .padding(4.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
@@ -403,8 +415,8 @@ fun PairingScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .defaultMinSize(minHeight = 44.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (isSelected) colors.archivePaper else androidx.compose.ui.graphics.Color.Transparent)
+                                    .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                                    .background(if (isSelected) colors.archiveCard else androidx.compose.ui.graphics.Color.Transparent)
                                     .clickable(role = Role.Tab) {
                                         selectedMethodTab = index
                                     }
@@ -414,16 +426,15 @@ fun PairingScreen(
                                     Icon(
                                         painter = if (index == 0) painterResource(R.drawable.ic_qr_code_scanner) else painterResource(R.drawable.ic_link),
                                         contentDescription = null,
-                                        tint = if (isSelected) colors.accentWarm else colors.inkMuted,
+                                        tint = if (isSelected) colors.accentSmallText else colors.inkMuted,
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         text = title,
-                                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                        fontSize = 14.sp,
-                                        fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
-                                        color = if (isSelected) colors.inkPrimary else colors.inkSecondary
+                                        style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                        color = if (isSelected) colors.inkPrimary else colors.inkMuted
                                     )
                                 }
                             }
@@ -473,31 +484,44 @@ fun PairingScreen(
                                 Spacer(modifier = Modifier.height(10.dp))
 
                                 // 从剪贴板粘贴按钮
-                                OutlinedButton(
-                                    onClick = {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                        val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
-                                        if (clipText.isNotBlank()) {
-                                            pastedLinkInput = clipText.trim()
-                                            ArchiveToastManager.show("已粘贴剪贴板内容")
-                                        } else {
-                                            ArchiveToastManager.show("剪贴板为空")
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(12.dp),
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .defaultMinSize(minHeight = 48.dp)
+                                        .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                                        .border(1.dp, colors.borderDivider, com.looseleaf.app.theme.ArchiveShapes.full)
+                                        .clickable(role = Role.Button) {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                            val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
+                                            if (clipText.isNotBlank()) {
+                                                pastedLinkInput = clipText.trim()
+                                                ArchiveToastManager.show("已粘贴剪贴板内容")
+                                            } else {
+                                                ArchiveToastManager.show("剪贴板为空")
+                                            }
+                                        }
+                                        .padding(vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(painter = painterResource(R.drawable.ic_content_paste), contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(stringResource(R.string.pairing_screen_clipboard), fontFamily = ArchiveFontFamilies.EditorialSerif, fontSize = 13.sp)
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_content_paste),
+                                        contentDescription = null,
+                                        tint = colors.inkSecondary,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = stringResource(R.string.pairing_screen_clipboard),
+                                        style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                                        color = colors.inkPrimary
+                                    )
                                 }
 
                                 Spacer(modifier = Modifier.height(16.dp))
 
                                 ArchivePrimaryButton(
-                                    text = if (isConnecting) "正在解析并连接中枢..." else "确认连接中枢 (CONNECT)",
+                                    text = if (isConnecting) "正在连接中枢" else "确认连接中枢",
                                     enabled = !isConnecting && pastedLinkInput.isNotBlank(),
                                     onClick = {
                                         executeHandshake(pastedLinkInput)

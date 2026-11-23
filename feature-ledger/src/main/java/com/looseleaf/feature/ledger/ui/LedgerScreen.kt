@@ -210,7 +210,7 @@ fun LedgerScreen(
                 ArchivePageHeader(
                     title = "账本",
                     subtitle = if (selectedTab == 0) {
-                        "${selectedYearMonth.year} 年 ${selectedYearMonth.monthValue} 月 ▾"
+                        "${selectedYearMonth.year} 年 ${selectedYearMonth.monthValue} 月"
                     } else {
                         "心愿与向往"
                     },
@@ -220,33 +220,29 @@ fun LedgerScreen(
                         null
                     },
                     actions = {
-                        IconButton(onClick = { showKeepAliveScreen = true }) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_auto_record),
-                                contentDescription = "自动记账与保活",
-                                tint = colors.textPrimary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
+                        ArchiveHeaderIconButton(
+                            onClick = { showKeepAliveScreen = true },
+                            contentDescription = "自动记账与保活",
+                            painter = painterResource(R.drawable.ic_auto_record)
+                        )
                         Box {
-                            IconButton(onClick = { showMoreMenu = true }) {
-                                Icon(
-                                    imageVector = Icons.Outlined.MoreVert,
-                                    contentDescription = "更多操作",
-                                    tint = colors.textPrimary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
+                            ArchiveHeaderIconButton(
+                                onClick = { showMoreMenu = true },
+                                contentDescription = "更多操作",
+                                imageVector = FolioGlyphs.More,
+                                highlighted = showMoreMenu
+                            )
 
                             DropdownMenu(
                                 expanded = showMoreMenu,
                                 onDismissRequest = { showMoreMenu = false },
                                 modifier = Modifier
-                                    .background(colors.surfaceElevated)
-                                    .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.small),
-                                shape = ArchiveShapes.small,
+                                    .background(colors.surfaceRaised)
+                                    .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.md),
+                                containerColor = colors.surfaceRaised,
+                                shape = ArchiveShapes.md,
                                 tonalElevation = 0.dp,
-                                shadowElevation = 0.dp
+                                shadowElevation = 12.dp
                             ) {
                                 DropdownMenuItem(
                                     text = {
@@ -311,7 +307,7 @@ fun LedgerScreen(
             },
             floatingActionButton = {
                 val fabOffset by animateDpAsState(
-                    targetValue = if (snackbarData != null) (-56).dp else 0.dp,
+                    targetValue = if (snackbarData != null) (-76).dp else 0.dp,
                     label = "fab_offset"
                 )
                 ArchiveFab(
@@ -326,10 +322,10 @@ fun LedgerScreen(
                     modifier = Modifier.offset(y = fabOffset),
                     icon = {
                         Icon(
-                            imageVector = Icons.Outlined.Add,
+                            imageVector = FolioGlyphs.Plus,
                             contentDescription = if (selectedTab == 0) "记一笔" else "许下心愿",
-                            tint = colors.background,
-                            modifier = Modifier.size(22.dp)
+                            tint = colors.onAccent,
+                            modifier = Modifier.size(26.dp)
                         )
                     }
                 )
@@ -342,7 +338,7 @@ fun LedgerScreen(
                     .padding(innerPadding)
             ) {
                 // 视图切换（流水 / 心愿单）
-                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 10.dp)) {
                     ArchiveSegmentedTabs(
                         tabs = listOf("流水", "心愿单"),
                         selectedIndex = selectedTab,
@@ -359,22 +355,21 @@ fun LedgerScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 4.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(colors.accent.copy(alpha = 0.1f))
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .clip(ArchiveShapes.md)
+                                .background(colors.archive.negativeTint)
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Outlined.Warning,
+                                imageVector = FolioGlyphs.Alert,
                                 contentDescription = null,
-                                tint = colors.accent,
-                                modifier = Modifier.size(16.dp)
+                                tint = colors.alertRed,
+                                modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = msg,
                                 style = LedgerTheme.typography.caption,
-                                fontFamily = LedgerTheme.typography.serif,
-                                color = colors.accent,
+                                color = colors.alertRed,
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -455,7 +450,7 @@ fun LedgerScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(bottom = 88.dp, start = 16.dp, end = 16.dp)
+                .padding(bottom = 16.dp, start = 16.dp, end = 16.dp)
         ) {
             snackbarData?.let { data ->
                 ArchiveSnackbar(

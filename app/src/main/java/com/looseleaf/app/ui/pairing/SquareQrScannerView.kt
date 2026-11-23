@@ -133,7 +133,7 @@ fun SquareQrScannerView(
                 .height(340.dp)
                 .clip(RoundedCornerShape(4.dp))
                 .background(colors.archiveSubtle)
-                .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
+                .border(1.dp, colors.borderCard, RoundedCornerShape(4.dp))
                 .padding(24.dp)
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -157,15 +157,17 @@ fun SquareQrScannerView(
                             permissionLauncher.launch(Manifest.permission.CAMERA)
                         }
                     },
-                    shape = RoundedCornerShape(2.dp),
+                    shape = com.looseleaf.app.theme.ArchiveShapes.full,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.accentWarm,
-                        contentColor = colors.archivePaper
-                    )
+                        contentColor = colors.onAccent
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                    contentPadding = PaddingValues(horizontal = 22.dp, vertical = 12.dp)
                 ) {
                     Text(
                         text = if (cameraPermanentlyDenied) "去设置" else stringResource(R.string.scanner_grant_permission),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.label
                     )
                 }
             }
@@ -384,7 +386,7 @@ fun SquareQrScannerView(
             ) {
                 Icon(painter = painterResource(R.drawable.ic_photo), contentDescription = null, modifier = Modifier.size(16.dp), tint = colors.inkSecondary)
                 Spacer(modifier = Modifier.width(4.dp))
-                Text(stringResource(R.string.scanner_pick_from_album), fontSize = 12.sp, color = colors.inkSecondary, fontFamily = ArchiveFontFamilies.EditorialSerif)
+                Text(stringResource(R.string.scanner_pick_from_album), style = com.looseleaf.app.theme.ArchiveTextStyles.meta, color = colors.inkSecondary)
             }
         }
     }

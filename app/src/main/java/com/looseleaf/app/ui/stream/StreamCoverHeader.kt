@@ -1,21 +1,20 @@
 package com.looseleaf.app.ui.stream
 
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -23,25 +22,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
-import com.looseleaf.app.R
 import com.looseleaf.app.theme.ArchiveFontFamilies
-import com.looseleaf.app.theme.ArchiveMotion
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveSpacing
+import com.looseleaf.app.theme.ArchiveTextStyles
 import com.looseleaf.app.theme.LooseLeafTheme
+import com.looseleaf.app.ui.components.ArchiveHeaderIconButton
+import com.looseleaf.app.ui.components.FolioGlyphs
 import java.time.LocalDate
 
 /**
- * 散页手账 · 封面区 (Stream Cover Header)
+ * 散页 · 刊头 (Stream Masthead)
  *
- * 统一化规范：
- * - 左：标题"散页"（衬线，最粗的元素）。其下一行为次要暖灰、单行省略的小字（显示"2026年10月27日 · 周二"，不再显示长句）
- * - 右从左到右：搜索、筛选图标、邮戳（无待处理时隐藏）
- * - 封面与下方内容之间无任何分割线或色带，靠间距分隔
+ * 展开态（列表在顶部）：
+ *   第一行：日期小标（「十一月 二十三 · 周一」加宽字距）+ 右侧工具（搜索 / 筛选 / 邮戳 / 设置）
+ *   第二行：一枚朱砂小方印 + 衬线大字「散页」
+ * 收起态（列表上滑）：刊头高度从 116dp 收到 60dp，大字缩到 21sp，日期淡出，
+ *   工具组始终停在右上，与标题落在同一条基线带上。
+ * 长按标题保留原有的隐藏入口回调。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -62,14 +66,16 @@ internal fun StreamCoverHeader(
     val colors = LooseLeafTheme.colors
     val fraction = collapseFraction.coerceIn(0f, 1f)
 
-    // 动态计算高度：展开 80dp -> 折叠 52dp
-    val headerHeight = lerp(80.dp, 52.dp, fraction)
-    val titleFontSize = lerp(26.sp, 20.sp, fraction)
-    val subtitleAlpha = (1f - fraction * 2.5f).coerceIn(0f, 1f)
+    val headerHeight = lerp(116.dp, 60.dp, fraction)
+    val titleSize = lerp(34.sp, 21.sp, fraction)
+    val sealSize = lerp(22.dp, 15.dp, fraction)
+    val dateAlpha = (1f - fraction * 2.4f).coerceIn(0f, 1f)
+    val dateHeight = lerp(22.dp, 0.dp, (fraction * 1.6f).coerceIn(0f, 1f))
 
-    val currentDateString = remember {
+    val dateLine = remember {
         val now = LocalDate.now(com.looseleaf.app.utils.FormatUtils.BeijingZone)
-        val weekdayStr = when (now.dayOfWeek.value) {
+        val months = listOf("一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月")
+        val weekday = when (now.dayOfWeek.value) {
             1 -> "周一"
             2 -> "周二"
             3 -> "周三"
@@ -78,32 +84,36 @@ internal fun StreamCoverHeader(
             6 -> "周六"
             else -> "周日"
         }
-        "${now.year}年${now.monthValue}月${now.dayOfMonth}日 · $weekdayStr"
+        "${now.year}  ·  ${months[now.monthValue - 1]} ${now.dayOfMonth} 日  ·  $weekday"
     }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .height(headerHeight)
             .background(colors.archivePaper)
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.Center
+            .padding(start = ArchiveSpacing.gutter, end = 10.dp)
     ) {
-        // 第一行：标题"散页" 与 右侧功能区（年份选择、邮戳、搜索）居于同一行并对齐
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        // 标题组（左下）
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(bottom = lerp(14.dp, 12.dp, fraction), end = 176.dp)
         ) {
-            Text(
-                text = "散页",
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontWeight = FontWeight.Bold,
-                fontSize = titleFontSize,
-                letterSpacing = 1.2.sp,
-                color = colors.inkPrimary,
-                maxLines = 1,
-                softWrap = false,
+            if (dateHeight > 0.5.dp) {
+                Box(modifier = Modifier.height(dateHeight)) {
+                    Text(
+                        text = dateLine,
+                        style = ArchiveTextStyles.overline,
+                        color = colors.inkMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.alpha(dateAlpha)
+                    )
+                }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = if (onTitleLongClick != null) {
                     Modifier.combinedClickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -112,89 +122,92 @@ internal fun StreamCoverHeader(
                         onLongClick = onTitleLongClick
                     )
                 } else Modifier
-            )
-
-            // 右：从左到右依次为 搜索、筛选图标、邮戳（无待处理时静默隐藏）
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // 搜索图标
-                IconButton(
-                    onClick = onSearchClick,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Search,
-                        contentDescription = "搜索",
-                        tint = colors.inkPrimary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-
-                // 筛选图标（24dp，Outlined；有筛选生效时右上角加 6dp 赤陶色小点，无障碍描述为"筛选，已启用 N 项"）
-                IconButton(
-                    onClick = onFilterClick,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Box(
-                        modifier = Modifier.size(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_filter_alt),
-                            contentDescription = if (activeFilterCount > 0) "筛选，已启用 ${activeFilterCount} 项" else "筛选",
-                            tint = colors.inkPrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        if (activeFilterCount > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .align(Alignment.TopEnd)
-                                    .background(colors.accentWarm, CircleShape)
-                            )
-                        }
-                    }
-                }
-
-                // 状态邮戳（无待处理时静默隐藏）
-                SyncPostmarkStamp(
-                    isSyncing = isSyncing,
-                    pendingCount = pendingCount,
-                    failedCount = failedCount,
-                    onFailedClick = onFailedStampClick,
-                    onPendingClick = onPendingStampClick
+                MastheadSeal(size = sealSize)
+                Spacer(modifier = Modifier.width(lerp(12.dp, 9.dp, fraction)))
+                Text(
+                    text = "散页",
+                    fontFamily = ArchiveFontFamilies.Display,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = titleSize,
+                    letterSpacing = lerp(4.sp, 2.sp, fraction),
+                    color = colors.inkPrimary,
+                    maxLines = 1,
+                    softWrap = false
                 )
-
-                if (onOpenSettings != null) {
-                    IconButton(
-                        onClick = onOpenSettings,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Settings,
-                            contentDescription = "设置",
-                            tint = colors.inkPrimary,
-                            modifier = Modifier.size(21.dp)
-                        )
-                    }
-                }
             }
         }
 
-        // 副标题独占下一行（仅在展开态显示，收起态淡出隐藏）
-        if (subtitleAlpha > 0.05f) {
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = currentDateString,
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = 12.sp,
-                color = colors.inkMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.alpha(subtitleAlpha)
+        // 工具组（右上，收起态时垂直居中于 60dp 栏）
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            SyncPostmarkStamp(
+                isSyncing = isSyncing,
+                pendingCount = pendingCount,
+                failedCount = failedCount,
+                onFailedClick = onFailedStampClick,
+                onPendingClick = onPendingStampClick,
+                modifier = Modifier.padding(end = 4.dp)
             )
+            ArchiveHeaderIconButton(
+                onClick = onSearchClick,
+                contentDescription = "搜索",
+                imageVector = FolioGlyphs.Search
+            )
+            ArchiveHeaderIconButton(
+                onClick = onFilterClick,
+                contentDescription = if (activeFilterCount > 0) "筛选，已启用 $activeFilterCount 项" else "筛选",
+                imageVector = FolioGlyphs.Filter,
+                highlighted = activeFilterCount > 0,
+                badge = if (activeFilterCount > 0) {
+                    {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(colors.accentWarm)
+                        )
+                    }
+                } else null
+            )
+            if (onOpenSettings != null) {
+                ArchiveHeaderIconButton(
+                    onClick = onOpenSettings,
+                    contentDescription = "设置",
+                    imageVector = FolioGlyphs.Tune
+                )
+            }
         }
+    }
+}
+
+/**
+ * 刊头小方印：圆角方块里一个反白的「页」字，随刊头收起同比缩小。
+ */
+@Composable
+private fun MastheadSeal(size: androidx.compose.ui.unit.Dp) {
+    val colors = LooseLeafTheme.colors
+    Box(
+        modifier = Modifier
+            .size(size)
+            .graphicsLayer { rotationZ = -4f }
+            .clip(ArchiveShapes.xs)
+            .background(colors.accentWarm),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "页",
+            fontFamily = ArchiveFontFamilies.Display,
+            fontWeight = FontWeight.Bold,
+            fontSize = (size.value * 0.58f).sp,
+            color = colors.onAccent,
+            maxLines = 1,
+            softWrap = false
+        )
     }
 }

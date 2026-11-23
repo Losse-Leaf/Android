@@ -1,13 +1,37 @@
-package com.looseleaf.app.ui.projectswishes
+package com.looseleaf.app.ui.wishes
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveLines
+import com.looseleaf.app.theme.ArchiveMotion
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTextStyles
+import com.looseleaf.app.theme.LooseLeafTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.looseleaf.app.R
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.sync.SyncManager
@@ -41,7 +65,7 @@ internal fun CreateWishSheet(
         onDismissRequest = { if (!isSubmittingCreate) onDismiss() },
         title = "许下心愿",
         cancelText = "取消",
-        actionText = if (isSubmittingCreate) "保存中…" else "保存",
+        actionText = if (isSubmittingCreate) "保存中" else "许下",
         isActionEnabled = isSaveEnabled,
         onAction = onAction@{
             if (isSubmittingCreate) return@onAction
@@ -79,23 +103,12 @@ internal fun CreateWishSheet(
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf("item" to "好物", "travel" to "旅程", "milestone" to "里程碑").forEach { (k, label) ->
-                    ArchiveSelectableCapsule(
-                        text = label,
-                        selected = wishKind == k,
-                        onClick = { wishKind = k }
-                    )
-                }
-            }
+            WishKindSelector(kind = wishKind, onKindChange = { wishKind = it })
             ArchiveField(
                 value = inputTitle,
                 onValueChange = { inputTitle = it },
                 label = "心愿标题",
-                placeholder = "输入心愿标题…",
+                placeholder = "想要的东西、想去的地方、想达成的事",
                 singleLine = true
             )
             ArchiveField(
@@ -124,7 +137,7 @@ internal fun CreateWishSheet(
                 value = inputNote,
                 onValueChange = { inputNote = it },
                 label = "心愿手记",
-                placeholder = "写下向往的缘由…",
+                placeholder = "写下向往它的缘由",
                 singleLine = false,
                 minLines = 4
             )
@@ -181,8 +194,8 @@ internal fun ResolveWishSheet(
 
     ArchiveSheet(
         onDismissRequest = { if (!isResolvingWish) onDismiss() },
-        title = "达成归册 · ${wish.title}",
-        actionText = if (isResolvingWish) "归册中…" else "归册",
+        title = wish.title,
+        actionText = if (isResolvingWish) "归册中" else if (resType == "relinquished") "拔草" else "归册",
         isActionEnabled = !costInvalid && installmentReady && !isResolvingWish,
         onAction = onAction@{
             if (isResolvingWish) return@onAction
@@ -233,58 +246,58 @@ internal fun ResolveWishSheet(
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf("exact" to "如愿拿下", "altered" to "替代方案", "relinquished" to "理性拔草").forEach { (k, label) ->
-                    ArchiveSelectableCapsule(
-                        text = label,
-                        selected = resType == k,
-                        onClick = { resType = k }
-                    )
-                }
+            WishResolutionSelector(
+                resType = resType,
+                onResTypeChange = { resType = it }
+            )
+
+            if (resType == "relinquished" && wish.budget > 0) {
+                RelinquishSavingCard(budgetCents = wish.budget)
             }
 
             ArchiveDateTimeSplitRow(
                 selectedDateTime = fulfilledAtDt,
                 onDateTimeSelected = { fulfilledAtDt = it },
-                label = stringResource(R.string.projects_wishes_screen_label_03)
+                label = stringResource(R.string.wishes_resolve_fulfilled_at)
             )
 
             if (resType != "relinquished") {
                 ArchiveField(
                     value = actualTitleInput,
                     onValueChange = { actualTitleInput = it },
-                    label = stringResource(R.string.projects_wishes_screen_label_04),
+                    label = stringResource(R.string.wishes_resolve_actual_title),
                     placeholder = wish.title,
                     singleLine = true
                 )
                 ArchiveField(
                     value = costInput,
                     onValueChange = { costInput = FormatUtils.sanitizeDecimalYuanInput(it) },
-                    label = stringResource(R.string.projects_wishes_screen_label_05),
+                    label = stringResource(R.string.wishes_resolve_actual_cost),
                     placeholder = "0.00",
                     trailingText = if (costInvalid) "请输入有效数字" else "元",
                     isNumeric = true,
                     singleLine = true
                 )
 
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .clip(ArchiveShapes.leaf)
+                        .background(LooseLeafTheme.colors.archiveCard)
+                        .border(ArchiveLines.hairline, LooseLeafTheme.colors.borderCard, ArchiveShapes.leaf)
                 ) {
-                    ArchiveSelectableCapsule(
-                        text = if (createTx) "同步记账" else "不记账",
-                        selected = createTx,
-                        onClick = { createTx = !createTx }
+                    WishToggleRow(
+                        title = "同步记一笔支出",
+                        subtitle = "按实际花费写入账本，可选分期",
+                        checked = createTx,
+                        onCheckedChange = { createTx = it }
                     )
-                    ArchiveSelectableCapsule(
-                        text = if (createEntry) "伴生手记" else "不写手记",
-                        selected = createEntry,
-                        onClick = { createEntry = !createEntry }
+                    ArchiveDivider(modifier = Modifier.padding(start = 16.dp))
+                    WishToggleRow(
+                        title = "留下一页手记",
+                        subtitle = "在散页时间流里记下这一刻",
+                        checked = createEntry,
+                        onCheckedChange = { createEntry = it }
                     )
                 }
 
@@ -313,14 +326,219 @@ internal fun ResolveWishSheet(
                 }
             }
 
+            if (resType == "relinquished") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(ArchiveShapes.leaf)
+                        .background(LooseLeafTheme.colors.archiveCard)
+                        .border(ArchiveLines.hairline, LooseLeafTheme.colors.borderCard, ArchiveShapes.leaf)
+                ) {
+                    WishToggleRow(
+                        title = "留下一页手记",
+                        subtitle = "记下放下它的理由，以后翻到会会心一笑",
+                        checked = createEntry,
+                        onCheckedChange = { createEntry = it }
+                    )
+                }
+            }
+
             ArchiveField(
                 value = entryNote,
                 onValueChange = { entryNote = it },
-                label = stringResource(R.string.projects_wishes_screen_label_06),
-                placeholder = "记录心愿达成时的感悟与细节…",
+                label = stringResource(R.string.wishes_resolve_note),
+                placeholder = "记录这一刻的感受与细节",
                 singleLine = false,
                 minLines = 3
             )
         }
+    }
+}
+
+/**
+ * 心愿类别：三枚等宽的方印卡（好物 / 旅程 / 里程碑），选中为反相墨卡。
+ */
+@Composable
+internal fun WishKindSelector(kind: String, onKindChange: (String) -> Unit) {
+    val options = listOf(
+        Triple("item", "物", "好物"),
+        Triple("travel", "行", "旅程"),
+        Triple("milestone", "成", "里程碑")
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        options.forEach { (key, glyph, label) ->
+            ChoiceCard(
+                glyph = glyph,
+                title = label,
+                subtitle = null,
+                selected = kind == key,
+                accent = LooseLeafTheme.colors.tagWish,
+                onClick = { onKindChange(key) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+/**
+ * 心愿去向：如愿拿下 / 替代方案 / 理性拔草，每张卡带一句说明。
+ */
+@Composable
+private fun WishResolutionSelector(resType: String, onResTypeChange: (String) -> Unit) {
+    val colors = LooseLeafTheme.colors
+    val options = listOf(
+        listOf("exact", "得", "如愿拿下", "就是它"),
+        listOf("altered", "替", "替代方案", "换了更合适的"),
+        listOf("relinquished", "舍", "理性拔草", "想通了，不要了")
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        options.forEach { (key, glyph, title, subtitle) ->
+            ChoiceCard(
+                glyph = glyph,
+                title = title,
+                subtitle = subtitle,
+                selected = resType == key,
+                accent = if (key == "relinquished") colors.inkSecondary else colors.accentMoss,
+                onClick = { onResTypeChange(key) },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChoiceCard(
+    glyph: String,
+    title: String,
+    subtitle: String?,
+    selected: Boolean,
+    accent: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LooseLeafTheme.colors
+    val bg by animateColorAsState(
+        targetValue = if (selected) colors.inverseSurface else colors.archiveCard,
+        animationSpec = tween(ArchiveMotion.DurationFast),
+        label = "choiceCardBg"
+    )
+    Column(
+        modifier = modifier
+            .semantics { this.selected = selected }
+            .clip(ArchiveShapes.lg)
+            .background(bg)
+            .border(ArchiveLines.hairline, if (selected) colors.inverseSurface else colors.borderCard, ArchiveShapes.lg)
+            .clickable(role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(ArchiveShapes.md)
+                .background(if (selected) accent else accent.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = glyph,
+                fontFamily = ArchiveFontFamilies.Display,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                color = if (selected) colors.onAccent else accent
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = title,
+            style = ArchiveTextStyles.label,
+            fontWeight = FontWeight.SemiBold,
+            color = if (selected) colors.inverseInk else colors.inkPrimary,
+            maxLines = 1
+        )
+        if (subtitle != null) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = ArchiveTextStyles.meta,
+                color = if (selected) colors.inverseInk.copy(alpha = 0.7f) else colors.inkMuted,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+/**
+ * 拔草时的「省下」小结：把预算换算成一句克制的正反馈。
+ */
+@Composable
+private fun RelinquishSavingCard(budgetCents: Long) {
+    val colors = LooseLeafTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(ArchiveShapes.leaf)
+            .background(colors.positiveTint)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(colors.accentMoss)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "省下 ${FormatUtils.formatMoney(budgetCents)}",
+                style = ArchiveTextStyles.amount,
+                color = colors.accentMoss
+            )
+            Text(
+                text = "按原预算计。拔草不记账，只把这份克制留在心愿单里。",
+                style = ArchiveTextStyles.meta,
+                color = colors.inkSecondary
+            )
+        }
+    }
+}
+
+@Composable
+private fun WishToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val colors = LooseLeafTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Switch) { onCheckedChange(!checked) }
+            .padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+            Text(text = title, style = ArchiveTextStyles.rowTitle, color = colors.inkPrimary)
+            Text(text = subtitle, style = ArchiveTextStyles.meta, color = colors.inkMuted)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = colors.onAccent,
+                checkedTrackColor = colors.accentWarm,
+                checkedBorderColor = colors.accentWarm,
+                uncheckedThumbColor = colors.inkMuted,
+                uncheckedTrackColor = colors.archiveSubtle,
+                uncheckedBorderColor = colors.borderDivider
+            )
+        )
     }
 }

@@ -10,32 +10,44 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import com.looseleaf.app.theme.ArchiveColors
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.ArchiveSpacing
+import com.looseleaf.app.theme.ArchiveTextStyles
 import com.looseleaf.app.theme.ArchiveTypeScale
 import com.looseleaf.app.theme.DarkArchiveColors
 import com.looseleaf.app.theme.LightArchiveColors
 
 /**
- * 账本视觉令牌 (LedgerColors) —— ArchiveColors 的只读语义投影
+ * 账本语义色彩投影，完全复用 [ArchiveColors]，账本不另起一套色板。
+ *
+ * 账本在 Folio 里是「仪表声部」：支出用墨色（不制造焦虑的红），
+ * 收入用松绿，朱砂只留给主操作与需要处理的提醒。
  */
 @Immutable
 data class LedgerColors(val archive: ArchiveColors) {
     val background: Color get() = archive.archivePaper
-    val surface: Color get() = archive.archivePaper
+    val surface: Color get() = archive.archiveCard
     val surfaceElevated: Color get() = archive.archiveSubtle
+    val surfaceRaised: Color get() = archive.surfaceRaised
+    val archiveCard: Color get() = archive.archiveCard
     val textPrimary: Color get() = archive.inkPrimary
     val textSecondary: Color get() = archive.inkSecondary
     val textMuted: Color get() = archive.inkMuted
-    val border: Color get() = archive.borderSubtle
+    val border: Color get() = archive.borderDivider
     val borderSubtle: Color get() = archive.borderSubtle
     val accent: Color get() = archive.accentWarm
+    val accentSoft: Color get() = archive.accentTint
+    val onAccent: Color get() = archive.onAccent
     val expense: Color get() = archive.inkPrimary
     val income: Color get() = archive.accentMoss
+    val incomeSoft: Color get() = archive.positiveTint
     val alertRed: Color get() = archive.alertRed
+    val inverseSurface: Color get() = archive.inverseSurface
+    val inverseInk: Color get() = archive.inverseInk
     val isDark: Boolean get() = archive.isDark
 }
 
@@ -43,30 +55,30 @@ val LightLedgerColors = LedgerColors(LightArchiveColors)
 val DarkLedgerColors = LedgerColors(DarkArchiveColors)
 
 /**
- * 8 个低饱和度分类色（严格避开赤陶），只用于 6dp/8dp 色点与分类占比条
+ * 账本分类色板：八种低饱和的矿物色，彼此色相间隔均匀，深浅两套各自校准明度。
  */
 object LedgerCategoryColors {
     fun palette(isDark: Boolean): List<Color> = if (isDark) {
         listOf(
-            Color(0xFFD4A346), // 暖麦秆金黄
-            Color(0xFF7C9CB3), // 青石灰
-            Color(0xFFC0A075), // 旧皮褐
-            Color(0xFFB08CB8), // 暮紫
-            Color(0xFF6F9478), // 苔绿
-            Color(0xFF93A2B3), // 墨蓝灰
-            Color(0xFFC88282), // 枯茶豆沙
-            Color(0xFFB5AFA3)  // 暖米灰
+            Color(0xFFE2B66C), // 雌黄
+            Color(0xFF7CC2C4), // 石青
+            Color(0xFFE09A7C), // 赭石
+            Color(0xFFB9A2DE), // 青莲
+            Color(0xFF8DCB9B), // 石绿
+            Color(0xFF9DB3CF), // 花青
+            Color(0xFFE59AAB), // 胭脂
+            Color(0xFFBEB6A6)  // 墨灰
         )
     } else {
         listOf(
-            Color(0xFFB8860B), // 麦秆黄/暖琥珀
-            Color(0xFF4A6B82), // 青石灰
-            Color(0xFF8C6D46), // 旧皮褐
-            Color(0xFF7A5980), // 暮紫
-            Color(0xFF4A6753), // 苔藓绿
-            Color(0xFF5C6773), // 墨蓝灰
-            Color(0xFF9E6565), // 豆沙红
-            Color(0xFF8A857B)  // 暖米灰
+            Color(0xFFA9741A), // 雌黄
+            Color(0xFF2C7779), // 石青
+            Color(0xFFA9573A), // 赭石
+            Color(0xFF6F5296), // 青莲
+            Color(0xFF3E7A4E), // 石绿
+            Color(0xFF4E6B8A), // 花青
+            Color(0xFFA0445A), // 胭脂
+            Color(0xFF77705F)  // 墨灰
         )
     }
 
@@ -86,46 +98,58 @@ object LedgerCategoryColors {
 }
 
 object LedgerTypography {
-    val serif: FontFamily = ArchiveFontFamilies.EditorialSerif
-    val monoNumbers: FontFamily = ArchiveFontFamilies.MonoScale
+    /** 兼容旧名：账本是仪表声部，界面文字一律无衬线 */
+    val serif: FontFamily = ArchiveFontFamilies.Text
+    /** 书页声部：只用于英雄数字与大标题 */
+    val display: FontFamily = ArchiveFontFamilies.Display
+    val monoNumbers: FontFamily = ArchiveFontFamilies.Numeric
 
     val title = TextStyle(
-        fontFamily = serif,
-        fontWeight = FontWeight.Bold,
-        fontSize = ArchiveTypeScale.h2
+        fontFamily = ArchiveFontFamilies.Display,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = ArchiveTypeScale.h2,
+        letterSpacing = 0.5.sp
     )
     val subtitle = TextStyle(
-        fontFamily = serif,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = ArchiveTypeScale.bodyLarge
+        fontFamily = ArchiveFontFamilies.Text,
+        fontWeight = FontWeight.Medium,
+        fontSize = ArchiveTypeScale.bodyLarge,
+        letterSpacing = 0.1.sp
     )
     val body = TextStyle(
-        fontFamily = serif,
+        fontFamily = ArchiveFontFamilies.Text,
         fontWeight = FontWeight.Normal,
-        fontSize = ArchiveTypeScale.body
+        fontSize = ArchiveTypeScale.body,
+        lineHeight = 21.sp
     )
     val caption = TextStyle(
-        fontFamily = serif,
+        fontFamily = ArchiveFontFamilies.Text,
         fontWeight = FontWeight.Normal,
-        fontSize = ArchiveTypeScale.caption
+        fontSize = ArchiveTypeScale.caption,
+        lineHeight = 17.sp,
+        letterSpacing = 0.3.sp
     )
+    /** 总览英雄数字 */
+    val amountHero: TextStyle = ArchiveTextStyles.amountHero
     val amountLarge = TextStyle(
-        fontFamily = monoNumbers,
-        fontWeight = FontWeight.Bold,
+        fontFamily = ArchiveFontFamilies.Display,
+        fontWeight = FontWeight.Normal,
         fontSize = ArchiveTypeScale.h1,
-        fontFeatureSettings = "tnum"
+        letterSpacing = (-0.3).sp,
+        fontFeatureSettings = "tnum, lnum"
     )
     val amountMedium = TextStyle(
         fontFamily = monoNumbers,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Medium,
         fontSize = ArchiveTypeScale.bodyLarge,
-        fontFeatureSettings = "tnum"
+        letterSpacing = 0.sp,
+        fontFeatureSettings = "tnum, lnum"
     )
     val amountSmall = TextStyle(
         fontFamily = monoNumbers,
         fontWeight = FontWeight.Normal,
         fontSize = ArchiveTypeScale.body,
-        fontFeatureSettings = "tnum"
+        fontFeatureSettings = "tnum, lnum"
     )
 }
 
@@ -144,8 +168,7 @@ object LedgerTheme {
 }
 
 /**
- * 账本主题 (LedgerTheme)：复用外层 LooseLeafTheme 已注入的 MaterialTheme，
- * 仅提供 LocalLedgerColors 语义投影，避免双重嵌套 MaterialTheme。
+ * 账本主题：复用外层 LooseLeafTheme 注入的 MaterialTheme，只提供 LocalLedgerColors 投影。
  */
 @Composable
 fun LedgerTheme(
@@ -155,7 +178,6 @@ fun LedgerTheme(
     val ledgerColors = remember(darkTheme) {
         if (darkTheme) DarkLedgerColors else LightLedgerColors
     }
-
     CompositionLocalProvider(
         LocalLedgerColors provides ledgerColors,
         content = content

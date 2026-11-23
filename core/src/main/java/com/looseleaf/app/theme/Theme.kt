@@ -5,26 +5,26 @@ import android.graphics.drawable.ColorDrawable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
-import androidx.compose.ui.platform.LocalContext
 
 val LocalArchiveColors = staticCompositionLocalOf { LightArchiveColors }
 
-/** MOB-P1-74：M3 tertiary 角色的大地色（靛青），与 Web 端 --accent-indigo 同值 */
-private val IndigoTertiary = Color(0xFF3B4F6B)
-
+/**
+ * 散页 · Folio 设计系统入口。
+ */
 object LooseLeafTheme {
     val colors: ArchiveColors
         @Composable
@@ -39,135 +39,132 @@ object LooseLeafTheme {
     val typeScale: ArchiveTypeScale = ArchiveTypeScale
     val shapes: ArchiveShapes = ArchiveShapes
     val spacing: ArchiveSpacing = ArchiveSpacing
+    val lines: ArchiveLines = ArchiveLines
+    val shadows: ArchiveShadows = ArchiveShadows
+    val text: ArchiveTextStyles = ArchiveTextStyles
+    val motion: ArchiveMotion = ArchiveMotion
 }
 
 /**
- * 把散页大地色盘映射成完整的 Material3 ColorScheme。
- *
- * MOB-P1-74：原先只覆写了 7 个角色，其余全部沿用 Material3 基线 ——
- * surfaceVariant 是薰衣草紫 (#E7E0EC)、onSurfaceVariant 是紫灰 (#49454F)，
- * 于是 Switch 的未选中轨道、Checkbox 的未选中描边、原生 AlertDialog 的正文
- * 全都带上了 M3 默认紫调，与「宣纸 + 朱砂」的纸张美学完全冲突。
- *
- * 这里把整套角色映射到大地色盘，并且**只保留这一份映射**：
- * 全局 [LooseLeafTheme] 与账本 `LedgerTheme` 都调用它，
- * 免得账本自己再映射一遍、又退回 M3 基线变成一页紫。
+ * 将 [ArchiveColors] 映射为 Material3 [ColorScheme]，保证未被自定义组件覆盖的 M3 控件
+ * （Switch、DropdownMenu、进度条等）也落在同一套色阶里。
  */
-fun archiveColorScheme(colors: ArchiveColors, darkTheme: Boolean): ColorScheme = if (darkTheme) {
-    darkColorScheme(
-        primary = colors.accentWarm,
-        onPrimary = colors.archivePaper,
-        // 暗房容器底色刻意用 22%：浅字压深底时 12% 淡底与纸面几乎同亮，选中态读不出来。
-        // 纸面只用 12%（见下方 lightColorScheme）—— 两套透明度不对称是有意的，
-        // 由 ThemeContractTest 的 4 条 alpha 分支断言钉死，不要「顺手统一」。
-        primaryContainer = colors.accentWarm.copy(alpha = 0.22f),
-        // 22% 赤陶淡底上 accentWarm 只有 3.24:1，必须换成对比度更高的 accentSmallText。
-        onPrimaryContainer = colors.accentSmallText,
-        inversePrimary = colors.accentWarm,
-        secondary = colors.accentMoss,
-        onSecondary = colors.archivePaper,
-        secondaryContainer = colors.accentMoss.copy(alpha = 0.22f),
-        onSecondaryContainer = Color(0xFF8CB79A),
-        tertiary = IndigoTertiary,
-        onTertiary = colors.archivePaper,
-        tertiaryContainer = IndigoTertiary.copy(alpha = 0.22f),
-        // IndigoTertiary 是单值双主题，压在暗房 22% 靛青淡底上只有 1.72:1。
-        onTertiaryContainer = Color(0xFF8FA6C4),
-        background = colors.archivePaper,
-        onBackground = colors.inkPrimary,
-        surface = colors.archiveSubtle,
-        onSurface = colors.inkPrimary,
-        surfaceVariant = colors.archiveSubtle,
-        onSurfaceVariant = colors.inkSecondary,
-        surfaceTint = colors.accentWarm,
-        inverseSurface = colors.inkPrimary,
-        inverseOnSurface = colors.archivePaper,
-        // 破坏性/异常 = 砖红（alertRed），不是赤陶。赤陶是"当前/可操作/主按钮"，
-        // 若把 error 也映射成赤陶，Snackbar 报错与"确认"按钮会同一个颜色。
-        error = colors.alertRed,
-        onError = colors.archivePaper,
-        errorContainer = colors.alertRed.copy(alpha = 0.18f),
-        onErrorContainer = colors.inkPrimary,
-        outline = colors.inkMuted,
-        outlineVariant = colors.inkMuted.copy(alpha = 0.45f),
-        scrim = Color.Black,
-        surfaceBright = colors.archiveSubtle,
-        surfaceContainer = colors.archiveSubtle,
-        surfaceContainerHigh = colors.archiveSubtle,
-        surfaceContainerHighest = colors.archiveSubtle,
-        surfaceContainerLow = colors.archivePaper,
-        surfaceContainerLowest = colors.archivePaper,
-        surfaceDim = colors.archivePaper
-    )
-} else {
-    lightColorScheme(
-        primary = colors.accentWarm,
-        onPrimary = colors.archivePaper,
-        // 纸面只用 12%：暖纸底上 12% 赤陶已能读出选中，22% 会把小字压到 4.5 以下。
-        // 与暗房 22% 的不对称是刻意设计，改动前先看 ThemeContractTest 的 alpha 断言。
-        primaryContainer = colors.accentWarm.copy(alpha = 0.12f),
-        onPrimaryContainer = colors.accentSmallText,
-        inversePrimary = colors.accentWarm,
-        secondary = colors.accentMoss,
-        onSecondary = colors.archivePaper,
-        secondaryContainer = colors.accentMoss.copy(alpha = 0.12f),
-        onSecondaryContainer = colors.accentMoss,
-        tertiary = IndigoTertiary,
-        onTertiary = colors.archivePaper,
-        tertiaryContainer = IndigoTertiary.copy(alpha = 0.12f),
-        onTertiaryContainer = IndigoTertiary,
-        background = colors.archivePaper,
-        onBackground = colors.inkPrimary,
-        surface = colors.archiveSubtle,
-        onSurface = colors.inkPrimary,
-        surfaceVariant = colors.archiveSubtle,
-        onSurfaceVariant = colors.inkSecondary,
-        surfaceTint = colors.accentWarm,
-        inverseSurface = colors.inkPrimary,
-        inverseOnSurface = colors.archivePaper,
-        // 破坏性/异常 = 砖红（alertRed），不是赤陶。赤陶是"当前/可操作/主按钮"，
-        // 若把 error 也映射成赤陶，Snackbar 报错与"确认"按钮会同一个颜色。
-        error = colors.alertRed,
-        onError = colors.archivePaper,
-        errorContainer = colors.alertRed.copy(alpha = 0.12f),
-        onErrorContainer = colors.inkPrimary,
-        outline = colors.inkMuted,
-        outlineVariant = colors.inkMuted.copy(alpha = 0.45f),
-        scrim = Color.Black,
-        surfaceBright = colors.archivePaper,
-        surfaceContainer = colors.archiveSubtle,
-        surfaceContainerHigh = colors.archiveSubtle,
-        surfaceContainerHighest = colors.archiveSubtle,
-        surfaceContainerLow = colors.archivePaper,
-        surfaceContainerLowest = colors.archivePaper,
-        surfaceDim = colors.archiveSubtle
-    )
+fun archiveColorScheme(colors: ArchiveColors, darkTheme: Boolean): ColorScheme {
+    val containerAlpha = if (darkTheme) ArchiveAlpha.containerDark else ArchiveAlpha.containerLight
+    return if (darkTheme) {
+        darkColorScheme(
+            primary = colors.accentWarm,
+            onPrimary = colors.onAccent,
+            primaryContainer = colors.accentWarm.copy(alpha = containerAlpha),
+            onPrimaryContainer = colors.accentSmallText,
+            inversePrimary = colors.inverseAccent,
+            secondary = colors.accentMoss,
+            onSecondary = colors.onAccent,
+            secondaryContainer = colors.accentMoss.copy(alpha = containerAlpha),
+            onSecondaryContainer = colors.accentMoss,
+            tertiary = colors.tagWish,
+            onTertiary = colors.onAccent,
+            tertiaryContainer = colors.tagWish.copy(alpha = containerAlpha),
+            onTertiaryContainer = colors.tagWish,
+            background = colors.archivePaper,
+            onBackground = colors.inkPrimary,
+            surface = colors.archiveCard,
+            onSurface = colors.inkPrimary,
+            surfaceVariant = colors.archiveSubtle,
+            onSurfaceVariant = colors.inkSecondary,
+            surfaceTint = Color.Transparent,
+            inverseSurface = colors.inverseSurface,
+            inverseOnSurface = colors.inverseInk,
+            error = colors.alertRed,
+            onError = colors.onAccent,
+            errorContainer = colors.alertRed.copy(alpha = containerAlpha),
+            onErrorContainer = colors.alertRed,
+            outline = colors.inkMuted,
+            outlineVariant = colors.borderDivider,
+            scrim = Color.Black,
+            surfaceBright = colors.surfaceRaised,
+            surfaceContainer = colors.archiveCard,
+            surfaceContainerHigh = colors.surfaceRaised,
+            surfaceContainerHighest = colors.archiveSubtle,
+            surfaceContainerLow = colors.archiveCard,
+            surfaceContainerLowest = colors.archivePaper,
+            surfaceDim = colors.archivePaper
+        )
+    } else {
+        lightColorScheme(
+            primary = colors.accentWarm,
+            onPrimary = colors.onAccent,
+            primaryContainer = colors.accentWarm.copy(alpha = containerAlpha),
+            onPrimaryContainer = colors.accentSmallText,
+            inversePrimary = colors.inverseAccent,
+            secondary = colors.accentMoss,
+            onSecondary = colors.onAccent,
+            secondaryContainer = colors.accentMoss.copy(alpha = containerAlpha),
+            onSecondaryContainer = colors.accentMoss,
+            tertiary = colors.tagWish,
+            onTertiary = colors.onAccent,
+            tertiaryContainer = colors.tagWish.copy(alpha = containerAlpha),
+            onTertiaryContainer = colors.tagWish,
+            background = colors.archivePaper,
+            onBackground = colors.inkPrimary,
+            surface = colors.archiveCard,
+            onSurface = colors.inkPrimary,
+            surfaceVariant = colors.archiveSubtle,
+            onSurfaceVariant = colors.inkSecondary,
+            surfaceTint = Color.Transparent,
+            inverseSurface = colors.inverseSurface,
+            inverseOnSurface = colors.inverseInk,
+            error = colors.alertRed,
+            onError = colors.onAccent,
+            errorContainer = colors.alertRed.copy(alpha = containerAlpha),
+            onErrorContainer = colors.alertRed,
+            outline = colors.inkMuted,
+            outlineVariant = colors.borderDivider,
+            scrim = Color.Black,
+            surfaceBright = colors.surfaceRaised,
+            surfaceContainer = colors.archiveCard,
+            surfaceContainerHigh = colors.surfaceRaised,
+            surfaceContainerHighest = colors.archiveSubtle,
+            surfaceContainerLow = colors.archiveCard,
+            surfaceContainerLowest = colors.archiveCard,
+            surfaceDim = colors.archiveSubtle
+        )
+    }
 }
+
+private val ArchiveMaterialShapes = Shapes(
+    extraSmall = ArchiveShapes.xs,
+    small = ArchiveShapes.sm,
+    medium = ArchiveShapes.md,
+    large = ArchiveShapes.lg,
+    extraLarge = ArchiveShapes.xl
+)
+
+/**
+ * 高对比度投影：加深次级文字与分隔线，主色与画布保持不变。
+ */
+private fun ArchiveColors.highContrast(darkTheme: Boolean): ArchiveColors = copy(
+    inkSecondary = if (darkTheme) Color(0xFFD9D3C7) else Color(0xFF3A362F),
+    inkMuted = if (darkTheme) Color(0xFFC2BBAE) else Color(0xFF4A453D),
+    borderSubtle = if (darkTheme) Color(0x33EDE7DB) else Color(0x2E1D1B17),
+    borderDivider = if (darkTheme) Color(0x52EDE7DB) else Color(0x471D1B17),
+    borderCard = if (darkTheme) Color(0x3DEDE7DB) else Color(0x331D1B17)
+)
 
 @Suppress("DEPRECATION")
 @Composable
 fun LooseLeafTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    /** MOB-P2-45：应用内高对比度开关（Android 未公开系统级高对比度 API） */
+    /** 应用内高对比度开关 */
     highContrast: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    // AND-7：颜色盘与 M3 ColorScheme 都缓存 —— 原先每次重组都会重建
-    // 两个 ColorScheme（几十个 Color 装箱 + 拷贝），下游全部被判为「参数已变」。
     val archiveColors = remember(darkTheme, highContrast) {
         val baseColors = if (darkTheme) DarkArchiveColors else LightArchiveColors
-        if (highContrast) {
-            baseColors.copy(
-                inkMuted = if (darkTheme) Color(0xFFC9C4BA) else Color(0xFF4F4B44),
-                borderDivider = if (darkTheme) Color(0x66EDE8E1) else Color(0x4D181716),
-                borderSubtle = if (darkTheme) Color(0x40EDE8E1) else Color(0x33181716)
-            )
-        } else {
-            baseColors
-        }
+        if (highContrast) baseColors.highContrast(darkTheme) else baseColors
     }
 
-    val materialColorScheme = remember(darkTheme, highContrast, archiveColors) {
+    val materialColorScheme = remember(darkTheme, archiveColors) {
         archiveColorScheme(archiveColors, darkTheme)
     }
 
@@ -176,13 +173,9 @@ fun LooseLeafTheme(
         SideEffect {
             val window = (view.context as? Activity)?.window
             if (window != null) {
-                // Android 15（targetSdk 35）强制 edge-to-edge，statusBarColor 实际已失效：
-                // 用窗口背景托住系统栏区域，暗房模式才不会出现「亮底 + 浅色图标」。
-                window.setBackgroundDrawable(
-                    ColorDrawable(archiveColors.archivePaper.toArgb())
-                )
-                window.statusBarColor = archiveColors.archivePaper.toArgb()
-                window.navigationBarColor = archiveColors.archivePaper.toArgb()
+                window.setBackgroundDrawable(ColorDrawable(archiveColors.archivePaper.toArgb()))
+                window.statusBarColor = Color.Transparent.toArgb()
+                window.navigationBarColor = Color.Transparent.toArgb()
                 val controller = WindowCompat.getInsetsController(window, view)
                 controller.isAppearanceLightStatusBars = !darkTheme
                 controller.isAppearanceLightNavigationBars = !darkTheme
@@ -190,16 +183,13 @@ fun LooseLeafTheme(
         }
     }
 
-    // MOB-P2-29：排版对象每次重组都重建（15 个 TextStyle + TextUnit 装箱），
-    // 会让所有 MaterialTheme 消费者看到「引用已变」而全树重组。
     val typography = remember(archiveColors) { createArchiveTypography(archiveColors) }
 
-    CompositionLocalProvider(
-        LocalArchiveColors provides archiveColors
-    ) {
+    CompositionLocalProvider(LocalArchiveColors provides archiveColors) {
         MaterialTheme(
             colorScheme = materialColorScheme,
             typography = typography,
+            shapes = ArchiveMaterialShapes,
             content = content
         )
     }

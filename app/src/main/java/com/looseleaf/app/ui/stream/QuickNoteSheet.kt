@@ -382,10 +382,9 @@ private fun QuickNoteSheetBody(
                 onValueChange = { noteTitle = it },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                textStyle = TextStyle(
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Medium,
+                textStyle = com.looseleaf.app.theme.ArchiveTextStyles.pageTitle.copy(
+                    fontSize = 24.sp,
+                    lineHeight = 32.sp,
                     color = colors.inkPrimary
                 ),
                 cursorBrush = SolidColor(colors.accentWarm),
@@ -393,30 +392,33 @@ private fun QuickNoteSheetBody(
                     if (noteTitle.isEmpty()) {
                         Text(
                             text = stringResource(R.string.quick_note_sheet_text_01),
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Normal,
-                            color = colors.inkMuted.copy(alpha = 0.5f)
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.pageTitle.copy(fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Normal),
+                            color = colors.inkMuted.copy(alpha = 0.55f)
                         )
                     }
                     innerTextField()
                 }
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+            Box(
+                modifier = Modifier
+                    .width(28.dp)
+                    .height(2.dp)
+                    .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                    .background(colors.accentWarm.copy(alpha = 0.7f))
+            )
+            Spacer(modifier = Modifier.height(14.dp))
 
             androidx.compose.foundation.text.BasicTextField(
                 value = noteContent,
                 onValueChange = { noteContent = it },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(132.dp),
-                textStyle = TextStyle(
-                    fontFamily = ArchiveFontFamilies.BodySans,
-                    fontSize = 15.sp,
-                    lineHeight = 24.sp,
+                    .height(168.dp),
+                textStyle = com.looseleaf.app.theme.ArchiveTextStyles.essay.copy(
+                    fontSize = 16.sp,
+                    lineHeight = 28.sp,
                     color = colors.inkPrimary
                 ),
                 cursorBrush = SolidColor(colors.accentWarm),
@@ -424,10 +426,8 @@ private fun QuickNoteSheetBody(
                     if (noteContent.isEmpty()) {
                         Text(
                             text = stringResource(R.string.quick_note_sheet_text_02),
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 15.sp,
-                            lineHeight = 24.sp,
-                            color = colors.inkMuted.copy(alpha = 0.45f)
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.essay.copy(fontSize = 16.sp, lineHeight = 28.sp),
+                            color = colors.inkMuted.copy(alpha = 0.55f)
                         )
                     }
                     innerTextField()
@@ -481,9 +481,9 @@ private fun QuickNoteSheetBody(
                         Box(
                             modifier = Modifier
                                 .size(88.dp)
-                                .clip(RoundedCornerShape(4.dp))
+                                .clip(com.looseleaf.app.theme.ArchiveShapes.sm)
                                 .background(colors.archiveSubtle)
-                                .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
+                                .border(1.dp, colors.borderCard, com.looseleaf.app.theme.ArchiveShapes.sm)
                         ) {
                             AsyncImage(
                                 model = photo.previewUri,
@@ -497,7 +497,7 @@ private fun QuickNoteSheetBody(
                                     .padding(3.dp)
                                     .size(20.dp)
                                     .clip(CircleShape)
-                                    .background(colors.inkPrimary.copy(alpha = 0.65f))
+                                    .background(colors.inverseSurface.copy(alpha = 0.75f))
                                     .clickable {
                                         runCatching { photo.savedFile.delete() }
                                         attachedPhotos = attachedPhotos.filterIndexed { i, _ -> i != idx }
@@ -505,9 +505,9 @@ private fun QuickNoteSheetBody(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Close,
+                                    imageVector = com.looseleaf.app.ui.components.FolioGlyphs.Close,
                                     contentDescription = stringResource(R.string.quick_note_sheet_contentDescription_02),
-                                    tint = colors.archivePaper,
+                                    tint = colors.inverseInk,
                                     modifier = Modifier.size(12.dp)
                                 )
                             }
@@ -515,14 +515,14 @@ private fun QuickNoteSheetBody(
                                 modifier = Modifier
                                     .align(Alignment.BottomStart)
                                     .padding(3.dp)
-                                    .background(colors.inkPrimary.copy(alpha = 0.6f), RoundedCornerShape(2.dp))
+                                    .background(colors.inkPrimary.copy(alpha = 0.6f), com.looseleaf.app.theme.ArchiveShapes.xs)
                                     .padding(horizontal = 3.dp, vertical = 1.dp)
                             ) {
                                 Text(
                                     text = stringResource(R.string.quick_note_sheet_text_tpl_02, idx + 1),
                                     fontFamily = ArchiveFontFamilies.MonoScale,
                                     fontSize = 11.sp,
-                                    color = colors.archivePaper
+                                    color = colors.onAccent
                                 )
                             }
                         }
@@ -531,71 +531,70 @@ private fun QuickNoteSheetBody(
 
                 Spacer(modifier = Modifier.height(14.dp))
             } else {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(colors.archiveSubtle.copy(alpha = 0.45f))
-                        .border(0.5.dp, colors.borderDivider, RoundedCornerShape(4.dp))
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = if (isProcessingPhoto) "相纸显影处理中…" else "装裱现场相纸 (可选 9 张)",
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 12.sp,
-                            color = colors.inkMuted
-                        )
-                        if (isProcessingPhoto) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(12.dp),
-                                color = colors.accentWarm,
-                                strokeWidth = 1.5.dp
-                            )
-                        }
-                    }
-
-                    Button(
-                        onClick = {
+                        .clip(com.looseleaf.app.theme.ArchiveShapes.lg)
+                        .background(colors.archiveSubtle)
+                        .clickable(enabled = !isProcessingPhoto) {
                             galleryLauncher.launch(
                                 androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = colors.archivePaper,
-                            contentColor = colors.inkPrimary
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(0.5.dp, colors.borderDivider),
-                        shape = RoundedCornerShape(4.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier.fillMaxWidth().height(34.dp)
+                        }
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(com.looseleaf.app.theme.ArchiveShapes.md)
+                            .background(colors.archiveCard),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_photo_library),
-                            contentDescription = "相册装裱",
-                            tint = colors.accentWarm,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(R.string.quick_note_album_mount), fontSize = 12.sp, fontFamily = ArchiveFontFamilies.BodySans)
+                        if (isProcessingPhoto) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = colors.accentWarm,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_photo_library),
+                                contentDescription = "相册装裱",
+                                tint = colors.accentSmallText,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isProcessingPhoto) "相纸显影处理中" else stringResource(R.string.quick_note_album_mount),
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                            color = colors.inkPrimary
+                        )
+                        Text(
+                            text = "可选 9 张，自动读取拍摄参数与地点",
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                            color = colors.inkMuted
+                        )
+                    }
+                    Icon(
+                        imageVector = com.looseleaf.app.ui.components.FolioGlyphs.Plus,
+                        contentDescription = null,
+                        tint = colors.inkMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
             }
 
-            HorizontalDivider(thickness = 0.5.dp, color = colors.borderDivider.copy(alpha = 0.4f))
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Text(
                 text = stringResource(R.string.quick_note_sheet_text_03),
-                fontFamily = ArchiveFontFamilies.EditorialSerif,
-                fontSize = 12.sp,
+                style = com.looseleaf.app.theme.ArchiveTextStyles.overline,
                 color = colors.inkMuted
             )
             Spacer(modifier = Modifier.height(6.dp))
@@ -613,8 +612,7 @@ private fun QuickNoteSheetBody(
             ) {
                 Text(
                     text = stringResource(R.string.quick_note_sheet_text_04),
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 12.sp,
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.overline,
                     color = colors.inkMuted
                 )
                 ArchiveTextButton(

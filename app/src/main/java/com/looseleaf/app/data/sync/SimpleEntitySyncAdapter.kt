@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /**
- * Generic sync adapter for Workshop entities (`project`, `wish`, `footprint`).
+ * Generic sync adapter for simple entities (currently `wish`).
  *
  * Unifies:
  * 1. Incremental (`?since=`) + full reconciliation pull with tombstone alignment & outbox protection;

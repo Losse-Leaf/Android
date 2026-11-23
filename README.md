@@ -7,9 +7,11 @@
 
 ## 核心特性
 
-1. **纸本双模态**
-   - 暖色棉纸（`paper`）/ 暗房安全灯（`darkroom`）/ 跟随系统（`system`）三态外观，首帧前读取，冷启动不闪白。
-   - 全部颜色走 `LooseLeafTheme.colors` 语义令牌，代码零硬编码色值；纸面微噪点为 128×128 确定性瓦片平铺。
+1. **Folio 设计系统（宣 / 墨）**
+   - 「宣」浅色：生宣画布 + 更白的散页卡片 + 熟宣凹槽；「墨」深色：松烟墨底 + 墨灰纸页 + 旧纸色文字；另有跟随系统，三态首帧前读取，冷启动不闪白。
+   - 全局唯一彩色强调为朱砂；收入 / 完成为松绿，异常为胭脂，心愿为赭金。全部颜色走 `LooseLeafTheme.colors` 语义令牌，界面代码零硬编码色值。
+   - 排版双声部：书页声部（衬线）承载刊头、标题、随笔正文与英雄数字；仪表声部（无衬线 + 等宽数字）承载控件、标签与金额。
+   - 图形一律为矢量线稿（`FolioGlyphs`），界面文案与图标替代物中不使用任何表情符号或字符图标。
 
 2. **极速触觉记账**
    - 4×3 大键位键盘，单键 ≥ 60dp，按下变色 + 触觉反馈；金额全程 `Long` 整型「分」，不用浮点。
@@ -37,9 +39,9 @@
 
 | 模块 | 职责 |
 | :--- | :--- |
-| `core/` | 实体模型、主题令牌、通用组件、`APIClient`、`CredentialStore`、`FormatUtils`、城市字典 |
-| `feature-ledger/` | 账本域全部数据与 UI：独立 `looseleaf_ledger.db`、记账键盘、资产/分期/信贷、通知监听 |
-| `app/` | 应用壳：单 Activity、路由、时间流 / 工坊 / 展台 / 设置 / 配对、`SyncManager`、更新器 |
+| `core/` | 实体模型、主题令牌、通用组件、`APIClient`、`CredentialStore`、`FormatUtils` |
+| `feature-ledger/` | 账本域全部数据与 UI：独立 `looseleaf_ledger.db`、记账键盘、分期账单、通知监听 |
+| `app/` | 应用壳：单 Activity、路由、时间流 / 心愿单 / 设置 / 配对、`SyncManager`、更新器 |
 | `benchmark/` | Baseline Profile 生成（需真机，手动跑，不进 CI 门禁） |
 
 依赖方向严格单向：`app → feature-ledger → core`。
@@ -50,7 +52,7 @@ app/src/main/java/com/looseleaf/app/
 ├── LooseLeafApp.kt          # Application：token 注入、后台预热、发件箱调度
 ├── data/{api,local,security,sync}/   # OkHttp 客户端、Room、KeyStore、同步中枢
 ├── darkroom/ImagePipeline.kt         # EXIF 提取、降采样、编码、直传
-├── ui/{stream,projectswishes,profile,pairing,components}/
+├── ui/{stream,wishes,settings,pairing,components}/
 └── theme/ utils/ updater/ reminder/
 core/ 与 feature-ledger/ 各自独立成模块，结构同理。
 ```

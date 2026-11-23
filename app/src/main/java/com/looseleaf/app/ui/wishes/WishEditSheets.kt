@@ -1,4 +1,4 @@
-package com.looseleaf.app.ui.projectswishes
+package com.looseleaf.app.ui.wishes
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -57,8 +57,8 @@ internal fun EditWishSheetDialog(
     ArchiveSheet(
         onDismissRequest = onDismiss,
         dismissEnabled = { !isSubmitting },
-        title = stringResource(R.string.projects_wishes_sheets_title_tpl_01, wish.title),
-        actionText = if (isSubmitting) "保存中…" else "保存",
+        title = stringResource(R.string.wishes_edit_title_tpl, wish.title),
+        actionText = if (isSubmitting) "保存中" else "保存",
         isActionEnabled = title.isNotBlank() && !budgetInvalid && !isSubmitting,
         onAction = {
             if (budgetInvalid) {
@@ -101,24 +101,13 @@ internal fun EditWishSheetDialog(
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf("item" to "好物", "travel" to "旅程", "milestone" to "里程碑").forEach { (k, label) ->
-                    ArchiveSelectableCapsule(
-                        text = label,
-                        selected = kind == k,
-                        onClick = { kind = k }
-                    )
-                }
-            }
+            WishKindSelector(kind = kind, onKindChange = { kind = it })
 
             ArchiveField(
                 value = title,
                 onValueChange = { title = it },
-                label = stringResource(R.string.projects_wishes_sheets_label_01),
-                placeholder = "输入心愿标题…",
+                label = stringResource(R.string.wishes_edit_title_label),
+                placeholder = "想要的东西、想去的地方、想达成的事",
                 singleLine = true,
                 errorMessage = if (title.isBlank()) "请输入心愿标题" else null,
                 reservesErrorSlot = true
@@ -127,7 +116,7 @@ internal fun EditWishSheetDialog(
             ArchiveField(
                 value = spec,
                 onValueChange = { spec = it },
-                label = stringResource(R.string.projects_wishes_sheets_label_02),
+                label = stringResource(R.string.wishes_edit_spec_label),
                 placeholder = "规格/型号或补充说明（选填）",
                 singleLine = true
             )
@@ -135,7 +124,7 @@ internal fun EditWishSheetDialog(
             ArchiveField(
                 value = budgetYuan,
                 onValueChange = { budgetYuan = it },
-                label = stringResource(R.string.projects_wishes_sheets_label_03),
+                label = stringResource(R.string.wishes_edit_budget_label),
                 placeholder = "0.00",
                 isNumeric = true,
                 singleLine = true,
@@ -147,7 +136,7 @@ internal fun EditWishSheetDialog(
                 value = note,
                 onValueChange = { note = it },
                 label = "手记与备忘",
-                placeholder = stringResource(R.string.projects_wishes_sheets_placeholder_02),
+                placeholder = stringResource(R.string.wishes_edit_note_placeholder),
                 singleLine = false,
                 minLines = 3
             )

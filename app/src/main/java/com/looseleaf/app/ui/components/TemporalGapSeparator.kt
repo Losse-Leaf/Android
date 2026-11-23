@@ -1,23 +1,30 @@
 package com.looseleaf.app.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.looseleaf.app.R
-import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTextStyles
 import com.looseleaf.app.theme.LooseLeafTheme
 
 /**
- * 岁月留白刻度 (Temporal Gap Separators)
- * 纯文字居中，次要暖灰，小字号，去掉两侧线条
- * 放置于相邻两组日期之间，当间隔 >= 7 天时提示
+ * 岁月留白刻度 (TemporalGapSeparator)
+ * 两组日期相隔 ≥ 7 天时出现：两段向中心收拢的发丝线夹着一行衬线小字，中间一枚菱形节点。
  */
 @Composable
 fun TemporalGapSeparator(
@@ -26,18 +33,49 @@ fun TemporalGapSeparator(
 ) {
     val colors = LooseLeafTheme.colors
 
-    Box(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 24.dp, bottom = 16.dp),
-        contentAlignment = Alignment.Center
+            .padding(top = 28.dp, bottom = 12.dp, start = 12.dp, end = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(colors.borderSubtle)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Box(
+            modifier = Modifier
+                .size(5.dp)
+                .clip(ArchiveShapes.xs)
+                .background(colors.inkMuted.copy(alpha = 0.5f))
+        )
+        Spacer(modifier = Modifier.width(10.dp))
         Text(
             text = stringResource(R.string.temporal_gap_separator_text_tpl_01, days).trim(),
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontSize = 12.sp,
-            letterSpacing = 0.8.sp,
-            color = colors.inkMuted
+            style = ArchiveTextStyles.essay.copy(
+                fontSize = ArchiveTextStyles.meta.fontSize,
+                lineHeight = ArchiveTextStyles.meta.lineHeight
+            ),
+            color = colors.inkMuted,
+            textAlign = TextAlign.Center,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Box(
+            modifier = Modifier
+                .size(5.dp)
+                .clip(ArchiveShapes.xs)
+                .background(colors.inkMuted.copy(alpha = 0.5f))
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(colors.borderSubtle)
         )
     }
 }

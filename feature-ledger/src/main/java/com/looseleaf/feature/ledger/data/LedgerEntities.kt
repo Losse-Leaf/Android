@@ -31,6 +31,7 @@ data class CachedTransactionEntity(
     @ColumnInfo(name = "occurred_at") val occurredAt: String, // ISO-8601
     @ColumnInfo(name = "city_code") val cityCode: String? = null,
     @ColumnInfo(name = "wish_id") val wishId: Long? = null,
+    // 保留列以兼容既有 Room v3 schema，业务层不再读写
     @ColumnInfo(name = "footprint_id") val footprintId: Long? = null,
     @ColumnInfo(name = "is_installment") val isInstallment: Boolean = false,
     @ColumnInfo(name = "installment_channel_code") val installmentChannelCode: String? = null,
@@ -90,7 +91,6 @@ fun Transaction.toCacheEntity(localId: Long = 0): CachedTransactionEntity = Cach
     occurredAt = occurredAt,
     cityCode = null,
     wishId = wishId,
-    footprintId = null,
     isInstallment = isInstallment ?: false,
     installmentChannelCode = installmentChannelCode,
     installmentTotalAmount = installmentTotalAmount,

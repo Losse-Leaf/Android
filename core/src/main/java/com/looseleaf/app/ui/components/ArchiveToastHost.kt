@@ -1,40 +1,58 @@
 package com.looseleaf.app.ui.components
 
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Info
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveMotion
+import com.looseleaf.app.theme.ArchiveShadows
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTextStyles
 import com.looseleaf.app.theme.LooseLeafTheme
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.foundation.clickable
-import androidx.compose.ui.text.font.FontWeight
 
 data class ArchiveToastMessage(
     val text: String,
     val isError: Boolean = false,
     val durationMs: Long = 2200L,
-    /** MOB-P2-47：可选的动作（如「撤销」）。点击后立即关闭纸签并执行动作。 */
+    /** 可选的动作（如「撤销」）。点击后立即关闭提示并执行动作。 */
     val actionLabel: String? = null,
     val action: (() -> Unit)? = null
 )
@@ -53,17 +71,15 @@ object ArchiveToastManager {
     }
 
     fun show(text: String, isError: Boolean = false, durationMs: Long = 2200L) {
-        // 门禁：生命周期正常的协程取消（例如页面切换、离开组合树）绝不应作为错误提示展示给用户
+        // 生命周期正常的协程取消绝不应作为错误提示展示给用户
         if (isCancellationNoise(text, isError)) return
-        // MOB-P1-79：错误类提示的默认时长由调用方决定；这里对未显式指定时长的错误提示
-        // 兜底延长到 4.5s —— 2.2s 根本来不及读完「对齐失败: xxx」这类带异常串的文案。
+        // 未显式指定时长的错误提示兜底延长到 4.5s，留足阅读时间
         val effectiveDuration = if (isError && durationMs == 2200L) 4500L else durationMs
         _messages.tryEmit(ArchiveToastMessage(text = text, isError = isError, durationMs = effectiveDuration))
     }
 
     /**
-     * MOB-P2-47：带动作的提示（如「已删除 · 撤销」）。
-     * 动作型提示默认多给 5 秒 —— 用户需要时间判断要不要点「撤销」。
+     * 带动作的提示（如「已删除 · 撤销」），默认展示 6 秒。
      */
     fun showWithAction(
         text: String,
@@ -86,8 +102,12 @@ object ArchiveToastManager {
 }
 
 /**
- * 散页纸墨通知宿主 (ArchiveToastHost)
- * 彻底替换 Android 原生灰黑底 Toast，以典雅纸签悬浮于屏幕上方
+ * 全局提示宿主 (ArchiveToastHost)
+ *
+ * 屏幕顶部下落的反相墨色胶囊（类似「灵动岛」的克制版本）：
+ * - 成功：左侧松绿圆点；错误：左侧胭脂警示图形，且胶囊停留更久
+ * - 新消息立即顶替旧消息，不排队
+ * - 整条提示为无障碍 live region，读屏会主动播报
  */
 @Composable
 fun ArchiveToastHost(
@@ -99,7 +119,6 @@ fun ArchiveToastHost(
 
     LaunchedEffect(Unit) {
         ArchiveToastManager.messages.collect { msg ->
-            // 新消息立即顶掉旧消息，而不是排队等上一条 2.2 秒播完
             dismissJob?.cancel()
             currentMessage = msg
             dismissJob = launch {
@@ -113,70 +132,80 @@ fun ArchiveToastHost(
         modifier = modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(top = 16.dp),
+            .padding(top = 10.dp, start = 20.dp, end = 20.dp),
         contentAlignment = Alignment.TopCenter
     ) {
         AnimatedVisibility(
             visible = currentMessage != null,
-            enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }),
-            exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 2 })
+            enter = fadeIn(tween(ArchiveMotion.DurationFast)) +
+                slideInVertically(tween(ArchiveMotion.DurationBase, easing = ArchiveMotion.EaseOutEmphasized)) { -it } +
+                scaleIn(tween(ArchiveMotion.DurationBase, easing = ArchiveMotion.EaseOutEmphasized), initialScale = 0.92f),
+            exit = fadeOut(tween(ArchiveMotion.DurationFast)) +
+                slideOutVertically(tween(ArchiveMotion.DurationFast, easing = ArchiveMotion.EaseIn)) { -it / 2 } +
+                scaleOut(tween(ArchiveMotion.DurationFast), targetScale = 0.96f)
         ) {
             currentMessage?.let { msg ->
-                val shape = RoundedCornerShape(12.dp)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        // MOB-P1-79：整条纸签标记为 live region，错误播报更可靠
+                        .widthIn(max = 460.dp)
                         .semantics { liveRegion = LiveRegionMode.Assertive }
-                        .shadow(elevation = 6.dp, shape = shape, spotColor = colors.frameShadowSpot)
-                        .clip(shape)
-                        .background(colors.archivePaper)
-                        .border(
-                            width = 0.5.dp,
-                            // 错误 toast 的边框/圆点走"异常"语义（砖红），
-                            // 与成功态苔绿区分；用赤陶会与"主操作"同色。
-                            color = if (msg.isError) colors.alertRed else colors.borderDivider,
-                            shape = shape
+                        .shadow(
+                            elevation = ArchiveShadows.floatingLayerElevation,
+                            shape = ArchiveShapes.full,
+                            spotColor = colors.frameShadowSpot,
+                            ambientColor = colors.frameShadowAmbient
                         )
-                        .padding(horizontal = 16.dp, vertical = 9.dp)
+                        .clip(ArchiveShapes.full)
+                        .background(colors.inverseSurface)
+                        .padding(
+                            start = 16.dp,
+                            end = if (msg.actionLabel != null) 6.dp else 20.dp,
+                            top = 11.dp,
+                            bottom = 11.dp
+                        )
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(if (msg.isError) colors.alertRed else colors.accentMoss)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    if (msg.isError) {
+                        Icon(
+                            imageVector = FolioGlyphs.Alert,
+                            contentDescription = null,
+                            tint = colors.inverseAlert,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(ArchiveShapes.full)
+                                .background(colors.accentMoss)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = msg.text,
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 13.sp,
-                        letterSpacing = 0.5.sp,
-                        color = colors.inkPrimary,
-                        // MOB-P1-79：Toast 之前是普通 Text —— TalkBack 完全读不到，
-                        // 「对齐失败」「相纸装裱失败」「同步失败 N」这些关键错误对读屏用户等于不存在。
-                        // liveRegion 让读屏在提示出现时主动播报。
-                        modifier = Modifier.semantics {
-                            liveRegion = LiveRegionMode.Assertive
-                        }
+                        style = ArchiveTextStyles.body,
+                        color = colors.inverseInk,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .semantics { liveRegion = LiveRegionMode.Assertive }
                     )
-                    // MOB-P2-47：可撤销动作
                     msg.actionLabel?.let { label ->
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = label,
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 13.sp,
-                            color = colors.accentSmallText,
+                            style = ArchiveTextStyles.label,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.inverseAccent,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
+                                .clip(ArchiveShapes.full)
                                 .clickable {
                                     dismissJob?.cancel()
                                     currentMessage = null
                                     msg.action?.invoke()
                                 }
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
                         )
                     }
                 }

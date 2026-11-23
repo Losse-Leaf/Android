@@ -2,6 +2,7 @@ package com.looseleaf.app.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -9,20 +10,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 
 /**
- * 散页统一字阶令牌 (Archive Type Scale)
- * 全端收敛为 7 级主字阶 + 1 级微标号，消除 0.5sp 与相邻 1sp 的散写字面量：
- * - micro (11sp)：角标徽章、热力图坐标刻度
- * - caption (12sp)：元信息、表单顶标、时间戳、辅助说明
- * - body (14sp)：标准正文、按钮、可选胶囊、列表副信息
- * - bodyLarge (16sp)：条目主标题、输入框正文、分组标题、抽屉标题
- * - title (18sp)：弹窗标题、强调金额
- * - h2 (22sp)：次级大字、滚轮焦点、子页标题
- * - h1 (28sp)：页面主标题、核心汇总金额
- * - display (32sp)：净资产 / 封面展示大字
- *
- * 【待办 · 第 2 批】本阶梯外仍散落 22 处裸字面量（10 / 13 / 15 / 17 / 20 / 26sp）。
- * 它们必须跟布局一起改（字号一改，行高、固定高度、卡片密度全部连带），
- * 故第 1 批只在此登记、不批量替换。
+ * 字号阶梯（约 1.2 倍音阶，向下取整到偶数附近，保证中文笔画清晰）
  */
 object ArchiveTypeScale {
     val micro: TextUnit = 11.sp
@@ -30,133 +18,256 @@ object ArchiveTypeScale {
     val body: TextUnit = 14.sp
     val bodyLarge: TextUnit = 16.sp
     val title: TextUnit = 18.sp
-    val h2: TextUnit = 22.sp
-    val h1: TextUnit = 28.sp
-    val display: TextUnit = 32.sp
+    val h2: TextUnit = 24.sp
+    val h1: TextUnit = 32.sp
+    val display: TextUnit = 44.sp
 }
 
 /**
- * 散页排版字体栈映射 (Typography Mapping)
- * 严格遵循 docs/ecosystem.md §4.3 与 docs/web.md §2.4 规范
- * Android 平台倾向：
- * - 古典衬线体 (Serif Editorial): Noto Serif SC -> 系统衬线 —— **只用于标题与大字**
- * - 现代无衬线 (Sans Body): Roboto -> Noto Sans SC -> 系统无衬线 —— **正文一律无衬线**
- * - 等宽刻度 (Monospace Scale): JetBrains Mono -> 系统等宽 —— 数字与金额
+ * 字体家族令牌
  *
- * 注意：在 Compose Material3 中，Typography 样式不应硬编码 color（应保持 Color.Unspecified），
- * 这样可让 Text 自动继承组件层级的 LocalContentColor（如 Button、Surface 的前景文字颜色），
- * 避免出现按钮深色背景上渲染黑字导致文字不可见的 UI 对比度 Bug。
+ * Folio 的排版双声部：
+ * - 书页声部（Serif / 宋体）：刊头、标题、随笔正文、英雄数字 —— 安静、有书卷气；
+ * - 仪表声部（Sans / 黑体）：控件、标签、元信息、行内金额 —— 精确、易扫读。
+ *
+ * 旧别名 EditorialSerif 回归其本义（衬线），BodySans / MonoScale 落在仪表声部。
  */
 object ArchiveFontFamilies {
-    val EditorialSerif: FontFamily = FontFamily.Serif
-    val BodySans: FontFamily = FontFamily.SansSerif
-    val MonoScale: FontFamily = FontFamily.Monospace
+    val Display: FontFamily = FontFamily.Serif
+    val Text: FontFamily = FontFamily.SansSerif
+    val Reading: FontFamily = FontFamily.Serif
+    val Numeric: FontFamily = FontFamily.SansSerif
+
+    // 兼容别名
+    val EditorialSerif: FontFamily = Display
+    val BodySans: FontFamily = Text
+    val MonoScale: FontFamily = Numeric
 }
 
-fun createArchiveTypography(colors: ArchiveColors): Typography {
+private val NoFontPadding = PlatformTextStyle(includeFontPadding = false)
+
+/**
+ * 语义文本样式令牌（颜色由调用方或 LocalContentColor 提供）
+ */
+object ArchiveTextStyles {
+    /** 刊头：散页大标题 */
+    val masthead = TextStyle(
+        fontFamily = ArchiveFontFamilies.Display,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 34.sp,
+        lineHeight = 40.sp,
+        letterSpacing = 2.sp,
+        platformStyle = NoFontPadding
+    )
+
+    /** 一级页面大标题 */
+    val pageTitle = TextStyle(
+        fontFamily = ArchiveFontFamilies.Display,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 28.sp,
+        lineHeight = 34.sp,
+        letterSpacing = 1.sp,
+        platformStyle = NoFontPadding
+    )
+
+    /** 抽屉 / 弹窗标题 */
+    val sheetTitle = TextStyle(
+        fontFamily = ArchiveFontFamilies.Display,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = ArchiveTypeScale.title,
+        lineHeight = 26.sp,
+        letterSpacing = 0.5.sp
+    )
+
+    /** 分组小标：小号、加宽字距、次要色 */
+    val overline = TextStyle(
+        fontFamily = ArchiveFontFamilies.Text,
+        fontWeight = FontWeight.Medium,
+        fontSize = ArchiveTypeScale.micro,
+        lineHeight = 14.sp,
+        letterSpacing = 1.6.sp,
+        platformStyle = NoFontPadding
+    )
+
+    /** 控件标签：按钮、分段、胶囊 */
+    val label = TextStyle(
+        fontFamily = ArchiveFontFamilies.Text,
+        fontWeight = FontWeight.Medium,
+        fontSize = ArchiveTypeScale.body,
+        lineHeight = 20.sp,
+        letterSpacing = 0.2.sp,
+        platformStyle = NoFontPadding
+    )
+
+    /** 列表主行 */
+    val rowTitle = TextStyle(
+        fontFamily = ArchiveFontFamilies.Text,
+        fontWeight = FontWeight.Medium,
+        fontSize = 15.sp,
+        lineHeight = 22.sp,
+        letterSpacing = 0.1.sp
+    )
+
+    /** 正文 */
+    val body = TextStyle(
+        fontFamily = ArchiveFontFamilies.Text,
+        fontWeight = FontWeight.Normal,
+        fontSize = ArchiveTypeScale.body,
+        lineHeight = 22.sp,
+        letterSpacing = 0.1.sp
+    )
+
+    /** 元信息：时间、地点、账户 */
+    val meta = TextStyle(
+        fontFamily = ArchiveFontFamilies.Text,
+        fontWeight = FontWeight.Normal,
+        fontSize = ArchiveTypeScale.caption,
+        lineHeight = 16.sp,
+        letterSpacing = 0.3.sp,
+        fontFeatureSettings = "tnum"
+    )
+
+    /** 随笔正文：衬线、宽行距，阅读优先 */
+    val essay = TextStyle(
+        fontFamily = ArchiveFontFamilies.Reading,
+        fontWeight = FontWeight.Normal,
+        fontSize = 15.sp,
+        lineHeight = 26.sp,
+        letterSpacing = 0.3.sp
+    )
+
+    /** 随笔标题 */
+    val essayTitle = TextStyle(
+        fontFamily = ArchiveFontFamilies.Reading,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 18.sp,
+        lineHeight = 26.sp,
+        letterSpacing = 0.4.sp
+    )
+
+    /** 英雄数字：总览金额 */
+    val amountHero = TextStyle(
+        fontFamily = ArchiveFontFamilies.Display,
+        fontWeight = FontWeight.Normal,
+        fontSize = ArchiveTypeScale.display,
+        lineHeight = 50.sp,
+        letterSpacing = (-0.5).sp,
+        fontFeatureSettings = "lnum, tnum",
+        platformStyle = NoFontPadding
+    )
+
+    /** 行内金额 */
+    val amount = TextStyle(
+        fontFamily = ArchiveFontFamilies.Numeric,
+        fontWeight = FontWeight.Medium,
+        fontSize = ArchiveTypeScale.bodyLarge,
+        lineHeight = 22.sp,
+        letterSpacing = 0.sp,
+        fontFeatureSettings = "tnum, lnum"
+    )
+
+    /** 日期大字：时间流日签 */
+    val dayNumeral = TextStyle(
+        fontFamily = ArchiveFontFamilies.Display,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 28.sp,
+        lineHeight = 30.sp,
+        letterSpacing = 0.sp,
+        fontFeatureSettings = "lnum, tnum",
+        platformStyle = NoFontPadding
+    )
+
+    /** 按钮 */
+    val button = TextStyle(
+        fontFamily = ArchiveFontFamilies.Text,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 15.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.4.sp,
+        platformStyle = NoFontPadding
+    )
+}
+
+fun createArchiveTypography(@Suppress("UNUSED_PARAMETER") colors: ArchiveColors): Typography {
+    val serif = ArchiveFontFamilies.Display
+    val sans = ArchiveFontFamilies.Text
     return Typography(
         displayLarge = TextStyle(
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontWeight = FontWeight.Normal,
-            fontSize = ArchiveTypeScale.display,
-            lineHeight = 40.sp,
-            color = Color.Unspecified
+            fontFamily = serif, fontWeight = FontWeight.Normal,
+            fontSize = ArchiveTypeScale.display, lineHeight = 52.sp,
+            letterSpacing = (-0.5).sp, color = Color.Unspecified
         ),
         displayMedium = TextStyle(
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontWeight = FontWeight.Normal,
-            fontSize = ArchiveTypeScale.h1,
-            lineHeight = 36.sp,
-            color = Color.Unspecified
+            fontFamily = serif, fontWeight = FontWeight.Normal,
+            fontSize = 36.sp, lineHeight = 44.sp,
+            letterSpacing = (-0.3).sp, color = Color.Unspecified
         ),
         displaySmall = TextStyle(
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontWeight = FontWeight.Normal,
-            fontSize = ArchiveTypeScale.h2,
-            lineHeight = 30.sp,
-            color = Color.Unspecified
+            fontFamily = serif, fontWeight = FontWeight.Normal,
+            fontSize = ArchiveTypeScale.h1, lineHeight = 40.sp,
+            letterSpacing = 0.sp, color = Color.Unspecified
+        ),
+        headlineLarge = TextStyle(
+            fontFamily = serif, fontWeight = FontWeight.SemiBold,
+            fontSize = 28.sp, lineHeight = 36.sp,
+            letterSpacing = 0.5.sp, color = Color.Unspecified
         ),
         headlineMedium = TextStyle(
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontWeight = FontWeight.Medium,
-            fontSize = ArchiveTypeScale.h2,
-            lineHeight = 30.sp,
-            color = Color.Unspecified
+            fontFamily = serif, fontWeight = FontWeight.SemiBold,
+            fontSize = ArchiveTypeScale.h2, lineHeight = 32.sp,
+            letterSpacing = 0.5.sp, color = Color.Unspecified
         ),
         headlineSmall = TextStyle(
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontWeight = FontWeight.Medium,
-            fontSize = ArchiveTypeScale.title,
-            lineHeight = 26.sp,
-            color = Color.Unspecified
+            fontFamily = serif, fontWeight = FontWeight.SemiBold,
+            fontSize = 20.sp, lineHeight = 28.sp,
+            letterSpacing = 0.4.sp, color = Color.Unspecified
         ),
         titleLarge = TextStyle(
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontWeight = FontWeight.Medium,
-            fontSize = ArchiveTypeScale.title,
-            lineHeight = 26.sp,
-            color = Color.Unspecified
+            fontFamily = serif, fontWeight = FontWeight.SemiBold,
+            fontSize = ArchiveTypeScale.title, lineHeight = 26.sp,
+            letterSpacing = 0.4.sp, color = Color.Unspecified
         ),
         titleMedium = TextStyle(
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontWeight = FontWeight.Medium,
-            fontSize = ArchiveTypeScale.bodyLarge,
-            lineHeight = 24.sp,
-            color = Color.Unspecified
+            fontFamily = sans, fontWeight = FontWeight.Medium,
+            fontSize = ArchiveTypeScale.bodyLarge, lineHeight = 22.sp,
+            letterSpacing = 0.1.sp, color = Color.Unspecified
         ),
         titleSmall = TextStyle(
-            fontFamily = ArchiveFontFamilies.EditorialSerif,
-            fontWeight = FontWeight.Medium,
-            fontSize = ArchiveTypeScale.body,
-            lineHeight = 20.sp,
-            color = Color.Unspecified
+            fontFamily = sans, fontWeight = FontWeight.Medium,
+            fontSize = ArchiveTypeScale.body, lineHeight = 20.sp,
+            letterSpacing = 0.1.sp, color = Color.Unspecified
         ),
         bodyLarge = TextStyle(
-            fontFamily = ArchiveFontFamilies.BodySans,
-            fontWeight = FontWeight.Normal,
-            fontSize = ArchiveTypeScale.bodyLarge,
-            lineHeight = 24.sp,
-            color = Color.Unspecified
+            fontFamily = sans, fontWeight = FontWeight.Normal,
+            fontSize = ArchiveTypeScale.bodyLarge, lineHeight = 25.sp,
+            letterSpacing = 0.1.sp, color = Color.Unspecified
         ),
         bodyMedium = TextStyle(
-            fontFamily = ArchiveFontFamilies.BodySans,
-            fontWeight = FontWeight.Normal,
-            fontSize = ArchiveTypeScale.body,
-            lineHeight = 21.sp,
-            color = Color.Unspecified
+            fontFamily = sans, fontWeight = FontWeight.Normal,
+            fontSize = ArchiveTypeScale.body, lineHeight = 22.sp,
+            letterSpacing = 0.1.sp, color = Color.Unspecified
         ),
         bodySmall = TextStyle(
-            fontFamily = ArchiveFontFamilies.BodySans,
-            fontWeight = FontWeight.Normal,
-            fontSize = ArchiveTypeScale.caption,
-            lineHeight = 18.sp,
-            color = Color.Unspecified
+            fontFamily = sans, fontWeight = FontWeight.Normal,
+            fontSize = ArchiveTypeScale.caption, lineHeight = 18.sp,
+            letterSpacing = 0.2.sp, color = Color.Unspecified
         ),
         labelLarge = TextStyle(
-            fontFamily = ArchiveFontFamilies.MonoScale,
-            fontWeight = FontWeight.Medium,
-            fontSize = ArchiveTypeScale.body,
-            lineHeight = 18.sp,
-            letterSpacing = 0.6.sp,
-            fontFeatureSettings = "tnum",
+            fontFamily = sans, fontWeight = FontWeight.SemiBold,
+            fontSize = ArchiveTypeScale.body, lineHeight = 20.sp,
+            letterSpacing = 0.3.sp, fontFeatureSettings = "tnum",
             color = Color.Unspecified
         ),
         labelMedium = TextStyle(
-            fontFamily = ArchiveFontFamilies.MonoScale,
-            fontWeight = FontWeight.Normal,
-            fontSize = ArchiveTypeScale.caption,
-            lineHeight = 16.sp,
-            letterSpacing = 0.6.sp,
-            fontFeatureSettings = "tnum",
+            fontFamily = sans, fontWeight = FontWeight.Medium,
+            fontSize = ArchiveTypeScale.caption, lineHeight = 16.sp,
+            letterSpacing = 0.4.sp, fontFeatureSettings = "tnum",
             color = Color.Unspecified
         ),
         labelSmall = TextStyle(
-            fontFamily = ArchiveFontFamilies.MonoScale,
-            fontWeight = FontWeight.Normal,
-            fontSize = ArchiveTypeScale.micro,
-            lineHeight = 14.sp,
-            letterSpacing = 0.5.sp,
-            fontFeatureSettings = "tnum",
+            fontFamily = sans, fontWeight = FontWeight.Medium,
+            fontSize = ArchiveTypeScale.micro, lineHeight = 14.sp,
+            letterSpacing = 0.8.sp, fontFeatureSettings = "tnum",
             color = Color.Unspecified
         )
     )

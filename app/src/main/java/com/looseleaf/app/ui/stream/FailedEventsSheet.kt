@@ -2,6 +2,14 @@ package com.looseleaf.app.ui.stream
 
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
+import com.looseleaf.app.ui.components.ArchiveTextButton
+import com.looseleaf.app.ui.components.ArchiveSecondaryButton
+import com.looseleaf.app.ui.components.ArchivePrimaryButton
+import com.looseleaf.app.ui.components.ArchiveEmptyState
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -106,7 +114,7 @@ internal suspend fun discardOutboxEvent(
 /**
  * 失败事件处置抽屉 (Failed Events BottomSheet)
  *
- * 统一展示主库（手稿/造物/心愿/足迹/相纸）与独立账本库中阻滞的死信事件：
+ * 统一展示主库（散页/心愿/相纸）与独立账本库中阻滞的死信事件：
  * - 支持单条重试（置空 failed_at 与重置 retry_count）、单条放弃（联动清理未上云的本地孤儿行与暂存相纸）；
  * - 底部支持一键全部重新排队与全部放弃。
  */
@@ -166,21 +174,36 @@ internal fun FailedEventsSheet(
 
     ArchiveSheet(
         onDismissRequest = onDismiss,
-        title = "发件箱待重验 (${failedList.size})"
+        title = if (failedList.isEmpty()) "同步异常" else "同步异常 · ${failedList.size}"
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 24.dp)
+                .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 20.dp)
         ) {
-            Text(
-                text = "下列记录在与中枢同步时受阻，已妥善保存在本地离线库中，请确认后重发或放弃：",
-                fontFamily = ArchiveFontFamilies.BodySans,
-                fontSize = 12.sp,
-                lineHeight = 18.sp,
-                color = colors.inkMuted,
-                modifier = Modifier.padding(bottom = 14.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(com.looseleaf.app.theme.ArchiveShapes.md)
+                    .background(colors.archiveSubtle)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = com.looseleaf.app.ui.components.FolioGlyphs.Lock,
+                    contentDescription = null,
+                    tint = colors.accentMoss,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "这些记录与中枢同步受阻，但都已安全保存在本机。确认后可重新投递或放弃。",
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.meta.copy(lineHeight = 18.sp),
+                    color = colors.inkSecondary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
 
             if (isLoading) {
                 Box(
@@ -192,22 +215,17 @@ internal fun FailedEventsSheet(
                     CircularProgressIndicator(
                         modifier = Modifier.size(20.dp),
                         strokeWidth = 2.dp,
-                        color = colors.accentWarm
+                        color = colors.accentWarm,
+                        trackColor = colors.borderSubtle
                     )
                 }
             } else if (failedList.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 200.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "所有待办已清空",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        color = colors.inkMuted
-                    )
-                }
+                ArchiveEmptyState(
+                    title = "没有待处理的记录",
+                    subtitle = "所有内容都已与中枢对齐",
+                    imageVector = com.looseleaf.app.ui.components.FolioGlyphs.Check,
+                    modifier = Modifier.heightIn(min = 200.dp)
+                )
             } else {
                 LazyColumn(
                     modifier = Modifier
@@ -255,62 +273,45 @@ internal fun FailedEventsSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // 底部操作栏：放弃全部 / 全部重新排队
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(
-                    onClick = {
-                        scope.launch {
-                            LedgerModule.discardAllFailed(context)
-                            withContext(Dispatchers.IO) {
-                                val mainFailed = database.outboxDao().getFailedEvents()
-                                for (evt in mainFailed) {
-                                    discardOutboxEvent(context, database, evt)
-                                }
-                            }
-                            syncManager.notifyLocalWrite()
-                            ArchiveToastManager.show("已放弃所有失败事件")
-                            onDismiss()
-                        }
-                    }
+            if (!isLoading && failedList.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(18.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
+                    ArchiveSecondaryButton(
                         text = "全部放弃",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 13.sp,
-                        color = colors.inkMuted
-                    )
-                }
-
-                Button(
-                    onClick = {
-                        scope.launch {
-                            withContext(Dispatchers.IO) {
-                                database.outboxDao().resetAllFailed()
+                        isDestructive = true,
+                        onClick = {
+                            scope.launch {
+                                LedgerModule.discardAllFailed(context)
+                                withContext(Dispatchers.IO) {
+                                    val mainFailed = database.outboxDao().getFailedEvents()
+                                    for (evt in mainFailed) {
+                                        discardOutboxEvent(context, database, evt)
+                                    }
+                                }
+                                syncManager.notifyLocalWrite()
+                                ArchiveToastManager.show("已放弃所有失败事件")
+                                onDismiss()
                             }
-                            syncManager.scheduleSync()
-                            LedgerModule.retryFailedEvents(context)
-                            ArchiveToastManager.show("正在重试所有失败记录…")
-                            onDismiss()
-                        }
-                    },
-                    shape = ArchiveShapes.pill,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = colors.accentWarm,
-                        contentColor = colors.archivePaper
-                    ),
-                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
-                ) {
-                    Text(
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ArchivePrimaryButton(
                         text = "全部重新投递",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp
+                        onClick = {
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    database.outboxDao().resetAllFailed()
+                                }
+                                syncManager.scheduleSync()
+                                LedgerModule.retryFailedEvents(context)
+                                ArchiveToastManager.show("正在重试所有失败记录")
+                                onDismiss()
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -326,91 +327,86 @@ private fun FailedEventItemRow(
 ) {
     val colors = LooseLeafTheme.colors
     val entityLabel = when (event.entityType) {
-        "travel" -> "游历"
         "media_entry" -> "图文"
-        "project" -> "造物"
         "wish" -> "心愿"
-        "footprint" -> "足迹"
         "ledger" -> "账本"
         else -> "日常"
     }
+    val badge = entityLabel.take(1)
 
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = colors.archiveCard,
-        border = BorderStroke(0.6.dp, colors.borderDivider),
-        modifier = Modifier.fillMaxWidth()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(com.looseleaf.app.theme.ArchiveShapes.leaf)
+            .background(colors.archiveCard)
+            .border(1.dp, colors.borderCard, com.looseleaf.app.theme.ArchiveShapes.leaf)
+            .padding(14.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(com.looseleaf.app.theme.ArchiveShapes.sm)
+                    .background(colors.negativeTint),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = badge,
+                    fontFamily = ArchiveFontFamilies.Display,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    color = colors.alertRed
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = "[$entityLabel] ${event.action}",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        color = colors.inkPrimary
-                    )
-                    Text(
-                        text = "重试 ${event.retryCount} 次",
-                        fontFamily = ArchiveFontFamilies.MonoScale,
-                        fontSize = 11.sp,
-                        color = colors.alertRed
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(3.dp))
-
+                Text(
+                    text = "$entityLabel · ${event.action}",
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                    color = colors.inkPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
                 Text(
                     text = event.lastError ?: "连接中枢受阻",
-                    fontFamily = ArchiveFontFamilies.BodySans,
-                    fontSize = 12.sp,
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
                     color = colors.inkMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-
             Spacer(modifier = Modifier.width(8.dp))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(
-                    onClick = onDiscard,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "放弃",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 12.sp,
-                        color = colors.inkMuted
-                    )
-                }
-
-                Button(
-                    onClick = onRetry,
-                    shape = RoundedCornerShape(4.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = colors.accentWarm.copy(alpha = 0.15f),
-                        contentColor = colors.accentWarm
-                    ),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "重试",
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 12.sp
-                    )
-                }
+            Text(
+                text = "已试 ${event.retryCount} 次",
+                style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                color = colors.alertRed
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ArchiveTextButton(
+                text = "放弃",
+                onClick = onDiscard,
+                textColor = colors.inkSecondary
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Box(
+                modifier = Modifier
+                    .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                    .background(colors.inverseSurface)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onRetry)
+                    .padding(horizontal = 18.dp, vertical = 9.dp)
+            ) {
+                Text(
+                    text = "重试",
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.label,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.inverseInk
+                )
             }
         }
     }

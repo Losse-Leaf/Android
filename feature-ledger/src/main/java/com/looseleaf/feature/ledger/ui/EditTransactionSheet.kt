@@ -8,12 +8,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.data.api.APIClient
@@ -131,18 +133,31 @@ internal fun EditTransactionSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             if (isInstallmentRepay) {
-                Text(
-                    text = "类型：支出（分期还款）",
-                    style = LedgerTheme.typography.caption,
-                    fontFamily = LedgerTheme.typography.serif,
-                    color = colors.textSecondary
-                )
+                Box(
+                    modifier = Modifier
+                        .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                        .background(colors.surfaceElevated)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "支出 · 分期还款",
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.textSecondary
+                    )
+                }
             } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(
+                    modifier = Modifier
+                        .clip(com.looseleaf.app.theme.ArchiveShapes.full)
+                        .background(colors.surfaceElevated)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
                     ArchiveTypeToggleButton(
                         text = "支出",
                         isSelected = editType == "expense",
@@ -177,8 +192,9 @@ internal fun EditTransactionSheet(
                 )
                 Text(
                     text = "分期还款金额由还款期次决定，不可直接修改",
-                    style = LedgerTheme.typography.caption,
-                    color = colors.textSecondary
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                    color = colors.textMuted,
+                    modifier = Modifier.padding(start = 4.dp)
                 )
             } else {
                 ArchiveField(
@@ -207,9 +223,9 @@ internal fun EditTransactionSheet(
 
             Text(
                 text = "分类",
-                style = LedgerTheme.typography.caption,
-                fontFamily = LedgerTheme.typography.serif,
-                color = colors.textSecondary
+                style = com.looseleaf.app.theme.ArchiveTextStyles.overline,
+                color = colors.textMuted,
+                modifier = Modifier.padding(start = 4.dp, top = 6.dp)
             )
             val visibleCategories = if (editCategories.size > 7 && !isCategoriesExpanded) {
                 editCategories.take(7)
@@ -223,16 +239,17 @@ internal fun EditTransactionSheet(
             ) {
                 for (cat in visibleCategories) {
                     val dotColor = LedgerCategoryColors.colorForCategory(cat, colors.isDark)
-                    ArchiveChoiceItem(
+                    ArchiveSelectableCapsule(
                         text = cat,
-                        isSelected = cat == editCategory,
-                        colorDot = dotColor,
+                        selected = cat == editCategory,
+                        leadingDotColor = dotColor,
+                        accentColor = if (cat == editCategory) dotColor else null,
                         onClick = { editCategory = cat }
                     )
                 }
                 if (editCategories.size > 7) {
                     ArchiveTextButton(
-                        text = if (isCategoriesExpanded) "收起 ▴" else "更多 ▾",
+                        text = if (isCategoriesExpanded) "收起" else "更多",
                         onClick = { isCategoriesExpanded = !isCategoriesExpanded }
                     )
                 }
@@ -240,9 +257,9 @@ internal fun EditTransactionSheet(
 
             Text(
                 text = "账户 / 渠道",
-                style = LedgerTheme.typography.caption,
-                fontFamily = LedgerTheme.typography.serif,
-                color = colors.textSecondary
+                style = com.looseleaf.app.theme.ArchiveTextStyles.overline,
+                color = colors.textMuted,
+                modifier = Modifier.padding(start = 4.dp, top = 6.dp)
             )
             val visiblePaymentMethods = if (paymentMethods.size > 7 && !isPaymentMethodsExpanded) {
                 paymentMethods.take(7)
@@ -255,15 +272,15 @@ internal fun EditTransactionSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 for (pm in visiblePaymentMethods) {
-                    ArchiveChoiceItem(
+                    ArchiveSelectableCapsule(
                         text = pm,
-                        isSelected = pm == editPaymentMethod,
+                        selected = pm == editPaymentMethod,
                         onClick = { editPaymentMethod = pm }
                     )
                 }
                 if (paymentMethods.size > 7) {
                     ArchiveTextButton(
-                        text = if (isPaymentMethodsExpanded) "收起 ▴" else "更多 ▾",
+                        text = if (isPaymentMethodsExpanded) "收起" else "更多",
                         onClick = { isPaymentMethodsExpanded = !isPaymentMethodsExpanded }
                     )
                 }
@@ -307,9 +324,8 @@ internal fun EditTransactionSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(colors.surfaceElevated)
-                        .border(ArchiveLines.hairline, colors.borderSubtle, RoundedCornerShape(4.dp))
+                        .clip(com.looseleaf.app.theme.ArchiveShapes.md)
+                        .background(colors.accentSoft)
                         .clickable {
                             onDismiss()
                             scope.launch {
@@ -320,33 +336,39 @@ internal fun EditTransactionSheet(
                                 }
                             }
                         }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "已关联分期计划",
-                        fontFamily = LedgerTheme.typography.serif,
-                        fontSize = 13.sp,
+                        style = com.looseleaf.app.theme.ArchiveTextStyles.label,
                         color = colors.textPrimary
                     )
-                    Text(
-                        text = "查看还款计划 ▸",
-                        fontFamily = LedgerTheme.typography.serif,
-                        fontSize = 12.sp,
-                        color = colors.accent
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "查看还款计划",
+                            style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.archive.accentSmallText
+                        )
+                        Icon(
+                            imageVector = FolioGlyphs.ChevronRight,
+                            contentDescription = null,
+                            tint = colors.archive.accentSmallText,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
-            ArchiveDivider()
+            Spacer(modifier = Modifier.height(10.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Start
             ) {
-                ArchiveTextButton(
+                ArchiveSecondaryButton(
                     text = "删除此账目",
                     isDestructive = true,
                     onClick = {

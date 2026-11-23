@@ -2,6 +2,7 @@
     <string name="app_name">散页</string>
     <string name="shortcut_ledger_short">记一笔</string>
     <string name="shortcut_ledger_long">口袋极速触觉记账</string>
+
     <!-- main_activity -->
     <string name="main_activity_title_01">散页身份验证</string>
     <string name="main_activity_title_02">纸页写坏了</string>
@@ -14,8 +15,7 @@
     <string name="main_activity_text_01">散页 · 隐私守护中</string>
     <string name="main_activity_text_02">请通过生物识别验证以翻阅私人档案与账本</string>
     <string name="main_activity_contentDescription_02">离线</string>
-
-    <!-- archive_bottom_sheet -->
+    <string name="main_activity_verify_biometrics">验证指纹 / 面容解锁</string>
 
     <!-- archive_lightbox_viewer -->
     <string name="archive_lightbox_viewer_label_01">lightbox-scale</string>
@@ -23,24 +23,8 @@
 
     <!-- archive_release_dialog -->
     <string name="archive_release_dialog_text_01">散页 · 新版本发布</string>
-
-    <!-- film_frame -->
-
-    <!-- paper_components -->
-
-    <!-- paper_skeleton -->
-
-    <!-- ledger_assets_tab -->
-
-    <!-- ledger_dialogs -->
-    <string name="projects_wishes_screen_confirm_delete">确认删除</string>
-
-    <!-- ledger_screen -->
-    <string name="stream_dialogs_placeholder_select_city">选择城市…</string>
-
-    <!-- ledger_transactions_tab -->
-
-    <!-- tactile_keypad -->
+    <string name="archive_release_dialog_remind_later">稍后提醒</string>
+    <string name="archive_release_dialog_update_now">立即更新并安装</string>
 
     <!-- pairing_screen -->
     <string name="pairing_screen_text_01">散页 · 随行入网</string>
@@ -65,48 +49,36 @@
     <string name="pairing_screen_text_11">完成设置，进入散页</string>
     <string name="pairing_screen_title_01">确认配对到该中枢？</string>
     <string name="pairing_screen_confirmText_01">确认配对</string>
+    <string name="pairing_screen_clipboard">一键读取剪贴板链接</string>
+    <string name="pairing_screen_hub">中枢节点</string>
+    <string name="pairing_screen_device_id">设备编号</string>
 
     <!-- square_qr_scanner_view -->
     <string name="square_qr_scanner_view_text_01">需要相机权限以扫描配对二维码</string>
     <string name="square_qr_scanner_view_label_01">scan_laser</string>
     <string name="square_qr_scanner_view_label_02">laser_y</string>
     <string name="square_qr_scanner_view_text_02">轻触框内可手动重新对焦</string>
+    <string name="scanner_grant_permission">授予相机权限</string>
+    <string name="scanner_pick_from_album">从相册选取二维码</string>
 
-    <!-- profile_components -->
+    <!-- settings -->
     <string name="profile_components_text_01">改名</string>
-
-    <!-- profile_screen -->
     <string name="profile_screen_title_01">解除受信任设备？</string>
     <string name="profile_screen_confirmText_01">确认解除</string>
     <string name="profile_screen_title_02">重命名此设备</string>
     <string name="profile_screen_label_03">为当前随行设备设置识别别名：</string>
     <string name="profile_screen_confirmText_02">确认更名</string>
 
-    <!-- profile_sheets -->
-
-    <!-- projects_wishes_lists -->
-
-    <!-- projects_wishes_screen -->
-    <string name="projects_wishes_screen_text_01">工坊</string>
-    <string name="projects_wishes_screen_label_03">圆满时刻</string>
-    <string name="projects_wishes_screen_label_04">实获好物/方案名称</string>
-    <string name="projects_wishes_screen_label_05">实付金额 (元)</string>
-    <string name="projects_wishes_screen_label_06">圆梦感言手记 (同步写入时间流)</string>
-    <string name="projects_wishes_screen_text_07">正在检索属地散页与旅途消费…</string>
-    <string name="projects_wishes_screen_label_07">造物名称</string>
-    <string name="projects_wishes_screen_label_08">副标题或设计注记</string>
-    <string name="projects_wishes_screen_label_09">项目概述与故事</string>
-    <string name="projects_wishes_screen_label_10">仓库/发布链接</string>
-    <string name="projects_wishes_screen_title_01">移除心愿？</string>
-    <string name="projects_wishes_screen_confirmText_01">确认移除</string>
-    <string name="projects_wishes_screen_title_02">删除造物项目？</string>
-
-    <!-- projects_wishes_sheets -->
-    <string name="projects_wishes_sheets_label_01">心愿名称</string>
-    <string name="projects_wishes_sheets_label_02">规格参数或备忘</string>
-    <string name="projects_wishes_sheets_label_03">意向预算 (元)</string>
-    <string name="projects_wishes_sheets_placeholder_02">初衷手记…</string>
-    <string name="projects_wishes_sheets_label_04">到访时刻</string>
+    <!-- wishes -->
+    <string name="wishes_resolve_fulfilled_at">圆满时刻</string>
+    <string name="wishes_resolve_actual_title">实获好物/方案名称</string>
+    <string name="wishes_resolve_actual_cost">实付金额 (元)</string>
+    <string name="wishes_resolve_note">圆梦感言手记 (同步写入时间流)</string>
+    <string name="wishes_edit_title_tpl">修订心愿 · %1$s</string>
+    <string name="wishes_edit_title_label">心愿名称</string>
+    <string name="wishes_edit_spec_label">规格参数或备忘</string>
+    <string name="wishes_edit_budget_label">意向预算 (元)</string>
+    <string name="wishes_edit_note_placeholder">初衷手记…</string>
 
     <!-- quick_note_sheet -->
     <string name="quick_note_sheet_contentDescription_01">装裱相纸</string>
@@ -115,16 +87,11 @@
     <string name="quick_note_sheet_text_02">提笔写下当下的心绪、现场气味或片刻偶遇…</string>
     <string name="quick_note_sheet_text_03">发生时刻与时空锚点</string>
     <string name="quick_note_sheet_text_04">空间驻留地点</string>
-    <string name="quick_note_sheet_text_06">到访城市与旅程足迹 *</string>
-    <string name="quick_note_sheet_placeholder_01">具体景点或街巷注记 (选填)</string>
-    <string name="quick_note_sheet_label_01">归属旅程足迹</string>
-    <string name="quick_note_sheet_placeholder_02">-- 自动聚合至同城近期旅程 --</string>
-    <string name="quick_note_sheet_text_07">游历见闻标题…</string>
-    <string name="quick_note_sheet_text_08">写下路上的风景、异乡的气味或旅途偶遇…</string>
-    <string name="quick_note_sheet_label_04">选择关联造物项目 *</string>
-    <string name="quick_note_sheet_text_11">手记标题…</string>
-    <string name="quick_note_sheet_text_12">记录今日造物进展、代码提交、设计突破或心得…</string>
-    <string name="quick_note_sheet_text_13">记录时间</string>
+    <string name="quick_note_sheet_text_tpl_01">已装裱相纸 (%1$s/9)</string>
+    <string name="quick_note_sheet_text_tpl_02">%1$s</string>
+    <string name="quick_note_cancel">取消</string>
+    <string name="quick_note_mount_paper">装裱相纸</string>
+    <string name="quick_note_album_mount">相册装裱</string>
 
     <!-- stream_dialogs -->
     <string name="stream_dialogs_placeholder_01">标题</string>
@@ -136,125 +103,26 @@
     <string name="stream_dialogs_confirmText_01">合上</string>
     <string name="stream_dialogs_text_06">全库检索生活记忆</string>
     <string name="stream_dialogs_placeholder_03">搜索……</string>
+    <string name="stream_dialogs_text_tpl_01">手账影像相纸 (%1$s)</string>
+    <string name="stream_dialogs_untitled">无题随笔</string>
+    <string name="stream_dialogs_entries_count">生活印记 (%1$d)</string>
+    <string name="stream_dialogs_wishes_count">心愿清单 (%1$d)</string>
 
     <!-- stream_entries -->
     <string name="stream_entries_contentDescription_01">展开或收起</string>
-
-    <!-- stream_filter_bar -->
+    <string name="stream_entries_text_tpl_01">那年今日 · 岁月回响 (%1$s)</string>
 
     <!-- stream_screen -->
     <string name="stream_screen_text_03">下载完成，准备安装</string>
     <string name="stream_screen_title_01">撕除手记？</string>
     <string name="stream_screen_confirmText_01">确认撕除</string>
     <string name="stream_screen_title_02">验证以撕除记录</string>
-    <!-- paper_components -->
-
-    <!-- temporal_gap_separator -->
-    <string name="temporal_gap_separator_text_tpl_01"> 历经 %1$s 天的沉默与沉淀 </string>
-
-    <!-- ledger_assets_tab -->
-
-    <!-- ledger_dialogs -->
-
-    <!-- ledger_screen -->
-
-    <!-- ledger_transactions_tab -->
-
-    <!-- profile_screen -->
-
-    <!-- projects_wishes_lists -->
-
-    <!-- projects_wishes_screen -->
-    <string name="projects_wishes_screen_text_tpl_01">同步未完成：%1$s · 点此重试</string>
-    <string name="projects_wishes_screen_title_tpl_02">%1$s · 城市回忆抽屉</string>
-    <string name="projects_wishes_screen_text_tpl_02">属地检索失败：%1$s · 点此重试</string>
-    <string name="projects_wishes_screen_text_tpl_03">累计到访 %1$s 次 · 散页 %2$s 篇</string>
-    <string name="projects_wishes_screen_text_tpl_04">属地花销: %1$s</string>
-    <string name="projects_wishes_screen_title_tpl_03">修订造物 · %1$s</string>
-
-    <!-- projects_wishes_sheets -->
-    <string name="projects_wishes_sheets_title_tpl_01">修订心愿 · %1$s</string>
-    <string name="projects_wishes_sheets_title_tpl_02">修订行迹票根 · %1$s</string>
-    <string name="projects_wishes_sheets_title_tpl_03">%1$s · 省级回忆抽屉</string>
-    <string name="projects_wishes_sheets_text_tpl_01">全省行迹检索失败：%1$s · 点此重试</string>
-    <string name="projects_wishes_sheets_text_tpl_02">点亮 %1$s 座城邑 · 履迹 %2$s 次</string>
-    <string name="projects_wishes_sheets_text_tpl_03">全省花销: %1$s</string>
-    <string name="projects_wishes_sheets_text_tpl_04">%1$s (%2$s)</string>
-
-    <!-- quick_note_sheet -->
-    <string name="quick_note_sheet_text_tpl_01">已装裱相纸 (%1$s/9)</string>
-    <string name="quick_note_sheet_text_tpl_02">%1$s</string>
-
-    <!-- stream_dialogs -->
-    <string name="stream_dialogs_text_tpl_01">手账影像相纸 (%1$s)</string>
-
-    <!-- stream_entries -->
-    <string name="stream_entries_text_tpl_01">那年今日 · 岁月回响 (%1$s)</string>
-
-    <!-- stream_filter_bar -->
-
-    <!-- stream_screen -->
     <string name="stream_screen_text_tpl_03">检测到新版本 %1$s（当前 v%2$s）</string>
     <string name="stream_screen_text_tpl_04">正在应用内下载: %1$s%%</string>
     <string name="stream_screen_text_tpl_05">%1$s%%</string>
-    <!-- MainActivity -->
-    <string name="main_activity_verify_biometrics">验证指纹 / 面容解锁</string>
-
-    <!-- ArchiveReleaseDialog -->
-    <string name="archive_release_dialog_remind_later">稍后提醒</string>
-    <string name="archive_release_dialog_update_now">立即更新并安装</string>
-
-    <!-- PaperComponents -->
-
-    <!-- LedgerAssetsTab -->
-
-    <!-- LedgerDialogs -->
-
-    <!-- LedgerScreen -->
-
-    <!-- LedgerTransactionsTab -->
-
-    <!-- PairingScreen -->
-    <string name="pairing_screen_clipboard">一键读取剪贴板链接</string>
-    <string name="pairing_screen_hub">中枢节点</string>
-    <string name="pairing_screen_device_id">设备编号</string>
-
-    <!-- SquareQrScannerView -->
-    <string name="scanner_grant_permission">授予相机权限</string>
-    <string name="scanner_pick_from_album">从相册选取二维码</string>
-
-    <!-- ProfileScreen -->
-
-    <!-- ProfileSheets -->
-
-    <!-- ProjectsWishesLists -->
-
-    <!-- ProjectsWishesScreen -->
-    <string name="projects_wishes_province_drawer">省级回忆抽屉</string>
-    <string name="projects_wishes_edit_ticket">编辑票根</string>
-    <string name="projects_wishes_remove">移除</string>
-    <string name="projects_wishes_delete_project">删除此造物项目</string>
-
-    <!-- ProjectsWishesSheets -->
-    <string name="projects_wishes_fetching_province">正在聚合全省行迹票根与属地手记…</string>
-    <string name="projects_wishes_city_dist">到访城市分布</string>
-    <string name="projects_wishes_local_notes">属地散页手记</string>
-    <string name="projects_wishes_note_title">散页手记</string>
-
-    <!-- QuickNoteSheet -->
-    <string name="quick_note_cancel">取消</string>
-    <string name="quick_note_mount_paper">装裱相纸</string>
-    <string name="quick_note_album_mount">相册装裱</string>
-
-    <!-- StreamDialogs -->
-    <string name="stream_dialogs_untitled">无题随笔</string>
-    <string name="stream_dialogs_footprint_default">足迹</string>
-    <string name="stream_dialogs_entries_count">生活印记 (%1$d)</string>
-    <string name="stream_dialogs_footprints_count">足迹 (%1$d)</string>
-    <string name="stream_dialogs_wishes_count">心愿清单 (%1$d)</string>
-    <string name="stream_dialogs_projects_count">造物项目 (%1$d)</string>
-
-    <!-- StreamScreen -->
     <string name="stream_screen_install_now">立即安装</string>
     <string name="stream_screen_in_app_update">应用内更新</string>
+
+    <!-- temporal_gap_separator -->
+    <string name="temporal_gap_separator_text_tpl_01"> 历经 %1$s 天的沉默与沉淀 </string>
 </resources>
