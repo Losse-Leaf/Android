@@ -34,6 +34,9 @@ class CredentialStore private constructor(context: Context) {
         private const val KEY_DEVICE_TOKEN = "device_token"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_DEVICE_NAME = "device_name"
+        private const val KEY_ACCOUNT_SUB = "account_sub"
+        private const val KEY_ACCOUNT_NAME = "account_name"
+        private const val KEY_ACCOUNT_EMAIL = "account_email"
         private const val KEY_BIOMETRICS_ENABLED = "biometrics_enabled"
         private const val KEY_DARKROOM_MODE = "darkroom_mode"
         private const val KEY_APPEARANCE_MODE = "appearance_mode"
@@ -167,6 +170,24 @@ class CredentialStore private constructor(context: Context) {
             settings.edit().putString(KEY_DEVICE_NAME, value).apply()
         }
 
+    var accountSub: String?
+        get() = settings.getString(KEY_ACCOUNT_SUB, null)?.takeIf { it.isNotBlank() }
+        set(value) {
+            settings.edit().putString(KEY_ACCOUNT_SUB, value?.trim()).apply()
+        }
+
+    var accountName: String?
+        get() = settings.getString(KEY_ACCOUNT_NAME, null)?.takeIf { it.isNotBlank() }
+        set(value) {
+            settings.edit().putString(KEY_ACCOUNT_NAME, value?.trim()).apply()
+        }
+
+    var accountEmail: String?
+        get() = settings.getString(KEY_ACCOUNT_EMAIL, null)?.takeIf { it.isNotBlank() }
+        set(value) {
+            settings.edit().putString(KEY_ACCOUNT_EMAIL, value?.trim()).apply()
+        }
+
     var isBiometricsEnabled: Boolean
         get() = settings.getBoolean(KEY_BIOMETRICS_ENABLED, false)
         set(value) {
@@ -255,6 +276,9 @@ class CredentialStore private constructor(context: Context) {
             ?.apply()
         settings.edit()
             .remove(KEY_DEVICE_NAME)
+            .remove(KEY_ACCOUNT_SUB)
+            .remove(KEY_ACCOUNT_NAME)
+            .remove(KEY_ACCOUNT_EMAIL)
             .remove("cached_profile_json")
             .remove(KEY_PAIRED_FLAG)
             .apply()

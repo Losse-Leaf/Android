@@ -277,6 +277,38 @@ object FolioGlyphs {
         }
     }
 
+    /** 账号人物剪影 */
+    val Person: ImageVector by lazy {
+        stroked("FolioPerson", width = 1.6f) {
+            moveTo(12f, 5.25f)
+            curveTo(13.93f, 5.25f, 15.5f, 6.82f, 15.5f, 8.75f)
+            curveTo(15.5f, 10.68f, 13.93f, 12.25f, 12f, 12.25f)
+            curveTo(10.07f, 12.25f, 8.5f, 10.68f, 8.5f, 8.75f)
+            curveTo(8.5f, 6.82f, 10.07f, 5.25f, 12f, 5.25f)
+            close()
+            moveTo(5.5f, 19.25f)
+            curveTo(6.2f, 16.4f, 8.85f, 14.75f, 12f, 14.75f)
+            curveTo(15.15f, 14.75f, 17.8f, 16.4f, 18.5f, 19.25f)
+        }
+    }
+
+    /** 退出登录：门框与向右箭头 */
+    val Logout: ImageVector by lazy {
+        stroked("FolioLogout", width = 1.6f) {
+            moveTo(10f, 5.5f)
+            lineTo(6.5f, 5.5f)
+            curveTo(5.67f, 5.5f, 5f, 6.17f, 5f, 7f)
+            lineTo(5f, 17f)
+            curveTo(5f, 17.83f, 5.67f, 18.5f, 6.5f, 18.5f)
+            lineTo(10f, 18.5f)
+            moveTo(15.5f, 8.5f)
+            lineTo(19f, 12f)
+            lineTo(15.5f, 15.5f)
+            moveTo(19f, 12f)
+            lineTo(9.5f, 12f)
+        }
+    }
+
     /** 更多：三点（用短线段绘制圆点） */
     val More: ImageVector by lazy {
         stroked("FolioMore", width = 2.4f) {

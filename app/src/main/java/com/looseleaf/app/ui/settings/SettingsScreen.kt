@@ -43,7 +43,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -51,7 +50,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
-import com.looseleaf.app.R
 import com.looseleaf.app.data.security.AppearanceMode
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveMotion
@@ -71,27 +69,27 @@ import com.looseleaf.app.updater.UpdateChecker
  *
  * 一页安静的目录：
  * - 页头：圆形返回 + 衬线大标题「设置」
+ * - 账号：Vesper Auth 登录身份与服务器地址
  * - 外观：三枚带纸样预览的选择卡（跟随系统 / 宣 / 墨）
  * - 偏好与安全：生物识别门禁、分期提醒两条开关
- * - 本机设备：设备卡片（改名 / 解除配对）
  * - 关于：版本、渠道、检测更新
- * - 末尾：胭脂描边的「解除本机配对并清空本地缓存」
+ * - 末尾：胭脂描边的「退出登录」
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SettingsScreen(
+    accountDisplayName: String,
+    accountSubtitle: String,
+    serverHost: String,
     appearanceMode: AppearanceMode,
     onAppearanceModeChanged: (AppearanceMode) -> Unit,
     isBiometricsEnabled: Boolean,
     onBiometricsChanged: (Boolean) -> Unit,
     isInstallmentReminderEnabled: Boolean = true,
     onInstallmentReminderChanged: ((Boolean) -> Unit)? = null,
-    localDeviceName: String,
-    localDeviceId: String,
-    onRenameLocalDevice: () -> Unit,
     isCheckingUpdate: Boolean,
     onCheckUpdate: () -> Unit,
-    onUnpair: () -> Unit,
+    onLogout: () -> Unit,
     onBack: () -> Unit
 ) {
     val colors = LooseLeafTheme.colors
@@ -156,7 +154,19 @@ internal fun SettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(28.dp)
         ) {
-            // 一、外观
+            // 一、账号
+            SettingsGroup(title = "账号") {
+                AccountIdentityRow(
+                    displayName = accountDisplayName,
+                    subtitle = accountSubtitle
+                )
+                SettingsRowDivider()
+                ProfileInfoRow(label = "登录方式", value = "Vesper Auth")
+                SettingsRowDivider()
+                ProfileInfoRow(label = "同步服务器", value = serverHost)
+            }
+
+            // 二、外观
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "外观",
@@ -240,19 +250,6 @@ internal fun SettingsScreen(
                 }
             }
 
-            // 三、本机设备
-            SettingsGroup(title = "本机设备") {
-                TrustedDeviceRow(
-                    deviceName = localDeviceName.ifBlank { "Android 随行设备" },
-                    deviceId = localDeviceId.ifBlank { "未初始化" },
-                    platform = "android",
-                    isLocal = true,
-                    lastActiveAt = null,
-                    onRename = onRenameLocalDevice,
-                    onRevokeOrUnpair = onUnpair
-                )
-            }
-
             // 四、关于
             SettingsGroup(title = "关于散页") {
                 ProfileInfoRow(label = "当前版本", value = "v${UpdateChecker.currentVersionName}")
@@ -291,26 +288,26 @@ internal fun SettingsScreen(
                 }
             }
 
-            // 五、危险区域
+            // 五、退出登录
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(ArchiveShapes.full)
                     .border(ArchiveLines.hairline, colors.alertRed.copy(alpha = 0.45f), ArchiveShapes.full)
-                    .clickable(role = Role.Button, onClick = onUnpair)
+                    .clickable(role = Role.Button, onClick = onLogout)
                     .padding(vertical = 15.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    painter = painterResource(R.drawable.ic_link_off),
+                    imageVector = FolioGlyphs.Logout,
                     contentDescription = null,
                     tint = colors.alertRed,
                     modifier = Modifier.size(17.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "解除本机配对并清空本地缓存",
+                    text = "退出登录",
                     style = ArchiveTextStyles.label,
                     color = colors.alertRed
                 )

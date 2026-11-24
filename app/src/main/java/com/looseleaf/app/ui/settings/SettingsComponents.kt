@@ -2,15 +2,12 @@ package com.looseleaf.app.ui.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,19 +19,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.looseleaf.app.R
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
 import com.looseleaf.app.theme.ArchiveTextStyles
 import com.looseleaf.app.theme.LooseLeafTheme
 import com.looseleaf.app.ui.components.ArchiveDivider
-import com.looseleaf.app.utils.FormatUtils
+import com.looseleaf.app.ui.components.FolioGlyphs
 
 /**
  * 键值信息行：左标签（次要色）、右数值（等宽数字）。
@@ -62,80 +55,66 @@ internal fun ProfileInfoRow(label: String, value: String) {
 }
 
 /**
- * 受信任设备卡片：设备方印 + 名称 + 「本机」标签；下行为标识与活跃时间；右侧两个文字动作。
+ * 当前登录账号摘要行：账号徽标 + 昵称 + 「已登录」标识 + 邮箱/服务器信息。
  */
 @Composable
-internal fun TrustedDeviceRow(
-    deviceName: String,
-    deviceId: String,
-    platform: String,
-    isLocal: Boolean,
-    lastActiveAt: String? = null,
-    onRename: () -> Unit,
-    onRevokeOrUnpair: () -> Unit
+internal fun AccountIdentityRow(
+    displayName: String,
+    subtitle: String
 ) {
     val colors = LooseLeafTheme.colors
-    val platformIcon = painterResource(R.drawable.ic_smartphone)
-
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 16.dp)
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(ArchiveShapes.md)
+                .background(colors.positiveTint),
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(ArchiveShapes.md)
-                    .background(if (isLocal) colors.positiveTint else colors.archiveSubtle),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    painter = platformIcon,
-                    contentDescription = null,
-                    tint = if (isLocal) colors.accentMoss else colors.inkMuted,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = deviceName,
-                        style = ArchiveTextStyles.rowTitle,
-                        color = colors.inkPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(ArchiveShapes.full)
-                            .background(if (isLocal) colors.positiveTint else colors.archiveSubtle)
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = if (isLocal) "本机" else platform.uppercase(),
-                            style = ArchiveTextStyles.meta,
-                            fontWeight = FontWeight.Medium,
-                            color = if (isLocal) colors.accentMoss else colors.inkSecondary,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(3.dp))
-                val metaString = if (!isLocal && !lastActiveAt.isNullOrBlank()) {
-                    "$deviceId · 活跃于 ${FormatUtils.formatDisplayDate(lastActiveAt).takeLast(5)}"
-                } else {
-                    "标识 $deviceId"
-                }
+            Icon(
+                imageVector = FolioGlyphs.Person,
+                contentDescription = null,
+                tint = colors.accentMoss,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = metaString,
+                    text = displayName,
+                    style = ArchiveTextStyles.rowTitle,
+                    color = colors.inkPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(ArchiveShapes.full)
+                        .background(colors.positiveTint)
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "已登录",
+                        style = ArchiveTextStyles.meta,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.accentMoss,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+            if (subtitle.isNotBlank()) {
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = subtitle,
                     style = ArchiveTextStyles.meta,
                     color = colors.inkMuted,
                     maxLines = 1,
@@ -143,49 +122,6 @@ internal fun TrustedDeviceRow(
                 )
             }
         }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            DeviceActionChip(
-                text = stringResource(R.string.profile_components_text_01),
-                onClick = onRename,
-                isDestructive = false
-            )
-            DeviceActionChip(
-                text = if (isLocal) "解除配对" else "踢除",
-                onClick = onRevokeOrUnpair,
-                isDestructive = true
-            )
-        }
-    }
-}
-
-@Composable
-private fun RowScope.DeviceActionChip(text: String, onClick: () -> Unit, isDestructive: Boolean) {
-    val colors = LooseLeafTheme.colors
-    Box(
-        modifier = Modifier
-            .weight(1f)
-            .defaultMinSize(minHeight = 40.dp)
-            .clip(ArchiveShapes.full)
-            .border(
-                ArchiveLines.hairline,
-                if (isDestructive) colors.alertRed.copy(alpha = 0.4f) else colors.borderDivider,
-                ArchiveShapes.full
-            )
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(vertical = 10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = text,
-            style = ArchiveTextStyles.label,
-            color = if (isDestructive) colors.alertRed else colors.inkPrimary
-        )
     }
 }
 

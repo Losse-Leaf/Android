@@ -1046,7 +1046,7 @@ class SyncManager private constructor(private val context: Context) {
 
             if (failures.isNotEmpty()) {
                 val authExpired = failures.any { it.contains("401") }
-                val suffix = if (authExpired) "（设备凭据已失效，请重新扫码配对）" else ""
+                val suffix = if (authExpired) "（登录状态已失效，请重新登录）" else ""
                 throw IllegalStateException(failures.joinToString("；") + suffix)
             }
             // MOB-P1-86：首轮拉取成功 —— 此后 UI 才能区分「真的没有记录」与「还在加载」

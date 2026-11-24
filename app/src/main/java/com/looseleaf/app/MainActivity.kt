@@ -105,8 +105,6 @@ class MainActivity : FragmentActivity() {
     private var requestedRouteState = mutableStateOf<String?>(null)
     private var pendingDeepLinkPayloadState = mutableStateOf<String?>(null)
     private var ssoPendingHubState = mutableStateOf<String?>(null)
-    private var repairReconnectModeState = mutableStateOf(false)
-    private var expandPairingFallbackState = mutableStateOf(false)
 
     // MOB-P0-09：外观模式提升为 Activity 字段级状态，
     // 这样回调可以做成「稳定引用」，MainContent 才有机会跳过重组。
@@ -466,7 +464,7 @@ class MainActivity : FragmentActivity() {
                 title = stringResource(R.string.main_activity_title_03)
             ) {
                 Text(
-                    text = "这台设备的访问凭据已失效或已被移出受信任设备组。本机尚未同步的记录均已妥善保留，重新接入后会自动续传。",
+                    text = "当前账号会话已失效或已在其他端退出。本机尚未同步的记录均已妥善保留，重新登录后会自动续传。",
                     fontFamily = ArchiveFontFamilies.BodySans,
                     fontSize = 13.sp,
                     lineHeight = 20.sp,
@@ -485,8 +483,6 @@ class MainActivity : FragmentActivity() {
                         )
                         if (launchedHub != null) {
                             ssoPendingHubState.value = launchedHub
-                            repairReconnectModeState.value = true
-                            expandPairingFallbackState.value = false
                             showRepairDialog = false
                             repairPromptShown = false
                             apiClient.unauthorizedEvents.resetReplayCache()
@@ -499,23 +495,9 @@ class MainActivity : FragmentActivity() {
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    com.looseleaf.app.ui.components.ArchiveTextButton(
-                        text = stringResource(R.string.main_activity_manual_reconnect),
-                        onClick = {
-                            ssoPendingHubState.value = null
-                            repairReconnectModeState.value = true
-                            expandPairingFallbackState.value = true
-                            showRepairDialog = false
-                            repairPromptShown = false
-                            apiClient.unauthorizedEvents.resetReplayCache()
-                            credentialStore.deviceToken = null
-                            syncManager.cancelScheduledSync()
-                            isPaired = false
-                        }
-                    )
                     com.looseleaf.app.ui.components.ArchiveTextButton(
                         text = stringResource(R.string.main_activity_dismissText_01),
                         textColor = dialogColors.inkMuted,
@@ -531,13 +513,9 @@ class MainActivity : FragmentActivity() {
         if (!isPaired) {
             val deepLinkPayload by pendingDeepLinkPayloadState
             val ssoPendingHub by ssoPendingHubState
-            val isSessionReconnect by repairReconnectModeState
-            val expandFallbackInitially by expandPairingFallbackState
             PairingScreen(
                 initialPayload = deepLinkPayload,
                 initialSsoHubUrl = ssoPendingHub,
-                isSessionReconnect = isSessionReconnect,
-                expandFallbackInitially = expandFallbackInitially,
                 onPayloadConsumed = {
                     pendingDeepLinkPayloadState.value = null
                 },
@@ -550,13 +528,10 @@ class MainActivity : FragmentActivity() {
                     isUnlocked = true
                     repairPromptShown = false
                     ssoPendingHubState.value = null
-                    repairReconnectModeState.value = false
-                    expandPairingFallbackState.value = false
                     apiClient.unauthorizedEvents.resetReplayCache()
                     pendingDeepLinkPayloadState.value = null
                     currentRouteState.value = "stream"
-                    // 重新配对后必须重启队列：401 暂停期间挂起的发件箱事件
-                    // 若无新写入，要等进程重启才会重试
+                    // 重新登录后立即重启同步队列，续传离线发件箱记录
                     lifecycleScope.launch(Dispatchers.IO) {
                         runCatching {
                             syncManager.cancelScheduledSync()

@@ -1,6 +1,5 @@
 package com.looseleaf.app.ui.pairing
 
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -8,39 +7,65 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.looseleaf.app.R
 import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.data.api.HubUrlPolicy
 import com.looseleaf.app.data.api.buildOidcLoginUrl
 import com.looseleaf.app.data.security.CredentialStore
+import com.looseleaf.app.data.sync.LocalDataResetCoordinator
+import com.looseleaf.app.data.sync.ResetReason
 import com.looseleaf.app.data.sync.SyncManager
-import com.looseleaf.app.theme.ArchiveFontFamilies
+import com.looseleaf.app.theme.ArchiveLines
+import com.looseleaf.app.theme.ArchiveShapes
+import com.looseleaf.app.theme.ArchiveTextStyles
 import com.looseleaf.app.theme.LooseLeafTheme
-import com.looseleaf.app.ui.components.*
+import com.looseleaf.app.ui.components.ArchiveConfirmDialog
+import com.looseleaf.app.ui.components.ArchivePrimaryButton
+import com.looseleaf.app.ui.components.ArchiveTextButton
+import com.looseleaf.app.ui.components.ArchiveTextField
+import com.looseleaf.app.ui.components.ArchiveToastManager
+import com.looseleaf.app.ui.components.FolioGlyphs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import androidx.compose.ui.res.stringResource
-import com.looseleaf.app.R
-import androidx.compose.ui.res.painterResource
 
 /**
- * 校验目标中枢地址并在系统默认浏览器拉起 Vesper Auth OIDC + PKCE 登录页。
- * 成功拉起时返回规范化后的中枢地址，失败时通过纸墨 Toast 提示原因并返回 null。
+ * 校验目标服务器地址并在系统默认浏览器拉起 Vesper Auth OAuth2/OIDC + PKCE 登录页。
+ * 成功拉起时返回规范化后的服务器地址，失败时通过提示条反馈原因并返回 null。
  */
 internal fun launchVesperAuthBrowser(context: Context, rawHubUrl: String): String? {
     val validatedHub = when (val verdict = HubUrlPolicy.validate(rawHubUrl)) {
@@ -60,15 +85,18 @@ internal fun launchVesperAuthBrowser(context: Context, rawHubUrl: String): Strin
         context.startActivity(intent)
         validatedHub
     } catch (_: Exception) {
-        ArchiveToastManager.show("未找到可用的系统浏览器，请改用下方扫码或手动深链配对", isError = true)
+        ArchiveToastManager.show("未找到可用的系统浏览器，请先安装或启用浏览器后重试", isError = true)
         null
     }
 }
 
 /**
- * 散页免密设备配对与统一通行证入网界面 (PairingScreen)
- * 阶段一：顶部主通道通过 Vesper Auth 通行证一键接入，次级兜底保留二维码扫描与配对深链粘贴；
- * 阶段二：首次握手连接成功后进入设备命名确认页（会话失效重连则直接恢复同步返回时间流）。
+ * 散页账号登录界面 (OAuth2 / OIDC · Vesper Auth)
+ *
+ * 简洁单步登录体验：
+ * 1. 默认指向官方服务器，点击「使用 Vesper Auth 登录」在浏览器完成账号认证；
+ * 2. 认证后自动回跳应用、静默换取会话并直接进入时间流；
+ * 3. 服务器地址折叠在卡片下方，仅在自托管 / 切换地址时按需展开。
  */
 @Composable
 fun PairingScreen(
@@ -76,8 +104,6 @@ fun PairingScreen(
     modifier: Modifier = Modifier,
     initialPayload: String? = null,
     initialSsoHubUrl: String? = null,
-    isSessionReconnect: Boolean = false,
-    expandFallbackInitially: Boolean = false,
     onPayloadConsumed: () -> Unit = {},
     onSsoHubInitiated: (String) -> Unit = {}
 ) {
@@ -88,53 +114,32 @@ fun PairingScreen(
     val credentialStore = remember { CredentialStore.getInstance(context) }
     val syncManager = remember { SyncManager.getInstance(context) }
 
-    // 0: 连接配对阶段, 1: 配对成功设置设备名称阶段
-    var currentStep by rememberSaveable { mutableStateOf(0) }
-
-    // Vesper Auth 主通道状态
-    var ssoHubInput by rememberSaveable {
+    var serverUrlInput by rememberSaveable {
         mutableStateOf(
             initialSsoHubUrl?.takeIf { it.isNotBlank() }
                 ?: apiClient.baseUrl.ifBlank { APIClient.DEFAULT_BASE_URL }
         )
     }
-    var activeSsoHubUrl by rememberSaveable(initialSsoHubUrl) {
+    var activeAuthHubUrl by rememberSaveable(initialSsoHubUrl) {
         mutableStateOf(initialSsoHubUrl.orEmpty())
     }
-    var hasLaunchedSsoBrowser by rememberSaveable(initialSsoHubUrl) {
+    var hasLaunchedBrowser by rememberSaveable(initialSsoHubUrl) {
         mutableStateOf(!initialSsoHubUrl.isNullOrBlank())
     }
+    var isEditingServer by rememberSaveable { mutableStateOf(false) }
+    var isSigningIn by remember { mutableStateOf(false) }
+    val redeemedCodes = remember { mutableSetOf<String>() }
 
-    // 次级兜底通道（默认折叠，避免用户走 Vesper Auth Passkey 时无故弹出相机权限申请）
-    var showFallbackMethods by rememberSaveable(expandFallbackInitially) {
-        mutableStateOf(expandFallbackInitially)
-    }
-    // 兜底子标签: 0 为扫码, 1 为粘贴配对链接
-    var selectedMethodTab by rememberSaveable { mutableStateOf(0) }
-    var pastedLinkInput by rememberSaveable { mutableStateOf("") }
-    var isConnecting by remember { mutableStateOf(false) }
-    val redeemedTickets = remember { mutableSetOf<String>() }
+    // 若收到指向非预期服务器的外部回调链接，需经用户二次确认防止钓鱼跳转
+    var pendingExternalPayload by remember { mutableStateOf<String?>(null) }
+    var pendingExternalHub by remember { mutableStateOf("") }
 
-    // 来自外部非预期深链的待确认配对请求
-    var pendingLinkPayload by remember { mutableStateOf<String?>(null) }
-    var pendingLinkHub by remember { mutableStateOf("") }
-
-    // 握手成功后的设备信息
-    var pairedDeviceId by rememberSaveable { mutableStateOf("") }
-    var pairedHubUrl by rememberSaveable { mutableStateOf("") }
-    var customDeviceName by rememberSaveable {
-        mutableStateOf(
-            credentialStore.deviceName?.takeIf { it.isNotBlank() }
-                ?: (Build.MODEL ?: "Android 随行设备")
-        )
-    }
-
-    fun executeHandshake(rawPayload: String, fromTrustedSso: Boolean = false) {
-        if (isConnecting) return
+    fun completeOAuthSignIn(rawPayload: String) {
+        if (isSigningIn) return
 
         if (!credentialStore.isSecureStorageAvailable) {
             ArchiveToastManager.show(
-                "本机密钥库不可用，无法安全保存设备凭据；请检查系统安全设置后重试",
+                "本机安全存储不可用，无法保存登录凭证；请检查系统锁屏安全设置后重试",
                 isError = true
             )
             return
@@ -142,12 +147,12 @@ fun PairingScreen(
 
         val parsed = PairingPayloadParser.parse(rawPayload)
         if (parsed == null) {
-            ArchiveToastManager.show("无法识别该配对链接，请确认是否包含中枢地址与工单号", isError = true)
+            ArchiveToastManager.show("无法识别登录回调链接，请重新点击登录", isError = true)
             return
         }
 
-        val cleanTicket = parsed.ticket.trim()
-        if (cleanTicket in redeemedTickets) {
+        val cleanCode = parsed.code.trim()
+        if (cleanCode in redeemedCodes) {
             return
         }
 
@@ -159,528 +164,314 @@ fun PairingScreen(
             is HubUrlPolicy.Verdict.Allowed -> Unit
         }
 
+        isSigningIn = true
         scope.launch {
-            isConnecting = true
-            val previousBaseUrl = apiClient.baseUrl
+            val previousHub = apiClient.baseUrl
             try {
-                // 只在握手期间临时指向目标中枢；失败则回滚，避免把 App 永久指到一个连不上的地址
                 apiClient.baseUrl = parsed.hubUrl
 
-                val defaultModel = Build.MODEL ?: "Android"
-                val chosenName = customDeviceName.trim().ifBlank { defaultModel }
-                val resp = apiClient.confirmPairing(
-                    ticket = cleanTicket,
-                    deviceName = chosenName,
-                    deviceModel = defaultModel
+                val defaultDeviceName = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android"
+                val resp = apiClient.exchangeOidcCode(
+                    code = cleanCode,
+                    deviceName = defaultDeviceName,
+                    deviceModel = Build.MODEL ?: "Android"
                 )
-                redeemedTickets.add(cleanTicket)
 
-                credentialStore.deviceToken = resp.deviceToken
-                credentialStore.deviceId = resp.deviceId
-                credentialStore.deviceName = resp.deviceName.ifBlank { chosenName }
-                val canonical = resp.hubUrl?.takeIf { it.isNotBlank() } ?: parsed.hubUrl
-                if (previousBaseUrl.isNotBlank() &&
-                    HubUrlPolicy.normalize(previousBaseUrl) != HubUrlPolicy.normalize(canonical)
+                val token = resp.resolvedToken
+                if (token.isBlank()) {
+                    throw IllegalStateException("服务器未返回有效的登录凭证")
+                }
+
+                redeemedCodes.add(cleanCode)
+
+                val finalHub = resp.hubUrl?.takeIf { it.isNotBlank() } ?: parsed.hubUrl
+                if (previousHub.isNotBlank() &&
+                    HubUrlPolicy.normalize(previousHub) != HubUrlPolicy.normalize(finalHub)
                 ) {
-                    com.looseleaf.app.data.sync.LocalDataResetCoordinator.resetAll(
+                    LocalDataResetCoordinator.resetAll(
                         context = context,
                         syncManager = syncManager,
-                        reason = com.looseleaf.app.data.sync.ResetReason.SWITCH_HUB
+                        reason = ResetReason.SWITCH_HUB
                     )
-                    ArchiveToastManager.show("已切换到新的数据中枢，旧中枢的本地数据与待同步记录已清除")
                 }
+
+                apiClient.baseUrl = finalHub
+                credentialStore.deviceToken = token
+                credentialStore.deviceId = resp.resolvedSessionId
+                credentialStore.deviceName = resp.deviceName.ifBlank { defaultDeviceName }
+                credentialStore.accountSub = resp.account?.sub
+                credentialStore.accountName = resp.account?.name
+                credentialStore.accountEmail = resp.account?.email
+
                 SyncManager.resetSessionPulls()
-                pairedDeviceId = resp.deviceId
-                pairedHubUrl = resp.hubUrl ?: parsed.hubUrl
-                customDeviceName = resp.deviceName.ifBlank { chosenName }
-
-                val canonicalHub = resp.hubUrl?.takeIf { it.isNotBlank() }
-                if (!canonicalHub.isNullOrBlank() && canonicalHub != parsed.hubUrl) {
-                    runCatching { apiClient.baseUrl = canonicalHub }
-                }
-
-                if (isSessionReconnect && fromTrustedSso) {
-                    ArchiveToastManager.show("通行证验证通过，设备会话已恢复")
-                    onPairingSuccess()
-                } else {
-                    currentStep = 1
-                }
+                val welcomeLabel = resp.account?.name?.takeIf { it.isNotBlank() }
+                    ?: resp.account?.email?.takeIf { it.isNotBlank() }
+                ArchiveToastManager.show(
+                    if (welcomeLabel != null) "欢迎回来，$welcomeLabel" else "登录成功"
+                )
+                onPairingSuccess()
             } catch (e: CancellationException) {
-                runCatching { apiClient.baseUrl = previousBaseUrl }
+                if (previousHub.isNotBlank()) runCatching { apiClient.baseUrl = previousHub }
                 throw e
             } catch (e: Exception) {
-                runCatching { apiClient.baseUrl = previousBaseUrl }
-                ArchiveToastManager.show("连接数据中枢失败: ${e.message}", isError = true)
+                if (previousHub.isNotBlank()) runCatching { apiClient.baseUrl = previousHub }
+                ArchiveToastManager.show("登录失败: ${e.message}", isError = true)
             } finally {
-                isConnecting = false
+                isSigningIn = false
             }
         }
     }
 
+    // 监听来自浏览器 OAuth2 认证完成后的回调深链
     LaunchedEffect(initialPayload) {
-        val raw = initialPayload
-        if (!raw.isNullOrBlank()) {
-            onPayloadConsumed()
+        val raw = initialPayload?.trim()
+        if (!raw.isNullOrEmpty()) {
             val parsed = PairingPayloadParser.parse(raw)
-            if (parsed == null) {
-                ArchiveToastManager.show("无法识别该配对链接", isError = true)
-            } else if (
-                activeSsoHubUrl.isNotBlank() &&
-                HubUrlPolicy.normalize(activeSsoHubUrl) == HubUrlPolicy.normalize(parsed.hubUrl)
-            ) {
-                // 主理人刚刚从本机发起同一中枢的 Vesper Auth 登录回跳：直接核销一次性工单完成激活
-                executeHandshake(raw, fromTrustedSso = true)
-            } else {
-                // 非本机主动发起的外部深链一律先二次确认，防止静默改绑中枢
-                pendingLinkPayload = raw
-                pendingLinkHub = parsed.hubUrl
+            if (parsed != null) {
+                val normalizedParsed = parsed.hubUrl.trimEnd('/')
+                val expectedHub = activeAuthHubUrl.trimEnd('/')
+                val currentInputHub = serverUrlInput.trim().trimEnd('/')
+                if ((expectedHub.isNotEmpty() && normalizedParsed.equals(expectedHub, ignoreCase = true)) ||
+                    (currentInputHub.isNotEmpty() && normalizedParsed.equals(currentInputHub, ignoreCase = true))
+                ) {
+                    completeOAuthSignIn(raw)
+                } else {
+                    pendingExternalHub = parsed.hubUrl
+                    pendingExternalPayload = raw
+                }
             }
+            onPayloadConsumed()
         }
     }
 
-    NoiseBackground(modifier = modifier) {
+    val displayHost = remember(serverUrlInput) {
+        serverUrlInput.trim()
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .trimEnd('/')
+            .ifBlank { APIClient.DEFAULT_BASE_URL.removePrefix("https://") }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(colors.archivePaper)
+            .navigationBarsPadding()
+            .imePadding()
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(20.dp),
+                .padding(horizontal = 24.dp, vertical = 32.dp),
+            verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(20.dp))
-
-            if (currentStep == 0) {
-                // ==========================================
-                // 阶段一：Vesper Auth 通行证主通道 + 扫码/深链次级兜底
-                // ==========================================
-
-                // 品牌方印：与锁屏 / 刊头同一枚朱砂印，接入页即是这本书的扉页
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(com.looseleaf.app.theme.ArchiveShapes.lg)
-                        .background(colors.accentWarm),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "散",
-                        fontFamily = ArchiveFontFamilies.Display,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 32.sp,
-                        color = colors.onAccent
-                    )
-                }
-                Spacer(modifier = Modifier.height(20.dp))
+            // 品牌刊头
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.Start
+            ) {
                 Text(
-                    text = stringResource(R.string.pairing_screen_text_01),
-                    style = com.looseleaf.app.theme.ArchiveTextStyles.pageTitle,
-                    color = colors.inkPrimary,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    text = "LOOSE LEAF",
+                    style = ArchiveTextStyles.overline,
+                    color = colors.accentSmallText
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = stringResource(R.string.pairing_screen_text_02),
-                    style = com.looseleaf.app.theme.ArchiveTextStyles.body,
-                    color = colors.inkSecondary,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    text = stringResource(R.string.login_screen_title),
+                    style = ArchiveTextStyles.pageTitle,
+                    color = colors.inkPrimary
                 )
-
-                Spacer(modifier = Modifier.height(28.dp))
-
-                // 1. 顶部主通道：Vesper Auth 统一单点登录一键接入
-                PaperCard(modifier = Modifier.fillMaxWidth()) {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.pairing_screen_sso_title),
-                            style = com.looseleaf.app.theme.ArchiveTextStyles.essayTitle,
-                            color = colors.inkPrimary
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = stringResource(R.string.pairing_screen_sso_desc),
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 12.sp,
-                            lineHeight = 18.sp,
-                            color = colors.inkSecondary
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Text(
-                            text = stringResource(R.string.pairing_screen_sso_hub_label),
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 11.sp,
-                            color = colors.inkMuted
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        ArchiveField(
-                            value = ssoHubInput,
-                            onValueChange = { ssoHubInput = it },
-                            placeholder = stringResource(R.string.pairing_screen_sso_hub_placeholder),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        ArchivePrimaryButton(
-                            text = stringResource(R.string.pairing_screen_sso_button),
-                            enabled = !isConnecting && ssoHubInput.isNotBlank(),
-                            onClick = {
-                                val launchedHub = launchVesperAuthBrowser(context, ssoHubInput)
-                                if (launchedHub != null) {
-                                    ssoHubInput = launchedHub
-                                    activeSsoHubUrl = launchedHub
-                                    hasLaunchedSsoBrowser = true
-                                    onSsoHubInitiated(launchedHub)
-                                }
-                            }
-                        )
-
-                        if (hasLaunchedSsoBrowser) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(com.looseleaf.app.theme.ArchiveShapes.sm)
-                                    .background(colors.archiveSubtle)
-                                    .border(1.dp, colors.borderCard, com.looseleaf.app.theme.ArchiveShapes.sm)
-                                    .padding(10.dp)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.pairing_screen_sso_launched_hint),
-                                    fontFamily = ArchiveFontFamilies.BodySans,
-                                    fontSize = 12.sp,
-                                    lineHeight = 17.sp,
-                                    color = colors.inkSecondary
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 2. 次级兜底通道：扫码连接 / 手动粘贴深链
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .defaultMinSize(minHeight = 48.dp)
-                        .clip(com.looseleaf.app.theme.ArchiveShapes.sm)
-                        .background(colors.archiveSubtle)
-                        .border(1.dp, colors.borderCard, com.looseleaf.app.theme.ArchiveShapes.sm)
-                        .clickable(role = Role.Button) {
-                            showFallbackMethods = !showFallbackMethods
-                        }
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.pairing_screen_fallback_toggle),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.inkSecondary
-                    )
-                    Icon(
-                        painter = painterResource(
-                            if (showFallbackMethods) R.drawable.ic_expand_less else R.drawable.ic_expand_more
-                        ),
-                        contentDescription = null,
-                        tint = colors.inkMuted,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                if (showFallbackMethods) {
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // 两种兜底连接方式切换 Tab
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(com.looseleaf.app.theme.ArchiveShapes.full)
-                            .background(colors.archiveSubtle)
-                            .padding(4.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        val tabs = listOf("扫码连接", "粘贴链接")
-                        tabs.forEachIndexed { index, title ->
-                            val isSelected = selectedMethodTab == index
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .defaultMinSize(minHeight = 44.dp)
-                                    .clip(com.looseleaf.app.theme.ArchiveShapes.full)
-                                    .background(if (isSelected) colors.archiveCard else androidx.compose.ui.graphics.Color.Transparent)
-                                    .clickable(role = Role.Tab) {
-                                        selectedMethodTab = index
-                                    }
-                                    .padding(vertical = 8.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        painter = if (index == 0) painterResource(R.drawable.ic_qr_code_scanner) else painterResource(R.drawable.ic_link),
-                                        contentDescription = null,
-                                        tint = if (isSelected) colors.accentSmallText else colors.inkMuted,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = title,
-                                        style = com.looseleaf.app.theme.ArchiveTextStyles.label,
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                                        color = if (isSelected) colors.inkPrimary else colors.inkMuted
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    if (selectedMethodTab == 0) {
-                        // 兜底方式 1：正方形 1:1 经典取景扫码器
-                        SquareQrScannerView(
-                            onQrCodeScanned = { scannedText ->
-                                executeHandshake(scannedText)
-                            }
-                        )
-                    } else {
-                        // 兜底方式 2：粘贴配对链接
-                        PaperCard(modifier = Modifier.fillMaxWidth()) {
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.pairing_screen_text_03),
-                                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 15.sp,
-                                    color = colors.inkPrimary
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = stringResource(R.string.pairing_screen_text_04),
-                                    fontFamily = ArchiveFontFamilies.BodySans,
-                                    fontSize = 12.sp,
-                                    lineHeight = 18.sp,
-                                    color = colors.inkSecondary
-                                )
-
-                                Spacer(modifier = Modifier.height(14.dp))
-
-                                ArchiveField(
-                                    value = pastedLinkInput,
-                                    onValueChange = { pastedLinkInput = it },
-                                    placeholder = stringResource(R.string.pairing_screen_placeholder_01),
-                                    singleLine = false,
-                                    minLines = 3,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                // 从剪贴板粘贴按钮
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .defaultMinSize(minHeight = 48.dp)
-                                        .clip(com.looseleaf.app.theme.ArchiveShapes.full)
-                                        .border(1.dp, colors.borderDivider, com.looseleaf.app.theme.ArchiveShapes.full)
-                                        .clickable(role = Role.Button) {
-                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                            val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
-                                            if (clipText.isNotBlank()) {
-                                                pastedLinkInput = clipText.trim()
-                                                ArchiveToastManager.show("已粘贴剪贴板内容")
-                                            } else {
-                                                ArchiveToastManager.show("剪贴板为空")
-                                            }
-                                        }
-                                        .padding(vertical = 12.dp),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_content_paste),
-                                        contentDescription = null,
-                                        tint = colors.inkSecondary,
-                                        modifier = Modifier.size(17.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = stringResource(R.string.pairing_screen_clipboard),
-                                        style = com.looseleaf.app.theme.ArchiveTextStyles.label,
-                                        color = colors.inkPrimary
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                ArchivePrimaryButton(
-                                    text = if (isConnecting) "正在连接中枢" else "确认连接中枢",
-                                    enabled = !isConnecting && pastedLinkInput.isNotBlank(),
-                                    onClick = {
-                                        executeHandshake(pastedLinkInput)
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (isConnecting) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(
-                            // 与同一行的说明文字同色：图标属非文本（3:1 即可），
-                            // 但同组一深一浅会比"两个都略低"更难看
-                            color = colors.accentSmallText,
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = stringResource(R.string.pairing_screen_text_05),
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 13.sp,
-                            color = colors.accentSmallText
-                        )
-                    }
-                }
-
-            } else {
-                // ==========================================
-                // 阶段二：连接成功，跳转下一页定制展示名称
-                // ==========================================
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_check_circle),
-                        contentDescription = null,
-                        tint = colors.accentMoss,
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = stringResource(R.string.pairing_screen_text_06),
-                        fontFamily = ArchiveFontFamilies.EditorialSerif,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 24.sp,
-                        color = colors.inkPrimary
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = stringResource(R.string.pairing_screen_text_07),
-                    fontFamily = ArchiveFontFamilies.EditorialSerif,
-                    fontSize = 13.sp,
+                    text = stringResource(R.string.login_screen_subtitle),
+                    style = ArchiveTextStyles.body,
                     color = colors.inkSecondary
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // 已配对节点与设备详情卡片
-                PaperCard(modifier = Modifier.fillMaxWidth()) {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.pairing_screen_text_08),
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 15.sp,
-                            color = colors.inkPrimary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(stringResource(R.string.pairing_screen_hub), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
-                            Text(pairedHubUrl, fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 12.sp, color = colors.inkPrimary)
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(stringResource(R.string.pairing_screen_device_id), fontFamily = ArchiveFontFamilies.BodySans, fontSize = 12.sp, color = colors.inkMuted)
-                            Text(pairedDeviceId, fontFamily = ArchiveFontFamilies.MonoScale, fontSize = 12.sp, color = colors.accentSmallText)
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 自定义本设备名称卡片
-                PaperCard(modifier = Modifier.fillMaxWidth()) {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.pairing_screen_text_09),
-                            fontFamily = ArchiveFontFamilies.EditorialSerif,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 15.sp,
-                            color = colors.inkPrimary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = stringResource(R.string.pairing_screen_text_10),
-                            fontFamily = ArchiveFontFamilies.BodySans,
-                            fontSize = 12.sp,
-                            color = colors.inkSecondary
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        ArchiveField(
-                            value = customDeviceName,
-                            onValueChange = { customDeviceName = it },
-                            placeholder = stringResource(R.string.pairing_screen_placeholder_02),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(28.dp))
-
-                // 完成进入按钮 (同时调用后端 PUT /api/v1/auth/devices/:id 同步自定义设备名称)
-                ArchivePrimaryButton(
-                    text = stringResource(R.string.pairing_screen_text_11),
-                    enabled = customDeviceName.isNotBlank(),
-                    onClick = {
-                        val finalName = customDeviceName.trim()
-                        credentialStore.deviceName = finalName
-                        scope.launch {
-                            if (pairedDeviceId.isNotBlank()) {
-                                runCatching { apiClient.updateDeviceName(pairedDeviceId, finalName) }
-                            }
-                            ArchiveToastManager.show("入网就绪，欢迎归来")
-                            onPairingSuccess()
-                        }
-                    }
                 )
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(28.dp))
+
+            // 账号登录主卡片
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(ArchiveShapes.leaf)
+                    .background(colors.archiveCard)
+                    .border(ArchiveLines.hairline, colors.borderCard, ArchiveShapes.leaf)
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(ArchiveShapes.md)
+                            .background(colors.positiveTint),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = FolioGlyphs.Person,
+                            contentDescription = null,
+                            tint = colors.accentMoss,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.login_screen_card_title),
+                            style = ArchiveTextStyles.rowTitle,
+                            color = colors.inkPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = stringResource(R.string.login_screen_card_desc),
+                            style = ArchiveTextStyles.meta,
+                            color = colors.inkMuted
+                        )
+                    }
+                }
+
+                ArchivePrimaryButton(
+                    text = if (isSigningIn) {
+                        stringResource(R.string.login_screen_signing_in)
+                    } else {
+                        stringResource(R.string.login_screen_oauth_button)
+                    },
+                    enabled = !isSigningIn,
+                    onClick = {
+                        val launchedHub = launchVesperAuthBrowser(context, serverUrlInput)
+                        if (launchedHub != null) {
+                            serverUrlInput = launchedHub
+                            activeAuthHubUrl = launchedHub
+                            hasLaunchedBrowser = true
+                            isEditingServer = false
+                            onSsoHubInitiated(launchedHub)
+                        }
+                    }
+                )
+
+                if (isSigningIn) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = colors.accentWarm,
+                            trackColor = colors.borderSubtle
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.login_screen_exchanging_hint),
+                            style = ArchiveTextStyles.meta,
+                            color = colors.inkSecondary
+                        )
+                    }
+                } else if (hasLaunchedBrowser) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(ArchiveShapes.md)
+                            .background(colors.archiveSubtle)
+                            .border(ArchiveLines.hairline, colors.borderSubtle, ArchiveShapes.md)
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.login_screen_browser_waiting_hint),
+                            style = ArchiveTextStyles.meta,
+                            color = colors.inkSecondary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 折叠式服务器地址设置（默认折叠，保持纯账号登录观感）
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(ArchiveShapes.leaf)
+                    .background(colors.archiveCard)
+                    .border(ArchiveLines.hairline, colors.borderCard, ArchiveShapes.leaf)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(role = Role.Button) { isEditingServer = !isEditingServer },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.login_screen_server_label),
+                        style = ArchiveTextStyles.meta,
+                        color = colors.inkMuted
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = displayHost,
+                        style = ArchiveTextStyles.meta,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.inkPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = if (isEditingServer) FolioGlyphs.ChevronUp else FolioGlyphs.ChevronDown,
+                        contentDescription = null,
+                        tint = colors.inkMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                if (isEditingServer) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ArchiveTextField(
+                        value = serverUrlInput,
+                        onValueChange = { serverUrlInput = it },
+                        placeholder = stringResource(R.string.login_screen_server_placeholder),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        ArchiveTextButton(
+                            text = stringResource(R.string.login_screen_server_reset),
+                            textColor = colors.inkMuted,
+                            onClick = { serverUrlInput = APIClient.DEFAULT_BASE_URL }
+                        )
+                    }
+                }
+            }
         }
     }
 
-    // 外部深链的二次确认：只有明确点击「确认配对」才交换设备凭据
-    pendingLinkPayload?.let { raw ->
+    if (pendingExternalPayload != null) {
         ArchiveConfirmDialog(
-            title = stringResource(R.string.pairing_screen_title_01),
-            content = "外部链接请求将本机绑定到：\n$pendingLinkHub\n\n确认后才会交换设备凭据。若这不是你的中枢地址，请直接取消。",
-            confirmText = stringResource(R.string.pairing_screen_confirmText_01),
+            title = stringResource(R.string.login_screen_confirm_server_title),
+            content = "即将登录到服务器：\n$pendingExternalHub\n\n请确认该地址可信后再继续。",
+            confirmText = stringResource(R.string.login_screen_confirm_server_action),
             onConfirm = {
-                pendingLinkPayload = null
-                executeHandshake(raw)
+                val payload = pendingExternalPayload
+                pendingExternalPayload = null
+                if (payload != null) {
+                    completeOAuthSignIn(payload)
+                }
             },
-            onDismiss = { pendingLinkPayload = null }
+            onDismiss = {
+                pendingExternalPayload = null
+            }
         )
     }
 }

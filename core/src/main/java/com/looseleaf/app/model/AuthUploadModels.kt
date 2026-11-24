@@ -72,6 +72,22 @@ data class GlobalStats(
 )
 
 @Serializable
+data class AccountProfile(
+    val sub: String = "",
+    val name: String = "",
+    val email: String = ""
+)
+
+@Serializable
+data class OidcExchangeRequest(
+    val code: String,
+    val ticket: String,
+    @SerialName("device_name") val deviceName: String,
+    val platform: String,
+    @SerialName("device_model") val deviceModel: String
+)
+
+@Serializable
 data class ConfirmPairingRequest(
     val ticket: String,
     @SerialName("device_name") val deviceName: String,
@@ -81,11 +97,35 @@ data class ConfirmPairingRequest(
 
 @Serializable
 data class ConfirmPairingResponse(
-    @SerialName("device_id") val deviceId: String,
-    @SerialName("device_token") val deviceToken: String,
-    @SerialName("device_name") val deviceName: String,
-    val platform: String,
-    @SerialName("hub_url") val hubUrl: String? = null
+    @SerialName("access_token") val accessToken: String = "",
+    @SerialName("device_token") val deviceToken: String = "",
+    @SerialName("session_id") val sessionId: String = "",
+    @SerialName("device_id") val deviceId: String = "",
+    @SerialName("device_name") val deviceName: String = "",
+    val platform: String = "android",
+    @SerialName("hub_url") val hubUrl: String? = null,
+    val account: AccountProfile? = null
+) {
+    val resolvedToken: String
+        get() = accessToken.ifBlank { deviceToken }
+
+    val resolvedSessionId: String
+        get() = sessionId.ifBlank { deviceId }
+}
+
+@Serializable
+data class AuthSessionResponse(
+    @SerialName("is_admin") val isAdmin: Boolean = false,
+    val role: String = "guest",
+    @SerialName("session_id") val sessionId: String? = null,
+    @SerialName("device_id") val deviceId: String? = null,
+    val platform: String? = null,
+    val account: AccountProfile? = null
+)
+
+@Serializable
+data class LogoutResponse(
+    @SerialName("logged_out") val loggedOut: Boolean = true
 )
 
 @Serializable

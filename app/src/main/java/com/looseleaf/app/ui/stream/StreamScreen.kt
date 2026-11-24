@@ -333,13 +333,13 @@ fun StreamScreen(
             }
             result.onFailure { error ->
                 if (error is CancellationException) return@onFailure
-                // 401 单独提示：多半是设备凭据失效（换了密钥 / 重装 / 服务端清了设备表）
+                // 401 单独提示：会话失效或已退出
                 val message = when {
                     error.message?.contains("401") == true ||
                         error.message?.contains("未授权") == true ||
                         error.message?.contains("缺少有效的访问凭证") == true ->
-                        "设备凭据已失效，请重新配对中枢"
-                    else -> error.message ?: "无法连接中枢"
+                        "登录状态已失效，请重新登录"
+                    else -> error.message ?: "无法连接服务器"
                 }
                 streamLoadError = message
                 // 同时写 logcat：用户抓一份 logcat 就能定位，不用靠猜

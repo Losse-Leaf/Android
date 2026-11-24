@@ -241,8 +241,7 @@ class APIClient private constructor(private val context: Context) {
 
         val token = tokenProvider?.invoke()
         if (!token.isNullOrBlank()) {
-            // docs/backend.md §六：两种请求头等效，只发一种即可，避免重复
-            requestBuilder.header("X-Device-Token", token)
+            requestBuilder.header("Authorization", "Bearer $token")
         }
         // 不再发送 X-Client-Platform / X-Client-Version：
         // docs/backlog.md RC-125 已规定移除后端未消费的这两个自定义头（避免 CORS 预检冲突，
@@ -299,10 +298,9 @@ class APIClient private constructor(private val context: Context) {
                 val bodyString = resp.body?.string() ?: ""
 
                 if (resp.code == 401) {
-                    // 401 全局广播（AOPT-09b）：设备可能在 Web/Mac 端被吊销，
-                    // MainActivity 订阅后弹「重新配对」引导；Room 里的 outbox 不清空，重配对后续传
+                    // 401 全局广播：会话已过期或被注销；Room 里的 outbox 不清空，重新登录后自动续传
                     unauthorizedEvents.tryEmit(Unit)
-                    throw APIException(401, "设备凭据未授权或已失效，请通过 Vesper Auth 通行证或配对深链重新接入")
+                    throw APIException(401, "登录状态已失效，请通过 Vesper Auth 重新登录")
                 }
 
                 val envelope = try {
@@ -325,29 +323,45 @@ class APIClient private constructor(private val context: Context) {
         }
     }
 
-    // MARK: - 1. 鉴权与设备配对
+    // MARK: - 1. OAuth2 / OIDC 账号会话
 
-    suspend fun confirmPairing(
-        ticket: String,
+    suspend fun exchangeOidcCode(
+        code: String,
         deviceName: String,
         deviceModel: String
     ): ConfirmPairingResponse {
-        val req = ConfirmPairingRequest(
-            ticket = ticket,
+        val req = OidcExchangeRequest(
+            code = code,
+            ticket = code,
             deviceName = deviceName,
             platform = "android",
             deviceModel = deviceModel
         )
-        return executeEnvelopeRequest("/api/v1/auth/pair/confirm", "POST", body = req.toJsonBody())
+        return try {
+            executeEnvelopeRequest("/api/v1/auth/oidc/exchange", "POST", body = req.toJsonBody())
+        } catch (e: APIException) {
+            // 滚动升级兼容：若服务端尚未升级到 /auth/oidc/exchange，自动回落至兼容别名
+            if (e.code == 404) {
+                val legacyReq = ConfirmPairingRequest(
+                    ticket = code,
+                    deviceName = deviceName,
+                    platform = "android",
+                    deviceModel = deviceModel
+                )
+                executeEnvelopeRequest("/api/v1/auth/pair/confirm", "POST", body = legacyReq.toJsonBody())
+            } else {
+                throw e
+            }
+        }
     }
 
-    suspend fun updateDeviceName(deviceId: String, name: String): DeviceInfo {
-        val req = UpdateDeviceNameRequest(name = name)
-        return executeEnvelopeRequest("/api/v1/auth/devices/$deviceId", "PUT", body = req.toJsonBody())
+    suspend fun fetchSession(): AuthSessionResponse {
+        return executeEnvelopeRequest("/api/v1/auth/session", "GET")
     }
 
-    suspend fun revokeDevice(deviceId: String) {
-        executeEnvelopeRequest<DeleteResponse>("/api/v1/auth/devices/$deviceId", "DELETE")
+    suspend fun logout(): LogoutResponse {
+        val emptyJson = "{}".toRequestBody("application/json; charset=utf-8".toMediaType())
+        return executeEnvelopeRequest("/api/v1/auth/logout", "POST", body = emptyJson)
     }
 
     // MARK: - 3. 主理人档案

@@ -1,6 +1,13 @@
 package com.looseleaf.app.ui.settings
 
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.looseleaf.app.R
@@ -14,7 +21,6 @@ import com.looseleaf.app.data.sync.SyncManager
 import com.looseleaf.app.reminder.InstallmentReminderWorker
 import com.looseleaf.app.ui.components.AppUpdateDialogHost
 import com.looseleaf.app.ui.components.ArchiveConfirmDialog
-import com.looseleaf.app.ui.components.ArchivePromptDialog
 import com.looseleaf.app.ui.components.ArchiveToastManager
 import com.looseleaf.app.updater.ReleaseInfo
 import com.looseleaf.app.updater.UpdateCheckResult
@@ -22,8 +28,8 @@ import com.looseleaf.app.updater.UpdateChecker
 import kotlinx.coroutines.launch
 
 /**
- * 托管设置中心与其附属确认弹窗（解绑、设备改名、应用内更新）。
- * 从原 ProfileScreen 提升出来，供 MainActivity 顶层直接唤起。
+ * 托管设置中心与其附属确认弹窗（账号登出、应用内更新）。
+ * 从 MainActivity 顶层直接唤起。
  */
 @Composable
 internal fun SettingsHost(
@@ -40,15 +46,41 @@ internal fun SettingsHost(
 
     var isBiometricsEnabled by remember { mutableStateOf(credentialStore.isBiometricsEnabled) }
     var isInstallmentReminderEnabled by remember { mutableStateOf(credentialStore.isInstallmentReminderEnabled) }
-    var localDeviceName by remember { mutableStateOf(credentialStore.deviceName) }
-    var showUnpairDialog by remember { mutableStateOf(false) }
-    var showRenameDeviceDialog by remember { mutableStateOf(false) }
+    var accountName by remember { mutableStateOf(credentialStore.accountName.orEmpty()) }
+    var accountEmail by remember { mutableStateOf(credentialStore.accountEmail.orEmpty()) }
+    var showLogoutDialog by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var availableUpdate by remember { mutableStateOf<ReleaseInfo?>(null) }
     var pendingOutboxCount by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(showUnpairDialog) {
-        if (showUnpairDialog) {
+    // 静默刷新当前会话对应的账号摘要（兼容旧会话自动补齐昵称与邮箱）
+    LaunchedEffect(Unit) {
+        val session = runCatching { apiClient.fetchSession() }.getOrNull()
+        val sessName = session?.account?.name?.trim().orEmpty()
+        val sessEmail = session?.account?.email?.trim().orEmpty()
+        if (sessName.isNotEmpty()) {
+            accountName = sessName
+            credentialStore.accountName = sessName
+        }
+        if (sessEmail.isNotEmpty()) {
+            accountEmail = sessEmail
+            credentialStore.accountEmail = sessEmail
+        }
+        if (accountName.isBlank() || accountEmail.isBlank()) {
+            val profile = runCatching { apiClient.fetchCuratorProfile() }.getOrNull()
+            if (accountName.isBlank() && !profile?.name.isNullOrBlank()) {
+                accountName = profile!!.name.trim()
+                credentialStore.accountName = accountName
+            }
+            if (accountEmail.isBlank() && !profile?.email.isNullOrBlank()) {
+                accountEmail = profile!!.email!!.trim()
+                credentialStore.accountEmail = accountEmail
+            }
+        }
+    }
+
+    LaunchedEffect(showLogoutDialog) {
+        if (showLogoutDialog) {
             pendingOutboxCount = LocalDataResetCoordinator.getUnsyncedCount(context)
         }
     }
@@ -75,7 +107,25 @@ internal fun SettingsHost(
         }
     }
 
+    val serverHost = remember(apiClient.baseUrl) {
+        apiClient.baseUrl
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .trimEnd('/')
+            .ifBlank { APIClient.DEFAULT_BASE_URL.removePrefix("https://") }
+    }
+    val displayAccountName = accountName.ifBlank {
+        accountEmail.ifBlank { "Vesper Auth 账号" }
+    }
+    val displayAccountSubtitle = when {
+        accountName.isNotBlank() && accountEmail.isNotBlank() -> accountEmail
+        else -> serverHost
+    }
+
     SettingsScreen(
+        accountDisplayName = displayAccountName,
+        accountSubtitle = displayAccountSubtitle,
+        serverHost = serverHost,
         appearanceMode = appearanceMode,
         onAppearanceModeChanged = { mode ->
             credentialStore.appearanceMode = mode
@@ -96,42 +146,36 @@ internal fun SettingsHost(
                 InstallmentReminderWorker.cancelWork(context)
             }
         },
-        localDeviceName = localDeviceName,
-        localDeviceId = credentialStore.deviceId ?: "",
-        onRenameLocalDevice = { showRenameDeviceDialog = true },
         isCheckingUpdate = isCheckingUpdate,
         onCheckUpdate = checkUpdate,
-        onUnpair = { showUnpairDialog = true },
+        onLogout = { showLogoutDialog = true },
         onBack = onBack
     )
 
-    if (showUnpairDialog) {
+    if (showLogoutDialog) {
         ArchiveConfirmDialog(
-            title = stringResource(R.string.profile_screen_title_01),
+            title = stringResource(R.string.settings_logout_title),
             content = if (pendingOutboxCount > 0) {
-                "解除后将清除本机 KeyStore 中的 Device Token，本机将无法再向中枢提交任何记录，需重新扫码配对。" +
+                "退出登录将清除本机登录状态与本地缓存，之后可随时通过 Vesper Auth 重新登录同步。" +
                     "注意：本机还有 $pendingOutboxCount 条未同步记录（含离线日记/账目/相纸），" +
-                    "解绑将连同删除且**无法找回**。建议先联网同步完成后再解绑。"
+                    "退出登录将连同清除且无法找回。建议先联网同步完成后再退出。"
             } else {
-                "解除后将清除本机 KeyStore 中的 Device Token，本机将无法再向中枢提交任何记录，需重新扫码配对。"
+                "退出登录将清除本机登录状态与本地缓存，之后可随时通过 Vesper Auth 重新登录同步。"
             },
-            confirmText = stringResource(R.string.profile_screen_confirmText_01),
+            confirmText = stringResource(R.string.settings_logout_confirm),
             isDestructive = true,
             onConfirm = {
-                val currentDeviceId = credentialStore.deviceId
-                showUnpairDialog = false
+                showLogoutDialog = false
                 scope.launch {
-                    if (!currentDeviceId.isNullOrBlank()) {
-                        val revoke = runCatching { apiClient.revokeDevice(currentDeviceId) }
-                        if (revoke.isFailure) {
-                            val code = (revoke.exceptionOrNull() as? APIException)?.code
-                            if (code !in listOf(401, 404)) {
-                                ArchiveToastManager.show(
-                                    "解除失败：无法联系中枢，本机数据与待同步记录均未清除，请联网后重试",
-                                    isError = true
-                                )
-                                return@launch
-                            }
+                    val logoutResult = runCatching { apiClient.logout() }
+                    if (logoutResult.isFailure && pendingOutboxCount > 0) {
+                        val code = (logoutResult.exceptionOrNull() as? APIException)?.code
+                        if (code !in listOf(401, 404)) {
+                            ArchiveToastManager.show(
+                                "退出失败：无法连接服务器，待同步记录尚未清除，请联网同步后重试",
+                                isError = true
+                            )
+                            return@launch
                         }
                     }
                     LocalDataResetCoordinator.resetAll(
@@ -143,38 +187,7 @@ internal fun SettingsHost(
                     onUnpair()
                 }
             },
-            onDismiss = { showUnpairDialog = false }
-        )
-    }
-
-    if (showRenameDeviceDialog) {
-        ArchivePromptDialog(
-            title = stringResource(R.string.profile_screen_title_02),
-            initialValue = localDeviceName,
-            placeholder = stringResource(R.string.pairing_screen_placeholder_02),
-            label = stringResource(R.string.profile_screen_label_03),
-            confirmText = stringResource(R.string.profile_screen_confirmText_02),
-            onDismiss = { showRenameDeviceDialog = false },
-            onConfirm = { newName ->
-                val devId = credentialStore.deviceId
-                if (!devId.isNullOrBlank()) {
-                    scope.launch {
-                        runCatching {
-                            apiClient.updateDeviceName(devId, newName)
-                            credentialStore.deviceName = newName
-                            localDeviceName = newName
-                            ArchiveToastManager.show("设备名称已更新")
-                        }.onFailure { err ->
-                            ArchiveToastManager.show("更新设备名称失败: ${err.message}", isError = true)
-                        }
-                        showRenameDeviceDialog = false
-                    }
-                } else {
-                    credentialStore.deviceName = newName
-                    localDeviceName = newName
-                    showRenameDeviceDialog = false
-                }
-            }
+            onDismiss = { showLogoutDialog = false }
         )
     }
 
