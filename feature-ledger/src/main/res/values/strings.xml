@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="ledger_notification_service_label">散页账本 · 账单自动记账</string>
+    <string name="ledger_accessibility_service_label">散页账本 · 微信转账辅助识别</string>
+    <string name="ledger_accessibility_service_desc">仅在微信与支付宝的「支付成功 / 转账成功 / 已收钱」结果页识别金额与收付款对象，补齐微信零钱转账与好友收款无通知栏提醒的缺口；不读取聊天内容或密码框。</string>
 </resources>

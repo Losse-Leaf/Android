@@ -260,4 +260,114 @@ class LedgerNotificationParserTest {
         assertEquals(3500L, ccbIntermediary!!.amount)
         assertEquals("expense", ccbIntermediary.type)
     }
+
+    @Test
+    fun `微信转账通知各种常见文案与带数字昵称及对方已收款均可精准识别`() {
+        val expenseDict = listOf("餐饮", "购物", "其他")
+        val incomeDict = listOf("工资收入", "礼金红包", "其他收入")
+
+        // 1. 好友昵称带数字或括号（「向YN1753转账100.00元」「给小王(财务)转账200元」）
+        val digitNick = LedgerNotificationListenerService.parseBillFromText(
+            content = "微信支付 向YN1753转账100.00元",
+            pkg = "com.tencent.mm",
+            expenseCategories = expenseDict
+        )
+        assertNotNull(digitNick)
+        assertEquals("expense", digitNick!!.type)
+        assertEquals(10000L, digitNick.amount)
+        assertEquals("转账 · YN1753", digitNick.title)
+        assertEquals("微信支付", digitNick.paymentMethod)
+
+        val parenNick = LedgerNotificationListenerService.parseBillFromText(
+            content = "[2条]微信支付: 给小王(财务)转账200元",
+            pkg = "com.tencent.mm",
+            expenseCategories = expenseDict
+        )
+        assertNotNull(parenNick)
+        assertEquals("expense", parenNick!!.type)
+        assertEquals(20000L, parenNick.amount)
+        assertEquals("转账 · 小王(财务)", parenNick.title)
+
+        // 2. 转账成功 + 逗号金额（「微信支付 转账成功，金额¥200.00」）
+        val transferSuccess = LedgerNotificationListenerService.parseBillFromText(
+            content = "微信支付 转账成功，金额¥200.00",
+            pkg = "com.tencent.mm",
+            expenseCategories = expenseDict
+        )
+        assertNotNull(transferSuccess)
+        assertEquals("expense", transferSuccess!!.type)
+        assertEquals(20000L, transferSuccess.amount)
+        assertEquals("微信转账", transferSuccess.title)
+
+        // 3. 「对方已收款」属于我方转出确认，必须记为支出而非收入
+        val peerAccepted = LedgerNotificationListenerService.parseBillFromText(
+            content = "微信支付 对方已收款，转账金额¥50.00",
+            pkg = "com.tencent.mm",
+            expenseCategories = expenseDict,
+            incomeCategories = incomeDict
+        )
+        assertNotNull(peerAccepted)
+        assertEquals("expense", peerAccepted!!.type)
+        assertEquals(5000L, peerAccepted.amount)
+
+        // 4. 「收到张三的转账」「小王给你转账」「微信转账到账」必须记为收入
+        val receivedFrom = LedgerNotificationListenerService.parseBillFromText(
+            content = "微信支付 收到张三的转账50.00元",
+            pkg = "com.tencent.mm",
+            incomeCategories = incomeDict
+        )
+        assertNotNull(receivedFrom)
+        assertEquals("income", receivedFrom!!.type)
+        assertEquals(5000L, receivedFrom.amount)
+        assertEquals("收到转账 · 张三", receivedFrom.title)
+
+        val sentToMe = LedgerNotificationListenerService.parseBillFromText(
+            content = "服务通知 小王给你转账88.80元",
+            pkg = "com.tencent.mm",
+            incomeCategories = incomeDict
+        )
+        assertNotNull(sentToMe)
+        assertEquals("income", sentToMe!!.type)
+        assertEquals(8880L, sentToMe.amount)
+        assertEquals("收到转账 · 小王", sentToMe.title)
+
+        val transferArrived = LedgerNotificationListenerService.parseBillFromText(
+            content = "微信支付 微信转账到账，金额¥120.00",
+            pkg = "com.tencent.mm",
+            incomeCategories = incomeDict
+        )
+        assertNotNull(transferArrived)
+        assertEquals("income", transferArrived!!.type)
+        assertEquals(12000L, transferArrived.amount)
+
+        // 5. 银行短信/App 的财付通-微信转账（含负号金额与荣耀短信包名）
+        val abcSigned = LedgerNotificationListenerService.parseBillFromText(
+            content = "【农业银行】您尾号1234账户11月24日完成财付通交易人民币-66.50，余额1000.00",
+            pkg = "com.hihonor.mms",
+            expenseCategories = expenseDict
+        )
+        assertNotNull(abcSigned)
+        assertEquals("expense", abcSigned!!.type)
+        assertEquals(6650L, abcSigned.amount)
+        assertEquals("微信支付", abcSigned.paymentMethod)
+
+        val smsTenpayTransfer = LedgerNotificationListenerService.parseBillFromText(
+            content = "您尾号8821账户11月24日21:15财付通-微信转账，金额50.00元，活期余额900.00元",
+            pkg = "com.android.messaging",
+            expenseCategories = expenseDict
+        )
+        assertNotNull(smsTenpayTransfer)
+        assertEquals("expense", smsTenpayTransfer!!.type)
+        assertEquals(5000L, smsTenpayTransfer.amount)
+        assertEquals("微信支付", smsTenpayTransfer.paymentMethod)
+    }
+
+    @Test
+    fun `普通好友聊天说微信转账仍被屏蔽不误记`() {
+        val casualChat = LedgerNotificationListenerService.parseBillFromText(
+            content = "小明 我刚刚微信转账给你 50.00 元了",
+            pkg = "com.tencent.mm"
+        )
+        assertNull("普通聊天消息提到微信转账不得误记", casualChat)
+    }
 }

@@ -1,11 +1,13 @@
 package com.looseleaf.feature.ledger.ui
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,11 +41,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
@@ -52,22 +56,24 @@ import com.looseleaf.app.ui.components.ArchiveDivider
 import com.looseleaf.app.ui.components.ArchiveHeaderIconButton
 import com.looseleaf.app.ui.components.ArchivePageHeader
 import com.looseleaf.app.ui.components.FolioGlyphs
+import com.looseleaf.feature.ledger.service.AutoLedgerDiagnosticEvent
+import com.looseleaf.feature.ledger.service.AutoLedgerDiagnostics
+import com.looseleaf.feature.ledger.service.LedgerAccessibilityService
 import com.looseleaf.feature.ledger.theme.LedgerTheme
 
 /**
  * 自动记账与后台保活检查页 (LedgerKeepAliveScreen)
  *
- * - 顶部状态卡：两项就绪时为松绿「已就绪」，否则为朱砂「还差 N 步」；
- * - 两张检查卡：通知读取、电池优化白名单，右侧为状态印记，未通过时出现朱砂胶囊行动按钮；
- * - 机型指南：一张纸页卡片，四个厂商分段说明。
- * 回到前台时自动重新检测，用户从系统设置返回后状态立即刷新。
+ * - 顶部状态卡：核心两项就绪时为松绿「已就绪」，否则为朱砂「还差 N 步」；
+ * - 三张检查卡：通知读取、忽略电池优化、微信/支付宝转账完成页辅助识别（可选推荐）；
+ * - 近期检测记录：展示本机内存中的最近捕获与过滤状态，便于排查未识别通知；
+ * - 机型指南：常见厂商后台保活指引。
  */
 @Composable
 fun LedgerKeepAliveScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 该页是在账本内 return 出来的全屏子页，不在路由栈里，必须自己拦返回键
     BackHandler(onBack = onNavigateBack)
 
     val context = LocalContext.current
@@ -75,21 +81,23 @@ fun LedgerKeepAliveScreen(
 
     var isNotificationAccessGranted by remember { mutableStateOf(checkNotificationAccess(context)) }
     var isBatteryOptIgnored by remember { mutableStateOf(checkBatteryOptIgnored(context)) }
+    var isAccessibilityEnabled by remember { mutableStateOf(checkAccessibilityAccess(context)) }
+    val diagnosticEvents by AutoLedgerDiagnostics.events.collectAsStateWithLifecycle()
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         isNotificationAccessGranted = checkNotificationAccess(context)
         isBatteryOptIgnored = checkBatteryOptIgnored(context)
+        isAccessibilityEnabled = checkAccessibilityAccess(context)
     }
 
     val scrollState = rememberScrollState()
 
     Scaffold(
-        // 外层已让过系统栏，内层清零避免再吃一条导航栏高度
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             ArchivePageHeader(
                 title = "自动记账",
-                subtitle = "通知监听与后台保活",
+                subtitle = "通知监听、微信转账辅助与保活",
                 navigationIcon = {
                     ArchiveHeaderIconButton(
                         onClick = onNavigateBack,
@@ -111,19 +119,22 @@ fun LedgerKeepAliveScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            val pending = listOf(isNotificationAccessGranted, isBatteryOptIgnored).count { !it }
-            StatusOverviewBanner(pendingSteps = pending)
+            val corePending = listOf(isNotificationAccessGranted, isBatteryOptIgnored).count { !it }
+            StatusOverviewBanner(
+                pendingSteps = corePending,
+                hasScreenAssist = isAccessibilityEnabled
+            )
 
             CheckCard(
                 index = 1,
                 title = "通知读取权限",
-                desc = "实时捕获微信、支付宝、银行 App 的支付成功通知，并自动提取金额。",
+                desc = "实时捕获微信、支付宝、云闪付、银行 App 及动账短信，自动提取金额并跨端去重。",
                 isPassed = isNotificationAccessGranted,
                 actionText = "去开启",
                 onAction = {
                     val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(intent)
+                    runCatching { context.startActivity(intent) }
                 }
             )
 
@@ -144,7 +155,46 @@ fun LedgerKeepAliveScreen(
                 }
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            CheckCard(
+                index = 3,
+                title = "微信转账页面辅助识别（推荐）",
+                desc = "微信零钱转账与点击接收好友转账（已收钱）不会推送带金额的通知栏消息。开启无障碍辅助后可直接识别微信与支付宝的支付/转账完成页，不读取聊天记录或密码。",
+                isPassed = isAccessibilityEnabled,
+                actionText = "去无障碍设置开启",
+                onAction = {
+                    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    runCatching { context.startActivity(intent) }
+                }
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "近期检测记录（仅存本机内存）",
+                    style = ArchiveTextStyles.overline,
+                    color = colors.textMuted,
+                    modifier = Modifier.weight(1f)
+                )
+                if (diagnosticEvents.isNotEmpty()) {
+                    Text(
+                        text = "清空",
+                        style = ArchiveTextStyles.meta,
+                        color = colors.accent,
+                        modifier = Modifier
+                            .clickable(role = Role.Button) { AutoLedgerDiagnostics.clear() }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+            DiagnosticsCard(events = diagnosticEvents)
+
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = "常见机型后台防杀指南",
                 style = ArchiveTextStyles.overline,
@@ -168,8 +218,33 @@ private fun checkBatteryOptIgnored(context: Context): Boolean {
     } else true
 }
 
+private fun checkAccessibilityAccess(context: Context): Boolean {
+    val serviceName = LedgerAccessibilityService::class.java.name
+    val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+    val enabledFromManager = runCatching {
+        am?.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+            ?.any { info ->
+                val si = info.resolveInfo?.serviceInfo
+                si != null && si.packageName == context.packageName && si.name == serviceName
+            } == true
+    }.getOrDefault(false)
+    if (enabledFromManager) return true
+
+    val rawSetting = runCatching {
+        Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        )
+    }.getOrNull().orEmpty()
+    return rawSetting.contains("${context.packageName}/$serviceName") ||
+        rawSetting.contains("${context.packageName}/.service.LedgerAccessibilityService")
+}
+
 @Composable
-private fun StatusOverviewBanner(pendingSteps: Int) {
+private fun StatusOverviewBanner(
+    pendingSteps: Int,
+    hasScreenAssist: Boolean
+) {
     val colors = LedgerTheme.colors
     val isAllReady = pendingSteps == 0
     val tint = if (isAllReady) colors.income else colors.accent
@@ -209,12 +284,20 @@ private fun StatusOverviewBanner(pendingSteps: Int) {
         Spacer(modifier = Modifier.width(14.dp))
         Column {
             Text(
-                text = if (isAllReady) "自动记账已就绪" else "还差 $pendingSteps 步",
+                text = when {
+                    !isAllReady -> "还差 $pendingSteps 步核心授权"
+                    hasScreenAssist -> "自动记账已全面就绪"
+                    else -> "通知监听已就绪"
+                },
                 style = ArchiveTextStyles.essayTitle,
                 color = colors.textPrimary
             )
             Text(
-                text = if (isAllReady) "正在监听支付通知，消费后会自动录入账本。" else "完成下面的授权，后台才能稳定记下每一笔。",
+                text = when {
+                    !isAllReady -> "完成下方核心授权，后台才能稳定捕获每一笔账单。"
+                    hasScreenAssist -> "通知监听与微信转账完成页识别均已开启，自动跨端去重。"
+                    else -> "建议再开启下方第 3 项，即可捕获微信零钱转账与好友收款。"
+                },
                 style = ArchiveTextStyles.meta,
                 color = colors.textSecondary
             )
@@ -303,6 +386,62 @@ private fun CheckCard(
                     fontWeight = FontWeight.SemiBold,
                     color = colors.onAccent
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticsCard(events: List<AutoLedgerDiagnosticEvent>) {
+    val colors = LedgerTheme.colors
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(ArchiveShapes.leaf)
+            .background(colors.surface)
+            .border(ArchiveLines.hairline, colors.archive.borderCard, ArchiveShapes.leaf)
+    ) {
+        if (events.isEmpty()) {
+            Text(
+                text = "本次启动后暂未收到支付或转账捕获记录。",
+                style = ArchiveTextStyles.meta,
+                color = colors.textMuted,
+                modifier = Modifier.padding(16.dp)
+            )
+        } else {
+            events.take(8).forEachIndexed { i, ev ->
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${ev.timestampText} · ${ev.source}",
+                            style = ArchiveTextStyles.meta,
+                            color = colors.textMuted,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = ev.outcome,
+                            style = ArchiveTextStyles.meta,
+                            fontWeight = FontWeight.Medium,
+                            color = if (ev.isRecorded) colors.income else colors.textSecondary
+                        )
+                    }
+                    if (ev.detail.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = ev.detail,
+                            style = ArchiveTextStyles.body,
+                            color = colors.textPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                if (i < minOf(events.size, 8) - 1) {
+                    ArchiveDivider(modifier = Modifier.padding(start = 16.dp))
+                }
             }
         }
     }
