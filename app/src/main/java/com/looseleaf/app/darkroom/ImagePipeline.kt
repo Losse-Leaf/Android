@@ -7,6 +7,7 @@ import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
 import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import com.looseleaf.app.data.api.APIClient
@@ -15,6 +16,8 @@ import com.looseleaf.app.data.api.fileRequestBody
 import com.looseleaf.app.model.Attachment
 import com.looseleaf.app.model.CompleteUploadRequest
 import com.looseleaf.app.model.PresignUploadRequest
+import com.looseleaf.app.utils.FormatUtils
+import com.looseleaf.app.utils.LocationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -24,6 +27,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
+import java.time.Instant
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -37,6 +41,7 @@ data class ExtractedExif(
     val shutterSpeed: String? = null,
     val iso: String? = null,
     val dateTimeOriginal: String? = null,
+    val offsetTimeOriginal: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null
 )
@@ -62,12 +67,17 @@ object ImagePipeline {
     private const val JPEG_QUALITY = 82
 
     /**
-     * 读取图片 EXIF 信息
+     * 读取图片 EXIF 信息（拍摄时间含时区偏移、GPS 坐标与相机参数）。
+     *
+     * 拍摄时间按优先级读取：
+     * 1. EXIF DateTimeOriginal (+ OffsetTimeOriginal)
+     * 2. EXIF DateTimeDigitized (+ OffsetTimeDigitized)
+     * 3. EXIF DateTime (+ OffsetTime)
+     * 4. 系统媒体库 DATE_TAKEN 兜底（兼容无 EXIF 的 PNG/WebP 照片）
      */
     fun extractExif(context: Context, uri: Uri): ExtractedExif {
         return try {
-            val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
-            inputStream?.use { stream ->
+            val baseExif = openExifInputStream(context, uri)?.use { stream ->
                 val ex = ExifInterface(stream)
                 val make = ex.getAttribute(ExifInterface.TAG_MAKE)?.trim()
                 val model = ex.getAttribute(ExifInterface.TAG_MODEL)?.trim()
@@ -76,11 +86,22 @@ object ImagePipeline {
                 val fNumber = ex.getAttribute(ExifInterface.TAG_F_NUMBER)?.trim()
                 val exposure = ex.getAttribute(ExifInterface.TAG_EXPOSURE_TIME)?.trim()
                 val iso = ex.getAttribute(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY)?.trim()
-                val date = ex.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)?.trim()
 
-                val latLong = ex.latLong
-                val lat = latLong?.get(0)
-                val lng = latLong?.get(1)
+                val dateCandidates = listOf(
+                    ex.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)?.trim() to
+                        ex.getAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL)?.trim(),
+                    ex.getAttribute(ExifInterface.TAG_DATETIME_DIGITIZED)?.trim() to
+                        ex.getAttribute(ExifInterface.TAG_OFFSET_TIME_DIGITIZED)?.trim(),
+                    ex.getAttribute(ExifInterface.TAG_DATETIME)?.trim() to
+                        ex.getAttribute(ExifInterface.TAG_OFFSET_TIME)?.trim()
+                )
+                val validDatePair = dateCandidates.firstOrNull { (raw, offset) ->
+                    FormatUtils.parseExifDateTimeOrNull(raw, offset) != null
+                }
+
+                val validLatLong = ex.latLong?.takeIf { coords ->
+                    coords.size >= 2 && LocationHelper.isValidCoordinates(coords[0], coords[1])
+                }
 
                 ExtractedExif(
                     make = make,
@@ -90,14 +111,59 @@ object ImagePipeline {
                     aperture = fNumber,
                     shutterSpeed = exposure,
                     iso = iso,
-                    dateTimeOriginal = date,
-                    latitude = lat,
-                    longitude = lng
+                    dateTimeOriginal = validDatePair?.first,
+                    offsetTimeOriginal = validDatePair?.second,
+                    latitude = validLatLong?.get(0),
+                    longitude = validLatLong?.get(1)
                 )
             } ?: ExtractedExif()
+
+            if (baseExif.dateTimeOriginal != null) {
+                baseExif
+            } else {
+                val mediaStoreTaken = queryMediaStoreDateTakenIso(context, uri)
+                if (mediaStoreTaken != null) baseExif.copy(dateTimeOriginal = mediaStoreTaken) else baseExif
+            }
         } catch (e: Exception) {
             Log.w(TAG, "EXIF extraction failed: ${e.message}")
-            ExtractedExif()
+            val fallbackDate = queryMediaStoreDateTakenIso(context, uri)
+            ExtractedExif(dateTimeOriginal = fallbackDate)
+        }
+    }
+
+    private fun openExifInputStream(context: Context, uri: Uri): InputStream? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            uri.authority == MediaStore.AUTHORITY &&
+            !uri.path.orEmpty().contains("/picker")
+        ) {
+            val originalUri = runCatching { MediaStore.setRequireOriginal(uri) }.getOrNull()
+            if (originalUri != null) {
+                val stream = runCatching { context.contentResolver.openInputStream(originalUri) }.getOrNull()
+                if (stream != null) return stream
+            }
+        }
+        return context.contentResolver.openInputStream(uri)
+    }
+
+    private fun queryMediaStoreDateTakenIso(context: Context, uri: Uri): String? {
+        return try {
+            context.contentResolver.query(
+                uri,
+                arrayOf(MediaStore.MediaColumns.DATE_TAKEN),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (!cursor.moveToFirst()) return null
+                val colIdx = cursor.getColumnIndex(MediaStore.MediaColumns.DATE_TAKEN)
+                if (colIdx < 0 || cursor.isNull(colIdx)) return null
+                val millis = cursor.getLong(colIdx)
+                // 过滤 0 或非法时间戳（只接受 1970-01-02 之后的毫秒值）
+                if (millis <= 86_400_000L) return null
+                FormatUtils.toBeijingIsoString(Instant.ofEpochMilli(millis))
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 

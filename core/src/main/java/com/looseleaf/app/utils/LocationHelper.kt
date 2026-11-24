@@ -26,7 +26,10 @@ import kotlin.coroutines.resume
 object LocationHelper {
 
     private const val LOCATION_TIMEOUT_MS = 8_000L
+    private const val GEOCODE_TIMEOUT_MS = 5_000L
     private const val LAST_KNOWN_MAX_AGE_MS = 5 * 60_000L
+
+    private val PURE_NUMBER_OR_HOUSE_REGEX = Regex("""^[\d\s\-—#号楼室单元层/.]+$""")
 
     data class ResolvedLocation(
         val locationName: String,
@@ -143,59 +146,149 @@ object LocationHelper {
         }
 
     /**
+     * 将经纬度坐标（如照片 EXIF GPS）异步逆地理编码为易读地点名称。
+     * 无效坐标（如 0.0, 0.0）或逆地理编码无结果时返回 null。
+     */
+    suspend fun resolveCoordinates(
+        context: Context,
+        latitude: Double,
+        longitude: Double
+    ): ResolvedLocation? = withContext(Dispatchers.IO) {
+        if (!isValidCoordinates(latitude, longitude)) return@withContext null
+        if (!Geocoder.isPresent()) return@withContext null
+
+        val addresses = withTimeoutOrNull(GEOCODE_TIMEOUT_MS) {
+            fetchAddresses(context, latitude, longitude)
+        }.orEmpty()
+
+        val locationName = formatLocationName(addresses)
+        if (locationName.isBlank()) return@withContext null
+
+        ResolvedLocation(
+            locationName = locationName,
+            latitude = latitude,
+            longitude = longitude
+        )
+    }
+
+    fun isValidCoordinates(latitude: Double, longitude: Double): Boolean {
+        if (!latitude.isFinite() || !longitude.isFinite()) return false
+        if (latitude !in -90.0..90.0 || longitude !in -180.0..180.0) return false
+        if (kotlin.math.abs(latitude) < 1e-6 && kotlin.math.abs(longitude) < 1e-6) return false
+        return true
+    }
+
+    private suspend fun fetchAddresses(
+        context: Context,
+        latitude: Double,
+        longitude: Double
+    ): List<Address> {
+        val geocoder = Geocoder(context, Locale.CHINA)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            suspendCancellableCoroutine { cont ->
+                try {
+                    geocoder.getFromLocation(
+                        latitude,
+                        longitude,
+                        3,
+                        object : Geocoder.GeocodeListener {
+                            override fun onGeocode(addresses: MutableList<Address>) {
+                                if (cont.isActive) cont.resume(addresses)
+                            }
+
+                            override fun onError(errorMessage: String?) {
+                                if (cont.isActive) cont.resume(emptyList())
+                            }
+                        }
+                    )
+                } catch (_: Exception) {
+                    if (cont.isActive) cont.resume(emptyList())
+                }
+            }
+        } else {
+            try {
+                @Suppress("DEPRECATION")
+                geocoder.getFromLocation(latitude, longitude, 3).orEmpty()
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+    }
+
+    /**
      * 将 Location 经纬度逆编码为候选地点名称
      */
     fun resolveLocationDetails(context: Context, location: Location): ResolvedLocation {
         val lat = location.latitude
         val lng = location.longitude
-        var cityName: String? = null
-        val candidates = mutableListOf<String>()
-
-        try {
-            if (Geocoder.isPresent()) {
+        val addresses = try {
+            if (Geocoder.isPresent() && isValidCoordinates(lat, lng)) {
                 val geocoder = Geocoder(context, Locale.CHINA)
                 @Suppress("DEPRECATION")
-                val addresses: List<Address>? = geocoder.getFromLocation(lat, lng, 3)
-
-                if (!addresses.isNullOrEmpty()) {
-                    val primary = addresses.first()
-                    val locality = primary.locality?.takeIf { it.isNotBlank() }
-                        ?: primary.adminArea?.takeIf { it.isNotBlank() }
-                    val subLocality = primary.subLocality?.takeIf { it.isNotBlank() }
-                    val feature = primary.featureName?.takeIf { it.isNotBlank() }
-                    val thoroughfare = primary.thoroughfare?.takeIf { it.isNotBlank() }
-
-                    if (!locality.isNullOrBlank()) {
-                        cityName = locality
-                    }
-
-                    // 组织候选地标（优先具体地标、街道、区县）
-                    if (!feature.isNullOrBlank() && feature != locality && feature != subLocality) {
-                        candidates.add(feature)
-                    }
-                    if (!thoroughfare.isNullOrBlank() && thoroughfare != feature) {
-                        candidates.add(thoroughfare)
-                    }
-                    if (!subLocality.isNullOrBlank() && !feature.isNullOrBlank() && feature != subLocality) {
-                        candidates.add("$subLocality · $feature")
-                    }
-                    if (!subLocality.isNullOrBlank()) {
-                        candidates.add(subLocality)
-                    }
-                    if (!locality.isNullOrBlank()) {
-                        candidates.add(locality)
-                    }
-                }
+                geocoder.getFromLocation(lat, lng, 3).orEmpty()
+            } else {
+                emptyList()
             }
         } catch (_: Exception) {
+            emptyList()
         }
 
-        val primaryLocation = candidates.firstOrNull() ?: cityName ?: ""
+        val primaryLocation = formatLocationName(addresses)
 
         return ResolvedLocation(
             locationName = primaryLocation,
             latitude = lat,
             longitude = lng
         )
+    }
+
+    private fun formatLocationName(addresses: List<Address>): String {
+        val primary = addresses.firstOrNull() ?: return ""
+        return formatLocationNameFromParts(
+            adminArea = primary.adminArea,
+            locality = primary.locality,
+            subLocality = primary.subLocality,
+            thoroughfare = primary.thoroughfare,
+            featureName = primary.featureName
+        )
+    }
+
+    fun formatLocationNameFromParts(
+        adminArea: String?,
+        locality: String?,
+        subLocality: String?,
+        thoroughfare: String?,
+        featureName: String?
+    ): String {
+        val cleanAdmin = adminArea?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanLocality = locality?.trim()?.takeIf { it.isNotEmpty() } ?: cleanAdmin
+        val cleanSubLocality = subLocality?.trim()?.takeIf { it.isNotEmpty() && it != cleanLocality }
+        val cleanThoroughfare = thoroughfare?.trim()?.takeIf {
+            isMeaningfulPlacePart(it) && it != cleanLocality && it != cleanSubLocality
+        }
+        val cleanFeature = featureName?.trim()?.takeIf {
+            isMeaningfulPlacePart(it) &&
+                it != cleanLocality &&
+                it != cleanSubLocality &&
+                it != cleanAdmin
+        }
+
+        val detail = cleanFeature ?: cleanThoroughfare ?: cleanSubLocality
+        return when {
+            cleanLocality != null && detail != null -> {
+                if (detail.startsWith(cleanLocality)) detail else "$cleanLocality · $detail"
+            }
+            detail != null -> detail
+            cleanLocality != null -> cleanLocality
+            else -> ""
+        }
+    }
+
+    private fun isMeaningfulPlacePart(value: String?): Boolean {
+        val trimmed = value?.trim().orEmpty()
+        if (trimmed.isEmpty()) return false
+        if (trimmed.equals("Unnamed Road", ignoreCase = true)) return false
+        if (PURE_NUMBER_OR_HOUSE_REGEX.matches(trimmed)) return false
+        return true
     }
 }

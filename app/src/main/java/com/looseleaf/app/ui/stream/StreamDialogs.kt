@@ -71,6 +71,7 @@ import com.looseleaf.app.ui.components.ArchiveSheet
 import com.looseleaf.app.ui.components.ArchiveToastManager
 import com.looseleaf.app.ui.components.FolioGlyphs
 import com.looseleaf.app.utils.FormatUtils
+import com.looseleaf.app.utils.LocationHelper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -106,6 +107,8 @@ fun EntryDetailSheetDialog(
     var editIsPrivate by remember(entry.id) { mutableStateOf(entry.isPrivate) }
     var editAttachments by remember(entry.id) { mutableStateOf(entry.attachments) }
     var editCategory by remember(entry.id) { mutableStateOf(com.looseleaf.app.model.EntryCategory.fromCode(entry.category).code) }
+    var userEditedTime by remember(entry.id) { mutableStateOf(false) }
+    var userEditedLocation by remember(entry.id) { mutableStateOf(false) }
     var isUploadingPhoto by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -115,11 +118,34 @@ fun EntryDetailSheetDialog(
         if (uris.isNotEmpty()) {
             coroutineScope.launch {
                 isUploadingPhoto = true
+                val hadNoPhotosBefore = editAttachments.isEmpty()
+                val addedExifs = mutableListOf<com.looseleaf.app.darkroom.ExtractedExif>()
                 try {
                     for (uri in uris) {
                         val processed = ImagePipeline.processImage(context, uri)
                         val att = ImagePipeline.uploadImage(apiClient, processed)
                         editAttachments = editAttachments + att
+                        addedExifs += processed.exif
+                    }
+                    if (addedExifs.isNotEmpty()) {
+                        if (hadNoPhotosBefore && !userEditedTime) {
+                            addedExifs.firstNotNullOfOrNull { exif ->
+                                FormatUtils.parseExifDateTimeOrNull(exif.dateTimeOriginal, exif.offsetTimeOriginal)
+                            }?.let { editOccurredAt = it }
+                        }
+                        if ((hadNoPhotosBefore || editLocation.isBlank()) && !userEditedLocation) {
+                            val coords = addedExifs.firstNotNullOfOrNull { exif ->
+                                val lat = exif.latitude
+                                val lng = exif.longitude
+                                if (lat != null && lng != null) lat to lng else null
+                            }
+                            if (coords != null) {
+                                val resolved = LocationHelper.resolveCoordinates(context, coords.first, coords.second)
+                                if (resolved != null && resolved.locationName.isNotBlank() && !userEditedLocation) {
+                                    editLocation = resolved.locationName
+                                }
+                            }
+                        }
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -232,14 +258,20 @@ fun EntryDetailSheetDialog(
                 EditSectionLabel("时间")
                 ArchiveDateTimeSplitRow(
                     selectedDateTime = editOccurredAt,
-                    onDateTimeSelected = { editOccurredAt = it }
+                    onDateTimeSelected = {
+                        editOccurredAt = it
+                        userEditedTime = true
+                    }
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
                 ArchiveField(
                     value = editLocation,
-                    onValueChange = { editLocation = it },
+                    onValueChange = {
+                        editLocation = it
+                        userEditedLocation = it.isNotBlank()
+                    },
                     label = "地点",
                     placeholder = stringResource(R.string.quick_note_sheet_text_04),
                     singleLine = true,

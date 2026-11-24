@@ -33,12 +33,15 @@ object FormatUtils {
         DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"),
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"),
+        DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss"),
+        DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm"),
         DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm:ss"),
         DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm")
     )
     private val DateOnlyPatterns = listOf(
         DateTimeFormatter.ofPattern("yyyy.MM.dd"),
-        DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        DateTimeFormatter.ofPattern("yyyy-MM-dd"),
+        DateTimeFormatter.ofPattern("yyyy:MM:dd")
     )
     private val NaturalInputRegex = Regex("""^([+-]?\s*\d+(?:\.\d+)?)\s*(.*)$""")
 
@@ -84,6 +87,34 @@ object FormatUtils {
         if (raw.isNullOrBlank()) return LocalDateTime.now(BeijingZone)
         return parseOccurredInstantOrNull(raw)?.atZone(BeijingZone)?.toLocalDateTime()
             ?: LocalDateTime.now(BeijingZone)
+    }
+
+    /**
+     * 解析照片 EXIF 拍摄时间（支持标准 `yyyy:MM:dd HH:mm:ss` 及可选的 EXIF 2.31 时区偏移如 `+09:00` / `Z`），
+     * 统一换算为北京时间 [LocalDateTime]。无法解析或属于 `0000:00:00` 脏数据时返回 null，绝不静默改写为当前时间。
+     */
+    fun parseExifDateTimeOrNull(rawDate: String?, offsetTime: String? = null): LocalDateTime? {
+        val trimmed = rawDate?.trim().orEmpty()
+        if (trimmed.isEmpty() || trimmed.startsWith("0000")) return null
+
+        val cleanOffset = offsetTime?.trim()?.takeIf { it.isNotEmpty() }
+        if (cleanOffset != null) {
+            val zoneOffset = runCatching { ZoneOffset.of(cleanOffset) }.getOrNull()
+            if (zoneOffset != null) {
+                for (pattern in DateTimePatterns) {
+                    val parsed = runCatching { LocalDateTime.parse(trimmed, pattern) }.getOrNull()
+                    if (parsed != null && parsed.year in 1970..2100) {
+                        return parsed.atOffset(zoneOffset)
+                            .atZoneSameInstant(BeijingZone)
+                            .toLocalDateTime()
+                    }
+                }
+            }
+        }
+
+        val instant = parseOccurredInstantOrNull(trimmed) ?: return null
+        val beijingTime = instant.atZone(BeijingZone).toLocalDateTime()
+        return beijingTime.takeIf { it.year in 1970..2100 }
     }
 
     /**

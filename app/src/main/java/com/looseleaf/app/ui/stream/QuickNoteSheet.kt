@@ -151,6 +151,8 @@ private fun QuickNoteSheetBody(
         )
     }
     var isLocating by remember { mutableStateOf(false) }
+    var userEditedTime by remember { mutableStateOf(false) }
+    var userEditedLocation by remember { mutableStateOf(noteLocation.isNotBlank()) }
     var noteOccurredAt by remember {
         mutableStateOf(
             draftStore.getString("${draftPrefix}occurred_at_millis")?.toLongOrNull()
@@ -194,11 +196,16 @@ private fun QuickNoteSheetBody(
     val fetchCurrentLocation: () -> Unit = {
         scope.launch {
             isLocating = true
-            val res = LocationHelper.getCurrentLocation(context)
-            if (res != null && noteLocation.isBlank() && res.locationName.isNotBlank()) {
-                noteLocation = res.locationName
+            try {
+                val res = LocationHelper.getCurrentLocation(context)
+                if (res != null && res.locationName.isNotBlank()) {
+                    noteLocation = res.locationName
+                    // 当前定位属于自动填充，后续装入带 GPS 元信息的照片时仍优先采用照片拍摄地点
+                    userEditedLocation = false
+                }
+            } finally {
+                isLocating = false
             }
-            isLocating = false
         }
     }
 
@@ -256,12 +263,54 @@ private fun QuickNoteSheetBody(
                     }
                     if (newItems.isNotEmpty()) {
                         attachedPhotos = (attachedPhotos + newItems).take(9)
-                        val first = newItems.first()
-                        // 标题保持选填：不再自动塞入「现场记录」之类的占位标题
-                        first.processed.exif.dateTimeOriginal?.let { raw ->
-                            runCatching { noteOccurredAt = FormatUtils.parseToLocalDateTime(raw) }
+                        // 发照片优先读取元信息（EXIF）中的拍摄时间与 GPS 地点
+                        var appliedExifTime = false
+                        var appliedExifLocation = false
+
+                        val exifDateTime = newItems.firstNotNullOfOrNull { item ->
+                            FormatUtils.parseExifDateTimeOrNull(
+                                item.processed.exif.dateTimeOriginal,
+                                item.processed.exif.offsetTimeOriginal
+                            )
                         }
-                        ArchiveToastManager.show("已装裱 ${newItems.size} 张相纸")
+                        if (exifDateTime != null && !userEditedTime) {
+                            noteOccurredAt = exifDateTime
+                            appliedExifTime = true
+                        }
+
+                        val exifCoords = newItems.firstNotNullOfOrNull { item ->
+                            val lat = item.processed.exif.latitude
+                            val lng = item.processed.exif.longitude
+                            if (lat != null && lng != null) lat to lng else null
+                        }
+                        if (exifCoords != null && !userEditedLocation) {
+                            isLocating = true
+                            try {
+                                val resolved = LocationHelper.resolveCoordinates(
+                                    context = context,
+                                    latitude = exifCoords.first,
+                                    longitude = exifCoords.second
+                                )
+                                if (resolved != null && resolved.locationName.isNotBlank() && !userEditedLocation) {
+                                    noteLocation = resolved.locationName
+                                    appliedExifLocation = true
+                                }
+                            } finally {
+                                isLocating = false
+                            }
+                        }
+
+                        val toastMsg = when {
+                            appliedExifTime && appliedExifLocation ->
+                                "已装裱 ${newItems.size} 张相纸，已读取拍摄时间与地点"
+                            appliedExifTime ->
+                                "已装裱 ${newItems.size} 张相纸，已读取拍摄时间"
+                            appliedExifLocation ->
+                                "已装裱 ${newItems.size} 张相纸，已读取拍摄地点"
+                            else ->
+                                "已装裱 ${newItems.size} 张相纸"
+                        }
+                        ArchiveToastManager.show(toastMsg)
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -585,7 +634,7 @@ private fun QuickNoteSheetBody(
                             color = colors.inkPrimary
                         )
                         Text(
-                            text = "可选 9 张，自动读取拍摄参数与地点",
+                            text = "可选 9 张，优先读取照片拍摄时间与地点",
                             style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
                             color = colors.inkMuted
                         )
@@ -611,7 +660,10 @@ private fun QuickNoteSheetBody(
             Spacer(modifier = Modifier.height(6.dp))
             ArchiveDateTimeSplitRow(
                 selectedDateTime = noteOccurredAt,
-                onDateTimeSelected = { noteOccurredAt = it }
+                onDateTimeSelected = {
+                    noteOccurredAt = it
+                    userEditedTime = true
+                }
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -656,7 +708,10 @@ private fun QuickNoteSheetBody(
 
             ArchiveField(
                 value = noteLocation,
-                onValueChange = { noteLocation = it },
+                onValueChange = {
+                    noteLocation = it
+                    userEditedLocation = it.isNotBlank()
+                },
                 label = "具体地点",
                 placeholder = "街巷或地标注记（选填）",
                 singleLine = true

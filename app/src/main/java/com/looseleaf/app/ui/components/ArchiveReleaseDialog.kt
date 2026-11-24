@@ -1,8 +1,6 @@
 package com.looseleaf.app.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,7 +27,7 @@ import java.io.File
 
 /**
  * 散页自研新版发布笺纸对话框 (ArchiveReleaseDialog)
- * 替代系统 AlertDialog 展示版本更新日志与安装进度
+ * 展示新版本信息与下载安装进度
  */
 @Composable
 fun ArchiveReleaseDialog(
@@ -108,31 +106,6 @@ fun ArchiveReleaseDialog(
                             },
                             style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
                             color = colors.inkMuted
-                        )
-                    }
-                }
-
-                if (release.body.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(18.dp))
-                    Text(
-                        text = "更新说明",
-                        style = com.looseleaf.app.theme.ArchiveTextStyles.overline,
-                        color = colors.inkMuted
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 200.dp)
-                            .clip(com.looseleaf.app.theme.ArchiveShapes.md)
-                            .background(colors.archiveSubtle)
-                            .verticalScroll(rememberScrollState())
-                            .padding(14.dp)
-                    ) {
-                        Text(
-                            text = release.body,
-                            style = com.looseleaf.app.theme.ArchiveTextStyles.body,
-                            color = colors.inkSecondary
                         )
                     }
                 }

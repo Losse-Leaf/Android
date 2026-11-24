@@ -606,14 +606,6 @@ fun StreamScreen(
                                 fontSize = 11.sp,
                                 color = colors.accentMoss
                             )
-                        } else if (update.body.isNotBlank()) {
-                            Text(
-                                text = update.body.lines().firstOrNull() ?: "",
-                                fontFamily = ArchiveFontFamilies.BodySans,
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                color = colors.inkSecondary
-                            )
                         }
                     }
 

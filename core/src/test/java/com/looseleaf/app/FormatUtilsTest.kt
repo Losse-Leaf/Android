@@ -1,8 +1,14 @@
 package com.looseleaf.app
 
 import com.looseleaf.app.utils.FormatUtils
+import com.looseleaf.app.utils.LocationHelper
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDateTime
 
 class FormatUtilsTest {
 
@@ -109,5 +115,70 @@ class FormatUtilsTest {
         assertEquals("2026.10.09", FormatUtils.formatDisplayDate("2026-10-09"))
         assertEquals("2026.10.09", FormatUtils.formatDisplayDate("2026.10.09"))
         assertEquals("2026.10.09 14:30", FormatUtils.formatDisplayDateTime("2026-10-09 14:30:00"))
+    }
+
+    @Test
+    fun testParseExifDateTimeOrNull() {
+        // 标准 EXIF 冒号日期格式必须能精确解析（此前缺少 yyyy:MM:dd HH:mm:ss 导致总是静默回退到当前时间）
+        assertEquals(
+            LocalDateTime.of(2026, 11, 20, 15, 30, 42),
+            FormatUtils.parseExifDateTimeOrNull("2026:11:20 15:30:42")
+        )
+        // 带 EXIF 2.31 异地时区偏移（如东京 +09:00）时换算为北京时间 (+08:00)
+        assertEquals(
+            LocalDateTime.of(2026, 11, 20, 15, 30, 42),
+            FormatUtils.parseExifDateTimeOrNull("2026:11:20 16:30:42", "+09:00")
+        )
+        // UTC 偏移 Z 正确换算为北京时间
+        assertEquals(
+            LocalDateTime.of(2026, 11, 20, 15, 30, 42),
+            FormatUtils.parseExifDateTimeOrNull("2026:11:20 07:30:42", "Z")
+        )
+        // 相机未设时钟时的零值脏数据与空串必须返回 null
+        assertNull(FormatUtils.parseExifDateTimeOrNull("0000:00:00 00:00:00"))
+        assertNull(FormatUtils.parseExifDateTimeOrNull("   "))
+        assertNull(FormatUtils.parseExifDateTimeOrNull(null))
+        assertNotNull(FormatUtils.parseOccurredInstantOrNull("2026:11:20 15:30:42"))
+    }
+
+    @Test
+    fun testLocationHelperValidationAndFormatting() {
+        assertFalse(LocationHelper.isValidCoordinates(0.0, 0.0))
+        assertFalse(LocationHelper.isValidCoordinates(Double.NaN, 120.0))
+        assertFalse(LocationHelper.isValidCoordinates(95.0, 120.0))
+        assertTrue(LocationHelper.isValidCoordinates(31.2304, 121.4737))
+
+        assertEquals(
+            "北京市 · 三里屯太古里",
+            LocationHelper.formatLocationNameFromParts(
+                adminArea = "北京市",
+                locality = "北京市",
+                subLocality = "朝阳区",
+                thoroughfare = "三里屯路",
+                featureName = "三里屯太古里"
+            )
+        )
+        // 跳过纯门牌号 featureName，回退至道路名
+        assertEquals(
+            "上海市 · 南京西路",
+            LocationHelper.formatLocationNameFromParts(
+                adminArea = "上海市",
+                locality = "上海市",
+                subLocality = "静安区",
+                thoroughfare = "南京西路",
+                featureName = "1266号"
+            )
+        )
+        // 跳过 Unnamed Road，回退至区县
+        assertEquals(
+            "杭州市 · 西湖区",
+            LocationHelper.formatLocationNameFromParts(
+                adminArea = "浙江省",
+                locality = "杭州市",
+                subLocality = "西湖区",
+                thoroughfare = "Unnamed Road",
+                featureName = "18"
+            )
+        )
     }
 }
