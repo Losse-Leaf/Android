@@ -7,6 +7,7 @@ import com.looseleaf.app.data.api.APIException
 import com.looseleaf.app.data.api.ResponseMeta
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.model.*
+import com.looseleaf.app.utils.FormatUtils
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,9 +26,14 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
-internal val DefaultExpenseCategories = listOf("餐饮", "交通", "购物", "娱乐", "住房", "学习", "医疗", "其他")
-internal val DefaultIncomeCategories = listOf("薪资", "奖金", "二手回血", "稿费与创作", "投资收益", "其他收入")
-internal val DefaultPaymentMethods = listOf("微信支付", "支付宝", "银行卡", "现金")
+// 与后端 backend/internal/db/db.go DefaultCategoriesMap 严格对齐
+internal val DefaultExpenseCategories = listOf(
+    "餐饮", "交通", "购物", "数码器材", "娱乐", "学习", "住房", "医疗", "旅行度假", "好物购置", "利息手续费", "其他"
+)
+internal val DefaultIncomeCategories = listOf(
+    "工资收入", "二手回血", "稿酬设计", "投资理财", "礼金红包", "退款报销", "其他收入"
+)
+internal val DefaultPaymentMethods = listOf("微信支付", "支付宝", "银行卡", "现金", "其他")
 
 internal data class LedgerSnapshot(
     val expenseCategories: List<String> = DefaultExpenseCategories,
@@ -91,9 +97,12 @@ internal object LedgerRepository {
         credentialStore: CredentialStore? = null,
         apiClient: APIClient? = null
     ) {
-        appContext = context.applicationContext
-        customCredentialStore = credentialStore
-        customApiClient = apiClient
+        synchronized(this) {
+            appContext = context.applicationContext
+            customCredentialStore = credentialStore
+            customApiClient = apiClient
+            restoreCachedCategoriesFromPrefs()
+        }
         repoScope.launch {
             runCatching {
                 val db = LedgerDatabase.getInstance(context.applicationContext)
@@ -101,6 +110,113 @@ internal object LedgerRepository {
                 db.transactionDao().deleteDuplicateServerIds()
             }
         }
+    }
+
+    /**
+     * 供后台服务（如 NotificationListenerService 冷启动唤醒）调用：
+     * 避免 Application.onCreate 异步 init 尚未完成时访问数据库或分类字典抛异常。
+     */
+    fun ensureInitialized(context: Context) {
+        if (appContext != null) return
+        synchronized(this) {
+            if (appContext == null) {
+                appContext = context.applicationContext
+                restoreCachedCategoriesFromPrefs()
+            }
+        }
+    }
+
+    private fun getBaseUrlHash(): Int {
+        val baseUrl = customApiClient?.baseUrl
+            ?: appContext?.let { APIClient.getInstance(it).baseUrl }
+            ?: "default"
+        return baseUrl.hashCode()
+    }
+
+    private fun restoreCachedCategoriesFromPrefs() {
+        val prefs = getSyncPrefs() ?: return
+        val hash = getBaseUrlHash()
+        val expense = decodeStringList(prefs.getString("cached_cat_expense_$hash", null))
+        val income = decodeStringList(prefs.getString("cached_cat_income_$hash", null))
+        val payments = decodeStringList(prefs.getString("cached_cat_payment_$hash", null))
+        if (expense.isNotEmpty() || income.isNotEmpty() || payments.isNotEmpty()) {
+            _snapshot.update {
+                it.copy(
+                    expenseCategories = expense.ifEmpty { it.expenseCategories },
+                    incomeCategories = income.ifEmpty { it.incomeCategories },
+                    paymentMethods = payments.ifEmpty { it.paymentMethods }
+                )
+            }
+        }
+    }
+
+    private fun saveCachedCategoriesToPrefs(
+        expense: List<String>,
+        income: List<String>,
+        payments: List<String>
+    ) {
+        val prefs = getSyncPrefs() ?: return
+        val hash = getBaseUrlHash()
+        prefs.edit().apply {
+            if (expense.isNotEmpty()) putString("cached_cat_expense_$hash", json.encodeToString(expense))
+            if (income.isNotEmpty()) putString("cached_cat_income_$hash", json.encodeToString(income))
+            if (payments.isNotEmpty()) putString("cached_cat_payment_$hash", json.encodeToString(payments))
+        }.apply()
+    }
+
+    private fun decodeStringList(raw: String?): List<String> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching { json.decodeFromString<List<String>>(raw) }
+            .getOrDefault(emptyList())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+    }
+
+    private fun applyFetchedCategories(allCats: List<CategoryOption>) {
+        val expense = allCats.filter { it.scope == "expense" }.map { it.name.trim() }.filter { it.isNotEmpty() }.distinct()
+        val income = allCats.filter { it.scope == "income" }.map { it.name.trim() }.filter { it.isNotEmpty() }.distinct()
+        val payments = allCats.filter { it.scope == "payment" }.map { it.name.trim() }.filter { it.isNotEmpty() }.distinct()
+        _snapshot.update {
+            it.copy(
+                expenseCategories = expense.ifEmpty { DefaultExpenseCategories },
+                incomeCategories = income.ifEmpty { DefaultIncomeCategories },
+                paymentMethods = payments.ifEmpty { DefaultPaymentMethods }
+            )
+        }
+        saveCachedCategoriesToPrefs(expense, income, payments)
+    }
+
+    internal fun currentCategoriesForType(type: String): List<String> {
+        val snap = _snapshot.value
+        return if (type == "income") snap.incomeCategories else snap.expenseCategories
+    }
+
+    internal fun resolveCategoryForScope(
+        type: String,
+        text: String,
+        preferredCategory: String? = null,
+        validCategories: List<String>? = null
+    ): String {
+        val normalizedType = if (type == "income") "income" else "expense"
+        val dictionary = (validCategories ?: currentCategoriesForType(normalizedType))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        val preferred = preferredCategory?.trim().orEmpty()
+        if (preferred.isNotEmpty() && (dictionary.isEmpty() || preferred in dictionary)) {
+            return preferred
+        }
+        return FormatUtils.inferCategoryFromText(
+            text = text,
+            knownCategories = dictionary,
+            type = normalizedType
+        )
+    }
+
+    internal fun isCategoryNotInDictionaryError(e: Throwable): Boolean {
+        val apiErr = e as? APIException ?: return false
+        return apiErr.code == 400 && apiErr.message.contains("分类不存在于分类字典")
     }
 
     private fun requireDatabase(): LedgerDatabase {
@@ -249,9 +365,19 @@ internal object LedgerRepository {
         req: CreateTransactionRequest
     ): Boolean = withContext(Dispatchers.IO) {
         val db = requireDatabase()
+        updateTransactionOptimisticInDb(db, txId, req).also { success ->
+            if (success) scheduleOutboxFlush()
+        }
+    }
+
+    internal suspend fun updateTransactionOptimisticInDb(
+        db: LedgerDatabase,
+        txId: Long,
+        req: CreateTransactionRequest
+    ): Boolean {
         val nowIso = Instant.now().toString()
 
-        db.withTransaction {
+        return db.withTransaction {
             val entity = if (txId < 0) {
                 db.transactionDao().getTransactionByLocalId(-txId)
             } else {
@@ -259,8 +385,14 @@ internal object LedgerRepository {
                     ?: db.transactionDao().getTransactionByLocalId(txId)
             } ?: return@withTransaction false
 
+            // 注意：必须同时查包含死信（failed_at != NULL）的 CREATE 事件；
+            // 否则本地自动记账 CREATE 因 400 进死信后，用户手动编辑改分类会命中不了活跃事件，
+            // 导致误插入 serverTargetId=null 的孤儿 UPDATE 且旧死信 CREATE 永远无法恢复。
+            val existingCreateEvent = db.outboxDao().findEventByTarget(entity.localId, "CREATE")
             val existingActiveEvent = db.outboxDao().findActiveEventByLocalTarget(entity.localId)
-            val isLocalPendingCreate = entity.serverId == null || existingActiveEvent?.action == "CREATE"
+            val isLocalPendingCreate = entity.serverId == null ||
+                existingActiveEvent?.action == "CREATE" ||
+                existingCreateEvent != null
 
             val updatedEntity = entity.copy(
                 amount = req.amount,
@@ -293,39 +425,71 @@ internal object LedgerRepository {
 
             db.transactionDao().update(updatedEntity)
 
-            if (isLocalPendingCreate && existingActiveEvent != null && existingActiveEvent.action == "CREATE") {
-                // 本地待同步新建条目：直接将 UPDATE 字段合并入现有 CREATE 载荷，保持幂等键不变
-                val existingReq = runCatching {
-                    json.decodeFromString<CreateTransactionRequest>(existingActiveEvent.payload)
-                }.getOrNull()
-
-                val mergedReq = if (existingReq != null) {
-                    existingReq.copy(
-                        amount = req.amount,
-                        type = req.type,
-                        category = req.category,
-                        title = req.title,
-                        note = req.note,
-                        paymentMethod = req.paymentMethod,
-                        occurredAt = req.occurredAt,
-                        wishId = req.wishId ?: existingReq.wishId,
-                        isInstallment = if (req.clearInstallment) false else (req.isInstallment ?: existingReq.isInstallment),
-                        clearInstallment = req.clearInstallment,
-                        installmentChannelCode = if (req.clearInstallment) null else (req.installmentChannelCode ?: existingReq.installmentChannelCode),
-                        installmentTotalAmount = if (req.clearInstallment) null else (req.installmentTotalAmount ?: existingReq.installmentTotalAmount),
-                        installmentMonths = if (req.clearInstallment) null else (req.installmentMonths ?: existingReq.installmentMonths),
-                        installmentMonthlyPay = if (req.clearInstallment) null else (req.installmentMonthlyPay ?: existingReq.installmentMonthlyPay),
-                        installmentRemainMonths = if (req.clearInstallment) null else (req.installmentRemainMonths ?: existingReq.installmentRemainMonths),
-                        repaymentDay = if (req.clearInstallment) null else (req.repaymentDay ?: existingReq.repaymentDay),
-                        clientRequestId = existingActiveEvent.clientRequestId
-                    )
-                } else {
-                    req.copy(clientRequestId = existingActiveEvent.clientRequestId)
+            if (isLocalPendingCreate) {
+                // 清理历史可能残留的孤儿 UPDATE 事件（serverTargetId == null）
+                db.outboxDao().findEventByTarget(entity.localId, "UPDATE")?.let { strayUpdate ->
+                    if (strayUpdate.serverTargetId == null) {
+                        db.outboxDao().deleteByEventId(strayUpdate.eventId)
+                    }
                 }
 
-                db.outboxDao().updatePayload(existingActiveEvent.eventId, json.encodeToString(mergedReq))
+                if (existingCreateEvent != null) {
+                    // 本地待同步新建条目（含此前失败进死信的 CREATE）：合并最新编辑载荷并重置为待投递
+                    val existingReq = runCatching {
+                        json.decodeFromString<CreateTransactionRequest>(existingCreateEvent.payload)
+                    }.getOrNull()
+
+                    val mergedReq = if (existingReq != null) {
+                        existingReq.copy(
+                            amount = req.amount,
+                            type = req.type,
+                            category = req.category,
+                            title = req.title,
+                            note = req.note,
+                            paymentMethod = req.paymentMethod,
+                            occurredAt = req.occurredAt,
+                            wishId = req.wishId ?: existingReq.wishId,
+                            isInstallment = if (req.clearInstallment) false else (req.isInstallment ?: existingReq.isInstallment),
+                            clearInstallment = req.clearInstallment,
+                            installmentChannelCode = if (req.clearInstallment) null else (req.installmentChannelCode ?: existingReq.installmentChannelCode),
+                            installmentTotalAmount = if (req.clearInstallment) null else (req.installmentTotalAmount ?: existingReq.installmentTotalAmount),
+                            installmentMonths = if (req.clearInstallment) null else (req.installmentMonths ?: existingReq.installmentMonths),
+                            installmentMonthlyPay = if (req.clearInstallment) null else (req.installmentMonthlyPay ?: existingReq.installmentMonthlyPay),
+                            installmentRemainMonths = if (req.clearInstallment) null else (req.installmentRemainMonths ?: existingReq.installmentRemainMonths),
+                            repaymentDay = if (req.clearInstallment) null else (req.repaymentDay ?: existingReq.repaymentDay),
+                            clientRequestId = existingCreateEvent.clientRequestId
+                        )
+                    } else {
+                        req.copy(clientRequestId = existingCreateEvent.clientRequestId)
+                    }
+
+                    db.outboxDao().updatePayload(existingCreateEvent.eventId, json.encodeToString(mergedReq))
+                    if (existingCreateEvent.failedAt != null || existingCreateEvent.nextRetryAt != null) {
+                        db.outboxDao().resetEventToPending(existingCreateEvent.eventId)
+                    }
+                } else {
+                    // 防御分支：本地行尚无 serverId，且原 CREATE 事件已被过期清理 —— 补建 CREATE 事件
+                    val clientRequestId = UUID.randomUUID().toString()
+                    val sequence = db.outboxDao().getNextSequence()
+                    val createPayload = req.copy(
+                        wishId = updatedEntity.wishId,
+                        clientRequestId = clientRequestId
+                    )
+                    db.outboxDao().insert(
+                        LedgerOutboxEventEntity(
+                            eventId = UUID.randomUUID().toString(),
+                            action = "CREATE",
+                            payload = json.encodeToString(createPayload),
+                            localTargetId = entity.localId,
+                            serverTargetId = null,
+                            clientRequestId = clientRequestId,
+                            sequence = sequence,
+                            enqueuedAt = nowIso
+                        )
+                    )
+                }
             } else {
-                // 已同步上云或有独立 UPDATE 意图：按目标合并或新建 UPDATE 事件
+                // 已同步上云：按目标合并或新建 UPDATE 事件；若旧 UPDATE 曾进死信则同步清除失败标记
                 val existingUpdate = db.outboxDao().findEventByTarget(
                     localTargetId = entity.localId,
                     action = "UPDATE"
@@ -338,6 +502,10 @@ internal object LedgerRepository {
                         existingUpdate.copy(
                             payload = json.encodeToString(updatePayload),
                             serverTargetId = entity.serverId,
+                            retryCount = 0,
+                            nextRetryAt = null,
+                            failedAt = null,
+                            lastError = null,
                             enqueuedAt = nowIso
                         )
                     )
@@ -358,8 +526,6 @@ internal object LedgerRepository {
                 }
             }
             true
-        }.also { success ->
-            if (success) scheduleOutboxFlush()
         }
     }
 
@@ -524,6 +690,11 @@ internal object LedgerRepository {
                 }
 
                 val db = appContext?.let { LedgerDatabase.getInstance(it) } ?: return@runCatching true
+
+                // 1.5 若服务端权威分类字典已拉取成功，自动修复此前因「分类不存在于分类字典」卡死的历史死信
+                if (initialized) {
+                    repairCategoryFailedEvents(db)
+                }
 
                 // 2. 推送待发事件
                 val flushOutcome = flushOutbox(db, api)
@@ -885,12 +1056,82 @@ internal object LedgerRepository {
     }
 
     /**
+     * 自愈此前因「分类不存在于分类字典」（旧版自动记账误把含「红包/利息」的支出判成「薪资」，
+     * 或自定义字典更新、旧版 UPDATE 省略默认 type 字段）而进入死信的发件箱事件。
+     *
+     * 仅在能产出「不同且合法的载荷」时才重置回待投递队列，避免对仍被服务端拒绝的事件陷入无限循环。
+     */
+    internal suspend fun repairCategoryFailedEvents(db: LedgerDatabase): Int {
+        val failed = db.outboxDao().getFailedEvents()
+            .filter {
+                (it.action == "CREATE" || it.action == "UPDATE") &&
+                    it.lastError?.contains("分类不存在于分类字典") == true
+            }
+        if (failed.isEmpty()) return 0
+
+        var repairedCount = 0
+        for (event in failed) {
+            val req = runCatching {
+                json.decodeFromString<CreateTransactionRequest>(event.payload)
+            }.getOrNull() ?: continue
+
+            val repairedCategory = resolveCategoryForScope(
+                type = req.type,
+                text = "${req.title} ${req.note.orEmpty()}",
+                preferredCategory = req.category
+            )
+            val repairedReq = req.copy(category = repairedCategory)
+            val repairedPayload = json.encodeToString(repairedReq)
+
+            if (repairedCategory == req.category && repairedPayload == event.payload) {
+                continue
+            }
+
+            db.withTransaction {
+                val latest = db.outboxDao().findEventById(event.eventId) ?: return@withTransaction
+                if (latest.failedAt == null || latest.payload != event.payload) return@withTransaction
+
+                if (repairedCategory != req.category) {
+                    db.transactionDao().updateCategory(event.localTargetId, repairedCategory)
+                }
+                db.outboxDao().updatePayload(event.eventId, repairedPayload)
+                db.outboxDao().resetEventToPending(event.eventId)
+                if (event.action == "CREATE") {
+                    // 顺手清理旧版编辑失败 CREATE 时留下的 serverTargetId == null 孤儿 UPDATE
+                    db.outboxDao().findEventByTarget(event.localTargetId, "UPDATE")?.let { stray ->
+                        if (stray.serverTargetId == null) {
+                            db.outboxDao().deleteByEventId(stray.eventId)
+                        }
+                    }
+                }
+                repairedCount++
+            }
+        }
+        return repairedCount
+    }
+
+    /**
      * 排空发件箱（P0-1, P0-4, P0-6, P1-2）：
      * 严格按入队序列 (sequence ASC) 发送；
      * 写入完成在 Room 事务内重新比对事件载荷（Check-Then-Act），杜绝同步期间编辑静默丢弃；
-     * 对网络与 5xx 故障实施退避重试，4xx 错误进入死信。
+     * 对「分类不存在于分类字典」400 错误拉取最新服务端分类字典后重映射并重试一次；
+     * 对网络与 5xx 故障实施退避重试，其余 4xx 错误进入死信。
      */
-    internal suspend fun flushOutbox(db: LedgerDatabase, api: APIClient): FlushOutcome {
+    internal suspend fun flushOutbox(db: LedgerDatabase, api: APIClient): FlushOutcome = flushOutbox(
+        db = db,
+        createTransaction = { req, meta -> api.createTransaction(req, meta = meta) },
+        updateTransaction = { id, req -> api.updateTransaction(id, req) },
+        deleteTransaction = { id -> api.deleteTransaction(id) },
+        fetchCategories = { api.fetchCategories() }
+    )
+
+    internal suspend fun flushOutbox(
+        db: LedgerDatabase,
+        createTransaction: suspend (CreateTransactionRequest, ResponseMeta) -> Transaction,
+        updateTransaction: suspend (Long, CreateTransactionRequest) -> Transaction,
+        deleteTransaction: suspend (Long) -> Unit,
+        fetchCategories: suspend () -> List<CategoryOption>
+    ): FlushOutcome {
         val events = db.outboxDao().getAllPendingEvents()
         var hasPushed = false
         var hasTransientFailure = false
@@ -902,9 +1143,10 @@ internal object LedgerRepository {
                 when (event.action) {
                     "CREATE" -> {
                         val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
+                        var sentPayload = event.payload
                         val createMeta = ResponseMeta()
                         val created = try {
-                            api.createTransaction(req, meta = createMeta)
+                            createTransaction(req, createMeta)
                         } catch (e: APIException) {
                             if (e.code == 410) {
                                 // OPT-08：client_request_id 命中服务端已软删记录（墓碑）
@@ -915,7 +1157,22 @@ internal object LedgerRepository {
                                 hasPushed = true
                                 continue
                             }
-                            throw e
+                            if (isCategoryNotInDictionaryError(e)) {
+                                val healed = tryHealCategoryMismatch(
+                                    db = db,
+                                    event = event,
+                                    originalReq = req,
+                                    fetchCategories = fetchCategories
+                                )
+                                if (healed != null) {
+                                    sentPayload = healed.second
+                                    createTransaction(healed.first, createMeta)
+                                } else {
+                                    throw e
+                                }
+                            } else {
+                                throw e
+                            }
                         }
                         if (created.deletedAt != null) {
                             db.withTransaction {
@@ -944,7 +1201,7 @@ internal object LedgerRepository {
                                 db.outboxDao().deleteByEventId(event.eventId)
                                 return@withTransaction
                             }
-                            if (latest.payload != event.payload) {
+                            if (latest.payload != sentPayload) {
                                 // P0-1 竞态保护：飞行期间用户再次编辑了该条目
                                 db.transactionDao().bindServerId(event.localTargetId, created.id)
                                 db.transactionDao().updateSyncStatus(event.localTargetId, "PENDING_UPDATE")
@@ -979,8 +1236,9 @@ internal object LedgerRepository {
                         }
                         if (serverId != null && serverId > 0) {
                             val req = json.decodeFromString<CreateTransactionRequest>(event.payload)
+                            var sentPayload = event.payload
                             val updated = try {
-                                api.updateTransaction(serverId, req)
+                                updateTransaction(serverId, req)
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
@@ -993,14 +1251,29 @@ internal object LedgerRepository {
                                     hasPushed = true
                                     continue
                                 }
-                                throw e
+                                if (isCategoryNotInDictionaryError(e)) {
+                                    val healed = tryHealCategoryMismatch(
+                                        db = db,
+                                        event = event,
+                                        originalReq = req,
+                                        fetchCategories = fetchCategories
+                                    )
+                                    if (healed != null) {
+                                        sentPayload = healed.second
+                                        updateTransaction(serverId, healed.first)
+                                    } else {
+                                        throw e
+                                    }
+                                } else {
+                                    throw e
+                                }
                             }
                             db.withTransaction {
                                 val latest = db.outboxDao().findActiveEventById(event.eventId)
                                 if (latest == null) {
                                     return@withTransaction
                                 }
-                                if (latest.payload != event.payload) {
+                                if (latest.payload != sentPayload) {
                                     // P0-1 竞态保护：飞行期间用户再次编辑了该条目
                                     return@withTransaction
                                 }
@@ -1020,7 +1293,7 @@ internal object LedgerRepository {
                         }
                         if (serverId != null && serverId > 0) {
                             try {
-                                api.deleteTransaction(serverId)
+                                deleteTransaction(serverId)
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
@@ -1061,6 +1334,50 @@ internal object LedgerRepository {
             hasTransientFailure = hasTransientFailure,
             isUnauthorized = isUnauthorized
         )
+    }
+
+    private suspend fun tryHealCategoryMismatch(
+        db: LedgerDatabase,
+        event: LedgerOutboxEventEntity,
+        originalReq: CreateTransactionRequest,
+        fetchCategories: suspend () -> List<CategoryOption>
+    ): Pair<CreateTransactionRequest, String>? {
+        val fetched = runCatching { fetchCategories() }.getOrNull()
+        if (!fetched.isNullOrEmpty()) {
+            applyFetchedCategories(fetched)
+        }
+        val scope = if (originalReq.type == "income") "income" else "expense"
+        val validList = fetched
+            ?.filter { it.scope == scope }
+            ?.map { it.name.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?.distinct()
+            ?.takeIf { it.isNotEmpty() }
+            ?: currentCategoriesForType(scope)
+
+        val healedCategory = resolveCategoryForScope(
+            type = scope,
+            text = "${originalReq.title} ${originalReq.note.orEmpty()}",
+            preferredCategory = originalReq.category,
+            validCategories = validList
+        )
+        val healedReq = originalReq.copy(category = healedCategory)
+        val healedPayload = json.encodeToString(healedReq)
+
+        if (healedCategory == originalReq.category && healedPayload == event.payload) {
+            return null
+        }
+
+        db.withTransaction {
+            val latest = db.outboxDao().findActiveEventById(event.eventId)
+            if (latest != null && latest.payload == event.payload) {
+                if (healedCategory != originalReq.category) {
+                    db.transactionDao().updateCategory(event.localTargetId, healedCategory)
+                }
+                db.outboxDao().updatePayload(event.eventId, healedPayload)
+            }
+        }
+        return healedReq to healedPayload
     }
 
     private enum class OutboxErrorResult { STOP_UNAUTHORIZED, PERMANENT_FAILURE, TRANSIENT_RETRY }
@@ -1146,16 +1463,7 @@ internal object LedgerRepository {
 
             val categoriesResult = categoriesDeferred.await()
             categoriesResult.getOrNull()?.let { allCats ->
-                val expense = allCats.filter { it.scope == "expense" }.map { it.name }
-                val income = allCats.filter { it.scope == "income" }.map { it.name }
-                val payments = allCats.filter { it.scope == "payment" }.map { it.name }
-                _snapshot.update {
-                    it.copy(
-                        expenseCategories = expense.ifEmpty { DefaultExpenseCategories },
-                        incomeCategories = income.ifEmpty { DefaultIncomeCategories },
-                        paymentMethods = payments.ifEmpty { DefaultPaymentMethods }
-                    )
-                }
+                applyFetchedCategories(allCats)
             }
 
             val channelsResult = channelsDeferred.await()
@@ -1211,6 +1519,7 @@ internal object LedgerRepository {
 
     fun clear() {
         initialized = false
+        lastMetadataRefreshTime = 0L
         _snapshot.value = LedgerSnapshot()
     }
 }

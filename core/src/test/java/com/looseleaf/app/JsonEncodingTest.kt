@@ -89,8 +89,8 @@ class JsonEncodingTest {
     }
 
     @Test
-    fun `记账类型为默认时省略为 expense`() {
-        val payload = json.encodeToString(
+    fun `记账类型恒显式下发，支出与收入均保留 type`() {
+        val expensePayload = json.encodeToString(
             CreateTransactionRequest(
                 amount = 1800,
                 category = "餐饮",
@@ -98,7 +98,11 @@ class JsonEncodingTest {
                 occurredAt = "2026-01-01T08:00:00+08:00"
             )
         )
-        assertFalse(payload.contains("\"type\""))
-        assertTrue(payload.contains("\"amount\":1800"))
+        // type 携带 @EncodeDefault(ALWAYS)：把「收入」改回「支出」时必须显式下发 "expense"，
+        // 否则后端 UpdateTransaction 按「缺省 = 保持」保留 income 并触发分类字典 400。
+        assertTrue(expensePayload.contains("\"type\":\"expense\""))
+        assertTrue(expensePayload.contains("\"amount\":1800"))
+        assertFalse("其它可空默认字段仍应省略", expensePayload.contains("\"note\""))
+        assertFalse("其它布尔默认字段仍应省略", expensePayload.contains("\"clear_installment\""))
     }
 }

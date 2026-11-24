@@ -174,7 +174,7 @@ internal fun EditTransactionSheet(
                         onClick = {
                             editType = "income"
                             if (editCategory !in incomeCategories) {
-                                editCategory = incomeCategories.firstOrNull() ?: "薪资"
+                                editCategory = incomeCategories.firstOrNull() ?: "工资收入"
                             }
                         }
                     )

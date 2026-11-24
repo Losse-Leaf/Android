@@ -81,6 +81,9 @@ internal interface TransactionDao {
     @Query("UPDATE cached_transactions SET sync_status = :status WHERE local_id = :localId")
     suspend fun updateSyncStatus(localId: Long, status: String)
 
+    @Query("UPDATE cached_transactions SET category = :category WHERE local_id = :localId")
+    suspend fun updateCategory(localId: Long, category: String)
+
     @Query("UPDATE cached_transactions SET sync_status = 'PENDING_DELETE' WHERE local_id = :localId")
     suspend fun markPendingDelete(localId: Long)
 

@@ -806,4 +806,226 @@ class LedgerSyncConsistencyTest {
         assertEquals(1, failed.size)
         assertEquals("evt_retry_cap", failed.single().eventId)
     }
+
+    @Test
+    fun `编辑失败的本地新建自动记账应复活原 CREATE 事件并清理孤儿 UPDATE`() = runBlocking {
+        val outboxDao = db.outboxDao()
+        val txDao = db.transactionDao()
+
+        val localId = txDao.insert(
+            CachedTransactionEntity(
+                amount = 3650,
+                type = "expense",
+                category = "薪资",
+                title = "支付宝自动记账",
+                note = "自动记账 (支付宝 - 薪资): 支付宝 付款36.50元（含红包抵扣2元）",
+                paymentMethod = "支付宝",
+                occurredAt = "2026-11-24T10:00:00+08:00",
+                syncStatus = "PENDING_CREATE"
+            )
+        )
+        val badCreateReq = CreateTransactionRequest(
+            amount = 3650,
+            type = "expense",
+            category = "薪资",
+            title = "支付宝自动记账",
+            note = "自动记账 (支付宝 - 薪资): 支付宝 付款36.50元（含红包抵扣2元）",
+            paymentMethod = "支付宝",
+            occurredAt = "2026-11-24T10:00:00+08:00",
+            clientRequestId = "crid_failed_auto_1"
+        )
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = "evt_failed_create",
+                action = "CREATE",
+                payload = kotlinx.serialization.json.Json.encodeToString(
+                    CreateTransactionRequest.serializer(),
+                    badCreateReq
+                ),
+                localTargetId = localId,
+                serverTargetId = null,
+                clientRequestId = "crid_failed_auto_1",
+                sequence = 1L,
+                retryCount = 1,
+                failedAt = "2026-11-24T10:00:05Z",
+                lastError = "[400] 分类不存在于分类字典",
+                enqueuedAt = "2026-11-24T10:00:00Z"
+            )
+        )
+        // 顺带模拟旧版 Bug 留下的孤儿 UPDATE（serverTargetId == null）
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = "evt_stray_update",
+                action = "UPDATE",
+                payload = "{}",
+                localTargetId = localId,
+                serverTargetId = null,
+                clientRequestId = "crid_stray",
+                sequence = 2L,
+                enqueuedAt = "2026-11-24T10:01:00Z"
+            )
+        )
+
+        val edited = badCreateReq.copy(category = "餐饮", title = "星巴克咖啡")
+        val updated = LedgerRepository.updateTransactionOptimisticInDb(db, -localId, edited)
+        assertTrue(updated)
+
+        // 死信已被复活，仅剩 1 条活跃 CREATE，孤儿 UPDATE 已被清除
+        assertEquals(0, outboxDao.countFailedEvents())
+        val pending = outboxDao.getAllPendingEvents()
+        assertEquals(1, pending.size)
+        val revived = pending.single()
+        assertEquals("evt_failed_create", revived.eventId)
+        assertEquals("CREATE", revived.action)
+        assertEquals("crid_failed_auto_1", revived.clientRequestId)
+        assertNull(revived.failedAt)
+        assertNull(revived.lastError)
+        assertTrue(revived.payload.contains("\"category\":\"餐饮\""))
+        assertTrue(revived.payload.contains("\"type\":\"expense\""))
+    }
+
+    @Test
+    fun `repairCategoryFailedEvents 自动修复历史分类字典死信且不重复循环`() = runBlocking {
+        val outboxDao = db.outboxDao()
+        val txDao = db.transactionDao()
+
+        val localId = txDao.insert(
+            CachedTransactionEntity(
+                amount = 2800,
+                type = "expense",
+                category = "薪资",
+                title = "支付宝自动记账",
+                note = "自动记账 (支付宝 - 薪资): 支付宝向星巴克付款28.00元（含红包）",
+                occurredAt = "2026-11-24T10:00:00+08:00",
+                syncStatus = "PENDING_CREATE"
+            )
+        )
+        val badReq = CreateTransactionRequest(
+            amount = 2800,
+            type = "expense",
+            category = "薪资",
+            title = "支付宝自动记账",
+            note = "自动记账 (支付宝 - 薪资): 支付宝向星巴克付款28.00元（含红包）",
+            occurredAt = "2026-11-24T10:00:00+08:00",
+            clientRequestId = "crid_heal_history"
+        )
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = "evt_heal_history",
+                action = "CREATE",
+                payload = kotlinx.serialization.json.Json.encodeToString(
+                    CreateTransactionRequest.serializer(),
+                    badReq
+                ),
+                localTargetId = localId,
+                serverTargetId = null,
+                clientRequestId = "crid_heal_history",
+                sequence = 1L,
+                failedAt = "2026-11-24T10:00:05Z",
+                lastError = "[400] 分类不存在于分类字典",
+                enqueuedAt = "2026-11-24T10:00:00Z"
+            )
+        )
+
+        val repaired = LedgerRepository.repairCategoryFailedEvents(db)
+        assertEquals(1, repaired)
+
+        val localRow = txDao.getTransactionByLocalId(localId)!!
+        assertEquals("餐饮", localRow.category)
+
+        val pending = outboxDao.getAllPendingEvents()
+        assertEquals(1, pending.size)
+        assertTrue(pending.single().payload.contains("\"category\":\"餐饮\""))
+
+        // 若该合法分类仍被服务端拒绝再次进死信，再次调用 repair 不得无限复活循环
+        outboxDao.markPermanentFailure("evt_heal_history", "2026-11-24T10:05:00Z", "[400] 分类不存在于分类字典")
+        val secondPass = LedgerRepository.repairCategoryFailedEvents(db)
+        assertEquals(0, secondPass)
+        assertEquals(1, outboxDao.countFailedEvents())
+    }
+
+    @Test
+    fun `flushOutbox 遇到分类字典 400 时刷新服务端分类自愈并重试落库`() = runBlocking {
+        val outboxDao = db.outboxDao()
+        val txDao = db.transactionDao()
+
+        val localId = txDao.insert(
+            CachedTransactionEntity(
+                amount = 1990,
+                type = "expense",
+                category = "已删除旧分类",
+                title = "支付宝自动记账",
+                note = "自动记账: 支付宝向美团外卖付款19.90元",
+                occurredAt = "2026-11-24T12:00:00+08:00",
+                syncStatus = "PENDING_CREATE"
+            )
+        )
+        val req = CreateTransactionRequest(
+            amount = 1990,
+            type = "expense",
+            category = "已删除旧分类",
+            title = "支付宝自动记账",
+            note = "自动记账: 支付宝向美团外卖付款19.90元",
+            occurredAt = "2026-11-24T12:00:00+08:00",
+            clientRequestId = "crid_live_heal"
+        )
+        outboxDao.insert(
+            LedgerOutboxEventEntity(
+                eventId = "evt_live_heal",
+                action = "CREATE",
+                payload = kotlinx.serialization.json.Json.encodeToString(
+                    CreateTransactionRequest.serializer(),
+                    req
+                ),
+                localTargetId = localId,
+                serverTargetId = null,
+                clientRequestId = "crid_live_heal",
+                sequence = 1L,
+                enqueuedAt = "2026-11-24T12:00:00Z"
+            )
+        )
+
+        val serverAllowedExpenses = listOf("吃喝", "日常开销")
+        val attemptedCategories = mutableListOf<String>()
+
+        val outcome = LedgerRepository.flushOutbox(
+            db = db,
+            createTransaction = { candidate, _ ->
+                attemptedCategories += candidate.category
+                if (candidate.category !in serverAllowedExpenses) {
+                    throw com.looseleaf.app.data.api.APIException(400, "分类不存在于分类字典")
+                }
+                Transaction(
+                    id = 888L,
+                    amount = candidate.amount,
+                    type = candidate.type,
+                    category = candidate.category,
+                    title = candidate.title,
+                    note = candidate.note,
+                    occurredAt = candidate.occurredAt,
+                    clientRequestId = candidate.clientRequestId
+                )
+            },
+            updateTransaction = { _, _ -> error("unexpected update") },
+            deleteTransaction = { error("unexpected delete") },
+            fetchCategories = {
+                listOf(
+                    com.looseleaf.app.model.CategoryOption(scope = "expense", name = "吃喝"),
+                    com.looseleaf.app.model.CategoryOption(scope = "expense", name = "日常开销"),
+                    com.looseleaf.app.model.CategoryOption(scope = "income", name = "工资收入")
+                )
+            }
+        )
+
+        assertTrue(outcome.hasPushed)
+        assertFalse(outcome.hasTransientFailure)
+        assertEquals(listOf("已删除旧分类", "吃喝"), attemptedCategories)
+
+        val syncedRow = txDao.getTransactionByLocalId(localId)!!
+        assertEquals(888L, syncedRow.serverId)
+        assertEquals("SYNCED", syncedRow.syncStatus)
+        assertEquals("吃喝", syncedRow.category)
+        assertEquals(0, outboxDao.countPendingEvents())
+        assertEquals(0, outboxDao.countFailedEvents())
+    }
 }

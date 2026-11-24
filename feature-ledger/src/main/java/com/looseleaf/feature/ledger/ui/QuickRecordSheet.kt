@@ -103,7 +103,7 @@ internal fun QuickRecordSheet(
     var selectedType by rememberSaveable { mutableStateOf("expense") }
     val activeCategories = if (selectedType == "income") incomeCategories else expenseCategories
     var selectedCategory by rememberSaveable(selectedType) {
-        mutableStateOf(activeCategories.firstOrNull() ?: if (selectedType == "income") "薪资" else "餐饮")
+        mutableStateOf(activeCategories.firstOrNull() ?: if (selectedType == "income") "工资收入" else "餐饮")
     }
 
     var selectedPaymentMethod by rememberSaveable {
@@ -147,12 +147,15 @@ internal fun QuickRecordSheet(
      * 只在用户**还没敲金额**时采纳 —— 一旦敲了数字键盘，说明他已经明确表达金额，
      * 此时解析结果让位，避免「我明明输了 30，却被备注里的 42.5 覆盖」。
      */
-    val parsedNote = remember(noteText, activeCategories) {
+    val parsedNote = remember(noteText, expenseCategories, incomeCategories) {
         if (noteText.isBlank()) {
             null
         } else {
-            FormatUtils.parseNaturalTransactionInput(noteText, activeCategories)
-                .takeIf { it.amountCents > 0 }
+            FormatUtils.parseNaturalTransactionInput(
+                input = noteText,
+                knownCategories = expenseCategories,
+                incomeCategories = incomeCategories
+            ).takeIf { it.amountCents > 0 }
         }
     }
     val useParsedNote = parsedNote != null && effectiveCents == 0L
@@ -206,7 +209,13 @@ internal fun QuickRecordSheet(
         val cents = submitCents
         if (cents > 0 && !isSubmitting) {
             val submitType = parsed?.type ?: selectedType
-            val submitCategory = parsed?.category ?: selectedCategory
+            val submitAllowedCategories = if (submitType == "income") incomeCategories else expenseCategories
+            val rawCategory = parsed?.category ?: selectedCategory
+            val submitCategory = if (submitAllowedCategories.isEmpty() || rawCategory in submitAllowedCategories) {
+                rawCategory
+            } else {
+                submitAllowedCategories.first()
+            }
             // 分期只对支出生效：语义解析可能把类型切成收入，这里再兜一次底
             val submitInstallment = isInstallment && submitType == "expense"
             if (submitInstallment) {
@@ -340,7 +349,7 @@ internal fun QuickRecordSheet(
                                 selectedType = "income"
                                 payMethodChoice = "full"
                                 if (selectedCategory !in incomeCategories) {
-                                    selectedCategory = incomeCategories.firstOrNull() ?: "薪资"
+                                    selectedCategory = incomeCategories.firstOrNull() ?: "工资收入"
                                 }
                             }
                         )

@@ -34,6 +34,54 @@ class FormatUtilsTest {
         val incomeParsed = FormatUtils.parseNaturalTransactionInput("+5000 工资发放")
         assertEquals(500000L, incomeParsed.amountCents)
         assertEquals("income", incomeParsed.type)
+        assertEquals("工资收入", incomeParsed.category)
+
+        val customIncomeParsed = FormatUtils.parseNaturalTransactionInput(
+            input = "+5000 工资发放",
+            knownCategories = listOf("吃喝", "杂项"),
+            incomeCategories = listOf("月薪", "其他入账")
+        )
+        assertEquals("income", customIncomeParsed.type)
+        assertEquals("月薪", customIncomeParsed.category)
+    }
+
+    @Test
+    fun testInferCategoryRespectsTypeAndKnownDictionary() {
+        // 支出文案包含「红包」或「利息」绝不能误判成收入分类「薪资」
+        assertEquals(
+            "其他",
+            FormatUtils.inferCategoryFromText(
+                text = "支付宝 付款 36.50 元（含红包抵扣 2.00 元）",
+                knownCategories = listOf("餐饮", "交通", "购物", "其他"),
+                type = "expense"
+            )
+        )
+        assertEquals(
+            "利息手续费",
+            FormatUtils.inferCategoryFromText(
+                text = "信用卡分期利息扣款 18.00 元",
+                knownCategories = listOf("餐饮", "利息手续费", "其他"),
+                type = "expense"
+            )
+        )
+        // 用户删改默认分类后，返回值必须保证落在 knownCategories 中
+        assertEquals(
+            "杂项",
+            FormatUtils.inferCategoryFromText(
+                text = "支付宝 付款 36.50 元（含红包抵扣）",
+                knownCategories = listOf("杂项", "生活"),
+                type = "expense"
+            )
+        )
+        // 收入文案严格在收入字典中匹配
+        assertEquals(
+            "礼金红包",
+            FormatUtils.inferCategoryFromText(
+                text = "微信收款 收到红包 88.00 元",
+                knownCategories = listOf("工资收入", "礼金红包", "其他收入"),
+                type = "income"
+            )
+        )
     }
 
     @Test

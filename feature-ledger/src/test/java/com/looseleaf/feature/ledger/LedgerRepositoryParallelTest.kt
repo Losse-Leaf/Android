@@ -80,6 +80,8 @@ class LedgerRepositoryParallelTest {
     }
 
     private companion object {
-        val DefaultExpenseCategoriesForTest = listOf("餐饮", "交通", "购物", "娱乐", "住房", "学习", "医疗", "其他")
+        val DefaultExpenseCategoriesForTest = listOf(
+            "餐饮", "交通", "购物", "数码器材", "娱乐", "学习", "住房", "医疗", "旅行度假", "好物购置", "利息手续费", "其他"
+        )
     }
 }

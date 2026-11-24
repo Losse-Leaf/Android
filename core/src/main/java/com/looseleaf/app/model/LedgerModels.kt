@@ -2,6 +2,8 @@ package com.looseleaf.app.model
 
 import androidx.compose.runtime.Immutable
 import com.looseleaf.app.utils.FormatUtils
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -39,9 +41,13 @@ data class Transaction(
     @SerialName("deleted_at") val deletedAt: String? = null
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class CreateTransactionRequest(
     val amount: Long,
+    // type 必须始终显式下发：后端 UpdateTransaction 对空 type 按「保持原值」处理，
+    // 若按默认值省略，把「收入」改回「支出」时服务端仍保持 income 并触发分类字典 400。
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val type: String = "expense",
     val category: String,
     val title: String,

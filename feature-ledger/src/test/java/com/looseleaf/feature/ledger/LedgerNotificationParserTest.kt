@@ -62,7 +62,7 @@ class LedgerNotificationParserTest {
             content = "【招商银行】您的验证码为 849201，支付 100 元验证码",
             pkg = "com.android.mms"
         )
-        // 虽有支付金额与银行，但含有验证码，必须在业务层判定为 null 或被过滤
+        assertNull("含验证码的短信必须直接被 parseBillFromText 过滤", req)
         assertTrue(LedgerNotificationListenerService.isVerificationCodeOrSpam("验证码为 849201"))
     }
 
@@ -74,7 +74,119 @@ class LedgerNotificationParserTest {
         )
         assertNotNull(req)
         assertEquals(5800L, req!!.amount)
-        assertFalse("备注不应明文暴露连续卡号", req!!.note!!.contains("6829"))
+        assertFalse("备注不应明文暴露连续卡号", req.note!!.contains("6829"))
         assertTrue("卡号应被星号掩码", req.note!!.contains("****"))
+    }
+
+    @Test
+    fun `支付宝上周总结与周期账单及营销通知应被彻底屏蔽`() {
+        val blockedSamples = listOf(
+            "支付宝 上周总结：上周共支出 ¥1,280.50，较前一周减少 12%",
+            "支付宝 账单小助手 上周支出 890.00 元，点击查看周报",
+            "支付宝 你的本周消费报告已生成：共消费 15 笔，总支出 680.50 元",
+            "支付宝 花呗账单已出，本期应还 2,340.00 元，最后还款日 11月25日",
+            "支付宝 余额宝昨日收益 +2.35 元",
+            "支付宝 你有 ¥5.00 消费红包待领取，点击领取",
+            "支付宝 付款失败：向星巴克付款 36.50 元，余额不足",
+            "支付宝 商品降价提醒 ¥99.00",
+            "支付宝 账户余额 500.00 元",
+            "支付宝 信用分更新通知，芝麻信用 780 分"
+        )
+        for (sample in blockedSamples) {
+            val parsed = LedgerNotificationListenerService.parseBillFromText(
+                content = sample,
+                pkg = "com.eg.android.AlipayGphone"
+            )
+            assertNull("非真实成交的支付宝通知不得记账: $sample", parsed)
+        }
+    }
+
+    @Test
+    fun `微信普通好友群聊提到消费金额不得误记`() {
+        val chatSamples = listOf(
+            "小明 我昨天吃饭消费了 50.00 元",
+            "家庭群 刚刚转账给物业 320.00 元",
+            "同事群 这个耳机只要 ¥299.00"
+        )
+        for (sample in chatSamples) {
+            val parsed = LedgerNotificationListenerService.parseBillFromText(
+                content = sample,
+                pkg = "com.tencent.mm"
+            )
+            assertNull("微信普通聊天消息不得误记: $sample", parsed)
+        }
+    }
+
+    @Test
+    fun `支出通知含红包抵扣或收款方字样时类型与分类必须合法`() {
+        val customExpenseDict = listOf("餐饮", "交通", "购物", "其他")
+        val customIncomeDict = listOf("工资收入", "礼金红包", "其他收入")
+
+        // 1. 含「红包抵扣」的支出绝不能落到非法的「薪资」分类
+        val redPacketDiscountTx = LedgerNotificationListenerService.parseBillFromText(
+            content = "支付宝 付款 36.50 元（含红包抵扣 2.00 元）",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = customExpenseDict,
+            incomeCategories = customIncomeDict
+        )
+        assertNotNull(redPacketDiscountTx)
+        assertEquals("expense", redPacketDiscountTx!!.type)
+        assertEquals(3650L, redPacketDiscountTx.amount)
+        assertTrue(
+            "分类必须落在合法支出字典内，实际: ${redPacketDiscountTx.category}",
+            redPacketDiscountTx.category in customExpenseDict
+        )
+
+        // 2. 含「收款方：星巴克」的支付宝支出绝不能被误判为 income
+        val payeeExpenseTx = LedgerNotificationListenerService.parseBillFromText(
+            content = "支付宝 交易成功，收款方：星巴克，付款 38.00 元",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = customExpenseDict,
+            incomeCategories = customIncomeDict
+        )
+        assertNotNull(payeeExpenseTx)
+        assertEquals("expense", payeeExpenseTx!!.type)
+        assertEquals(3800L, payeeExpenseTx.amount)
+        assertEquals("餐饮", payeeExpenseTx.category)
+
+        // 3. 用户完全自定义分类字典（删除「餐饮」「其他」）时，仍保证命中字典内合法分类
+        val renamedDict = listOf("日常开销", "吃喝玩乐")
+        val renamedTx = LedgerNotificationListenerService.parseBillFromText(
+            content = "支付宝 付款 25.00 元",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = renamedDict,
+            incomeCategories = listOf("个人入账")
+        )
+        assertNotNull(renamedTx)
+        assertTrue(renamedTx!!.category in renamedDict)
+    }
+
+    @Test
+    fun `真实信用卡消费短信带可用额度后缀仍可正常解析`() {
+        val req = LedgerNotificationListenerService.parseBillFromText(
+            content = "【招商银行】您尾号 8888 的信用卡 11月24日 快捷支付人民币 58.00 元，当前可用额度 30000.00 元。",
+            pkg = "com.cmbchina.pb"
+        )
+        assertNotNull(req)
+        assertEquals("expense", req!!.type)
+        assertEquals(5800L, req.amount)
+        assertEquals("银行卡", req.paymentMethod)
+    }
+
+    @Test
+    fun `组合标题与长正文时不漏掉上周总结关键字`() {
+        val combined = LedgerNotificationListenerService.extractNotificationContent(
+            title = "支付宝",
+            text = "点击查看详情",
+            bigText = "上周总结：你上周共支出 1,280.50 元",
+            subText = "账单小助手"
+        )
+        assertTrue(combined.contains("上周总结"))
+        assertNull(
+            LedgerNotificationListenerService.parseBillFromText(
+                content = combined,
+                pkg = "com.eg.android.AlipayGphone"
+            )
+        )
     }
 }
