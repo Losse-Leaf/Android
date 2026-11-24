@@ -189,4 +189,75 @@ class LedgerNotificationParserTest {
             )
         )
     }
+
+    @Test
+    fun `支付宝送红包与优惠券及体验金与账户互转均不得记为支出或收入`() {
+        val promoAndTransferSamples = listOf(
+            "支付宝 送你 1.50 元付款红包，今日可用",
+            "支付宝 恭喜获得实体店消费红包 2.00 元，已存入卡包",
+            "支付宝 支付有礼：送你 0.88 元通用红包",
+            "支付宝 1.88 元红包已到账，快去使用吧",
+            "支付宝 商家赠送 3.00 元到店红包，满 10 元可用",
+            "支付宝 付款立减 2.00 元红包已发放",
+            "支付宝 余额宝体验金 1000.00 元已到账",
+            "支付宝 饿了么 8 元无门槛红包已到账",
+            "支付宝 滴滴打车 5 元立减券已到账",
+            "支付宝 话费充值券 3.00 元已到账",
+            "支付宝 品牌福利：支付专享红包 3.00 元",
+            "支付宝 零钱提现到账 500.00 元",
+            "支付宝 转入余额宝 200.00 元"
+        )
+        for (sample in promoAndTransferSamples) {
+            val parsed = LedgerNotificationListenerService.parseBillFromText(
+                content = sample,
+                pkg = "com.eg.android.AlipayGphone"
+            )
+            assertNull("平台赠红包/优惠券/体验金/互转不得记账: $sample", parsed)
+        }
+    }
+
+    @Test
+    fun `真实消费回执括号内含消费红包抵扣或立减附注仍精确提取实付金额与商户`() {
+        val req1 = LedgerNotificationListenerService.parseBillFromText(
+            content = "支付宝 支付助手：你已向星巴克付款 36.50 元（已用消费红包抵扣 2.00 元）",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = listOf("餐饮", "交通", "购物", "其他")
+        )
+        assertNotNull(req1)
+        assertEquals("expense", req1!!.type)
+        assertEquals(3650L, req1.amount)
+        assertEquals("星巴克", req1.title)
+        assertEquals("餐饮", req1.category)
+
+        val req2 = LedgerNotificationListenerService.parseBillFromText(
+            content = "支付宝 付款 18.80 元（已立减 1.20 元）",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = listOf("餐饮", "交通", "购物", "其他")
+        )
+        assertNotNull(req2)
+        assertEquals("expense", req2!!.type)
+        assertEquals(1880L, req2.amount)
+    }
+
+    @Test
+    fun `银行快捷支付通知支持括号通道与财付通商户抽取且不误抓余额`() {
+        val cmbWithMerchant = LedgerNotificationListenerService.parseBillFromText(
+            content = "【招商银行】您尾号 8888 的储蓄卡快捷支付(财付通-星巴克)人民币 36.50 元，当前余额 1200.00 元",
+            pkg = "com.cmbchina.pb",
+            expenseCategories = listOf("餐饮", "购物", "其他")
+        )
+        assertNotNull(cmbWithMerchant)
+        assertEquals(3650L, cmbWithMerchant!!.amount)
+        assertEquals("星巴克", cmbWithMerchant.title)
+        assertEquals("餐饮", cmbWithMerchant.category)
+
+        val ccbIntermediary = LedgerNotificationListenerService.parseBillFromText(
+            content = "【建设银行】您尾号4321的储蓄卡11月24日10:05支出(微信支付)35.00元，活期余额1234.56元",
+            pkg = "com.chinamworld.main",
+            expenseCategories = listOf("餐饮", "购物", "其他")
+        )
+        assertNotNull(ccbIntermediary)
+        assertEquals(3500L, ccbIntermediary!!.amount)
+        assertEquals("expense", ccbIntermediary.type)
+    }
 }

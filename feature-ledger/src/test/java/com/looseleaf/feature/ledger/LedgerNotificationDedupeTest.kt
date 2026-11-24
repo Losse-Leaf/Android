@@ -3,8 +3,12 @@ package com.looseleaf.feature.ledger
 import android.app.Notification
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.looseleaf.app.model.CreateTransactionRequest
+import com.looseleaf.feature.ledger.service.AutoLedgerDedupeDecision
 import com.looseleaf.feature.ledger.service.LedgerNotificationListenerService
+import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -190,5 +194,217 @@ class LedgerNotificationDedupeTest {
                 nowMs = nowMs
             )
         )
+    }
+
+    @Test
+    fun `单笔消费触发微信与招行App与银行短信与云闪付四端提醒时仅记一笔`() = runBlocking {
+        val expenseDict = listOf("餐饮", "交通", "购物", "其他")
+        val records = mutableMapOf<Long, CreateTransactionRequest>()
+        var nextLocalId = 1L
+        val t0 = 1_700_100_000_000L
+
+        val d1 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.tencent.mm",
+            sbnKey = "0|wx|1",
+            notificationTimestampMs = t0,
+            content = "微信支付 微信支付凭证：你已向星巴克付款36.50元",
+            expenseCategories = expenseDict,
+            nowMs = t0,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        assertTrue(d1 is AutoLedgerDedupeDecision.RecordNew)
+
+        val d2 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.cmbchina.pb",
+            sbnKey = "0|cmb|1",
+            notificationTimestampMs = t0 + 2_000L,
+            content = "招商银行 交易提醒：您尾号8888的储蓄卡快捷支付(财付通)人民币36.50元",
+            expenseCategories = expenseDict,
+            nowMs = t0 + 2_000L,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        assertTrue(d2 is AutoLedgerDedupeDecision.DropDuplicate)
+
+        val d3 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.android.mms",
+            sbnKey = "0|sms|1",
+            notificationTimestampMs = t0 + 18_000L,
+            content = "【招商银行】您尾号8888的储蓄卡11月24日快捷支付人民币36.50元，余额1200.00元",
+            expenseCategories = expenseDict,
+            nowMs = t0 + 18_000L,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        assertTrue(d3 is AutoLedgerDedupeDecision.DropDuplicate)
+
+        val d4 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.unionpay",
+            sbnKey = "0|union|1",
+            notificationTimestampMs = t0 + 25_000L,
+            content = "云闪付 消费提醒：您尾号8888的卡消费36.50元",
+            expenseCategories = expenseDict,
+            nowMs = t0 + 25_000L,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        assertTrue(d4 is AutoLedgerDedupeDecision.DropDuplicate)
+
+        assertEquals(1, records.size)
+        val saved = records.values.single()
+        assertEquals(3650L, saved.amount)
+        assertEquals("星巴克", saved.title)
+        assertEquals("餐饮", saved.category)
+        assertEquals("微信支付", saved.paymentMethod)
+    }
+
+    @Test
+    fun `银行短信先到且支付宝后到时原地补全商户与分类且不重复记账`() = runBlocking {
+        val expenseDict = listOf("餐饮", "交通", "购物", "其他")
+        val records = mutableMapOf<Long, CreateTransactionRequest>()
+        var nextLocalId = 10L
+        var enrichCalls = 0
+        val t0 = 1_700_200_000_000L
+
+        // 1. 银行短信先到（信息少：银行卡 + 其他）
+        val d1 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.android.mms",
+            sbnKey = "0|sms|10",
+            notificationTimestampMs = t0,
+            content = "【工商银行】您尾号6829的储蓄卡于11月24日消费36.50元",
+            expenseCategories = expenseDict,
+            nowMs = t0,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> enrichCalls++; records[id] = req; true }
+        )
+        assertTrue(d1 is AutoLedgerDedupeDecision.RecordNew)
+        assertEquals(1, records.size)
+        assertEquals("其他", records[10L]!!.category)
+
+        // 2. 4 秒后支付宝到账回执到达（带商户「星巴克」与分类「餐饮」）—— 原地补全，不新建第 2 条
+        val d2 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.eg.android.AlipayGphone",
+            sbnKey = "0|alipay|10",
+            notificationTimestampMs = t0 + 4_000L,
+            content = "支付助手 你已向星巴克付款36.50元",
+            expenseCategories = expenseDict,
+            nowMs = t0 + 4_000L,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> enrichCalls++; records[id] = req; true }
+        )
+        assertTrue(d2 is AutoLedgerDedupeDecision.EnrichExisting)
+        assertEquals(10L, (d2 as AutoLedgerDedupeDecision.EnrichExisting).existingLocalId)
+
+        // 3. 9 秒后工行 App 推送到达（质量分低于支付宝）—— 直接丢弃，不覆盖已补全的星巴克
+        val d3 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.icbc",
+            sbnKey = "0|icbc|10",
+            notificationTimestampMs = t0 + 9_000L,
+            content = "工商银行 动账通知：您尾号6829的储蓄卡消费36.50元",
+            expenseCategories = expenseDict,
+            nowMs = t0 + 9_000L,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> enrichCalls++; records[id] = req; true }
+        )
+        assertTrue(d3 is AutoLedgerDedupeDecision.DropDuplicate)
+
+        assertEquals(1, records.size)
+        assertEquals(1, enrichCalls)
+        val finalTx = records[10L]!!
+        assertEquals("星巴克", finalTx.title)
+        assertEquals("餐饮", finalTx.category)
+        assertEquals("支付宝", finalTx.paymentMethod)
+    }
+
+    @Test
+    fun `支付宝同笔支付触发支付助手与花呗双提醒去重，但短时间不同商户同金额正常分记两笔`() = runBlocking {
+        val expenseDict = listOf("餐饮", "交通", "购物", "其他")
+        val records = mutableMapOf<Long, CreateTransactionRequest>()
+        var nextLocalId = 1L
+        val t0 = 1_700_300_000_000L
+
+        // 支付宝同一笔咖啡同时弹「支付助手」和「花呗」
+        val a1 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.eg.android.AlipayGphone",
+            sbnKey = "0|alipay|a1",
+            notificationTimestampMs = t0,
+            content = "支付助手 你已向瑞幸咖啡付款18.00元",
+            expenseCategories = expenseDict,
+            nowMs = t0,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        val a2 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.eg.android.AlipayGphone",
+            sbnKey = "0|alipay|a2",
+            notificationTimestampMs = t0 + 3_000L,
+            content = "花呗 花呗消费 18.00 元",
+            expenseCategories = expenseDict,
+            nowMs = t0 + 3_000L,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        assertTrue(a1 is AutoLedgerDedupeDecision.RecordNew)
+        assertTrue(a2 is AutoLedgerDedupeDecision.DropDuplicate)
+        assertEquals(1, records.size)
+
+        // 15 秒后在同一平台给「全家便利店」又付了一笔 18.00 元（明确不同商户）—— 应正常记为第 2 笔
+        val a3 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.eg.android.AlipayGphone",
+            sbnKey = "0|alipay|a3",
+            notificationTimestampMs = t0 + 15_000L,
+            content = "支付助手 你已向全家便利店付款18.00元",
+            expenseCategories = expenseDict,
+            nowMs = t0 + 15_000L,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        assertTrue(a3 is AutoLedgerDedupeDecision.RecordNew)
+        assertEquals(2, records.size)
+    }
+
+    @Test
+    fun `微信支付与支付宝各自独立同金额消费不会被误合并`() = runBlocking {
+        val expenseDict = listOf("餐饮", "购物", "其他")
+        val records = mutableMapOf<Long, CreateTransactionRequest>()
+        var nextLocalId = 1L
+        val t0 = 1_700_400_000_000L
+
+        val w1 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.tencent.mm",
+            sbnKey = "0|wx|w1",
+            notificationTimestampMs = t0,
+            content = "微信支付 扫码付款 20.00 元",
+            expenseCategories = expenseDict,
+            nowMs = t0,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        val z1 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.eg.android.AlipayGphone",
+            sbnKey = "0|zfb|z1",
+            notificationTimestampMs = t0 + 45_000L,
+            content = "支付宝 扫码付款 20.00 元",
+            expenseCategories = expenseDict,
+            nowMs = t0 + 45_000L,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        assertTrue(w1 is AutoLedgerDedupeDecision.RecordNew)
+        assertTrue(z1 is AutoLedgerDedupeDecision.RecordNew)
+        assertEquals(2, records.size)
     }
 }
