@@ -1,14 +1,19 @@
 package com.looseleaf.feature.ledger.ui
 
+import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -82,12 +87,27 @@ fun LedgerKeepAliveScreen(
     var isNotificationAccessGranted by remember { mutableStateOf(checkNotificationAccess(context)) }
     var isBatteryOptIgnored by remember { mutableStateOf(checkBatteryOptIgnored(context)) }
     var isAccessibilityEnabled by remember { mutableStateOf(checkAccessibilityAccess(context)) }
+    var isSmsPermissionGranted by remember { mutableStateOf(checkSmsPermission(context)) }
     val diagnosticEvents by AutoLedgerDiagnostics.events.collectAsStateWithLifecycle()
+
+    val smsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        isSmsPermissionGranted = granted || checkSmsPermission(context)
+        if (!granted) {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:${context.packageName}")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            runCatching { context.startActivity(intent) }
+        }
+    }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         isNotificationAccessGranted = checkNotificationAccess(context)
         isBatteryOptIgnored = checkBatteryOptIgnored(context)
         isAccessibilityEnabled = checkAccessibilityAccess(context)
+        isSmsPermissionGranted = checkSmsPermission(context)
     }
 
     val scrollState = rememberScrollState()
@@ -168,6 +188,17 @@ fun LedgerKeepAliveScreen(
                 }
             )
 
+            CheckCard(
+                index = 4,
+                title = "银行动账短信直读（推荐）",
+                desc = "农业银行(95599)等入账或扣款短信被系统短信箱折叠、延迟推送时，通过短信广播直读可 100% 捕获入账与扣款，并与银行 App / 支付宝 / 微信通知自动去重合并。",
+                isPassed = isSmsPermissionGranted,
+                actionText = "授权读取短信",
+                onAction = {
+                    smsPermissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
+                }
+            )
+
             Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier
@@ -216,6 +247,13 @@ private fun checkBatteryOptIgnored(context: Context): Boolean {
         val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         pm?.isIgnoringBatteryOptimizations(context.packageName) == true
     } else true
+}
+
+private fun checkSmsPermission(context: Context): Boolean {
+    return ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.RECEIVE_SMS
+    ) == PackageManager.PERMISSION_GRANTED
 }
 
 private fun checkAccessibilityAccess(context: Context): Boolean {

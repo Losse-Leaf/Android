@@ -25,13 +25,15 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.Collections
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 @Serializable
 data class OfflineMediaFileItem(
     val filePath: String,
     val mimeType: String = "image/jpeg",
     val width: Int = 0,
-    val height: Int = 0
+    val height: Int = 0,
+    val uploadedAttachment: Attachment? = null
 )
 
 @Serializable
@@ -70,7 +72,20 @@ internal class MediaOutboxCoordinator(
     private val apiClient: APIClient,
     private val json: Json,
     private val notifyLocalWrite: () -> Unit,
-    private val scheduleSync: () -> Unit
+    private val scheduleSync: () -> Unit,
+    private val itemUploader: suspend (OfflineMediaFileItem, File) -> Attachment = { item, file ->
+        ImagePipeline.uploadImage(
+            apiClient = apiClient,
+            file = file,
+            mimeType = item.mimeType,
+            filename = file.name,
+            width = item.width,
+            height = item.height
+        )
+    },
+    private val entryCreator: suspend (CreateEntryRequest) -> com.looseleaf.app.model.LifeEntry = { req ->
+        apiClient.createEntry(req)
+    }
 ) {
 
     companion object {
@@ -214,26 +229,67 @@ internal class MediaOutboxCoordinator(
         }
 
         val tempFiles = Collections.synchronizedList(mutableListOf<File>())
+        val newlyUploadedByPath = ConcurrentHashMap<String, Attachment>()
         val uploadSemaphore = Semaphore(MAX_CONCURRENT_UPLOADS)
-        val uploadResults: List<Attachment?> = coroutineScope {
-            itemsToUpload.map { item ->
-                async(Dispatchers.IO) {
-                    uploadSemaphore.withPermit {
-                        val file = File(item.filePath)
-                        if (file.exists()) {
-                            tempFiles.add(file)
-                            ImagePipeline.uploadImage(
-                                apiClient = apiClient,
-                                file = file,
-                                mimeType = item.mimeType,
-                                filename = file.name,
-                                width = item.width,
-                                height = item.height
-                            )
-                        } else null
-                    }
+
+        suspend fun persistUploadedAttachments() {
+            if (newlyUploadedByPath.isEmpty()) return
+            val latest = database.outboxDao().findEventById(event.eventId) ?: return
+            val latestPayload = runCatching {
+                json.decodeFromString<OfflineMediaEntryPayload>(latest.payload)
+            }.getOrNull() ?: return
+            val existingItems = if (latestPayload.files.isNotEmpty()) {
+                latestPayload.files
+            } else if (latestPayload.localImageFilePath.isNotBlank()) {
+                listOf(
+                    OfflineMediaFileItem(
+                        filePath = latestPayload.localImageFilePath,
+                        mimeType = latestPayload.mimeType,
+                        width = latestPayload.width,
+                        height = latestPayload.height
+                    )
+                )
+            } else {
+                emptyList()
+            }
+            val patchedFiles = existingItems.map { item ->
+                val uploaded = newlyUploadedByPath[item.filePath]
+                if (uploaded != null && (item.uploadedAttachment == null || item.uploadedAttachment.id <= 0)) {
+                    item.copy(uploadedAttachment = uploaded)
+                } else {
+                    item
                 }
-            }.awaitAll()
+            }
+            val patchedPayload = latestPayload.copy(files = patchedFiles)
+            database.outboxDao().insert(latest.copy(payload = json.encodeToString(patchedPayload)))
+        }
+
+        val uploadResults: List<Attachment?> = try {
+            coroutineScope {
+                itemsToUpload.map { item ->
+                    async(Dispatchers.IO) {
+                        val cached = item.uploadedAttachment?.takeIf { it.id > 0 }
+                        if (cached != null) {
+                            File(item.filePath).takeIf { it.exists() }?.let { tempFiles.add(it) }
+                            return@async cached
+                        }
+                        uploadSemaphore.withPermit {
+                            val file = File(item.filePath)
+                            if (file.exists()) {
+                                tempFiles.add(file)
+                                itemUploader(item, file).also { att ->
+                                    if (att.id > 0) {
+                                        newlyUploadedByPath[item.filePath] = att
+                                    }
+                                }
+                            } else null
+                        }
+                    }
+                }.awaitAll()
+            }
+        } finally {
+            // 哪怕同批第 N 张失败，也立即把前 N-1 张已传成功的 Attachment 写回 Outbox 载荷，下轮重试直接复用不重传
+            runCatching { persistUploadedAttachments() }
         }
 
         val latestMediaEvent = database.outboxDao().findEventById(event.eventId)
@@ -243,11 +299,14 @@ internal class MediaOutboxCoordinator(
             }
             return
         }
-        val currentFilePaths = (
-            runCatching {
-                json.decodeFromString<OfflineMediaEntryPayload>(latestMediaEvent.payload).files
-            }.getOrNull() ?: payload.files
-            ).map { it.filePath }.toSet()
+        val latestDecoded = runCatching {
+            json.decodeFromString<OfflineMediaEntryPayload>(latestMediaEvent.payload)
+        }.getOrNull()
+        val currentFilePaths = if (latestDecoded != null && latestDecoded.files.isNotEmpty()) {
+            latestDecoded.files.map { it.filePath }.toSet()
+        } else {
+            itemsToUpload.map { it.filePath }.toSet()
+        }
         val selectedAttachments = uploadResults.mapIndexedNotNull { idx, att ->
             att?.takeIf { itemsToUpload[idx].filePath in currentFilePaths }
         }
@@ -266,7 +325,7 @@ internal class MediaOutboxCoordinator(
                 ).distinct().takeIf { it.isNotEmpty() }
         )
         val serverEntry = try {
-            apiClient.createEntry(finalReq)
+            entryCreator(finalReq)
         } catch (e: APIException) {
             if (e.code == 410) {
                 SyncManager.discardGoneCreate(database, event) {

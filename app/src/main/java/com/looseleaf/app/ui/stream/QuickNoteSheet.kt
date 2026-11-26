@@ -64,7 +64,8 @@ internal data class AttachedPhotoMeta(
     val mimeType: String,
     val width: Int,
     val height: Int,
-    val exif: ExtractedExif
+    val exif: ExtractedExif,
+    val contentHash: String = ""
 )
 
 internal data class AttachedPhotoItem(
@@ -80,7 +81,8 @@ internal data class AttachedPhotoSaveModel(
     val mimeType: String,
     val width: Int,
     val height: Int,
-    val exif: com.looseleaf.app.darkroom.ExtractedExif
+    val exif: com.looseleaf.app.darkroom.ExtractedExif,
+    val contentHash: String = ""
 )
 
 internal fun AttachedPhotoItem.toSaveModel() = AttachedPhotoSaveModel(
@@ -89,7 +91,8 @@ internal fun AttachedPhotoItem.toSaveModel() = AttachedPhotoSaveModel(
     mimeType = processed.mimeType,
     width = processed.width,
     height = processed.height,
-    exif = processed.exif
+    exif = processed.exif,
+    contentHash = processed.contentHash
 )
 
 internal fun AttachedPhotoSaveModel.toItem() = AttachedPhotoItem(
@@ -98,7 +101,8 @@ internal fun AttachedPhotoSaveModel.toItem() = AttachedPhotoItem(
         mimeType = mimeType,
         width = width,
         height = height,
-        exif = exif
+        exif = exif,
+        contentHash = contentHash
     ),
     savedFile = File(filePath)
 )
@@ -152,7 +156,7 @@ private fun QuickNoteSheetBody(
     }
     var isLocating by remember { mutableStateOf(false) }
     var userEditedTime by remember { mutableStateOf(false) }
-    var userEditedLocation by remember { mutableStateOf(noteLocation.isNotBlank()) }
+    var userEditedLocation by remember { mutableStateOf(false) }
     var noteOccurredAt by remember {
         mutableStateOf(
             draftStore.getString("${draftPrefix}occurred_at_millis")?.toLongOrNull()
@@ -230,8 +234,10 @@ private fun QuickNoteSheetBody(
         }
     }
 
+    // 使用 OpenMultipleDocuments 替代系统 Photo Picker：Android 13-15 Photo Picker 会剥离 EXIF GPS 坐标，
+    // 而文档选择器无需额外存储权限即可读取原图完整拍摄时间与 GPS 元信息。
     val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 9)
+        contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
             if (attachedPhotos.size >= 9) {
@@ -243,7 +249,7 @@ private fun QuickNoteSheetBody(
                 try {
                     val remainingSlots = 9 - attachedPhotos.size
                     val targetUris = uris.take(remainingSlots)
-                    val newItems = withContext(Dispatchers.IO) {
+                    val rawItems = withContext(Dispatchers.IO) {
                         targetUris.map { uri ->
                             async {
                                 val res = ImagePipeline.processImage(context, uri)
@@ -254,12 +260,27 @@ private fun QuickNoteSheetBody(
                                         mimeType = res.mimeType,
                                         width = res.width,
                                         height = res.height,
-                                        exif = res.exif
+                                        exif = res.exif,
+                                        contentHash = res.contentHash
                                     ),
                                     savedFile = saved
                                 )
                             }
                         }.awaitAll()
+                    }
+                    val seenHashes = attachedPhotos.mapNotNull {
+                        it.processed.contentHash.takeIf { h -> h.isNotBlank() }
+                    }.toMutableSet()
+                    val newItems = mutableListOf<AttachedPhotoItem>()
+                    var skippedDuplicates = 0
+                    for (item in rawItems) {
+                        val hash = item.processed.contentHash
+                        if (hash.isNotBlank() && !seenHashes.add(hash)) {
+                            skippedDuplicates++
+                            runCatching { item.savedFile.delete() }
+                        } else {
+                            newItems.add(item)
+                        }
                     }
                     if (newItems.isNotEmpty()) {
                         attachedPhotos = (attachedPhotos + newItems).take(9)
@@ -283,7 +304,7 @@ private fun QuickNoteSheetBody(
                             val lng = item.processed.exif.longitude
                             if (lat != null && lng != null) lat to lng else null
                         }
-                        if (exifCoords != null && !userEditedLocation) {
+                        if (exifCoords != null && (!userEditedLocation || noteLocation.isBlank())) {
                             isLocating = true
                             try {
                                 val resolved = LocationHelper.resolveCoordinates(
@@ -291,7 +312,7 @@ private fun QuickNoteSheetBody(
                                     latitude = exifCoords.first,
                                     longitude = exifCoords.second
                                 )
-                                if (resolved != null && resolved.locationName.isNotBlank() && !userEditedLocation) {
+                                if (resolved != null && resolved.locationName.isNotBlank() && (!userEditedLocation || noteLocation.isBlank())) {
                                     noteLocation = resolved.locationName
                                     appliedExifLocation = true
                                 }
@@ -300,17 +321,20 @@ private fun QuickNoteSheetBody(
                             }
                         }
 
+                        val dupSuffix = if (skippedDuplicates > 0) "（已跳过 $skippedDuplicates 张重复相纸）" else ""
                         val toastMsg = when {
                             appliedExifTime && appliedExifLocation ->
-                                "已装裱 ${newItems.size} 张相纸，已读取拍摄时间与地点"
+                                "已装裱 ${newItems.size} 张相纸，已读取拍摄时间与地点$dupSuffix"
                             appliedExifTime ->
-                                "已装裱 ${newItems.size} 张相纸，已读取拍摄时间"
+                                "已装裱 ${newItems.size} 张相纸，已读取拍摄时间$dupSuffix"
                             appliedExifLocation ->
-                                "已装裱 ${newItems.size} 张相纸，已读取拍摄地点"
+                                "已装裱 ${newItems.size} 张相纸，已读取拍摄地点$dupSuffix"
                             else ->
-                                "已装裱 ${newItems.size} 张相纸"
+                                "已装裱 ${newItems.size} 张相纸$dupSuffix"
                         }
                         ArchiveToastManager.show(toastMsg)
+                    } else if (skippedDuplicates > 0) {
+                        ArchiveToastManager.show("所选相纸已在列表中，已跳过重复装裱")
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -511,9 +535,7 @@ private fun QuickNoteSheetBody(
                     if (attachedPhotos.size < 9) {
                         TextButton(
                             onClick = {
-                                galleryLauncher.launch(
-                                    androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
+                                galleryLauncher.launch(arrayOf("image/*"))
                             },
                             contentPadding = PaddingValues(0.dp)
                         ) {
@@ -597,9 +619,7 @@ private fun QuickNoteSheetBody(
                         .clip(com.looseleaf.app.theme.ArchiveShapes.lg)
                         .background(colors.archiveSubtle)
                         .clickable(enabled = !isProcessingPhoto) {
-                            galleryLauncher.launch(
-                                androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
+                            galleryLauncher.launch(arrayOf("image/*"))
                         }
                         .padding(horizontal = 14.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically

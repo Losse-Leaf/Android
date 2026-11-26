@@ -1,6 +1,7 @@
 package com.looseleaf.feature.ledger.service
 
 import android.app.Notification
+import android.content.ComponentName
 import android.content.Context
 import android.os.Bundle
 import android.service.notification.NotificationListenerService
@@ -14,22 +15,31 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.math.abs
 
 /**
  * 账本自动记账通知监听服务 (LedgerNotificationListenerService)
  *
- * 协调管线：
- * 1. 系统级通知过滤：忽略分组摘要 (FLAG_GROUP_SUMMARY)、常驻/促销通知与超期重投通知；
+ * 结合开源项目 `huanghhcri/SmartLedger` (MIT) 与 `AutoAccounting` 非 Root 多渠道机制：
+ * 1. 系统级通知过滤：忽略常驻/促销通知与超期重投通知，支持对白名单支付/银行通道的折叠摘要自动补全子通知；
  * 2. 多形态通知正文抽取：同时兼容单条通知、MessagingStyle (EXTRA_MESSAGES)、
- *    InboxStyle (EXTRA_TEXT_LINES) 与 tickerText，防止微信折叠多条消息时丢失最新转账文本；
- * 3. 白名单解析引擎 ([AutoLedgerParser])：先剥离真实回执括号附注与余额后缀，
- *    严格拦截送红包/优惠券/周期总结/还款提醒/非成交通知，精准识别微信/支付宝/银行转账与消费；
- * 4. 五层持久化去重与跨平台补全 ([AutoLedgerDeduplicator])：
- *    与 [LedgerAccessibilityService] 共用同一全局互斥锁与去重槽位，杜绝重复记账。
+ *    InboxStyle (EXTRA_TEXT_LINES) 与 tickerText，并在通知摘要刷新时使用稳定事件时间戳；
+ * 3. 白名单解析引擎 ([AutoLedgerParser]) 与四段式规则库；
+ * 4. 持久化去重与跨平台补全 ([AutoLedgerDeduplicator])：
+ *    与 [LedgerSmsReceiver]、[LedgerAccessibilityService] 共用同一全局互斥锁与去重槽位。
  */
 class LedgerNotificationListenerService : NotificationListenerService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        runCatching {
+            requestRebind(ComponentName(this, LedgerNotificationListenerService::class.java))
+        }.onFailure {
+            Log.w(TAG, "请求重新绑定通知监听服务失败: ${it.message}")
+        }
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
@@ -46,15 +56,42 @@ class LedgerNotificationListenerService : NotificationListenerService() {
 
         val notification = sbn.notification ?: return
         val nowMs = System.currentTimeMillis()
-        if (shouldIgnoreNotification(notification, sbn.postTime, nowMs)) return
+        val isGroupSummary = (notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
+        if (shouldIgnoreNotification(notification, sbn.postTime, nowMs, allowGroupSummary = true)) return
 
-        val candidates = extractCandidateContents(notification)
+        val candidates = LinkedHashSet<String>()
+        val rawCandidates = extractCandidateContents(notification)
+        var effectiveTimestampMs = stableEventTime(sbn.postTime, notification.`when`, nowMs)
+        var adoptedChildKey: String? = null
+
+        val rawCombined = rawCandidates.firstOrNull().orEmpty()
+        val looksGrouped = isGroupSummary || AutoLedgerParser.looksLikeGroupedSummary(rawCombined)
+        val needGroupEnrich = looksGrouped &&
+            !AutoLedgerParser.hasPayableAmountSignal(rawCombined) &&
+            !AutoLedgerParser.hasBankLedgerSignal(rawCombined)
+        if (needGroupEnrich) {
+            val activeList = runCatching { activeNotifications?.toList().orEmpty() }.getOrDefault(emptyList())
+            val enriched = enrichFromGroupChildren(
+                summary = sbn,
+                active = activeList,
+                nowMs = nowMs
+            )
+            if (enriched != null) {
+                candidates.add(enriched.combinedText)
+                effectiveTimestampMs = enriched.eventTimeMs
+                adoptedChildKey = enriched.childKey
+            }
+        }
+        candidates.addAll(rawCandidates)
         if (candidates.isEmpty()) return
 
-        val sbnKey = sbn.key.orEmpty()
-        val notificationTimestampMs = notification.`when`.takeIf { it > 0L } ?: sbn.postTime
+        if (isGroupSummary && candidates.none { AutoLedgerParser.looksLikeLedgerChild(it) }) {
+            return
+        }
 
-        // 通过全局处理互斥锁串行化多平台并发通知与前台完成页事件，
+        val sbnKey = adoptedChildKey ?: sbn.key.orEmpty()
+
+        // 通过全局处理互斥锁串行化多平台并发通知、短信广播与前台完成页事件，
         // 确保先到达者落库并注册跨平台去重槽位后，后到达者才能准确去重或原地补全。
         serviceScope.launch {
             try {
@@ -67,7 +104,7 @@ class LedgerNotificationListenerService : NotificationListenerService() {
                         context = appCtx,
                         pkg = pkg,
                         sbnKey = sbnKey,
-                        notificationTimestampMs = notificationTimestampMs,
+                        notificationTimestampMs = effectiveTimestampMs,
                         content = candidate,
                         expenseCategories = snapshot.expenseCategories,
                         incomeCategories = snapshot.incomeCategories,
@@ -80,9 +117,15 @@ class LedgerNotificationListenerService : NotificationListenerService() {
                         break
                     }
                 }
-                if (matchedDecision == null) {
+                if (matchedDecision == null && candidates.isNotEmpty()) {
                     val primary = candidates.first()
-                    if (primary.contains("转账") || primary.contains("微信支付") || primary.contains("收款") || primary.contains("付款")) {
+                    val isWeChatNonChannel = pkg == "com.tencent.mm" &&
+                        !primary.contains("微信支付") && !primary.contains("转账") &&
+                        !primary.contains("收款") && !primary.contains("付款")
+                    val hasLedgerHint = AutoLedgerParser.hasPayableAmountSignal(primary) ||
+                        AutoLedgerParser.hasBankLedgerSignal(primary) ||
+                        primary.contains("转账") || primary.contains("收款") || primary.contains("付款")
+                    if (!isWeChatNonChannel && hasLedgerHint) {
                         val reason = if (isVerificationCodeOrSpam(primary)) "命中过滤规则" else "未匹配成交金额模板"
                         AutoLedgerDiagnostics.record(
                             source = sourceLabelForPackage(pkg),
@@ -263,17 +306,67 @@ class LedgerNotificationListenerService : NotificationListenerService() {
             NotificationChannelGroup.ALIPAY -> "支付宝通知"
             NotificationChannelGroup.UNIONPAY -> "云闪付通知"
             NotificationChannelGroup.BANK_APP -> "银行 App"
+            NotificationChannelGroup.E_COMMERCE -> "消费平台"
             NotificationChannelGroup.BANK_SMS -> "银行短信"
             else -> "支付通知"
+        }
+
+        internal data class EnrichedGroupChild(
+            val combinedText: String,
+            val eventTimeMs: Long,
+            val childKey: String
+        )
+
+        internal fun stableEventTime(posted: Long, notificationWhen: Long, now: Long): Long {
+            if (notificationWhen <= 0L) return posted
+            if (notificationWhen > now + 60_000L) return posted
+            if (now - notificationWhen > 18L * 60 * 60 * 1000L) return posted
+            val postIsFresh = abs(now - posted) <= 2 * 60_000L
+            val whenIsEarlier = posted - notificationWhen >= 2 * 60_000L
+            return if (postIsFresh && whenIsEarlier) notificationWhen else posted
+        }
+
+        internal fun enrichFromGroupChildren(
+            summary: StatusBarNotification,
+            active: List<StatusBarNotification>,
+            nowMs: Long = System.currentTimeMillis()
+        ): EnrichedGroupChild? {
+            val summaryGroup = summary.groupKey
+            val summaryEvent = stableEventTime(summary.postTime, summary.notification.`when`, nowMs)
+            val candidates = active
+                .asSequence()
+                .filter { child ->
+                    child.packageName == summary.packageName &&
+                        child.key != summary.key &&
+                        (child.notification.flags and Notification.FLAG_GROUP_SUMMARY) == 0 &&
+                        (summaryGroup.isNullOrBlank() || child.groupKey == summaryGroup || child.groupKey.isNullOrBlank())
+                }
+                .sortedByDescending { it.postTime }
+
+            for (child in candidates) {
+                val extracted = extractCandidateContents(child.notification).firstOrNull() ?: continue
+                if (!AutoLedgerParser.looksLikeLedgerChild(extracted)) continue
+                val childEvent = stableEventTime(child.postTime, child.notification.`when`, nowMs)
+                val close = abs(childEvent - summaryEvent) <= AutoLedgerDeduplicator.CROSS_PLATFORM_WINDOW_MS ||
+                    abs(child.postTime - summary.postTime) <= AutoLedgerDeduplicator.CROSS_PLATFORM_WINDOW_MS
+                if (!close) continue
+                return EnrichedGroupChild(
+                    combinedText = extracted,
+                    eventTimeMs = childEvent,
+                    childKey = child.key.orEmpty()
+                )
+            }
+            return null
         }
 
         internal fun shouldIgnoreNotification(
             notification: Notification,
             postTimeMs: Long,
-            nowMs: Long = System.currentTimeMillis()
+            nowMs: Long = System.currentTimeMillis(),
+            allowGroupSummary: Boolean = false
         ): Boolean {
             val flags = notification.flags
-            if ((flags and Notification.FLAG_GROUP_SUMMARY) != 0) return true
+            if (!allowGroupSummary && (flags and Notification.FLAG_GROUP_SUMMARY) != 0) return true
             if ((flags and Notification.FLAG_ONGOING_EVENT) != 0) return true
             if ((flags and Notification.FLAG_FOREGROUND_SERVICE) != 0) return true
             if (notification.category in IGNORED_NOTIFICATION_CATEGORIES) return true

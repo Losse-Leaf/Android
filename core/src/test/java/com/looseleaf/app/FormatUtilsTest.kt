@@ -181,4 +181,50 @@ class FormatUtilsTest {
             )
         )
     }
+
+    @Test
+    fun testParseNominatimLocationName() {
+        val shanghaiRoad = """
+            {
+              "name": "",
+              "address": {
+                "road": "延安东路",
+                "suburb": "南京东路街道",
+                "city": "上海市",
+                "city_district": "黄浦区",
+                "state": "上海市"
+              }
+            }
+        """.trimIndent()
+        assertEquals("上海市 · 延安东路", LocationHelper.parseNominatimLocationName(shanghaiRoad))
+
+        val beijingPoi = """
+            {
+              "name": "三里屯太古里",
+              "address": {
+                "road": "三里屯路",
+                "district": "朝阳区",
+                "city": "北京市",
+                "state": "北京市"
+              }
+            }
+        """.trimIndent()
+        assertEquals("北京市 · 三里屯太古里", LocationHelper.parseNominatimLocationName(beijingPoi))
+
+        val districtFallback = """
+            {
+              "name": "18",
+              "address": {
+                "road": "Unnamed Road",
+                "district": "西湖区",
+                "city": "杭州市",
+                "province": "浙江省"
+              }
+            }
+        """.trimIndent()
+        assertEquals("杭州市 · 西湖区", LocationHelper.parseNominatimLocationName(districtFallback))
+
+        assertEquals("", LocationHelper.parseNominatimLocationName("{not valid json"))
+        assertEquals("", LocationHelper.parseNominatimLocationName(""))
+    }
 }

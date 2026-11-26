@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+
     <application>
         <!-- 账本自动记账通知监听服务 (NotificationListenerService) -->
         <service
@@ -26,6 +28,16 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/ledger_accessibility_config" />
         </service>
+
+        <!-- 银行动账短信实时接收器（配合 SmartLedger 策略，通知被折叠或免通知时直接读取银行短信） -->
+        <receiver
+            android:name="com.looseleaf.feature.ledger.service.LedgerSmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

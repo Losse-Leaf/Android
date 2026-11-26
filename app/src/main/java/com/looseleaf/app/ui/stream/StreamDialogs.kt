@@ -110,21 +110,29 @@ fun EntryDetailSheetDialog(
     var userEditedTime by remember(entry.id) { mutableStateOf(false) }
     var userEditedLocation by remember(entry.id) { mutableStateOf(false) }
     var isUploadingPhoto by remember { mutableStateOf(false) }
+    var uploadedHashes by remember(entry.id) { mutableStateOf(emptySet<String>()) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
-        // 统一走系统照片选择器，无需任何存储权限
-        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 9)
+        // 使用 OpenMultipleDocuments 保留原图完整 EXIF GPS 坐标（无需存储权限）
+        contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty()) {
             coroutineScope.launch {
                 isUploadingPhoto = true
                 val hadNoPhotosBefore = editAttachments.isEmpty()
                 val addedExifs = mutableListOf<com.looseleaf.app.darkroom.ExtractedExif>()
+                val seenHashes = uploadedHashes.toMutableSet()
                 try {
-                    for (uri in uris) {
+                    val remaining = (9 - editAttachments.size).coerceAtLeast(0)
+                    for (uri in uris.take(remaining)) {
                         val processed = ImagePipeline.processImage(context, uri)
+                        val hash = processed.contentHash
+                        if (hash.isNotBlank() && !seenHashes.add(hash)) {
+                            continue
+                        }
                         val att = ImagePipeline.uploadImage(apiClient, processed)
                         editAttachments = editAttachments + att
+                        uploadedHashes = seenHashes.toSet()
                         addedExifs += processed.exif
                     }
                     if (addedExifs.isNotEmpty()) {
@@ -133,7 +141,7 @@ fun EntryDetailSheetDialog(
                                 FormatUtils.parseExifDateTimeOrNull(exif.dateTimeOriginal, exif.offsetTimeOriginal)
                             }?.let { editOccurredAt = it }
                         }
-                        if ((hadNoPhotosBefore || editLocation.isBlank()) && !userEditedLocation) {
+                        if ((hadNoPhotosBefore || editLocation.isBlank()) && (!userEditedLocation || editLocation.isBlank())) {
                             val coords = addedExifs.firstNotNullOfOrNull { exif ->
                                 val lat = exif.latitude
                                 val lng = exif.longitude
@@ -141,7 +149,7 @@ fun EntryDetailSheetDialog(
                             }
                             if (coords != null) {
                                 val resolved = LocationHelper.resolveCoordinates(context, coords.first, coords.second)
-                                if (resolved != null && resolved.locationName.isNotBlank() && !userEditedLocation) {
+                                if (resolved != null && resolved.locationName.isNotBlank() && (!userEditedLocation || editLocation.isBlank())) {
                                     editLocation = resolved.locationName
                                 }
                             }
@@ -187,7 +195,7 @@ fun EntryDetailSheetDialog(
             if (isEditing) isEditing = false else onDismiss()
         },
         actionText = if (isEditing) stringResource(R.string.stream_dialogs_text_03) else "修订",
-        isActionEnabled = !isEditing || editTitle.isNotBlank() || editContent.isNotBlank(),
+        isActionEnabled = !isEditing || editTitle.isNotBlank() || editContent.isNotBlank() || editAttachments.isNotEmpty(),
         onAction = {
             if (isEditing) saveAction() else isEditing = true
         }
@@ -402,11 +410,7 @@ fun EntryDetailSheetDialog(
                                 .background(colors.archiveSubtle)
                                 .border(ArchiveLines.hairline, colors.borderDivider, ArchiveShapes.md)
                                 .clickable(role = Role.Button) {
-                                    photoPickerLauncher.launch(
-                                        androidx.activity.result.PickVisualMediaRequest(
-                                            ActivityResultContracts.PickVisualMedia.ImageOnly
-                                        )
-                                    )
+                                    photoPickerLauncher.launch(arrayOf("image/*"))
                                 },
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center

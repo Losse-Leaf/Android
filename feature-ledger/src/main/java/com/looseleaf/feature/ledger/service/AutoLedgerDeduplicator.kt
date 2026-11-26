@@ -16,7 +16,10 @@ internal data class RecentTransactionSlot(
     val merchant: String? = null,
     val qualityScore: Int,
     val localId: Long? = null,
-    val recordedAtMs: Long
+    val recordedAtMs: Long,
+    val channelHint: String? = null,
+    val notifyOrigin: String? = null,
+    val alreadyPaired: Boolean = false
 )
 
 @Serializable
@@ -47,6 +50,7 @@ internal object AutoLedgerDeduplicator {
     internal const val CONTENT_WINDOW_MS = 5 * 60 * 1000L
     internal const val KEY_UPDATE_WINDOW_MS = 30 * 1000L
     internal const val SAME_CHANNEL_MULTI_ALERT_WINDOW_MS = 30 * 1000L
+    internal const val PAIRED_WALLET_REPLAY_WINDOW_MS = 15 * 1000L
     internal const val CROSS_PLATFORM_WINDOW_MS = 120 * 1000L
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -83,10 +87,7 @@ internal object AutoLedgerDeduplicator {
             if (keyAmountKey != null && (fingerprintExpiries[keyAmountKey] ?: 0L) > nowMs) {
                 val matchingSlot = findRecentSlotLocked(
                     pkg = pkg,
-                    channelGroup = bill.channelGroup,
-                    type = type,
-                    amount = amount,
-                    merchant = bill.merchant,
+                    bill = bill,
                     nowMs = nowMs
                 )
                 if (matchingSlot != null &&
@@ -107,13 +108,10 @@ internal object AutoLedgerDeduplicator {
                 return AutoLedgerDedupeDecision.DropDuplicate("same_content")
             }
 
-            // 第 4 & 5 层：同渠道多提醒（30s）与跨平台关联扣款提醒（120s）
+            // 第 4 & 5 层：同渠道多提醒（30s）与跨平台关联扣款提醒（120s，含收银台线索冲突与已配对保护）
             val correlated = findRecentSlotLocked(
                 pkg = pkg,
-                channelGroup = bill.channelGroup,
-                type = type,
-                amount = amount,
-                merchant = bill.merchant,
+                bill = bill,
                 nowMs = nowMs
             )
             if (correlated != null) {
@@ -155,7 +153,10 @@ internal object AutoLedgerDeduplicator {
                     merchant = bill.merchant,
                     qualityScore = bill.qualityScore,
                     localId = localId,
-                    recordedAtMs = nowMs
+                    recordedAtMs = nowMs,
+                    channelHint = bill.channelHint,
+                    notifyOrigin = bill.notifyOrigin,
+                    alreadyPaired = false
                 )
             )
             trimCapsLocked()
@@ -180,11 +181,19 @@ internal object AutoLedgerDeduplicator {
             val idx = recentSlots.indexOfLast { it.localId == existingLocalId }
             if (idx >= 0) {
                 val old = recentSlots[idx]
+                val pairedNow = old.alreadyPaired || (
+                    old.notifyOrigin != null &&
+                        bill.notifyOrigin != null &&
+                        old.notifyOrigin != bill.notifyOrigin
+                    )
                 recentSlots[idx] = old.copy(
                     pkg = pkg,
                     channelGroup = bill.channelGroup.name,
                     merchant = bill.merchant ?: old.merchant,
-                    qualityScore = maxOf(old.qualityScore, bill.qualityScore)
+                    qualityScore = maxOf(old.qualityScore, bill.qualityScore),
+                    channelHint = bill.channelHint ?: old.channelHint,
+                    notifyOrigin = bill.notifyOrigin ?: old.notifyOrigin,
+                    alreadyPaired = pairedNow
                 )
             }
             trimCapsLocked()
@@ -204,6 +213,20 @@ internal object AutoLedgerDeduplicator {
             ensureLoadedLocked(context, nowMs)
             pruneExpiredLocked(nowMs)
             putFingerprintsLocked(pkg, sbnKey, notificationTimestampMs, bill, nowMs)
+            // 若是 bank/wallet 跨端关联被丢弃，在最近槽位标上 alreadyPaired=true（SmartLedger 双边已配对保护），
+            // 防止随后紧接着的一笔同金额消费再次被吸进第一笔里。
+            val idx = recentSlots.indexOfLast { slot ->
+                slot.type == bill.request.type &&
+                    slot.amountCents == bill.request.amount &&
+                    nowMs - slot.recordedAtMs in 0L..CROSS_PLATFORM_WINDOW_MS &&
+                    slot.notifyOrigin != null &&
+                    bill.notifyOrigin != null &&
+                    slot.notifyOrigin != bill.notifyOrigin &&
+                    merchantsCompatible(slot.merchant, bill.merchant)
+            }
+            if (idx >= 0 && !recentSlots[idx].alreadyPaired) {
+                recentSlots[idx] = recentSlots[idx].copy(alreadyPaired = true)
+            }
             trimCapsLocked()
             saveLocked(context)
         }
@@ -220,14 +243,21 @@ internal object AutoLedgerDeduplicator {
     private fun normalizeMerchant(raw: String): String =
         raw.trim().lowercase(Locale.ROOT).replace(MERCHANT_NOISE_REGEX, "")
 
+    private fun hintsConflict(slot: RecentTransactionSlot, incoming: ParsedAutoLedgerBill): Boolean {
+        val hintA = slot.channelHint ?: return false
+        val hintB = incoming.channelHint ?: return false
+        return hintA != hintB
+    }
+
     private fun findRecentSlotLocked(
         pkg: String,
-        channelGroup: NotificationChannelGroup,
-        type: String,
-        amount: Long,
-        merchant: String?,
+        bill: ParsedAutoLedgerBill,
         nowMs: Long
     ): RecentTransactionSlot? {
+        val channelGroup = bill.channelGroup
+        val type = bill.request.type
+        val amount = bill.request.amount
+        val merchant = bill.merchant
         for (i in recentSlots.lastIndex downTo 0) {
             val slot = recentSlots[i]
             if (slot.type != type || slot.amountCents != amount) continue
@@ -235,13 +265,24 @@ internal object AutoLedgerDeduplicator {
             val elapsed = nowMs - slot.recordedAtMs
             if (elapsed < 0L || elapsed > CROSS_PLATFORM_WINDOW_MS) continue
 
+            // 银行明确写了「支付宝」，新来的是「微信」，绝不合并（SmartLedger 收银台线索冲突保护）
+            if (hintsConflict(slot, bill)) continue
+
             val slotGroup = runCatching { NotificationChannelGroup.valueOf(slot.channelGroup) }
                 .getOrNull() ?: continue
 
             val isCrossPlatform = slotGroup != channelGroup ||
                 (slotGroup == NotificationChannelGroup.BANK_APP && slot.pkg != pkg)
 
-            val withinWindow = if (isCrossPlatform) {
+            // 该笔交易已经配齐「收银台 + 银行」双端通知后，不再吞并后续独立消费，只保留 15s 重投窗口
+            val withinWindow = if (slot.alreadyPaired) {
+                val limit = if (bill.notifyOrigin == AutoLedgerParser.ORIGIN_BANK) {
+                    SAME_CHANNEL_MULTI_ALERT_WINDOW_MS
+                } else {
+                    PAIRED_WALLET_REPLAY_WINDOW_MS
+                }
+                elapsed <= limit
+            } else if (isCrossPlatform) {
                 slotGroup.correlatesWith(channelGroup) && elapsed <= CROSS_PLATFORM_WINDOW_MS
             } else {
                 elapsed <= SAME_CHANNEL_MULTI_ALERT_WINDOW_MS

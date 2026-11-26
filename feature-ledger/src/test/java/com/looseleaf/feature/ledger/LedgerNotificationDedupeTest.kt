@@ -407,4 +407,50 @@ class LedgerNotificationDedupeTest {
         assertTrue(z1 is AutoLedgerDedupeDecision.RecordNew)
         assertEquals(2, records.size)
     }
+
+    @Test
+    fun `银行提示支付宝时绝不与微信同金额消费误合并且已配对后不再吞并下笔消费`() = runBlocking {
+        val nowMs = 1_795_600_000_000L
+        var createCount = 0
+
+        // 第1笔：支付宝付款 ¥20.00
+        val d1 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.eg.android.AlipayGphone",
+            sbnKey = "0|alipay|1",
+            notificationTimestampMs = nowMs,
+            content = "支付宝 付款20.00元",
+            nowMs = nowMs,
+            onCreate = { ++createCount; createCount.toLong() },
+            onEnrich = { _, _ -> true }
+        )
+        assertTrue(d1 is AutoLedgerDedupeDecision.RecordNew)
+
+        // 2秒后：农业银行同一笔支付宝扣款 ¥20.00 到达 → 合并去重并建立已配对标记
+        val d2 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.android.bankabc",
+            sbnKey = "0|abc|1",
+            notificationTimestampMs = nowMs + 2_000L,
+            content = "【农业银行】您尾号4321账户完成支付宝交易人民币-20.00，余额1000.00",
+            nowMs = nowMs + 2_000L,
+            onCreate = { ++createCount; createCount.toLong() },
+            onEnrich = { _, _ -> true }
+        )
+        assertTrue(d2 is AutoLedgerDedupeDecision.DropDuplicate)
+
+        // 25秒后：又一笔独立的微信支付 ¥20.00 到达 → 收银台线索冲突（微信 vs 支付宝）+ 已配对保护，必须记为第2笔！
+        val d3 = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.tencent.mm",
+            sbnKey = "0|wx|2",
+            notificationTimestampMs = nowMs + 25_000L,
+            content = "微信支付：已支付¥20.00",
+            nowMs = nowMs + 25_000L,
+            onCreate = { ++createCount; createCount.toLong() },
+            onEnrich = { _, _ -> true }
+        )
+        assertTrue(d3 is AutoLedgerDedupeDecision.RecordNew)
+        assertEquals(2, createCount)
+    }
 }

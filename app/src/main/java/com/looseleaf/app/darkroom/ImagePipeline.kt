@@ -27,6 +27,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
+import java.security.MessageDigest
 import java.time.Instant
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -51,7 +52,8 @@ data class ProcessedImageResult(
     val width: Int,
     val height: Int,
     val mimeType: String,
-    val exif: ExtractedExif
+    val exif: ExtractedExif,
+    val contentHash: String = ""
 )
 
 object ImagePipeline {
@@ -289,8 +291,14 @@ object ImagePipeline {
             width = finalWidth,
             height = finalHeight,
             mimeType = "image/jpeg",
-            exif = exif
+            exif = exif,
+            contentHash = sha256Hex(bytes)
         )
+    }
+
+    private fun sha256Hex(bytes: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+        return digest.joinToString("") { "%02x".format(it) }
     }
 
     /**
@@ -341,11 +349,9 @@ object ImagePipeline {
     }
 
     /**
-     * R2 直传优先，失败后降级到中枢统一中转通道。
+     * R2 直传优先，仅当后端明确未配置 R2 (HTTP 503) 时才回退中枢统一中转通道。
      *
-     * MOB-P1-45：只有「网络类错误」与「服务端 5xx」才允许降级；
-     * 4xx（尤其是 401 凭据失效）必须直接冒泡，
-     * 否则会先失败一次再**完整重传一遍**，白白吃掉双倍流量，还掩盖了真实错误。
+     * 防止网络抖动或 PUT 后 complete 失败时又重传到中转接口，导致 R2 与本地存储各存一份重复图片。
      */
     private suspend fun uploadInternal(
         apiClient: APIClient,
@@ -356,41 +362,71 @@ object ImagePipeline {
         height: Int,
         requestBody: () -> RequestBody
     ): Attachment = withContext(Dispatchers.IO) {
-        try {
-            val presignReq = PresignUploadRequest(
-                filename = filename,
-                contentType = mimeType,
-                size = size
-            )
-            val presignRes = apiClient.presignUpload(presignReq)
+        val presignReq = PresignUploadRequest(
+            filename = filename,
+            contentType = mimeType,
+            size = size
+        )
+        val presignRes = try {
+            apiClient.presignUpload(presignReq)
+        } catch (e: Exception) {
+            val code = (e as? APIException)?.code
+            if (code == 503) {
+                Log.w(TAG, "R2 direct upload not configured (HTTP 503), falling back to unified multipart upload")
+                return@withContext apiClient.uploadUnifiedFallback(
+                    body = requestBody(),
+                    filename = filename,
+                    mimeType = mimeType,
+                    folder = "entries"
+                )
+            }
+            throw e
+        }
+
+        // 同一个 presigned PUT URL 幂等重试，避免重复申请 uploadId 生成孤儿对象
+        retryTransientUploadOp {
             apiClient.uploadToR2Direct(
                 uploadUrl = presignRes.uploadUrl,
                 body = requestBody()
             )
-            apiClient.completeUpload(
-                CompleteUploadRequest(
-                    uploadId = presignRes.uploadId,
-                    objectKey = presignRes.objectKey,
-                    originalFilename = filename,
-                    mimeType = mimeType,
-                    size = size,
-                    width = width,
-                    height = height
-                )
-            )
-        } catch (e: Exception) {
-            val code = (e as? APIException)?.code
-            if (code != null && code in 400..499) {
-                // 客户端错误（含 401 凭据失效）：不重试、不降级，直接交给上层引导
-                throw e
-            }
-            Log.w(TAG, "R2 direct upload unavailable (${e.message}), falling back to unified multipart upload")
-            apiClient.uploadUnifiedFallback(
-                body = requestBody(),
-                filename = filename,
-                mimeType = mimeType,
-                folder = "entries"
-            )
         }
+
+        // completeUpload 在后端已按 object_key 幂等，重试不会重复插入附件记录
+        val completeReq = CompleteUploadRequest(
+            uploadId = presignRes.uploadId,
+            objectKey = presignRes.objectKey,
+            originalFilename = filename,
+            mimeType = mimeType,
+            size = size,
+            width = width,
+            height = height
+        )
+        retryTransientUploadOp {
+            apiClient.completeUpload(completeReq)
+        }
+    }
+
+    private suspend fun <T> retryTransientUploadOp(
+        maxAttempts: Int = 3,
+        block: suspend () -> T
+    ): T {
+        var lastError: Exception? = null
+        for (attempt in 0 until maxAttempts) {
+            try {
+                return block()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val code = (e as? APIException)?.code
+                if (code != null && code in 400..499 && code != 429) {
+                    throw e
+                }
+                lastError = e
+                if (attempt < maxAttempts - 1) {
+                    kotlinx.coroutines.delay(500L * (attempt + 1))
+                }
+            }
+        }
+        throw lastError!!
     }
 }

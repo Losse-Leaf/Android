@@ -370,4 +370,78 @@ class LedgerNotificationParserTest {
         )
         assertNull("普通聊天消息提到微信转账不得误记", casualChat)
     }
+
+    @Test
+    fun `农业银行入账与转存及支付宝各种扣款通知均可精确识别`() {
+        val incomeDict = listOf("工资收入", "礼金红包", "其他收入")
+        val expenseDict = listOf("餐饮", "交通", "购物", "其他")
+
+        // 1. 农业银行 95599 短信/App 入账与转存（无+号、无「元」字、含尾号4位数字）
+        val abcDeposit = LedgerNotificationListenerService.parseBillFromText(
+            content = "【中国农业银行】您尾号4321账户11月25日14:20完成转存交易人民币5000.00，余额15000.00。",
+            pkg = "com.android.bankabc",
+            incomeCategories = incomeDict
+        )
+        assertNotNull(abcDeposit)
+        assertEquals("income", abcDeposit!!.type)
+        assertEquals(500000L, abcDeposit.amount)
+        assertEquals("银行卡", abcDeposit.paymentMethod)
+
+        val abcSalarySms = LedgerNotificationListenerService.parseBillFromText(
+            content = "95599 【中国农业银行】您尾号6618账户11月25日完成代发工资交易人民币8500.00，当前余额18500.00",
+            pkg = "com.android.mms",
+            incomeCategories = incomeDict
+        )
+        assertNotNull(abcSalarySms)
+        assertEquals("income", abcSalarySms!!.type)
+        assertEquals(850000L, abcSalarySms.amount)
+
+        val abcUnionpayIn = LedgerNotificationListenerService.parseBillFromText(
+            content = "【中国农业银行】您尾号1234借记卡收入500.00元，活期余额3200.00元",
+            pkg = "com.abchina.abcpocket",
+            incomeCategories = incomeDict
+        )
+        assertNotNull(abcUnionpayIn)
+        assertEquals("income", abcUnionpayIn!!.type)
+        assertEquals(50000L, abcUnionpayIn.amount)
+
+        // 2. 农业银行财付通/支付宝扣款（负号与卡尾号遮罩）
+        val abcExpense = LedgerNotificationListenerService.parseBillFromText(
+            content = "【中国农业银行】您尾号4321账户11月25日完成财付通交易人民币-38.50，余额1200.00",
+            pkg = "com.android.bankabc",
+            expenseCategories = expenseDict
+        )
+        assertNotNull(abcExpense)
+        assertEquals("expense", abcExpense!!.type)
+        assertEquals(3850L, abcExpense.amount)
+
+        // 3. 支付宝真实扣款：含「本月」「花呗」「自动扣款」与千分位金额不得被误拦
+        val alipayAutoDebit = LedgerNotificationListenerService.parseBillFromText(
+            content = "支付宝 自动扣款：已从你的招商银行储蓄卡(1234)扣款28.00元",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = expenseDict
+        )
+        assertNotNull(alipayAutoDebit)
+        assertEquals("expense", alipayAutoDebit!!.type)
+        assertEquals(2800L, alipayAutoDebit.amount)
+        assertEquals("支付宝", alipayAutoDebit.paymentMethod)
+
+        val alipayWithThisMonthNote = LedgerNotificationListenerService.parseBillFromText(
+            content = "支付宝 你有一笔42.75元的支出，点击查看本月消费明细",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = expenseDict
+        )
+        assertNotNull("含「本月」的非总结型单笔付款通知不得被误杀", alipayWithThisMonthNote)
+        assertEquals("expense", alipayWithThisMonthNote!!.type)
+        assertEquals(4275L, alipayWithThisMonthNote.amount)
+
+        val alipayHuabei = LedgerNotificationListenerService.parseBillFromText(
+            content = "支付宝 花呗：你在星巴克消费了36.80元，本月累计额度充足",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = expenseDict
+        )
+        assertNotNull(alipayHuabei)
+        assertEquals("expense", alipayHuabei!!.type)
+        assertEquals(3680L, alipayHuabei.amount)
+    }
 }
