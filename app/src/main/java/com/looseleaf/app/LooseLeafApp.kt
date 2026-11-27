@@ -39,6 +39,12 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
         val apiClient = APIClient.getInstance(this)
         apiClient.tokenProvider = { credentialStore.deviceToken }
 
+        // 同步挂接账本 Context 与同步回调，避免冷启动后台服务或首帧列表查询出现竞态
+        com.looseleaf.feature.ledger.LedgerModule.attachContext(this)
+        com.looseleaf.feature.ledger.LedgerModule.setScheduleSyncListener {
+            SyncManager.getInstance(this@LooseLeafApp).scheduleSync()
+        }
+
         // 以下三件事都涉及磁盘 IO（SharedPreferences / KeyStore / WorkManager 入队），
         // 统一移到 IO：ProfileRepository.init 会同步读档案 JSON，
         // getProfile 里的「未初始化则 init」兜底保持不变，正常路径已避开主线程。
@@ -49,6 +55,12 @@ class LooseLeafApp : Application(), ImageLoaderFactory {
                     onScheduleSync = {
                         SyncManager.getInstance(this@LooseLeafApp).scheduleSync()
                     }
+                )
+            }
+            runCatching {
+                com.looseleaf.feature.ledger.LedgerModule.ensureAutoLedgerAlive(
+                    context = this@LooseLeafApp,
+                    allowStartForegroundService = false
                 )
             }
             runCatching { credentialStore.warmUp() }

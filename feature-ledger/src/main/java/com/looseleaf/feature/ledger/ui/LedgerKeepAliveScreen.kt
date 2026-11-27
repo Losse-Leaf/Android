@@ -36,9 +36,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,7 +51,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -63,8 +64,15 @@ import com.looseleaf.app.ui.components.ArchivePageHeader
 import com.looseleaf.app.ui.components.FolioGlyphs
 import com.looseleaf.feature.ledger.service.AutoLedgerDiagnosticEvent
 import com.looseleaf.feature.ledger.service.AutoLedgerDiagnostics
+import com.looseleaf.feature.ledger.service.AutoLedgerListenerStatus
+import com.looseleaf.feature.ledger.service.AutoLedgerParser
 import com.looseleaf.feature.ledger.service.LedgerAccessibilityService
+import com.looseleaf.feature.ledger.service.LedgerKeepAliveService
 import com.looseleaf.feature.ledger.theme.LedgerTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 自动记账与后台保活检查页 (LedgerKeepAliveScreen)
@@ -83,12 +91,27 @@ fun LedgerKeepAliveScreen(
 
     val context = LocalContext.current
     val colors = LedgerTheme.colors
+    val coroutineScope = rememberCoroutineScope()
 
-    var isNotificationAccessGranted by remember { mutableStateOf(checkNotificationAccess(context)) }
+    var isNotificationAccessGranted by remember {
+        mutableStateOf(AutoLedgerListenerStatus.isNotificationAccessEnabledInSettings(context))
+    }
     var isBatteryOptIgnored by remember { mutableStateOf(checkBatteryOptIgnored(context)) }
     var isAccessibilityEnabled by remember { mutableStateOf(checkAccessibilityAccess(context)) }
     var isSmsPermissionGranted by remember { mutableStateOf(checkSmsPermission(context)) }
+    var isReconnecting by remember { mutableStateOf(false) }
+
+    val isListenerBinderConnected by AutoLedgerListenerStatus.isListenerBinderConnected.collectAsStateWithLifecycle()
+    val isAccessibilityConnected by AutoLedgerListenerStatus.isAccessibilityConnected.collectAsStateWithLifecycle()
+    val notificationsSeenCount by AutoLedgerListenerStatus.notificationsSeenCount.collectAsStateWithLifecycle()
+    val needsRebindAfterUpdate by AutoLedgerListenerStatus.needsRebindAfterUpdate.collectAsStateWithLifecycle()
     val diagnosticEvents by AutoLedgerDiagnostics.events.collectAsStateWithLifecycle()
+
+    LaunchedEffect(context) {
+        withContext(Dispatchers.IO) {
+            AutoLedgerDiagnostics.ensureLoaded(context)
+        }
+    }
 
     val smsPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -104,10 +127,11 @@ fun LedgerKeepAliveScreen(
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        isNotificationAccessGranted = checkNotificationAccess(context)
+        isNotificationAccessGranted = AutoLedgerListenerStatus.isNotificationAccessEnabledInSettings(context)
         isBatteryOptIgnored = checkBatteryOptIgnored(context)
         isAccessibilityEnabled = checkAccessibilityAccess(context)
         isSmsPermissionGranted = checkSmsPermission(context)
+        AutoLedgerListenerStatus.ensureListening(context, allowStartForegroundService = true)
     }
 
     val scrollState = rememberScrollState()
@@ -140,21 +164,80 @@ fun LedgerKeepAliveScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             val corePending = listOf(isNotificationAccessGranted, isBatteryOptIgnored).count { !it }
+            val needsBinderAttention = isNotificationAccessGranted && !isListenerBinderConnected
             StatusOverviewBanner(
                 pendingSteps = corePending,
-                hasScreenAssist = isAccessibilityEnabled
+                needsBinderAttention = needsBinderAttention,
+                needsRebindAfterUpdate = needsRebindAfterUpdate,
+                hasScreenAssist = isAccessibilityEnabled,
+                notificationsSeenCount = notificationsSeenCount
             )
 
             CheckCard(
                 index = 1,
                 title = "通知读取权限",
-                desc = "实时捕获微信、支付宝、云闪付、银行 App 及动账短信，自动提取金额并跨端去重。",
-                isPassed = isNotificationAccessGranted,
-                actionText = "去开启",
+                desc = when {
+                    !isNotificationAccessGranted ->
+                        "实时捕获微信、支付宝、云闪付、银行 App 及动账短信，自动提取金额并跨端去重。"
+                    isListenerBinderConnected ->
+                        "系统通知监听绑定正常，本次已接收系统通知 $notificationsSeenCount 条（后台保活运行中）。"
+                    else ->
+                        "系统权限已授权，但后台监听服务暂未建立连接。覆盖更新或系统省电可能会挂起监听，可点击下方「立即重连监听」，若仍未连接请在系统设置里关闭再重开一次。"
+                },
+                isPassed = isNotificationAccessGranted && isListenerBinderConnected,
+                statusText = when {
+                    isNotificationAccessGranted && isListenerBinderConnected -> "监听已连接"
+                    isNotificationAccessGranted -> "权限已开 · 未连接"
+                    else -> null
+                },
+                statusTint = if (isListenerBinderConnected) colors.income else colors.accent,
+                actionText = if (isNotificationAccessGranted) {
+                    if (isReconnecting) "重连中..." else "立即重连监听"
+                } else {
+                    "去开启"
+                },
                 onAction = {
-                    val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    runCatching { context.startActivity(intent) }
+                    if (!isNotificationAccessGranted) {
+                        val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        runCatching { context.startActivity(intent) }
+                    } else if (!isReconnecting) {
+                        isReconnecting = true
+                        coroutineScope.launch {
+                            val reconnected = withContext(Dispatchers.IO) {
+                                AutoLedgerListenerStatus.forceReconnect(context, bypassCooldown = true)
+                            }
+                            LedgerKeepAliveService.start(context)
+                            delay(1_200L)
+                            isReconnecting = false
+                            AutoLedgerDiagnostics.record(
+                                source = "系统监听",
+                                outcome = if (AutoLedgerListenerStatus.isListenerBinderConnected.value) {
+                                    "重连成功"
+                                } else if (reconnected) {
+                                    "已请求系统重绑"
+                                } else {
+                                    "重绑未成功"
+                                },
+                                rawDetail = if (AutoLedgerListenerStatus.isListenerBinderConnected.value) {
+                                    "通知监听服务已恢复连接"
+                                } else {
+                                    "若仍显示未连接，请点右侧「去系统重开」关闭后再开启通知使用权"
+                                },
+                                isRecorded = false
+                            )
+                        }
+                    }
+                },
+                secondaryActionText = if (needsBinderAttention) "去系统重开" else null,
+                onSecondaryAction = if (needsBinderAttention) {
+                    {
+                        val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        runCatching { context.startActivity(intent) }
+                    }
+                } else {
+                    null
                 }
             )
 
@@ -180,11 +263,27 @@ fun LedgerKeepAliveScreen(
                 title = "微信转账页面辅助识别（推荐）",
                 desc = "微信零钱转账与点击接收好友转账（已收钱）不会推送带金额的通知栏消息。开启无障碍辅助后可直接识别微信与支付宝的支付/转账完成页，不读取聊天记录或密码。",
                 isPassed = isAccessibilityEnabled,
+                statusText = when {
+                    !isAccessibilityEnabled -> null
+                    isAccessibilityConnected -> "已连接"
+                    else -> "已开启 · 等待触发"
+                },
+                statusTint = colors.income,
                 actionText = "去无障碍设置开启",
                 onAction = {
                     val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     runCatching { context.startActivity(intent) }
+                },
+                secondaryActionText = if (isAccessibilityEnabled && !isAccessibilityConnected) "检查无障碍开关" else null,
+                onSecondaryAction = if (isAccessibilityEnabled && !isAccessibilityConnected) {
+                    {
+                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        runCatching { context.startActivity(intent) }
+                    }
+                } else {
+                    null
                 }
             )
 
@@ -207,16 +306,26 @@ fun LedgerKeepAliveScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "近期检测记录（仅存本机内存）",
+                    text = "近期检测记录（仅存本机）",
                     style = ArchiveTextStyles.overline,
                     color = colors.textMuted,
                     modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "运行自检",
+                    style = ArchiveTextStyles.meta,
+                    color = colors.accent,
+                    modifier = Modifier
+                        .clickable(role = Role.Button) {
+                            runSelfDiagnostics(context)
+                        }
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
                 )
                 if (diagnosticEvents.isNotEmpty()) {
                     Text(
                         text = "清空",
                         style = ArchiveTextStyles.meta,
-                        color = colors.accent,
+                        color = colors.textSecondary,
                         modifier = Modifier
                             .clickable(role = Role.Button) { AutoLedgerDiagnostics.clear() }
                             .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -238,8 +347,49 @@ fun LedgerKeepAliveScreen(
     }
 }
 
-private fun checkNotificationAccess(context: Context): Boolean {
-    return NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+private fun runSelfDiagnostics(context: Context) {
+    val notifEnabled = AutoLedgerListenerStatus.isNotificationAccessEnabledInSettings(context)
+    val binderConnected = AutoLedgerListenerStatus.isListenerBinderConnected.value
+    val seenCount = AutoLedgerListenerStatus.notificationsSeenCount.value
+    val accessEnabled = checkAccessibilityAccess(context)
+    val accessConnected = AutoLedgerListenerStatus.isAccessibilityConnected.value
+    val smsGranted = checkSmsPermission(context)
+    val batteryOk = checkBatteryOptIgnored(context)
+
+    val alipayOk = AutoLedgerParser.parse(
+        content = "支付宝 账单提醒：你有一笔28.50元的支出",
+        pkg = "com.eg.android.AlipayGphone"
+    )?.request?.amount == 2850L
+    val wechatOk = AutoLedgerParser.parse(
+        content = "微信支付：已支付¥36.50",
+        pkg = "com.tencent.mm"
+    )?.request?.amount == 3650L
+    val abcOk = AutoLedgerParser.parse(
+        content = "【中国农业银行】您尾号4321账户完成转存交易人民币5000.00，余额15000.00。",
+        pkg = "com.android.mms"
+    )?.request?.amount == 500000L
+    val parserOk = alipayOk && wechatOk && abcOk
+
+    val statusSummary = buildString {
+        append("通知权=").append(if (notifEnabled) "开" else "关")
+        append(" | 监听连接=").append(if (binderConnected) "已连(已收${seenCount}条)" else "未连接")
+        append(" | 无障碍=").append(
+            when {
+                !accessEnabled -> "关"
+                accessConnected -> "已连"
+                else -> "待激活"
+            }
+        )
+        append(" | 短信=").append(if (smsGranted) "开" else "关")
+        append(" | 电池白名单=").append(if (batteryOk) "开" else "关")
+        append(" | 解析引擎=").append(if (parserOk) "正常" else "异常")
+    }
+    AutoLedgerDiagnostics.record(
+        source = "本机自检",
+        outcome = if (notifEnabled && binderConnected && parserOk) "通道健康" else "待检查连接",
+        rawDetail = statusSummary,
+        isRecorded = notifEnabled && binderConnected && parserOk
+    )
 }
 
 private fun checkBatteryOptIgnored(context: Context): Boolean {
@@ -281,10 +431,13 @@ private fun checkAccessibilityAccess(context: Context): Boolean {
 @Composable
 private fun StatusOverviewBanner(
     pendingSteps: Int,
-    hasScreenAssist: Boolean
+    needsBinderAttention: Boolean,
+    needsRebindAfterUpdate: Boolean,
+    hasScreenAssist: Boolean,
+    notificationsSeenCount: Int
 ) {
     val colors = LedgerTheme.colors
-    val isAllReady = pendingSteps == 0
+    val isAllReady = pendingSteps == 0 && !needsBinderAttention
     val tint = if (isAllReady) colors.income else colors.accent
 
     Row(
@@ -311,7 +464,7 @@ private fun StatusOverviewBanner(
                 )
             } else {
                 Text(
-                    text = pendingSteps.toString(),
+                    text = if (needsBinderAttention) "!" else pendingSteps.toString(),
                     fontFamily = ArchiveFontFamilies.Display,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 22.sp,
@@ -323,18 +476,25 @@ private fun StatusOverviewBanner(
         Column {
             Text(
                 text = when {
-                    !isAllReady -> "还差 $pendingSteps 步核心授权"
+                    pendingSteps > 0 -> "还差 $pendingSteps 步核心授权"
+                    needsBinderAttention -> "通知监听未建立连接"
                     hasScreenAssist -> "自动记账已全面就绪"
-                    else -> "通知监听已就绪"
+                    else -> "通知监听运行中"
                 },
                 style = ArchiveTextStyles.essayTitle,
                 color = colors.textPrimary
             )
             Text(
                 text = when {
-                    !isAllReady -> "完成下方核心授权，后台才能稳定捕获每一笔账单。"
-                    hasScreenAssist -> "通知监听与微信转账完成页识别均已开启，自动跨端去重。"
-                    else -> "建议再开启下方第 3 项，即可捕获微信零钱转账与好友收款。"
+                    pendingSteps > 0 -> "完成下方核心授权，后台才能稳定捕获每一笔账单。"
+                    needsBinderAttention && needsRebindAfterUpdate ->
+                        "检测到刚更新过安装包，系统可能挂起了后台监听，点击下方「立即重连监听」或在系统设置中关闭再重开一次。"
+                    needsBinderAttention ->
+                        "权限已开但监听服务暂未绑定，请点击下方「立即重连监听」恢复连接。"
+                    hasScreenAssist ->
+                        "通知监听（已收 $notificationsSeenCount 条）与微信转账完成页识别均已就绪。"
+                    else ->
+                        "通知监听已连接（已收 $notificationsSeenCount 条），建议再开启第 3 项捕获微信零钱转账。"
                 },
                 style = ArchiveTextStyles.meta,
                 color = colors.textSecondary
@@ -350,7 +510,11 @@ private fun CheckCard(
     desc: String,
     isPassed: Boolean,
     actionText: String,
-    onAction: () -> Unit
+    onAction: () -> Unit,
+    statusText: String? = if (isPassed) "已开启" else null,
+    statusTint: androidx.compose.ui.graphics.Color = LedgerTheme.colors.income,
+    secondaryActionText: String? = null,
+    onSecondaryAction: (() -> Unit)? = null
 ) {
     val colors = LedgerTheme.colors
     Column(
@@ -392,12 +556,12 @@ private fun CheckCard(
                 color = colors.textPrimary,
                 modifier = Modifier.weight(1f)
             )
-            if (isPassed) {
+            if (statusText != null) {
                 Text(
-                    text = "已开启",
+                    text = statusText,
                     style = ArchiveTextStyles.meta,
                     fontWeight = FontWeight.Medium,
-                    color = colors.income
+                    color = statusTint
                 )
             }
         }
@@ -408,22 +572,45 @@ private fun CheckCard(
             color = colors.textSecondary,
             modifier = Modifier.padding(start = 38.dp)
         )
-        if (!isPassed) {
+        if (!isPassed || secondaryActionText != null) {
             Spacer(modifier = Modifier.height(12.dp))
-            Box(
-                modifier = Modifier
-                    .padding(start = 38.dp)
-                    .clip(ArchiveShapes.full)
-                    .background(colors.accent)
-                    .clickable(role = Role.Button, onClick = onAction)
-                    .padding(horizontal = 18.dp, vertical = 9.dp)
+            Row(
+                modifier = Modifier.padding(start = 38.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = actionText,
-                    style = ArchiveTextStyles.label,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.onAccent
-                )
+                if (!isPassed) {
+                    Box(
+                        modifier = Modifier
+                            .clip(ArchiveShapes.full)
+                            .background(colors.accent)
+                            .clickable(role = Role.Button, onClick = onAction)
+                            .padding(horizontal = 18.dp, vertical = 9.dp)
+                    ) {
+                        Text(
+                            text = actionText,
+                            style = ArchiveTextStyles.label,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.onAccent
+                        )
+                    }
+                }
+                if (secondaryActionText != null && onSecondaryAction != null) {
+                    Box(
+                        modifier = Modifier
+                            .clip(ArchiveShapes.full)
+                            .background(colors.surfaceElevated)
+                            .clickable(role = Role.Button, onClick = onSecondaryAction)
+                            .padding(horizontal = 16.dp, vertical = 9.dp)
+                    ) {
+                        Text(
+                            text = secondaryActionText,
+                            style = ArchiveTextStyles.label,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.textPrimary
+                        )
+                    }
+                }
             }
         }
     }

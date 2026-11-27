@@ -1,9 +1,10 @@
 package com.looseleaf.feature.ledger.service
 
 import android.app.Notification
-import android.content.ComponentName
 import android.content.Context
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -12,6 +13,7 @@ import com.looseleaf.feature.ledger.data.LedgerRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -31,14 +33,51 @@ import kotlin.math.abs
 class LedgerNotificationListenerService : NotificationListenerService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        val appCtx = applicationContext
+        AutoLedgerDiagnostics.ensureLoaded(appCtx)
+        AutoLedgerListenerStatus.markListenerConnected(appCtx)
+        LedgerKeepAliveService.refreshNotification(appCtx)
+        if (AutoLedgerListenerStatus.isAutoRecordEnabled(appCtx)) {
+            LedgerKeepAliveService.start(appCtx)
+        }
+        AutoLedgerDiagnostics.record(
+            source = "系统监听",
+            outcome = "监听已连接",
+            rawDetail = "通知监听服务已与系统建立连接",
+            isRecorded = false,
+            context = appCtx
+        )
+        Log.i(TAG, "通知监听服务已连接")
+    }
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
-        runCatching {
-            requestRebind(ComponentName(this, LedgerNotificationListenerService::class.java))
-        }.onFailure {
-            Log.w(TAG, "请求重新绑定通知监听服务失败: ${it.message}")
-        }
+        val appCtx = applicationContext
+        AutoLedgerListenerStatus.markListenerDisconnected(appCtx)
+        LedgerKeepAliveService.refreshNotification(appCtx)
+        AutoLedgerDiagnostics.record(
+            source = "系统监听",
+            outcome = "监听已断开",
+            rawDetail = "正在向系统请求重新绑定通知监听服务",
+            isRecorded = false
+        )
+        Log.w(TAG, "通知监听服务断开连接，预约 requestRebind")
+        mainHandler.postDelayed({
+            AutoLedgerListenerStatus.requestRebind(appCtx, force = true)
+        }, 1_500L)
+        mainHandler.postDelayed({
+            AutoLedgerListenerStatus.requestRebind(appCtx, force = true)
+        }, 6_000L)
+    }
+
+    override fun onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null)
+        serviceScope.cancel()
+        super.onDestroy()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -46,18 +85,41 @@ class LedgerNotificationListenerService : NotificationListenerService() {
         if (sbn == null) return
 
         val appCtx = applicationContext
-        val prefs = appCtx.getSharedPreferences("looseleaf_ledger_settings", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("auto_record_enabled", true)) {
+        AutoLedgerDiagnostics.attachContext(appCtx)
+        // 能收到任意通知即证明 Binder 已连通，同步自愈状态指示器
+        AutoLedgerListenerStatus.markNotificationAlive(appCtx)
+
+        if (!AutoLedgerListenerStatus.isAutoRecordEnabled(appCtx)) {
             return
         }
 
         val pkg = sbn.packageName ?: return
-        if (!isAllowedPackage(pkg)) return
+        if (pkg == appCtx.packageName) return
 
         val notification = sbn.notification ?: return
         val nowMs = System.currentTimeMillis()
+        val allowedPkg = isAllowedPackage(pkg)
         val isGroupSummary = (notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
-        if (shouldIgnoreNotification(notification, sbn.postTime, nowMs, allowGroupSummary = true)) return
+
+        if (shouldIgnoreNotification(notification, sbn.postTime, nowMs, allowGroupSummary = true)) {
+            if (allowedPkg &&
+                (notification.flags and Notification.FLAG_ONGOING_EVENT) == 0 &&
+                (notification.flags and Notification.FLAG_FOREGROUND_SERVICE) == 0 &&
+                notification.category != Notification.CATEGORY_PROGRESS
+            ) {
+                val quickPreview = extractCandidateContents(notification).firstOrNull().orEmpty()
+                if (quickPreview.isNotBlank() && AutoLedgerParser.looksLikeLedgerChild(quickPreview)) {
+                    AutoLedgerDiagnostics.record(
+                        source = sourceLabelForPackage(pkg),
+                        outcome = "已忽略（非实时交易通知）",
+                        rawDetail = quickPreview,
+                        isRecorded = false,
+                        nowMs = nowMs
+                    )
+                }
+            }
+            return
+        }
 
         val candidates = LinkedHashSet<String>()
         val rawCandidates = extractCandidateContents(notification)
@@ -66,7 +128,7 @@ class LedgerNotificationListenerService : NotificationListenerService() {
 
         val rawCombined = rawCandidates.firstOrNull().orEmpty()
         val looksGrouped = isGroupSummary || AutoLedgerParser.looksLikeGroupedSummary(rawCombined)
-        val needGroupEnrich = looksGrouped &&
+        val needGroupEnrich = allowedPkg && looksGrouped &&
             !AutoLedgerParser.hasPayableAmountSignal(rawCombined) &&
             !AutoLedgerParser.hasBankLedgerSignal(rawCombined)
         if (needGroupEnrich) {
@@ -84,6 +146,15 @@ class LedgerNotificationListenerService : NotificationListenerService() {
         }
         candidates.addAll(rawCandidates)
         if (candidates.isEmpty()) return
+
+        // 未命中白名单包名时，仅当通知内容明显像银行动账或金融机构短信才放行（覆盖未收录地区银行 / OEM 短信）
+        if (!allowedPkg && candidates.none {
+                AutoLedgerParser.hasBankLedgerSignal(it) ||
+                    AutoLedgerParser.looksLikeUnlistedBankOrSmsNotification(it)
+            }
+        ) {
+            return
+        }
 
         if (isGroupSummary && candidates.none { AutoLedgerParser.looksLikeLedgerChild(it) }) {
             return
@@ -119,25 +190,50 @@ class LedgerNotificationListenerService : NotificationListenerService() {
                 }
                 if (matchedDecision == null && candidates.isNotEmpty()) {
                     val primary = candidates.first()
-                    val isWeChatNonChannel = pkg == "com.tencent.mm" &&
-                        !primary.contains("微信支付") && !primary.contains("转账") &&
-                        !primary.contains("收款") && !primary.contains("付款")
-                    val hasLedgerHint = AutoLedgerParser.hasPayableAmountSignal(primary) ||
+                    val isWeChatPackage = pkg == "com.tencent.mm"
+                    val primarySanitized = AutoLedgerParser.stripAuxiliaryClauses(primary)
+                    val isWeChatAllowed = AutoLedgerParser.isWeChatAllowedChannel(primarySanitized)
+                    val hasWeChatPaymentCue = isWeChatAllowed ||
                         AutoLedgerParser.hasBankLedgerSignal(primary) ||
-                        primary.contains("转账") || primary.contains("收款") || primary.contains("付款")
-                    if (!isWeChatNonChannel && hasLedgerHint) {
-                        val reason = if (isVerificationCodeOrSpam(primary)) "命中过滤规则" else "未匹配成交金额模板"
+                        AutoLedgerParser.looksLikeUnlistedBankOrSmsNotification(primary) ||
+                        primary.contains("微信支付") || primary.contains("微信收款") ||
+                        primary.contains("服务通知") || primary.contains("转账") ||
+                        primary.contains("收款") || primary.contains("付款")
+                    val isMonitoredNonChat = AutoLedgerParser.classifyPackage(pkg) in setOf(
+                        NotificationChannelGroup.ALIPAY,
+                        NotificationChannelGroup.UNIONPAY,
+                        NotificationChannelGroup.BANK_APP,
+                        NotificationChannelGroup.E_COMMERCE,
+                        NotificationChannelGroup.BANK_SMS
+                    )
+                    if ((!isWeChatPackage && isMonitoredNonChat) ||
+                        (isWeChatPackage && hasWeChatPaymentCue) ||
+                        (!allowedPkg && AutoLedgerParser.looksLikeUnlistedBankOrSmsNotification(primary))
+                    ) {
+                        val reason = when {
+                            isVerificationCodeOrSpam(primary) -> "命中过滤规则"
+                            isWeChatPackage && !isWeChatAllowed -> "非支付渠道消息"
+                            else -> "未匹配成交金额模板"
+                        }
                         AutoLedgerDiagnostics.record(
                             source = sourceLabelForPackage(pkg),
                             outcome = "已忽略（$reason）",
                             rawDetail = primary,
                             isRecorded = false,
-                            nowMs = nowMs
+                            nowMs = nowMs,
+                            context = appCtx
                         )
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "自动记账处理失败", e)
+                AutoLedgerDiagnostics.record(
+                    source = sourceLabelForPackage(pkg),
+                    outcome = "处理异常",
+                    rawDetail = e.message ?: e.javaClass.simpleName,
+                    isRecorded = false,
+                    nowMs = nowMs
+                )
             }
         }
     }
@@ -150,8 +246,6 @@ class LedgerNotificationListenerService : NotificationListenerService() {
 
         private val IGNORED_NOTIFICATION_CATEGORIES = setOf(
             Notification.CATEGORY_PROGRESS,
-            Notification.CATEGORY_SERVICE,
-            Notification.CATEGORY_STATUS,
             Notification.CATEGORY_PROMO,
             Notification.CATEGORY_RECOMMENDATION,
             Notification.CATEGORY_ALARM,
@@ -370,7 +464,13 @@ class LedgerNotificationListenerService : NotificationListenerService() {
             if ((flags and Notification.FLAG_ONGOING_EVENT) != 0) return true
             if ((flags and Notification.FLAG_FOREGROUND_SERVICE) != 0) return true
             if (notification.category in IGNORED_NOTIFICATION_CATEGORIES) return true
-            if (postTimeMs > 0L && nowMs - postTimeMs > STALE_NOTIFICATION_MS) return true
+            val notifWhen = notification.`when`
+            val newestTime = if (notifWhen in 1L..(nowMs + 60_000L) && postTimeMs > 0L) {
+                maxOf(postTimeMs, notifWhen)
+            } else {
+                postTimeMs
+            }
+            if (newestTime > 0L && nowMs - newestTime > STALE_NOTIFICATION_MS) return true
             return false
         }
 
@@ -378,15 +478,19 @@ class LedgerNotificationListenerService : NotificationListenerService() {
          * 从 Android 通知中按优先级抽取候选正文列表：
          * 1. 若通知为多行堆叠（MessagingStyle / InboxStyle），优先抽取最新一条消息，防止历史消息干扰；
          * 2. 常规单条通知使用完整「标题 + 子标题 + 正文 + 长正文」，保证拦截逻辑覆盖 bigText；
-         * 3. 最后补充 tickerText 兜底（部分 ROM 下通知栏摘要会被折叠为「2条新消息」）。
+         * 3. 兼容 EXTRA_TITLE_BIG / EXTRA_SUMMARY_TEXT / EXTRA_INFO_TEXT 及 tickerText 兜底。
          */
         @Suppress("DEPRECATION")
         internal fun extractCandidateContents(notification: Notification): List<String> {
             val extras = notification.extras ?: return emptyList()
             val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
+                .ifEmpty { extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString()?.trim().orEmpty() }
+            val titleBig = extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString()?.trim().orEmpty()
             val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim().orEmpty()
             val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim().orEmpty()
             val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()?.trim().orEmpty()
+            val summaryText = extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)?.toString()?.trim().orEmpty()
+            val infoText = extras.getCharSequence(Notification.EXTRA_INFO_TEXT)?.toString()?.trim().orEmpty()
             val ticker = notification.tickerText?.toString()?.trim().orEmpty()
 
             val results = LinkedHashSet<String>()
@@ -423,15 +527,24 @@ class LedgerNotificationListenerService : NotificationListenerService() {
                 results.add(combinedLine)
             }
 
-            // 3. 标准组合正文（title + subText + text + bigText）
-            val combined = extractNotificationContent(
+            // 3. 标准组合正文（title + titleBig/subText/summaryText/infoText + text + bigText）
+            val baseCombined = extractNotificationContent(
                 title = title,
                 text = text,
                 bigText = bigText,
                 subText = subText
             )
-            if (combined.isNotEmpty()) {
-                results.add(combined)
+            val fullParts = buildList {
+                if (baseCombined.isNotEmpty()) add(baseCombined)
+                listOf(titleBig, summaryText, infoText).forEach { extraPart ->
+                    if (extraPart.isNotEmpty() && none { it.contains(extraPart) }) {
+                        add(extraPart)
+                    }
+                }
+            }
+            val fullCombined = fullParts.joinToString(" ").trim()
+            if (fullCombined.isNotEmpty()) {
+                results.add(fullCombined)
             }
 
             // 4. tickerText 兜底（当正文被系统或微信折叠为「[N条]新消息」时）

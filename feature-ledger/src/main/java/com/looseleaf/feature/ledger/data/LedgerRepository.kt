@@ -113,6 +113,16 @@ internal object LedgerRepository {
     }
 
     /**
+     * 供 Application.onCreate 同步挂接 applicationContext（零磁盘 IO），
+     * 防止首帧渲染时 transactionsForMonth 误返回永久空 Flow。
+     */
+    fun attachContextOnly(context: Context) {
+        if (appContext == null) {
+            appContext = context.applicationContext
+        }
+    }
+
+    /**
      * 供后台服务（如 NotificationListenerService 冷启动唤醒）调用：
      * 避免 Application.onCreate 异步 init 尚未完成时访问数据库或分类字典抛异常。
      */

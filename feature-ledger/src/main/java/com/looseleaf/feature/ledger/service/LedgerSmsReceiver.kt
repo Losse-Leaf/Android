@@ -28,10 +28,10 @@ class LedgerSmsReceiver : BroadcastReceiver() {
         }
 
         val appCtx = context.applicationContext
-        val prefs = appCtx.getSharedPreferences("looseleaf_ledger_settings", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("auto_record_enabled", true)) {
+        if (!AutoLedgerListenerStatus.isAutoRecordEnabled(appCtx)) {
             return
         }
+        AutoLedgerDiagnostics.attachContext(appCtx)
 
         val messages = runCatching { Telephony.Sms.Intents.getMessagesFromIntent(intent) }.getOrNull()
         if (messages.isNullOrEmpty()) return
@@ -100,6 +100,14 @@ class LedgerSmsReceiver : BroadcastReceiver() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "银行短信自动记账处理失败", e)
+                AutoLedgerDiagnostics.record(
+                    source = "银行短信",
+                    outcome = "处理异常",
+                    rawDetail = e.message ?: e.javaClass.simpleName,
+                    isRecorded = false,
+                    nowMs = nowMs,
+                    context = appCtx
+                )
             } finally {
                 pendingResult.finish()
             }

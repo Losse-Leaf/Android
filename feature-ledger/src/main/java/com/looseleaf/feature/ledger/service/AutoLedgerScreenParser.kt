@@ -55,6 +55,7 @@ internal object AutoLedgerScreenParser {
     // 完成页上不属于商户/对方昵称的常见 UI 按钮或标题文本
     private val UI_CHROME_LABELS = setOf(
         "支付成功", "付款成功", "转账成功", "已收钱", "你已收款", "已收款", "完成", "确定", "返回",
+        "返回商家", "知道了", "查看详情",
         "关闭", "零钱", "零钱通", "微信支付", "微信转账", "支付宝", "支付方式", "收款方", "收款人",
         "商户", "收款商户", "付款方", "转账时间", "收款时间", "待对方收款", "待朋友收款",
         "待确认收款", "已存入零钱", "已存入零钱，可直接消费", "已存入零钱通", "查看零钱",
@@ -159,7 +160,9 @@ internal object AutoLedgerScreenParser {
                 channelGroup = NotificationChannelGroup.WECHAT_SCREEN,
                 merchant = sender,
                 normalizedContent = "wechat_screen:income:${amountHit.second}:${receiptTime.first}",
-                qualityScore = qualityScore
+                qualityScore = qualityScore,
+                channelHint = "微信",
+                notifyOrigin = AutoLedgerParser.ORIGIN_WALLET
             )
             return ParsedScreenBill(
                 bill = bill,
@@ -226,7 +229,9 @@ internal object AutoLedgerScreenParser {
             channelGroup = NotificationChannelGroup.WECHAT_SCREEN,
             merchant = payee,
             normalizedContent = "wechat_screen:expense:${amountHit.second}:${payee.orEmpty()}:$keySuffix",
-            qualityScore = qualityScore
+            qualityScore = qualityScore,
+            channelHint = "微信",
+            notifyOrigin = AutoLedgerParser.ORIGIN_WALLET
         )
         return ParsedScreenBill(
             bill = bill,
@@ -240,7 +245,9 @@ internal object AutoLedgerScreenParser {
         expenseCategories: List<String>,
         nowMs: Long
     ): ParsedScreenBill? {
-        val hasFinishButton = texts.any { it == "完成" }
+        val hasFinishButton = texts.any {
+            it == "完成" || it == "返回商家" || it == "知道了" || it == "查看账单" || it == "查看详情"
+        }
         val hasSuccessAnchor = texts.any {
             it == "支付成功" || it == "付款成功" || it == "转账成功"
         }
@@ -278,7 +285,9 @@ internal object AutoLedgerScreenParser {
             channelGroup = NotificationChannelGroup.ALIPAY_SCREEN,
             merchant = payee,
             normalizedContent = "alipay_screen:expense:${amountHit.second}:${payee.orEmpty()}:$keySuffix",
-            qualityScore = qualityScore
+            qualityScore = qualityScore,
+            channelHint = "支付宝",
+            notifyOrigin = AutoLedgerParser.ORIGIN_WALLET
         )
         return ParsedScreenBill(
             bill = bill,

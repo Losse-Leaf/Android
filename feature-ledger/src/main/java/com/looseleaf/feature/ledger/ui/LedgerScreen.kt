@@ -141,7 +141,8 @@ fun LedgerScreen(
     }
 
     val monthRange = remember(selectedYearMonth) { monthRangeOf(selectedYearMonth) }
-    val transactions by remember(monthRange) {
+    val transactions by remember(context, monthRange) {
+        LedgerRepository.attachContextOnly(context)
         LedgerRepository.transactionsForMonth(monthRange)
     }.collectAsStateWithLifecycle(emptyList())
 

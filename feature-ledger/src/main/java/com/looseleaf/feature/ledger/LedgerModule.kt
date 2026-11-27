@@ -7,6 +7,8 @@ import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.feature.ledger.data.LedgerDatabase
 import com.looseleaf.feature.ledger.data.LedgerOutboxEventEntity
 import com.looseleaf.feature.ledger.data.LedgerRepository
+import com.looseleaf.feature.ledger.service.AutoLedgerDiagnostics
+import com.looseleaf.feature.ledger.service.AutoLedgerListenerStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -36,6 +38,26 @@ object LedgerModule {
         if (onScheduleSync != null) {
             LedgerRepository.onScheduleSyncListener = onScheduleSync
         }
+    }
+
+    /** 供 Application.onCreate 同步挂接 Context 与同步回调，零磁盘 IO */
+    fun attachContext(context: Context) {
+        LedgerRepository.attachContextOnly(context)
+        AutoLedgerDiagnostics.attachContext(context)
+    }
+
+    /** 供 Application.onCreate 同步注册同步回调，避免冷启动后台服务竞争 */
+    fun setScheduleSyncListener(listener: () -> Unit) {
+        LedgerRepository.onScheduleSyncListener = listener
+    }
+
+    /** 检查应用是否覆盖更新并在授权已开时拉起保活与 NotificationListenerService 重绑 */
+    fun ensureAutoLedgerAlive(
+        context: Context,
+        allowStartForegroundService: Boolean = true
+    ) {
+        AutoLedgerListenerStatus.checkAppUpdated(context)
+        AutoLedgerListenerStatus.ensureListening(context, allowStartForegroundService)
     }
 
     suspend fun pendingOutboxCount(): Int = LedgerRepository.pendingOutboxCount()

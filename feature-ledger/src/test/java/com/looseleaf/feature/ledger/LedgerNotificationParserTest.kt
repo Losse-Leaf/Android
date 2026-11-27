@@ -1,6 +1,8 @@
 package com.looseleaf.feature.ledger
 
+import com.looseleaf.feature.ledger.service.AutoLedgerParser
 import com.looseleaf.feature.ledger.service.LedgerNotificationListenerService
+import com.looseleaf.feature.ledger.service.NotificationChannelGroup
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -443,5 +445,132 @@ class LedgerNotificationParserTest {
         assertNotNull(alipayHuabei)
         assertEquals("expense", alipayHuabei!!.type)
         assertEquals(3680L, alipayHuabei.amount)
+    }
+
+    @Test
+    fun `支付宝账单提醒标题与尾随奖励尾巴以及微信银行公众号动账均可识别`() {
+        val expenseDict = listOf("餐饮", "交通", "购物", "其他")
+        val incomeDict = listOf("工资收入", "礼金红包", "其他收入")
+
+        // 1. 支付宝单笔支出带「账单提醒」前缀不得再被误杀
+        val alipayBillReminder = LedgerNotificationListenerService.parseBillFromText(
+            content = "支付宝 账单提醒：你有一笔28.50元的支出",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = expenseDict
+        )
+        assertNotNull(alipayBillReminder)
+        assertEquals("expense", alipayBillReminder!!.type)
+        assertEquals(2850L, alipayBillReminder.amount)
+
+        // 2. 支付宝真实消费末尾附带蚂蚁森林/支付有礼/非括号抵扣描述不得被误杀
+        val alipayWithRewardFooter = LedgerNotificationListenerService.parseBillFromText(
+            content = "支付宝 支付助手：向瑞幸咖啡付款18.00元，获得蚂蚁森林能量",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = expenseDict
+        )
+        assertNotNull(alipayWithRewardFooter)
+        assertEquals("expense", alipayWithRewardFooter!!.type)
+        assertEquals(1800L, alipayWithRewardFooter.amount)
+        assertEquals("瑞幸咖啡", alipayWithRewardFooter.title)
+        assertEquals("餐饮", alipayWithRewardFooter.category)
+
+        val alipayWithDiscountFooter = LedgerNotificationListenerService.parseBillFromText(
+            content = "支付宝 交易提醒：付款36.50元，含红包抵扣2.00元",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = expenseDict
+        )
+        assertNotNull(alipayWithDiscountFooter)
+        assertEquals("expense", alipayWithDiscountFooter!!.type)
+        assertEquals(3650L, alipayWithDiscountFooter.amount)
+
+        // 3. 微信内「中国农业银行微银行 / 招商银行信用卡」公众号动账推送
+        val wxAbcAlert = AutoLedgerParser.parse(
+            content = "中国农业银行微银行 交易提醒：您尾号7619账户支出人民币50.00元",
+            pkg = "com.tencent.mm",
+            expenseCategories = expenseDict,
+            incomeCategories = incomeDict
+        )
+        assertNotNull(wxAbcAlert)
+        assertEquals("expense", wxAbcAlert!!.request.type)
+        assertEquals(5000L, wxAbcAlert.request.amount)
+        assertEquals("银行卡", wxAbcAlert.request.paymentMethod)
+        assertEquals(AutoLedgerParser.ORIGIN_BANK, wxAbcAlert.notifyOrigin)
+        assertEquals(NotificationChannelGroup.BANK_APP, wxAbcAlert.channelGroup)
+
+        val wxCmbCreditAlert = AutoLedgerParser.parse(
+            content = "招商银行信用卡 动账通知：尾号8888消费人民币128.00元",
+            pkg = "com.tencent.mm",
+            expenseCategories = expenseDict
+        )
+        assertNotNull(wxCmbCreditAlert)
+        assertEquals("expense", wxCmbCreditAlert!!.request.type)
+        assertEquals(12800L, wxCmbCreditAlert.request.amount)
+        assertEquals("银行卡", wxCmbCreditAlert.request.paymentMethod)
+        assertEquals(AutoLedgerParser.ORIGIN_BANK, wxCmbCreditAlert.notifyOrigin)
+
+        // 4. 未收录包名的地区银行/定制短信 App 兜底识别
+        assertTrue(
+            AutoLedgerParser.looksLikeUnlistedBankOrSmsNotification(
+                "【中国农业银行】您尾号4321账户完成转存交易人民币5000.00"
+            )
+        )
+        assertFalse(
+            AutoLedgerParser.looksLikeUnlistedBankOrSmsNotification(
+                "朋友聊天：明天去农业银行门口见面"
+            )
+        )
+
+        // 5. 农业银行 95599 各类来账/代付/带正负号跨行转账与动账通知
+        val abcOtherBankIn = LedgerNotificationListenerService.parseBillFromText(
+            content = "【中国农业银行】您尾号4321账户完成他行来账交易人民币5000.00，余额15000.00",
+            pkg = "com.android.mms",
+            incomeCategories = incomeDict
+        )
+        assertNotNull(abcOtherBankIn)
+        assertEquals("income", abcOtherBankIn!!.type)
+        assertEquals(500000L, abcOtherBankIn.amount)
+
+        val abcUnionpayDisburse = LedgerNotificationListenerService.parseBillFromText(
+            content = "【中国农业银行】您尾号4321账户完成银联代付交易人民币3200.00，余额18200.00",
+            pkg = "com.android.mms",
+            incomeCategories = incomeDict
+        )
+        assertNotNull(abcUnionpayDisburse)
+        assertEquals("income", abcUnionpayDisburse!!.type)
+        assertEquals(320000L, abcUnionpayDisburse.amount)
+
+        val abcSignedTransferIn = LedgerNotificationListenerService.parseBillFromText(
+            content = "【中国农业银行】您尾号4321账户完成跨行转账交易人民币+500.00，余额18700.00",
+            pkg = "com.android.mms",
+            incomeCategories = incomeDict
+        )
+        assertNotNull(abcSignedTransferIn)
+        assertEquals("income", abcSignedTransferIn!!.type)
+        assertEquals(50000L, abcSignedTransferIn.amount)
+
+        val abcSignedTransferOut = LedgerNotificationListenerService.parseBillFromText(
+            content = "【中国农业银行】您尾号4321账户完成跨行转账交易人民币-500.00，余额18200.00",
+            pkg = "com.android.mms",
+            expenseCategories = expenseDict
+        )
+        assertNotNull(abcSignedTransferOut)
+        assertEquals("expense", abcSignedTransferOut!!.type)
+        assertEquals(50000L, abcSignedTransferOut.amount)
+
+        val abcAppComeIn = LedgerNotificationListenerService.parseBillFromText(
+            content = "动账通知 您尾号4321账户发生交易，交易类型：他行来账，交易金额：5000.00元",
+            pkg = "com.android.bankabc",
+            incomeCategories = incomeDict
+        )
+        assertNotNull(abcAppComeIn)
+        assertEquals("income", abcAppComeIn!!.type)
+        assertEquals(500000L, abcAppComeIn.amount)
+
+        assertTrue(
+            AutoLedgerParser.isFinancialSms(
+                sender = "95599",
+                body = "【中国农业银行】您尾号4321账户完成转存交易CNY5000.00"
+            )
+        )
     }
 }

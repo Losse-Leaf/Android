@@ -1,7 +1,7 @@
 package com.looseleaf.feature.ledger.service
 
 import android.accessibilityservice.AccessibilityService
-import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -29,14 +29,32 @@ class LedgerAccessibilityService : AccessibilityService() {
     @Volatile
     private var lastScanAtMs: Long = 0L
 
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        AutoLedgerDiagnostics.attachContext(applicationContext)
+        AutoLedgerListenerStatus.setAccessibilityConnected(true)
+        AutoLedgerDiagnostics.record(
+            source = "无障碍辅助",
+            outcome = "辅助识别已连接",
+            rawDetail = "已就绪：可识别微信/支付宝完成页及零钱转账",
+            isRecorded = false,
+            context = applicationContext
+        )
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        AutoLedgerListenerStatus.setAccessibilityConnected(false)
+        return super.onUnbind(intent)
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+        AutoLedgerListenerStatus.setAccessibilityConnected(true)
         val pkg = event.packageName?.toString().orEmpty()
         if (pkg !in TARGET_PACKAGES) return
 
         val appCtx = applicationContext
-        val prefs = appCtx.getSharedPreferences("looseleaf_ledger_settings", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("auto_record_enabled", true)) return
+        if (!AutoLedgerListenerStatus.isAutoRecordEnabled(appCtx)) return
 
         val nowMs = System.currentTimeMillis()
         // 高频内容变化事件按 350ms 节流，窗口切换事件立刻响应
@@ -47,13 +65,7 @@ class LedgerAccessibilityService : AccessibilityService() {
         }
         lastScanAtMs = nowMs
 
-        val root = rootInActiveWindow ?: return
-        val collectedTexts = ArrayList<String>(48)
-        try {
-            collectVisibleTexts(root, collectedTexts, depth = 0)
-        } finally {
-            recycleCompat(root)
-        }
+        val collectedTexts = collectWindowTextsForPackage(pkg)
         if (collectedTexts.size < 2) return
 
         serviceScope.launch {
@@ -80,17 +92,54 @@ class LedgerAccessibilityService : AccessibilityService() {
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "前台转账页面识别失败", e)
+                AutoLedgerDiagnostics.record(
+                    source = "无障碍辅助",
+                    outcome = "识别异常",
+                    rawDetail = e.message ?: e.javaClass.simpleName,
+                    isRecorded = false,
+                    nowMs = nowMs
+                )
             }
         }
     }
 
     override fun onInterrupt() {
-        // 无需额外状态清理
+        AutoLedgerListenerStatus.setAccessibilityConnected(false)
     }
 
     override fun onDestroy() {
+        AutoLedgerListenerStatus.setAccessibilityConnected(false)
         super.onDestroy()
         serviceScope.cancel()
+    }
+
+    private fun collectWindowTextsForPackage(pkg: String): List<String> {
+        val collected = ArrayList<String>(48)
+        rootInActiveWindow?.let { root ->
+            try {
+                if (root.packageName?.toString().isNullOrEmpty() || root.packageName?.toString() == pkg) {
+                    collectVisibleTexts(root, collected, depth = 0)
+                }
+            } finally {
+                recycleCompat(root)
+            }
+        }
+        if (collected.size >= 2) return collected
+
+        // 若主窗口为空或来自弹窗蒙层，尝试从交互窗口列表定位目标 App 窗口
+        val windowList = runCatching { windows }.getOrNull().orEmpty()
+        for (win in windowList) {
+            val wRoot = runCatching { win.root }.getOrNull() ?: continue
+            try {
+                if (wRoot.packageName?.toString() != pkg) continue
+                collected.clear()
+                collectVisibleTexts(wRoot, collected, depth = 0)
+                if (collected.size >= 2) break
+            } finally {
+                recycleCompat(wRoot)
+            }
+        }
+        return collected
     }
 
     private fun collectVisibleTexts(
@@ -99,18 +148,20 @@ class LedgerAccessibilityService : AccessibilityService() {
         depth: Int
     ) {
         if (depth > MAX_TREE_DEPTH || out.size >= MAX_COLLECTED_NODES) return
-        if (!node.isVisibleToUser) return
 
         // 绝不读取密码输入框内容
         if (node.isPassword) return
 
-        node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
-        val desc = node.contentDescription?.toString()?.trim()
-        if (!desc.isNullOrEmpty() && desc != node.text?.toString()?.trim()) {
-            out.add(desc)
+        val childCount = node.childCount
+        // 微信/支付宝部分容器节点 isVisibleToUser 可能误报 false，不能直接跳过整棵子树
+        if (node.isVisibleToUser || childCount == 0) {
+            node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
+            val desc = node.contentDescription?.toString()?.trim()
+            if (!desc.isNullOrEmpty() && desc != node.text?.toString()?.trim()) {
+                out.add(desc)
+            }
         }
 
-        val childCount = node.childCount
         for (i in 0 until childCount) {
             if (out.size >= MAX_COLLECTED_NODES) break
             val child = node.getChild(i) ?: continue

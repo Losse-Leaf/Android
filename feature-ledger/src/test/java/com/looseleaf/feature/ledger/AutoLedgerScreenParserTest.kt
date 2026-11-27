@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.test.core.app.ApplicationProvider
 import com.looseleaf.app.model.CreateTransactionRequest
 import com.looseleaf.feature.ledger.service.AutoLedgerDedupeDecision
+import com.looseleaf.feature.ledger.service.AutoLedgerParser
 import com.looseleaf.feature.ledger.service.AutoLedgerScreenParser
 import com.looseleaf.feature.ledger.service.LedgerNotificationListenerService
 import kotlinx.coroutines.runBlocking
@@ -65,6 +66,8 @@ class AutoLedgerScreenParserTest {
         assertEquals(5000L, parsed.bill.request.amount)
         assertEquals("转账 · 张三", parsed.bill.request.title)
         assertEquals("微信支付", parsed.bill.request.paymentMethod)
+        assertEquals("微信", parsed.bill.channelHint)
+        assertEquals(AutoLedgerParser.ORIGIN_WALLET, parsed.bill.notifyOrigin)
     }
 
     @Test
@@ -247,5 +250,30 @@ class AutoLedgerScreenParserTest {
         assertEquals("expense", firstParsed!!.type)
         assertEquals(6600L, firstParsed.amount)
         assertEquals("转账 · YN1753", firstParsed.title)
+    }
+
+    @Test
+    fun `支付宝付款完成页使用返回商家按钮也可正常识别`() {
+        val nowMs = 1_795_527_000_000L
+        val parsed = AutoLedgerScreenParser.parse(
+            pkg = "com.eg.android.AlipayGphone",
+            rawTexts = listOf(
+                "付款成功",
+                "￥",
+                "42.50",
+                "收款方",
+                "麦当劳",
+                "返回商家"
+            ),
+            expenseCategories = listOf("餐饮", "购物", "其他"),
+            nowMs = nowMs
+        )
+        assertNotNull(parsed)
+        assertEquals("expense", parsed!!.bill.request.type)
+        assertEquals(4250L, parsed.bill.request.amount)
+        assertEquals("麦当劳", parsed.bill.request.title)
+        assertEquals("支付宝", parsed.bill.request.paymentMethod)
+        assertEquals("支付宝", parsed.bill.channelHint)
+        assertEquals(AutoLedgerParser.ORIGIN_WALLET, parsed.bill.notifyOrigin)
     }
 }

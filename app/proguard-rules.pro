@@ -27,6 +27,19 @@
     public static ** valueOf(java.lang.String);
 }
 
+# ---------- 账本模块 (feature-ledger) Kotlinx Serialization & 枚举 ----------
+-keep,includedescriptorclasses class com.looseleaf.feature.ledger.**$$serializer { *; }
+-keepclassmembers class com.looseleaf.feature.ledger.** {
+    *** Companion;
+}
+-keepclasseswithmembers class com.looseleaf.feature.ledger.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-keepclassmembers enum com.looseleaf.feature.ledger.** {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
+
 # ---------- Room ----------
 -keep class * extends androidx.room.RoomDatabase
 -keep @androidx.room.Entity class *

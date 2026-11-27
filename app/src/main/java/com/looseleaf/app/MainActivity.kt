@@ -751,6 +751,13 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        runCatching {
+            LedgerModule.ensureAutoLedgerAlive(this, allowStartForegroundService = true)
+        }
+    }
+
     override fun onDestroy() {
         // MOB-P1-34：移除进程级观察者，避免泄漏 Activity 实例
         ProcessLifecycleOwner.get().lifecycle.removeObserver(processLifecycleObserver)

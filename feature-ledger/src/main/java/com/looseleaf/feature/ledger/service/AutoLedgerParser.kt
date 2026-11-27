@@ -26,6 +26,7 @@ internal object AutoLedgerParser {
     private val SMS_PACKAGES = setOf(
         "com.google.android.apps.messaging",
         "com.android.mms",
+        "com.android.mms.service",
         "com.android.messaging",
         "com.samsung.android.messaging",
         "com.xiaomi.mms",
@@ -33,15 +34,20 @@ internal object AutoLedgerParser {
         "com.huawei.message",
         "com.huawei.ohos.mms",
         "com.hihonor.mms",
+        "com.hihonor.message",
         "com.coloros.mms",
         "com.oplus.mms",
+        "com.oplus.messaging",
         "com.oppo.mms",
         "com.realme.mms",
         "com.vivo.mms",
         "com.meizu.mms",
+        "com.meizu.flyme.mms",
         "com.oneplus.mms",
         "com.lenovo.mms",
-        "com.zte.mms"
+        "com.zte.mms",
+        "com.sonymobile.conversations",
+        "com.motorola.messaging"
     )
 
     // 来自 SmartLedger (MIT) + AutoRuleSubmit 全量主流银行/数字人民币包名及碎片匹配
@@ -136,7 +142,7 @@ internal object AutoLedgerParser {
         "昨日消费", "昨日支出", "昨日账单", "今日汇总", "今日消费汇总",
         "总结", "汇总", "周报", "月报", "年报", "季报", "报告",
         "周账单", "月账单", "年账单", "账单总结", "账单汇总", "账单报告", "账单小助手",
-        "账单助手", "账单分析", "收支分析", "消费分析", "消费概况", "收支概况", "记账本",
+        "账单助手", "账单分析", "收支分析", "消费分析", "消费概况", "收支概况",
         "总支出", "总消费", "总收入", "共支出", "共消费", "共收入", "共计支出", "共计消费",
         "共计收入", "共计", "累计支出", "累计消费", "累计收入", "合计支出", "合计消费", "合计收入",
         "总计支出", "总计消费", "总计收入", "较上周", "比上周", "较上月", "比上月", "环比", "同比",
@@ -144,7 +150,7 @@ internal object AutoLedgerParser {
         "花呗账单", "白条账单", "信用卡账单", "电子账单",
         // 还款提醒、信用分、贷款营销
         "本期应还", "待还款", "待还金额", "还款提醒", "到期提醒", "即将到期",
-        "最后还款日", "最低还款", "预约还款", "自动还款提醒", "账单提醒", "还款日", "逾期提醒",
+        "最后还款日", "最低还款", "预约还款", "自动还款提醒", "还款日", "逾期提醒",
         "额度调整", "额度提升", "授信额度", "提额", "临时额度", "贷款额度", "借款额度", "预估可借",
         "年化利率", "立即申请", "点击申请", "信用分", "芝麻信用", "芝麻分", "信用守护",
         // 收益日报与失败/待付/取消/状态通知
@@ -193,6 +199,26 @@ internal object AutoLedgerParser {
     // 仅带「账面余额提醒」而无真实消费/入账动词的通知拦截
     private val PURE_BALANCE_REMINDER_REGEX = Regex("""^(?:.*)(?:当前余额|可用余额|账户余额)[^，。！？\n]*$""")
 
+    // 真实单笔成交回执末尾附带的激励/抵扣/引导尾巴（仅在已确认单笔成交信号后剥离）
+    private val TRAILING_REWARD_FOOTER_REGEX = Regex(
+        """[，,。；;\s]+(?:含|已用|使用|本次|其中|另)?[^，。；;\n]{0,20}(?:红包抵扣|立减金|优惠券|满减|立减|红包|抵扣)[^，。；;\n]{0,24}$"""
+    )
+    private val TRAILING_PROMO_GUIDE_REGEX = Regex(
+        """[，,。；;\s]+(?:获得|可获|已获|点击查看|点击|查看|支付有礼|消费有礼|付款有礼|蚂蚁森林|积分|能量)[^，。；;\n]{0,36}$"""
+    )
+    private val HARD_VOUCHER_GIFT_KEYWORDS = listOf(
+        "送你", "送您", "赠送", "待领取", "立即领取", "点击领取", "免费领", "领红包",
+        "体验金", "鼓励金", "立减金", "奖励金", "抵扣金", "福利金",
+        "优惠券", "代金券", "消费券", "立减券", "满减券", "通用券", "充值券", "打车券",
+        "干饭", "请你吃"
+    )
+    private val RECEIPT_CUE_WITH_AMOUNT_PATTERN = Pattern.compile(
+        """(?:已支付|付款成功|成功付款|支付成功|扣款成功|扣费成功|自动扣款|免密支付|消费成功|转账成功|支付宝到账|微信收款|收款到账|退款到账|退款成功|入账成功|已入账|已到账)[^，。！？；\n]{0,28}?(?:[¥￥]|人民币|RMB|CNY)?\s*[0-9,]+(?:\.[0-9]{1,2})?\s*[元块]?"""
+    )
+    private val NON_RECEIPT_VOUCHER_NOUNS = listOf(
+        "红包", "券", "积分", "体验金", "鼓励金", "立减金", "奖励金", "抵扣金", "福利金", "送你", "送您", "赠送"
+    )
+
     private val WHITESPACE_REGEX = Regex("""\s+""")
 
     // ── 白名单金额与安全连接词 ──
@@ -223,9 +249,24 @@ internal object AutoLedgerParser {
         """(?:^|[\s:：，,])([^，。！？；：\n¥￥\s]{1,24}?)\s*(?:已向你|已向您|已给你|已给您|向你|向您|给你|给您)\s*(?:转账|转入|汇款|付款)$SAFE_GAP$STRICT_AMOUNT"""
     )
 
-    // 1b. 明确收入直出模板（含农行「完成转存交易人民币5000.00」「完成工资交易人民币...」「银联入账」「借记卡收入」与支付宝到账/花呗退款）
+    // 1b. 明确收入直出模板（含农行「完成转存交易人民币5000.00」「完成工资交易人民币...」「他行来账」「银联代付」与支付宝到账/花呗退款）
     private val INCOME_DIRECT_PATTERN = Pattern.compile(
-        """(?:完成(?:转存|代发工资|工资|代发|银联入账|跨行转入|网银转入|掌银转入|转账转入|来账|汇入|退汇|退款|结息|利息|报销|收款|收入|入账|存入)交易|支付宝到账|支付宝收款|微信收款|微信转账到账|好友转账到账|转账到账|转账收款|转账退回|转账已退还|退还到账|已退还|零钱入账|收款成功|收款到账|扫码收款|二维码收款|面对面收款|收到转账|向你转账|向您转账|给你转账|给您转账|退款到账|收到退款|已退款|退款成功|已入账|入账成功|已到账|到账成功|已收钱|你已收款|您已收款|(?<!对方)(?<!朋友)(?<!好友)(?<!收款人)(?<!收款方)已收款|工资入账|代发工资|转存|银联入账|转入|入账|存入|到账|收款(?![方人账商码])|收入)$SAFE_GAP$STRICT_AMOUNT"""
+        """(?:完成(?:转存|代发工资|工资|代发|银联入账|跨行转入|他行来账|行内来账|跨行来账|他行转入|网银转入|掌银转入|转账转入|网联来账|来账|汇入|现存|银联代付|退汇|退款|结息|利息|报销|收款|收入|入账|存入)交易|支付宝到账|支付宝收款|微信收款|微信转账到账|好友转账到账|转账到账|转账收款|转账退回|转账已退还|退还到账|已退还|零钱入账|收款成功|收款到账|扫码收款|二维码收款|面对面收款|收到转账|向你转账|向您转账|给你转账|给您转账|退款到账|收到退款|已退款|退款成功|已入账|入账成功|已到账|到账成功|已收钱|你已收款|您已收款|(?<!对方)(?<!朋友)(?<!好友)(?<!收款人)(?<!收款方)已收款|工资入账|代发工资|他行来账|行内来账|跨行来账|他行转入|银联代付|网联来账|转存|银联入账|转入|入账|存入|现存|汇入|来账|代发|到账|收款(?![方人账商码])|收入)$SAFE_GAP$STRICT_AMOUNT"""
+    )
+
+    // 银行通用的「完成<类型>交易人民币[+-]金额」模板（兼容农行 95599 全量交易类型）
+    private val BANK_COMPLETED_TX_PATTERN = Pattern.compile(
+        """完成([^，。！？；：\n\d]{1,18}?)交易\s*(?:人民币|RMB|CNY|¥|￥)?\s*([+-]?)\s*($AMOUNT_NUM)(?![\d.])\s*[元块]?"""
+    )
+
+    private val BANK_COMPLETED_INCOME_HINTS = listOf(
+        "转存", "转入", "来账", "汇入", "入账", "存入", "现存", "工资", "代发",
+        "代付", "退货", "退款", "退汇", "结息", "利息", "报销", "补贴", "奖金",
+        "分红", "收入", "收款", "提现"
+    )
+    private val BANK_COMPLETED_EXPENSE_HINTS = listOf(
+        "财付通", "支付宝", "微信", "快捷", "网上", "消费", "支出", "支取",
+        "扣款", "扣费", "代扣", "缴费", "取款", "POS", "ATM", "刷卡", "转账"
     )
 
     private val INCOME_REVERSE_PATTERN = Pattern.compile(
@@ -265,7 +306,7 @@ internal object AutoLedgerParser {
 
     // 4. 受控兜底：仅当通知带明确成交凭证词且出现「金额/¥」字段时启用
     private val INCOME_CUE_PATTERN = Pattern.compile(
-        """收款成功|到账成功|收款到账|转账到账|转账收款|转账退回|转账已退还|已收钱|(?<!对方)(?<!朋友)(?<!好友)(?<!收款人)(?<!收款方)已收款|已存入零钱|收款通知|退款成功|退款到账|零钱入账|转存交易|代发工资|银联入账|入账成功"""
+        """收款成功|到账成功|收款到账|转账到账|转账收款|转账退回|转账已退还|已收钱|(?<!对方)(?<!朋友)(?<!好友)(?<!收款人)(?<!收款方)已收款|已存入零钱|收款通知|退款成功|退款到账|零钱入账|转存交易|代发工资|银联入账|入账成功|他行来账|行内来账|跨行来账|他行转入|银联代付|网联来账|现存|汇入|来账|代发"""
     )
     private val EXPENSE_CUE_PATTERN = Pattern.compile(
         """支付成功|付款成功|成功付款|扣款成功|扣费成功|消费成功|交易成功|转账成功|已支付|已付款|已扣款|已转账|支付凭证|扣费凭证|转账凭证|转账通知|对方已收款|朋友已收款|好友已收款|动账通知|动账提醒|零钱支出|微信转账|免密支付|自动扣款|财付通交易"""
@@ -311,15 +352,27 @@ internal object AutoLedgerParser {
     /** 判断短信广播是否为银行或支付动账短信（参考 SmartLedger SmsReceiver） */
     fun isFinancialSms(sender: String, body: String): Boolean {
         if (body.isBlank()) return false
+        val hasFinancialIdentity = SMS_FINANCIAL_KEYWORDS.any { body.contains(it) } ||
+            BANK_SHORT_SENDERS.any { sender.contains(it) }
+        if (!hasFinancialIdentity) return false
         val hasCurrencyOrAmount = body.contains("元") ||
             body.contains("￥") ||
             body.contains("¥") ||
             body.contains("人民币") ||
             body.contains("RMB", ignoreCase = true) ||
-            body.contains("金额")
-        if (!hasCurrencyOrAmount) return false
-        if (SMS_FINANCIAL_KEYWORDS.any { body.contains(it) }) return true
-        return BANK_SHORT_SENDERS.any { sender.contains(it) }
+            body.contains("CNY", ignoreCase = true) ||
+            body.contains("金额") ||
+            SMS_DECIMAL_AMOUNT_REGEX.containsMatchIn(body)
+        return hasCurrencyOrAmount
+    }
+
+    private val SMS_DECIMAL_AMOUNT_REGEX = Regex("""\d+\.\d{2}""")
+
+    internal fun isWeChatAllowedChannel(sanitized: String): Boolean {
+        if (WECHAT_PAYMENT_CHANNEL_KEYWORDS.any { sanitized.contains(it) }) return true
+        val bankLabel = identifyBankLabel(sanitized)
+        return hasBankLedgerSignal(sanitized) ||
+            (bankLabel != null && BANK_WECHAT_ALERT_KEYWORDS.any { sanitized.contains(it) })
     }
 
     fun hasBankLedgerSignal(text: String): Boolean {
@@ -330,6 +383,23 @@ internal object AutoLedgerParser {
         if (Regex("""尾号\*{0,4}\d{0,4}.*(?:支出|收入|消费|扣款|转入|转存|入账|存入|到账)""").containsMatchIn(text)) return true
         return false
     }
+
+    fun looksLikeUnlistedBankOrSmsNotification(text: String): Boolean {
+        if (hasBankLedgerSignal(text)) return true
+        val hasBankOrSender = identifyBankLabel(text) != null ||
+            text.contains("银行") || text.contains("储蓄卡") || text.contains("信用卡") ||
+            text.contains("借记卡") || text.contains("尾号")
+        if (!hasBankOrSender || !hasPayableAmountSignal(text)) return false
+        return UNLISTED_BANK_ACTION_KEYWORDS.any { text.contains(it) }
+    }
+
+    private val UNLISTED_BANK_ACTION_KEYWORDS = listOf(
+        "支出", "消费", "扣款", "付款", "转出", "收入", "入账", "到账", "存入", "转存", "转入", "退款", "交易提醒", "动账"
+    )
+
+    private val BANK_WECHAT_ALERT_KEYWORDS = listOf(
+        "交易提醒", "动账", "支出", "收入", "转存", "入账", "扣款", "消费", "到账", "存入"
+    )
 
     fun hasPayableAmountSignal(text: String): Boolean =
         text.contains("元") || text.contains("￥") || text.contains("¥") || text.contains("人民币")
@@ -364,6 +434,43 @@ internal object AutoLedgerParser {
         return cleaned.replace(WHITESPACE_REGEX, " ").trim()
     }
 
+    fun stripTrailingRewardOrPromoFooter(text: String): String {
+        var result = text.trim()
+        repeat(3) {
+            val updated = TRAILING_REWARD_FOOTER_REGEX.replace(result, "").let {
+                TRAILING_PROMO_GUIDE_REGEX.replace(it, "")
+            }.trim()
+            if (updated == result) return result
+            result = updated
+        }
+        return result
+    }
+
+    fun hasStrongPaymentReceiptSignal(sanitized: String): Boolean {
+        if (sanitized.isBlank()) return false
+        val coreCandidate = stripTrailingRewardOrPromoFooter(sanitized)
+        if (coreCandidate.isBlank()) return false
+
+        val matchedCoreSlice: String? = listOf(
+            OUTGOING_TRANSFER_ACCEPTED_PATTERN,
+            INCOME_FROM_RECEIVED_PATTERN,
+            INCOME_FROM_SENT_TO_ME_PATTERN,
+            EXPENSE_PAYEE_VERB_AFTER_PATTERN,
+            EXPENSE_PAYEE_VERB_BEFORE_PATTERN,
+            EXPENSE_FROM_ACCOUNT_PATTERN,
+            EXPENSE_REVERSE_PATTERN,
+            INCOME_REVERSE_PATTERN,
+            RECEIPT_CUE_WITH_AMOUNT_PATTERN
+        ).firstNotNullOfOrNull { pattern ->
+            val m = pattern.matcher(coreCandidate)
+            if (m.find()) m.group(0) else null
+        }
+        if (matchedCoreSlice != null && NON_RECEIPT_VOUCHER_NOUNS.none { matchedCoreSlice.contains(it) }) {
+            return true
+        }
+        return hasBankLedgerSignal(coreCandidate)
+    }
+
     fun isVerificationCodeOrSpam(content: String): Boolean {
         if (content.isBlank()) return true
         val rawLower = content.lowercase(Locale.ROOT)
@@ -372,10 +479,27 @@ internal object AutoLedgerParser {
 
         val sanitized = stripAuxiliaryClauses(content)
         if (sanitized.isBlank()) return true
+
+        // 明确银行动账信号已通过硬性拦截（验证码/失败/余额不足/汇总）后，不被尾随推广词误杀
+        if (hasBankLedgerSignal(content)) {
+            return false
+        }
+
+        // 明确单笔成交回执（如「向瑞幸咖啡付款18.00元，获得蚂蚁森林能量」）：
+        // 先剥离末尾奖励/引导附注，仅检查主体是否仍为赠券/营销消息
+        if (hasStrongPaymentReceiptSignal(sanitized)) {
+            val core = stripTrailingRewardOrPromoFooter(sanitized)
+            if (core.isBlank()) return true
+            val coreLower = core.lowercase(Locale.ROOT)
+            if (HARD_VOUCHER_GIFT_KEYWORDS.any { coreLower.contains(it) }) return true
+            if (PROMO_AMOUNT_PATTERNS.any { it.containsMatchIn(core) }) return true
+            return false
+        }
+
         val sanitizedLower = sanitized.lowercase(Locale.ROOT)
         if (PROMO_AND_VOUCHER_KEYWORDS.any { sanitizedLower.contains(it) }) return true
         if (PROMO_AMOUNT_PATTERNS.any { it.containsMatchIn(sanitized) }) return true
-        if (PURE_BALANCE_REMINDER_REGEX.matches(sanitized) && !hasBankLedgerSignal(content)) return true
+        if (PURE_BALANCE_REMINDER_REGEX.matches(sanitized)) return true
 
         return false
     }
@@ -397,16 +521,35 @@ internal object AutoLedgerParser {
         if (isVerificationCodeOrSpam(content)) return null
 
         val channelGroup = classifyPackage(pkg) ?: inferChannelFromContent(content)
-        val sanitized = stripAuxiliaryClauses(content)
+        val rawSanitized = stripAuxiliaryClauses(content)
+        if (rawSanitized.isBlank()) return null
+        val sanitized = if (hasStrongPaymentReceiptSignal(rawSanitized)) {
+            stripTrailingRewardOrPromoFooter(rawSanitized)
+        } else {
+            rawSanitized
+        }
         if (sanitized.isBlank()) return null
+
+        val bankLabel = identifyBankLabel(sanitized)
+        val isWeChatBankOfficialAlert = channelGroup == NotificationChannelGroup.WECHAT &&
+            (hasBankLedgerSignal(sanitized) ||
+                (bankLabel != null && BANK_WECHAT_ALERT_KEYWORDS.any { sanitized.contains(it) }))
 
         // 渠道前置准入守卫
         when (channelGroup) {
             NotificationChannelGroup.BANK_SMS -> {
-                if (SMS_FINANCIAL_KEYWORDS.none { sanitized.contains(it) }) return null
+                if (SMS_FINANCIAL_KEYWORDS.none { sanitized.contains(it) } &&
+                    !hasBankLedgerSignal(sanitized)
+                ) {
+                    return null
+                }
             }
             NotificationChannelGroup.WECHAT -> {
-                if (WECHAT_PAYMENT_CHANNEL_KEYWORDS.none { sanitized.contains(it) }) return null
+                if (WECHAT_PAYMENT_CHANNEL_KEYWORDS.none { sanitized.contains(it) } &&
+                    !isWeChatBankOfficialAlert
+                ) {
+                    return null
+                }
             }
             else -> Unit
         }
@@ -419,11 +562,15 @@ internal object AutoLedgerParser {
         if (amountCents <= 0L) return null
 
         val merchant = sanitizeMerchant(counterpartyFromTemplate) ?: extractMerchant(sanitized)
-        val bankLabel = identifyBankLabel(sanitized)
         val isTransfer = sanitized.contains("转账") || sanitized.contains("已收钱") ||
             sanitized.contains("对方已收款") || sanitized.contains("转存")
+        val isExplicitWeChatWallet = sanitized.contains("微信支付") ||
+            sanitized.contains("微信转账") ||
+            sanitized.contains("零钱") ||
+            sanitized.contains("财付通")
 
         val paymentMethod = when {
+            isWeChatBankOfficialAlert && !isExplicitWeChatWallet -> "银行卡"
             channelGroup == NotificationChannelGroup.WECHAT ||
                 sanitized.contains("微信") ||
                 sanitized.contains("财付通") -> "微信支付"
@@ -476,8 +623,13 @@ internal object AutoLedgerParser {
             occurredAt = FormatUtils.toBeijingIsoString(LocalDateTime.now(FormatUtils.BeijingZone))
         )
 
-        val channelHint = inferChannelHint(channelGroup, sanitized)
-        val notifyOrigin = when (channelGroup) {
+        val effectiveChannelGroup = if (isWeChatBankOfficialAlert && !isExplicitWeChatWallet) {
+            NotificationChannelGroup.BANK_APP
+        } else {
+            channelGroup
+        }
+        val channelHint = inferChannelHint(effectiveChannelGroup, sanitized)
+        val notifyOrigin = when (effectiveChannelGroup) {
             NotificationChannelGroup.WECHAT,
             NotificationChannelGroup.WECHAT_SCREEN,
             NotificationChannelGroup.ALIPAY,
@@ -489,13 +641,13 @@ internal object AutoLedgerParser {
         }
 
         // 质量分：用于跨平台多提醒到达时的优先级仲裁（完成页 > 钱包 > 银行 App/电商 > 短信；有商户/具体分类加分）
-        val qualityScore = channelGroup.basePriority * 10 +
+        val qualityScore = effectiveChannelGroup.basePriority * 10 +
             (if (merchant != null) 4 else 0) +
             (if (category != "其他" && category != "其他收入") 2 else 0)
 
         return ParsedAutoLedgerBill(
             request = request,
-            channelGroup = channelGroup,
+            channelGroup = effectiveChannelGroup,
             merchant = merchant,
             normalizedContent = normalizeContentForDedupe(content),
             qualityScore = qualityScore,
@@ -562,6 +714,27 @@ internal object AutoLedgerParser {
             }
         }
 
+        // 1a. 银行通用的「完成<类型>交易人民币[+-]金额」（先看显式正负号，再看交易类型语义）
+        BANK_COMPLETED_TX_PATTERN.matcher(sanitized).let { m ->
+            if (m.find()) {
+                val txType = m.group(1)?.trim().orEmpty()
+                val sign = m.group(2)?.trim().orEmpty()
+                val cents = parseYuanStringToCents(m.group(3))
+                if (cents != null) {
+                    val direction = when {
+                        sign == "-" -> "expense"
+                        sign == "+" -> "income"
+                        BANK_COMPLETED_INCOME_HINTS.any { txType.contains(it) } -> "income"
+                        BANK_COMPLETED_EXPENSE_HINTS.any { txType.contains(it, ignoreCase = true) } -> "expense"
+                        else -> null
+                    }
+                    if (direction != null) {
+                        return Triple(direction, cents, null)
+                    }
+                }
+            }
+        }
+
         // 1b. 明确收入直出与反序模板
         INCOME_DIRECT_PATTERN.matcher(sanitized).let { m ->
             if (m.find()) {
@@ -574,7 +747,19 @@ internal object AutoLedgerParser {
             }
         }
 
-        // 2. 明确支出（带商户/收款人/扣款卡）模板
+        // 2. 银行带正负号动账模板（优先于无符号直出模板，确保「+500.00」不被当成支出）
+        SIGNED_EXPENSE_PATTERN.matcher(sanitized).let { m ->
+            if (m.find()) {
+                extractFirstAmount(m)?.let { return Triple("expense", it, null) }
+            }
+        }
+        SIGNED_INCOME_PATTERN.matcher(sanitized).let { m ->
+            if (m.find()) {
+                extractFirstAmount(m)?.let { return Triple("income", it, null) }
+            }
+        }
+
+        // 3. 明确支出（带商户/收款人/扣款卡）模板
         EXPENSE_PAYEE_VERB_AFTER_PATTERN.matcher(sanitized).let { m ->
             if (m.find()) {
                 val payee = m.group(1)?.trim()
@@ -597,29 +782,17 @@ internal object AutoLedgerParser {
             }
         }
 
-        // 3. 明确支出反序模板（「你有一笔 36.50 元的支出/转账」）
+        // 4. 明确支出反序模板（「你有一笔 36.50 元的支出/转账」）
         EXPENSE_REVERSE_PATTERN.matcher(sanitized).let { m ->
             if (m.find()) {
                 extractFirstAmount(m)?.let { return Triple("expense", it, null) }
             }
         }
 
-        // 4. 明确支出直出模板（含微信转账、支付宝扣款、农行完成财付通交易、零钱支付等）
+        // 5. 明确支出直出模板（含微信转账、支付宝扣款、农行完成财付通交易、零钱支付等）
         EXPENSE_DIRECT_PATTERN.matcher(sanitized).let { m ->
             if (m.find()) {
                 extractFirstAmount(m)?.let { return Triple("expense", it, null) }
-            }
-        }
-
-        // 4b. 银行带正负号动账模板（如「财付通交易人民币-50.00」「变动金额：-120.50元」「入账+200.00元」）
-        SIGNED_EXPENSE_PATTERN.matcher(sanitized).let { m ->
-            if (m.find()) {
-                extractFirstAmount(m)?.let { return Triple("expense", it, null) }
-            }
-        }
-        SIGNED_INCOME_PATTERN.matcher(sanitized).let { m ->
-            if (m.find()) {
-                extractFirstAmount(m)?.let { return Triple("income", it, null) }
             }
         }
 

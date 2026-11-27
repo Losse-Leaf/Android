@@ -2,6 +2,7 @@ package com.looseleaf.feature.ledger
 
 import android.app.Notification
 import android.content.Context
+import android.os.Bundle
 import androidx.test.core.app.ApplicationProvider
 import com.looseleaf.app.model.CreateTransactionRequest
 import com.looseleaf.feature.ledger.service.AutoLedgerDedupeDecision
@@ -10,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -194,6 +196,49 @@ class LedgerNotificationDedupeTest {
                 nowMs = nowMs
             )
         )
+
+        val statusCategory = Notification().apply {
+            category = Notification.CATEGORY_STATUS
+        }
+        assertFalse(
+            LedgerNotificationListenerService.shouldIgnoreNotification(
+                statusCategory,
+                postTimeMs = nowMs - 1_000L,
+                nowMs = nowMs
+            )
+        )
+
+        val serviceCategory = Notification().apply {
+            category = Notification.CATEGORY_SERVICE
+        }
+        assertFalse(
+            LedgerNotificationListenerService.shouldIgnoreNotification(
+                serviceCategory,
+                postTimeMs = nowMs - 1_000L,
+                nowMs = nowMs
+            )
+        )
+    }
+
+    @Test
+    fun `扩展通知字段 titleBig 与 summaryText 与 infoText 可被完整抽取`() {
+        val notif = Notification().apply {
+            extras = Bundle().apply {
+                putCharSequence(Notification.EXTRA_TITLE_BIG, "支付宝 账单提醒")
+                putCharSequence(Notification.EXTRA_SUMMARY_TEXT, "支付助手")
+                putCharSequence(Notification.EXTRA_INFO_TEXT, "你已向星巴克付款36.50元")
+            }
+        }
+        val candidates = LedgerNotificationListenerService.extractCandidateContents(notif)
+        assertTrue(candidates.isNotEmpty())
+        val bill = LedgerNotificationListenerService.parseBillFromText(
+            content = candidates.first(),
+            pkg = "com.eg.android.AlipayGphone"
+        )
+        assertNotNull(bill)
+        assertEquals("expense", bill!!.type)
+        assertEquals(3650L, bill.amount)
+        assertEquals("星巴克", bill.title)
     }
 
     @Test
