@@ -49,6 +49,28 @@ class FormatUtilsTest {
         )
         assertEquals("income", customIncomeParsed.type)
         assertEquals("月薪", customIncomeParsed.category)
+
+        // 已选中「收入」标签时，无正负号的备注「500 兼职」必须维持 income，不得被悄悄改回 expense
+        val selectedIncomeParsed = FormatUtils.parseNaturalTransactionInput(
+            input = "500 兼职工资",
+            knownCategories = listOf("餐饮", "其他"),
+            incomeCategories = listOf("工资收入", "其他收入"),
+            defaultType = "income"
+        )
+        assertEquals(50000L, selectedIncomeParsed.amountCents)
+        assertEquals("income", selectedIncomeParsed.type)
+        assertEquals("工资收入", selectedIncomeParsed.category)
+
+        // 若备注显式写负号，即使 defaultType 为 income 也按支出解析
+        val explicitMinusParsed = FormatUtils.parseNaturalTransactionInput(
+            input = "-50 餐饮",
+            knownCategories = listOf("餐饮", "其他"),
+            incomeCategories = listOf("工资收入", "其他收入"),
+            defaultType = "income"
+        )
+        assertEquals(5000L, explicitMinusParsed.amountCents)
+        assertEquals("expense", explicitMinusParsed.type)
+        assertEquals("餐饮", explicitMinusParsed.category)
     }
 
     @Test

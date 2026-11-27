@@ -251,7 +251,7 @@ internal object AutoLedgerParser {
 
     // 1b. 明确收入直出模板（含农行「完成转存交易人民币5000.00」「完成工资交易人民币...」「他行来账」「银联代付」与支付宝到账/花呗退款）
     private val INCOME_DIRECT_PATTERN = Pattern.compile(
-        """(?:完成(?:转存|代发工资|工资|代发|银联入账|跨行转入|他行来账|行内来账|跨行来账|他行转入|网银转入|掌银转入|转账转入|网联来账|来账|汇入|现存|银联代付|退汇|退款|结息|利息|报销|收款|收入|入账|存入)交易|支付宝到账|支付宝收款|微信收款|微信转账到账|好友转账到账|转账到账|转账收款|转账退回|转账已退还|退还到账|已退还|零钱入账|收款成功|收款到账|扫码收款|二维码收款|面对面收款|收到转账|向你转账|向您转账|给你转账|给您转账|退款到账|收到退款|已退款|退款成功|已入账|入账成功|已到账|到账成功|已收钱|你已收款|您已收款|(?<!对方)(?<!朋友)(?<!好友)(?<!收款人)(?<!收款方)已收款|工资入账|代发工资|他行来账|行内来账|跨行来账|他行转入|银联代付|网联来账|转存|银联入账|转入|入账|存入|现存|汇入|来账|代发|到账|收款(?![方人账商码])|收入)$SAFE_GAP$STRICT_AMOUNT"""
+        """(?:完成(?:转存|代发工资|工资|代发|银联入账|跨行转入|他行来账|行内来账|跨行来账|他行转入|网银转入|掌银转入|转账转入|网联来账|来账|汇入|现存|银联代付|退汇|退款|结息|利息|报销|收款|收入|入账|存入)交易|收到(?:跨行|网银|手机银行|微信|支付宝)?转账|收到款项|收到汇款|收到打款|支付宝到账|支付宝收款|微信收款|微信转账到账|好友转账到账|转账到账|转账收款|转账退回|转账已退还|退还到账|已退还|零钱入账|收款成功|收款到账|扫码收款|二维码收款|面对面收款|向你转账|向您转账|给你转账|给您转账|退款到账|收到退款|已退款|退款成功|已入账|入账成功|已到账|到账成功|已收钱|你已收款|您已收款|(?<!对方)(?<!朋友)(?<!好友)(?<!收款人)(?<!收款方)已收款|工资入账|代发工资|他行来账|行内来账|跨行来账|他行转入|银联代付|网联来账|转存|银联入账|转入|入账|存入|现存|汇入|来账|代发|到账|收款(?![方人账商码])|收入)$SAFE_GAP$STRICT_AMOUNT"""
     )
 
     // 银行通用的「完成<类型>交易人民币[+-]金额」模板（兼容农行 95599 全量交易类型）
@@ -262,11 +262,14 @@ internal object AutoLedgerParser {
     private val BANK_COMPLETED_INCOME_HINTS = listOf(
         "转存", "转入", "来账", "汇入", "入账", "存入", "现存", "工资", "代发",
         "代付", "退货", "退款", "退汇", "结息", "利息", "报销", "补贴", "奖金",
-        "分红", "收入", "收款", "提现"
+        "分红", "收入", "收款"
     )
-    private val BANK_COMPLETED_EXPENSE_HINTS = listOf(
-        "财付通", "支付宝", "微信", "快捷", "网上", "消费", "支出", "支取",
-        "扣款", "扣费", "代扣", "缴费", "取款", "POS", "ATM", "刷卡", "转账"
+    private val BANK_COMPLETED_EXPLICIT_EXPENSE_HINTS = listOf(
+        "消费", "支出", "支取", "扣款", "扣费", "代扣", "缴费", "取款", "POS", "ATM", "刷卡",
+        "快捷支付", "网上支付", "扫码支付", "免密支付"
+    )
+    private val BANK_COMPLETED_NEUTRAL_CHANNEL_HINTS = listOf(
+        "财付通", "支付宝", "微信", "快捷", "网上", "转账", "网联", "银联"
     )
 
     private val INCOME_REVERSE_PATTERN = Pattern.compile(
@@ -291,9 +294,9 @@ internal object AutoLedgerParser {
         """(?:你有一笔|您有一笔|一笔|成功)\s*$STRICT_AMOUNT\s*的?(?:支出|消费|付款|扣款|扣费|转账|转出|汇款)"""
     )
 
-    // 3. 明确支出直出模板（含农行「完成财付通/支付宝/快捷支付/消费/支取交易」、工行「支出(...)」、京东「使用【...】支付」、支付宝/微信各种付款文案）
+    // 3. 明确支出直出模板（含农行「完成快捷支付/消费/支取交易」、工行「支出(...)」、京东「使用【...】支付」、支付宝/微信各种付款文案）
     private val EXPENSE_DIRECT_PATTERN = Pattern.compile(
-        """(?:完成(?:财付通|支付宝|快捷支付|网上支付|银联消费|银联扣款|POS消费|刷卡消费|消费|支出|支取|转账|跨行转账|网银转账|掌银转账|扣款|扣费|缴费|取款)交易|使用【[^】]{1,40}】支付|(?:支付成功|付款成功|成功付款|扣款成功|扣费成功|消费成功|转账成功|扫码付款|扫码支付|免密支付|自动扣款|花呗消费|花呗付款|花呗支付|余额宝支付|亲情卡消费|快捷支付|刷卡消费|网上支付|POS消费|微信转账(?!到账|收款|退回|已退还|失败)|转账支出|转账付款|跨行转账|网银转账|手机银行转账|零钱支付|零钱支出|已转账|实付|已付|已支付|(?<!微信)支付(?!宝)|付款|消费|扣款|扣费|支出|支取|扣除|转出|(?<!收到)(?<!向你)(?<!向您)(?<!给你)(?<!给您)转账(?!到账|收款|退回|已退还|失败|金额为0))$SAFE_GAP|微信支付[\s:：]{1,2}|支付宝[\s:：]{1,2}[¥￥]?)$STRICT_AMOUNT"""
+        """(?:完成(?:快捷支付|网上支付|银联消费|银联扣款|POS消费|刷卡消费|消费|支出|支取|扣款|扣费|缴费|取款)交易|使用【[^】]{1,40}】支付|(?:支付成功|付款成功|成功付款|扣款成功|扣费成功|消费成功|转账成功|扫码付款|扫码支付|免密支付|自动扣款|花呗消费|花呗付款|花呗支付|余额宝支付|亲情卡消费|快捷支付|刷卡消费|网上支付|POS消费|微信转账(?!到账|收款|退回|已退还|失败)|转账支出|转账付款|零钱支付|零钱支出|已转账|实付|已付|已支付|(?<!微信)支付(?!宝)|付款|消费|扣款|扣费|支出|支取|扣除|转出|(?<!收到)(?<!向你)(?<!向您)(?<!给你)(?<!给您)(?<!跨行)(?<!网银)(?<!手机银行)(?<!掌银)(?<!他行)转账(?!到账|收款|退回|已退还|失败|金额为0))$SAFE_GAP|微信支付[\s:：]{1,2}|支付宝[\s:：]{1,2}[¥￥]?)$STRICT_AMOUNT"""
     )
 
     // 3b. 银行正负号动账模板（如农行/建行/招行「完成财付通交易人民币-50.00」「变动金额：-120.50元」「入账+200.00元」）
@@ -309,7 +312,7 @@ internal object AutoLedgerParser {
         """收款成功|到账成功|收款到账|转账到账|转账收款|转账退回|转账已退还|已收钱|(?<!对方)(?<!朋友)(?<!好友)(?<!收款人)(?<!收款方)已收款|已存入零钱|收款通知|退款成功|退款到账|零钱入账|转存交易|代发工资|银联入账|入账成功|他行来账|行内来账|跨行来账|他行转入|银联代付|网联来账|现存|汇入|来账|代发"""
     )
     private val EXPENSE_CUE_PATTERN = Pattern.compile(
-        """支付成功|付款成功|成功付款|扣款成功|扣费成功|消费成功|交易成功|转账成功|已支付|已付款|已扣款|已转账|支付凭证|扣费凭证|转账凭证|转账通知|对方已收款|朋友已收款|好友已收款|动账通知|动账提醒|零钱支出|微信转账|免密支付|自动扣款|财付通交易"""
+        """支付成功|付款成功|成功付款|扣款成功|扣费成功|消费成功|转账成功|已支付|已付款|已扣款|已转账|支付凭证|扣费凭证|转账凭证|对方已收款|朋友已收款|好友已收款|零钱支出|微信转账|免密支付|自动扣款"""
     )
     private val CUE_AMOUNT_PATTERN = Pattern.compile(
         """(?:[¥￥]|(?:付款|支付|交易|扣款|收款|转账|变动|实付|汇款|入账)?金额[\s:：¥￥人民币RMB CNY]{0,8})\s*-?\s*($AMOUNT_NUM)(?![\d.])\s*[元块]?(?![万亿折%％])"""
@@ -554,7 +557,14 @@ internal object AutoLedgerParser {
             else -> Unit
         }
 
-        val matched = matchStructuredBill(sanitized) ?: return null
+        val lowerPkg = pkg.lowercase(Locale.ROOT)
+        val isAbcBank = bankLabel == "农业银行" ||
+            lowerPkg.contains("bankabc") ||
+            lowerPkg.contains("abchina") ||
+            lowerPkg.contains("com.abc.") ||
+            sanitized.contains("95599")
+
+        val matched = matchStructuredBill(sanitized, isAbcBank = isAbcBank) ?: return null
         val type = matched.first
         val amountCents = matched.second
         val counterpartyFromTemplate = matched.third
@@ -688,7 +698,7 @@ internal object AutoLedgerParser {
         return null
     }
 
-    private fun matchStructuredBill(sanitized: String): Triple<String, Long, String?>? {
+    private fun matchStructuredBill(sanitized: String, isAbcBank: Boolean = false): Triple<String, Long, String?>? {
         // 0. 明确“对方已收款/朋友已收款”转出确认回执（优先于收入匹配）
         OUTGOING_TRANSFER_ACCEPTED_PATTERN.matcher(sanitized).let { m ->
             if (m.find()) {
@@ -714,7 +724,7 @@ internal object AutoLedgerParser {
             }
         }
 
-        // 1a. 银行通用的「完成<类型>交易人民币[+-]金额」（先看显式正负号，再看交易类型语义）
+        // 1a. 银行通用的「完成<类型>交易人民币[+-]金额」（先看显式正负号，再看交易类型语义；农行无符号中性通道实为入账）
         BANK_COMPLETED_TX_PATTERN.matcher(sanitized).let { m ->
             if (m.find()) {
                 val txType = m.group(1)?.trim().orEmpty()
@@ -725,11 +735,19 @@ internal object AutoLedgerParser {
                         sign == "-" -> "expense"
                         sign == "+" -> "income"
                         BANK_COMPLETED_INCOME_HINTS.any { txType.contains(it) } -> "income"
-                        BANK_COMPLETED_EXPENSE_HINTS.any { txType.contains(it, ignoreCase = true) } -> "expense"
-                        else -> null
+                        else -> resolveBankCompletedDirection(txType, isAbcBank)
                     }
                     if (direction != null) {
                         return Triple(direction, cents, null)
+                    }
+                    // 非农行且无正负号的中性渠道交易（如无号「完成跨行转账交易」），禁止落入下方宽松转账支出模板
+                    if (sign.isEmpty() && BANK_COMPLETED_NEUTRAL_CHANNEL_HINTS.any { txType.contains(it, ignoreCase = true) }) {
+                        INCOME_DIRECT_PATTERN.matcher(sanitized).let { im ->
+                            if (im.find()) {
+                                extractFirstAmount(im)?.let { return Triple("income", it, null) }
+                            }
+                        }
+                        return null
                     }
                 }
             }
@@ -796,15 +814,14 @@ internal object AutoLedgerParser {
             }
         }
 
-        // 5. 受控成交凭证兜底（绝不对无成交关键词的普通通知按 ¥ 盲目记账）
+        // 5. 受控成交凭证兜底（绝不对无成交关键词的普通通知按 ¥ 盲目记账；已匹配收入凭证则禁止回落到支出）
         if (INCOME_CUE_PATTERN.matcher(sanitized).find()) {
             CUE_AMOUNT_PATTERN.matcher(sanitized).let { m ->
                 if (m.find()) {
                     extractFirstAmount(m)?.let { return Triple("income", it, null) }
                 }
             }
-        }
-        if (EXPENSE_CUE_PATTERN.matcher(sanitized).find()) {
+        } else if (EXPENSE_CUE_PATTERN.matcher(sanitized).find()) {
             CUE_AMOUNT_PATTERN.matcher(sanitized).let { m ->
                 if (m.find()) {
                     extractFirstAmount(m)?.let { return Triple("expense", it, null) }
@@ -813,6 +830,12 @@ internal object AutoLedgerParser {
         }
 
         return null
+    }
+
+    private fun resolveBankCompletedDirection(txType: String, isAbcBank: Boolean): String? = when {
+        BANK_COMPLETED_EXPLICIT_EXPENSE_HINTS.any { txType.contains(it, ignoreCase = true) } -> "expense"
+        isAbcBank && BANK_COMPLETED_NEUTRAL_CHANNEL_HINTS.any { txType.contains(it, ignoreCase = true) } -> "income"
+        else -> null
     }
 
     private fun isPromoEntity(name: String?): Boolean {

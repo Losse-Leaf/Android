@@ -573,4 +573,70 @@ class LedgerNotificationParserTest {
             )
         )
     }
+
+    @Test
+    fun `农行无符号入账与中性动账通知绝不误判为支出`() {
+        val incomeDict = listOf("工资收入", "礼金红包", "退款报销", "其他收入")
+        val expenseDict = listOf("餐饮", "交通", "购物", "其他")
+
+        // 1. 农行无负号正数「完成转账/支付宝/财付通交易人民币500.00」应识别为收入，而不是支出
+        val abcPositiveCases = listOf(
+            "【中国农业银行】您尾号4321账户11月25日完成转账交易人民币500.00，余额15500.00",
+            "【中国农业银行】您尾号4321账户11月25日完成支付宝交易人民币500.00，余额15500.00",
+            "95599 您尾号4321账户完成财付通交易人民币500.00，余额15500.00"
+        )
+        for (sample in abcPositiveCases) {
+            val req = LedgerNotificationListenerService.parseBillFromText(
+                content = sample,
+                pkg = "com.android.bankabc",
+                expenseCategories = expenseDict,
+                incomeCategories = incomeDict
+            )
+            assertNotNull("农行无负号入账应能正常识别: $sample", req)
+            assertEquals("农行无负号正数不得误判为支出: $sample", "income", req!!.type)
+            assertEquals(50000L, req.amount)
+        }
+
+        // 2. 「收到跨行转账500.00元」不得误落入「转账」支出模板
+        val receivedInterbank = LedgerNotificationListenerService.parseBillFromText(
+            content = "银行通知：您尾号4321账户收到跨行转账500.00元",
+            pkg = "com.icbc",
+            expenseCategories = expenseDict,
+            incomeCategories = incomeDict
+        )
+        assertNotNull(receivedInterbank)
+        assertEquals("income", receivedInterbank!!.type)
+        assertEquals(50000L, receivedInterbank.amount)
+
+        // 3. 纯方向中性的「动账通知/转账通知/交易成功」不带消费/支出/入账动词时应放弃而非凭空造支出
+        val ambiguousSamples = listOf(
+            "工商银行 动账通知：您尾号8888储蓄卡账户金额500.00元，当前余额3500.00元",
+            "建设银行 转账通知：交易金额500.00元，余额2500.00元"
+        )
+        for (sample in ambiguousSamples) {
+            val parsed = LedgerNotificationListenerService.parseBillFromText(
+                content = sample,
+                pkg = "com.icbc",
+                expenseCategories = expenseDict,
+                incomeCategories = incomeDict
+            )
+            assertNull("方向不明确的动账通知不得盲目记为支出: $sample", parsed)
+        }
+
+        // 4. 非农行无正负号「完成跨行转账交易」/「完成提现交易」/裸「跨行转账」不得误判为支出或收入
+        val strictNoGuessSamples = listOf(
+            "【招商银行】您尾号8888账户完成跨行转账交易人民币500.00，余额5000.00",
+            "【中国农业银行】您尾号4321账户完成提现交易人民币500.00，余额5000.00",
+            "建设银行 跨行转账500.00元"
+        )
+        for (sample in strictNoGuessSamples) {
+            val parsed = LedgerNotificationListenerService.parseBillFromText(
+                content = sample,
+                pkg = "com.cmbchina.pb",
+                expenseCategories = expenseDict,
+                incomeCategories = incomeDict
+            )
+            assertNull("非明确消费/入账的中性或提现交易不得误记: $sample", parsed)
+        }
+    }
 }

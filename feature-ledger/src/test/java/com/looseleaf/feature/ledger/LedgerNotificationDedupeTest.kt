@@ -498,4 +498,116 @@ class LedgerNotificationDedupeTest {
         assertTrue(d3 is AutoLedgerDedupeDecision.RecordNew)
         assertEquals(2, createCount)
     }
+
+    @Test
+    fun `跨端同金额反方向保护：微信收款后银行端同金额误判支出不重复记账且银行先到可原地纠偏`() = runBlocking {
+        val incomeDict = listOf("工资收入", "礼金红包", "其他收入")
+        val expenseDict = listOf("餐饮", "购物", "其他")
+        val records = mutableMapOf<Long, CreateTransactionRequest>()
+        var nextLocalId = 1L
+        val t0 = 1_796_000_000_000L
+
+        // 场景 A：微信收款（高质端）先到达并记为 income，4 秒后某个未知银行通知同金额误判为 expense → 必须丢弃，绝不凭空多出一笔支出
+        val walletIn = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.tencent.mm",
+            sbnKey = "0|wx|in1",
+            notificationTimestampMs = t0,
+            content = "微信收款助手 收到转账500.00元",
+            expenseCategories = expenseDict,
+            incomeCategories = incomeDict,
+            nowMs = t0,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        assertTrue(walletIn is AutoLedgerDedupeDecision.RecordNew)
+
+        val bankWrongExpense = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.icbc",
+            sbnKey = "0|icbc|bad1",
+            notificationTimestampMs = t0 + 4_000L,
+            content = "工商银行 支出500.00元",
+            expenseCategories = expenseDict,
+            incomeCategories = incomeDict,
+            nowMs = t0 + 4_000L,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        assertTrue(bankWrongExpense is AutoLedgerDedupeDecision.DropDuplicate)
+        assertEquals(1, records.size)
+        assertEquals("income", records.values.single().type)
+
+        // 清空后测试场景 B：银行短信先误判为 expense，5 秒后支付宝到账（高质端）arrival → EnrichExisting 原地纠偏为 income
+        LedgerNotificationListenerService.clearDedupeCache(context)
+        records.clear()
+        nextLocalId = 1L
+        val t1 = t0 + 300_000L
+
+        val bankFirst = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.android.mms",
+            sbnKey = "0|sms|bad2",
+            notificationTimestampMs = t1,
+            content = "【工商银行】您尾号6829的储蓄卡支出500.00元",
+            expenseCategories = expenseDict,
+            incomeCategories = incomeDict,
+            nowMs = t1,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        assertTrue(bankFirst is AutoLedgerDedupeDecision.RecordNew)
+        assertEquals("expense", records[1L]!!.type)
+
+        val alipayCorrection = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.eg.android.AlipayGphone",
+            sbnKey = "0|alipay|in2",
+            notificationTimestampMs = t1 + 5_000L,
+            content = "支付宝 支付宝到账500.00元",
+            expenseCategories = expenseDict,
+            incomeCategories = incomeDict,
+            nowMs = t1 + 5_000L,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        assertTrue(alipayCorrection is AutoLedgerDedupeDecision.EnrichExisting)
+        assertEquals(1, records.size)
+        assertEquals("income", records[1L]!!.type)
+        assertEquals("支付宝", records[1L]!!.paymentMethod)
+
+        // 场景 C：同一钱包（微信）30 秒内先收 50 元，再付给他人 50 元 → 同为 wallet 端不得被反方向去重吞并
+        LedgerNotificationListenerService.clearDedupeCache(context)
+        records.clear()
+        nextLocalId = 1L
+        val t2 = t1 + 300_000L
+
+        val wxRecv = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.tencent.mm",
+            sbnKey = "0|wx|recv",
+            notificationTimestampMs = t2,
+            content = "微信支付 收到张三的转账50.00元",
+            expenseCategories = expenseDict,
+            incomeCategories = incomeDict,
+            nowMs = t2,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        val wxPay = LedgerNotificationListenerService.processIncomingNotification(
+            context = context,
+            pkg = "com.tencent.mm",
+            sbnKey = "0|wx|pay",
+            notificationTimestampMs = t2 + 10_000L,
+            content = "微信支付 向李四付款50.00元",
+            expenseCategories = expenseDict,
+            incomeCategories = incomeDict,
+            nowMs = t2 + 10_000L,
+            onCreate = { req -> nextLocalId++.also { records[it] = req } },
+            onEnrich = { id, req -> records[id] = req; true }
+        )
+        assertTrue(wxRecv is AutoLedgerDedupeDecision.RecordNew)
+        assertTrue(wxPay is AutoLedgerDedupeDecision.RecordNew)
+        assertEquals(2, records.size)
+    }
 }

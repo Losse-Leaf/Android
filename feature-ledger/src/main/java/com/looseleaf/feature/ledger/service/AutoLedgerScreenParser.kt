@@ -52,6 +52,12 @@ internal object AutoLedgerScreenParser {
         "立减", "优惠", "抵扣", "红包", "满", "已优惠", "实省", "金币", "奖励", "返现"
     )
 
+    // 收款完成页特征词：任何付款/转账支出完成页解析前均须先排除这些词，防止收款页误落入支出分支
+    private val SCREEN_INCOME_GUARD_KEYWORDS = listOf(
+        "已收钱", "你已收款", "已收款", "收款成功", "收款到账", "已到账",
+        "已存入余额", "已存入零钱", "已存入零钱通"
+    )
+
     // 完成页上不属于商户/对方昵称的常见 UI 按钮或标题文本
     private val UI_CHROME_LABELS = setOf(
         "支付成功", "付款成功", "转账成功", "已收钱", "你已收款", "已收款", "完成", "确定", "返回",
@@ -172,6 +178,9 @@ internal object AutoLedgerScreenParser {
         }
 
         // 场景 B：微信转账发出 / 微信付款完成页（「支付成功」/「转账成功」/「待XX收款」+「完成」）
+        if (containsAnyHint(texts, SCREEN_INCOME_GUARD_KEYWORDS)) {
+            return null
+        }
         val hasFinishButton = texts.any { it == "完成" }
         val hasSuccessAnchor = texts.any {
             it == "支付成功" || it == "转账成功" || it.startsWith("支付成功") || it.startsWith("转账成功")
@@ -245,6 +254,7 @@ internal object AutoLedgerScreenParser {
         expenseCategories: List<String>,
         nowMs: Long
     ): ParsedScreenBill? {
+        if (containsAnyHint(texts, SCREEN_INCOME_GUARD_KEYWORDS)) return null
         val hasFinishButton = texts.any {
             it == "完成" || it == "返回商家" || it == "知道了" || it == "查看账单" || it == "查看详情"
         }

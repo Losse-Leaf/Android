@@ -325,7 +325,10 @@ internal object LedgerRepository {
     suspend fun createTransactionOptimistic(req: CreateTransactionRequest): Long = withContext(Dispatchers.IO) {
         val db = requireDatabase()
         val clientRequestId = req.clientRequestId ?: UUID.randomUUID().toString()
-        val enqueuedReq = req.copy(clientRequestId = clientRequestId)
+        val enqueuedReq = req.copy(
+            occurredAt = FormatUtils.normalizeBeijingIsoOrRaw(req.occurredAt),
+            clientRequestId = clientRequestId
+        )
         val nowIso = Instant.now().toString()
 
         db.withTransaction {
@@ -404,6 +407,7 @@ internal object LedgerRepository {
                 existingActiveEvent?.action == "CREATE" ||
                 existingCreateEvent != null
 
+            val normalizedOccurredAt = FormatUtils.normalizeBeijingIsoOrRaw(req.occurredAt)
             val updatedEntity = entity.copy(
                 amount = req.amount,
                 type = req.type,
@@ -411,7 +415,7 @@ internal object LedgerRepository {
                 title = req.title,
                 note = req.note,
                 paymentMethod = req.paymentMethod,
-                occurredAt = req.occurredAt,
+                occurredAt = normalizedOccurredAt,
                 wishId = req.wishId ?: entity.wishId,
                 isInstallment = if (req.clearInstallment) {
                     false

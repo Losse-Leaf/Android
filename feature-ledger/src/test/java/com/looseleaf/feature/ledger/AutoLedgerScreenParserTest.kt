@@ -276,4 +276,37 @@ class AutoLedgerScreenParserTest {
         assertEquals("支付宝", parsed.bill.channelHint)
         assertEquals(AutoLedgerParser.ORIGIN_WALLET, parsed.bill.notifyOrigin)
     }
+
+    @Test
+    fun `含收款成功或已到账的完成页绝不误判为支出`() {
+        val nowMs = 1_795_527_000_000L
+        val alipayReceiveTexts = listOf(
+            "收款成功",
+            "￥128.00",
+            "已到账",
+            "已存入余额",
+            "完成"
+        )
+        assertNull(
+            AutoLedgerScreenParser.parse(
+                pkg = "com.eg.android.AlipayGphone",
+                rawTexts = alipayReceiveTexts,
+                nowMs = nowMs
+            )
+        )
+        val wxReceiveTexts = listOf(
+            "转账成功",
+            "已到账",
+            "已存入零钱",
+            "￥200.00",
+            "完成"
+        )
+        assertNull(
+            AutoLedgerScreenParser.parse(
+                pkg = "com.tencent.mm",
+                rawTexts = wxReceiveTexts,
+                nowMs = nowMs
+            )
+        )
+    }
 }

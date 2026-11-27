@@ -85,12 +85,50 @@ import kotlin.math.roundToLong
 
 private const val MASK = "••••"
 
+internal data class MonthlyLedgerSummary(
+    val totalIncome: Long,
+    val totalExpense: Long,
+    val balance: Long,
+    val categoryTotals: List<Pair<String, Long>>
+)
+
+internal fun isIncomeTransaction(tx: Transaction): Boolean =
+    tx.type.trim().equals("income", ignoreCase = true)
+
+internal fun isExpenseTransaction(tx: Transaction): Boolean {
+    val t = tx.type.trim()
+    return t.isEmpty() || t.equals("expense", ignoreCase = true)
+}
+
+internal fun computeMonthlyLedgerSummary(transactions: List<Transaction>): MonthlyLedgerSummary {
+    val incomeTransactions = transactions.filter { isIncomeTransaction(it) }
+    val expenseTransactions = transactions.filter { isExpenseTransaction(it) }
+    val totalIncome = incomeTransactions.sumOf { it.amount }
+    val totalExpense = expenseTransactions.sumOf {
+        if (it.source == "installment_repay") it.feeAmount else it.amount
+    }
+    val categoryTotals = expenseTransactions
+        .groupBy { if (it.source == "installment_repay") "利息手续费" else it.category }
+        .map { (cat, list) ->
+            val sum = list.sumOf { if (it.source == "installment_repay") it.feeAmount else it.amount }
+            cat to sum
+        }
+        .filter { it.second > 0 }
+        .sortedByDescending { it.second }
+    return MonthlyLedgerSummary(
+        totalIncome = totalIncome,
+        totalExpense = totalExpense,
+        balance = totalIncome - totalExpense,
+        categoryTotals = categoryTotals
+    )
+}
+
 /**
  * 账单明细选项卡
  *
  * 1. 待确认入口：> 0 时显示一枚朱砂淡底胶囊「待确认 N 条」；
- * 2. 本月总览：一张纸页卡片 —— 小标、衬线英雄数字（本月支出）、收入 / 结余双栏、
- *    带间隙的分类占比条与图例；有分期时卡片底部追加一行分期摘要；
+ * 2. 本月总览：一张纸页卡片 —— 小标、衬线英雄数字（本月结余）、收入 / 支出双栏、
+ *    带间隙的支出分布占比条与图例；有分期时卡片底部追加一行分期摘要；
  *    整张卡片支持横滑切月；
  * 3. 账目列表：按日分组，组头为「日期 · 相对日」与当日收支；
  * 4. 条目：分类首字方印 + 标题 / 时间与渠道 + 右侧等宽金额；左滑删除，点击编辑。
@@ -115,29 +153,11 @@ internal fun TransactionsLedgerTab(
     val colors = LedgerTheme.colors
 
     // 口径统一与去重计算：分期还款仅手续费计入月支出 (RC-140)
-    val expenseTransactions = remember(transactions) { transactions.filter { it.type != "income" } }
-    val incomeTransactions = remember(transactions) { transactions.filter { it.type == "income" } }
-    val totalExpense = remember(expenseTransactions) {
-        expenseTransactions.sumOf {
-            if (it.source == "installment_repay") it.feeAmount else it.amount
-        }
-    }
-    val totalIncome = remember(incomeTransactions) {
-        incomeTransactions.sumOf { it.amount }
-    }
-    val monthBalance = totalIncome - totalExpense
-
-    // 分类支出统计
-    val categoryTotals = remember(expenseTransactions) {
-        expenseTransactions
-            .groupBy { if (it.source == "installment_repay") "利息手续费" else it.category }
-            .map { (cat, list) ->
-                val sum = list.sumOf { if (it.source == "installment_repay") it.feeAmount else it.amount }
-                cat to sum
-            }
-            .filter { it.second > 0 }
-            .sortedByDescending { it.second }
-    }
+    val summary = remember(transactions) { computeMonthlyLedgerSummary(transactions) }
+    val totalExpense = summary.totalExpense
+    val totalIncome = summary.totalIncome
+    val monthBalance = summary.balance
+    val categoryTotals = summary.categoryTotals
 
     // 预留待确认条数计算
     val pendingCount = remember(transactions) {
@@ -244,7 +264,7 @@ internal fun TransactionsLedgerTab(
                     Column(modifier = Modifier.padding(start = 22.dp, end = 22.dp, top = 20.dp, bottom = 18.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "${selectedYearMonth.monthValue} 月支出",
+                                text = "${selectedYearMonth.monthValue} 月结余",
                                 style = ArchiveTextStyles.overline,
                                 color = colors.textMuted,
                                 modifier = Modifier.weight(1f)
@@ -257,13 +277,13 @@ internal fun TransactionsLedgerTab(
                         }
                         Spacer(modifier = Modifier.height(10.dp))
                         HeroAmount(
-                            cents = totalExpense,
+                            cents = monthBalance,
                             masked = isPrivacyMasked
                         )
 
                         Spacer(modifier = Modifier.height(18.dp))
 
-                        // 收入 / 结余双栏
+                        // 收入 / 支出双栏
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -275,19 +295,24 @@ internal fun TransactionsLedgerTab(
                                 dotColor = colors.income,
                                 modifier = Modifier.weight(1f)
                             )
-                            val balanceColor = if (!isPrivacyMasked && monthBalance < 0) colors.alertRed else colors.textPrimary
                             SummaryStat(
-                                label = "结余",
-                                value = if (isPrivacyMasked) MASK else FormatUtils.formatMoney(monthBalance),
-                                valueColor = balanceColor,
-                                dotColor = if (monthBalance < 0 && !isPrivacyMasked) colors.alertRed else colors.textMuted,
+                                label = "支出",
+                                value = if (isPrivacyMasked) MASK else FormatUtils.formatMoney(totalExpense),
+                                valueColor = colors.expense,
+                                dotColor = colors.expense,
                                 modifier = Modifier.weight(1f)
                             )
                         }
 
-                        // 分类占比条 + 图例
+                        // 支出分布占比条 + 图例
                         if (totalExpense > 0 && categoryTotals.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(20.dp))
+                            Text(
+                                text = "支出分布",
+                                style = ArchiveTextStyles.meta,
+                                color = colors.textMuted
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -429,7 +454,13 @@ internal fun TransactionsLedgerTab(
                 }
             } else {
                 val groupedTransactions = transactions
-                    .groupBy { it.occurredAt.take(10) }
+                    .groupBy { tx ->
+                        FormatUtils.parseOccurredInstantOrNull(tx.occurredAt)
+                            ?.atZone(FormatUtils.BeijingZone)
+                            ?.toLocalDate()
+                            ?.toString()
+                            ?: tx.occurredAt.take(10)
+                    }
                     .toList()
                     .sortedByDescending { it.first }
 
@@ -456,10 +487,10 @@ internal fun TransactionsLedgerTab(
                         }
 
                         // 日结口径：排除分期还款本金；全为分期本金则显示「分期 ¥X」(RC-140)
-                        val dayRegularExpense = dayTxs.filter { it.type != "income" && it.source != "installment_repay" }.sumOf { it.amount } +
-                            dayTxs.filter { it.source == "installment_repay" }.sumOf { it.feeAmount }
+                        val dayRegularExpense = dayTxs.filter { isExpenseTransaction(it) && it.source != "installment_repay" }.sumOf { it.amount } +
+                            dayTxs.filter { isExpenseTransaction(it) && it.source == "installment_repay" }.sumOf { it.feeAmount }
                         val dayInstallmentPrincipal = dayTxs.filter { it.source == "installment_repay" }.sumOf { it.principalAmount }
-                        val dayIncome = dayTxs.filter { it.type == "income" }.sumOf { it.amount }
+                        val dayIncome = dayTxs.filter { isIncomeTransaction(it) }.sumOf { it.amount }
 
                         Row(
                             modifier = Modifier
@@ -583,34 +614,46 @@ private fun HeroAmountText(cents: Long, masked: Boolean) {
         Text(
             text = "¥ $MASK",
             style = ArchiveTextStyles.amountHero,
-            color = colors.expense
+            color = colors.textPrimary
         )
         return
     }
     val formatted = FormatUtils.formatMoney(cents)
     val body = formatted.trimStart('¥', ' ', '-', '+')
-    val negative = formatted.contains('-')
+    val negative = cents < 0L
     val dot = body.lastIndexOf('.')
     val integerPart = if (dot >= 0) body.substring(0, dot) else body
     val decimalPart = if (dot >= 0) body.substring(dot) else ""
     val hero = ArchiveTextStyles.amountHero
+    val amountColor = when {
+        cents > 0L -> colors.income
+        cents < 0L -> colors.alertRed
+        else -> colors.textPrimary
+    }
+    val prefixColor = if (negative) colors.alertRed.copy(alpha = 0.78f) else colors.textMuted
+    val decimalColor = when {
+        cents > 0L -> colors.income.copy(alpha = 0.72f)
+        cents < 0L -> colors.alertRed.copy(alpha = 0.72f)
+        else -> colors.textSecondary
+    }
     Text(
         text = buildAnnotatedString {
-            withStyle(SpanStyle(fontSize = 22.sp, fontWeight = FontWeight.Normal, color = colors.textMuted)) {
+            withStyle(SpanStyle(fontSize = 22.sp, fontWeight = FontWeight.Normal, color = prefixColor)) {
                 append(if (negative) "-¥ " else "¥ ")
             }
-            withStyle(SpanStyle(fontSize = hero.fontSize)) {
+            withStyle(SpanStyle(fontSize = hero.fontSize, color = amountColor)) {
                 append(integerPart)
             }
             if (decimalPart.isNotEmpty()) {
-                withStyle(SpanStyle(fontSize = 24.sp, color = colors.textSecondary)) {
+                withStyle(SpanStyle(fontSize = 24.sp, color = decimalColor)) {
                     append(decimalPart)
                 }
             }
         },
         style = hero,
-        color = colors.expense,
-        maxLines = 1
+        color = amountColor,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
     )
 }
 
@@ -668,7 +711,7 @@ private fun TransactionRowItem(
     modifier: Modifier = Modifier
 ) {
     val colors = LedgerTheme.colors
-    val isIncome = tx.type == "income"
+    val isIncome = isIncomeTransaction(tx)
     val isInstallmentRepay = tx.source == "installment_repay"
     val sign = if (isIncome) "+" else "-"
     val displayAmount = if (isPrivacyMasked) "¥ $MASK" else "$sign${FormatUtils.formatMoney(tx.amount)}"

@@ -533,10 +533,11 @@ fun LedgerScreen(
                                 fontFamily = LedgerTheme.typography.serif,
                                 color = colors.textPrimary
                             )
+                            val itemIsIncome = isIncomeTransaction(item)
                             Text(
-                                text = FormatUtils.formatMoney(item.amount),
+                                text = (if (itemIsIncome) "+" else "-") + FormatUtils.formatMoney(item.amount),
                                 fontFamily = ArchiveFontFamilies.MonoScale,
-                                color = colors.expense
+                                color = if (itemIsIncome) colors.income else colors.expense
                             )
                         }
                         ArchiveDivider()

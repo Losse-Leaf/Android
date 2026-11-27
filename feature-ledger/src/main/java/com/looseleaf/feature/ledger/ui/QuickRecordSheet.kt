@@ -147,14 +147,15 @@ internal fun QuickRecordSheet(
      * 只在用户**还没敲金额**时采纳 —— 一旦敲了数字键盘，说明他已经明确表达金额，
      * 此时解析结果让位，避免「我明明输了 30，却被备注里的 42.5 覆盖」。
      */
-    val parsedNote = remember(noteText, expenseCategories, incomeCategories) {
+    val parsedNote = remember(noteText, selectedType, expenseCategories, incomeCategories) {
         if (noteText.isBlank()) {
             null
         } else {
             FormatUtils.parseNaturalTransactionInput(
                 input = noteText,
                 knownCategories = expenseCategories,
-                incomeCategories = incomeCategories
+                incomeCategories = incomeCategories,
+                defaultType = selectedType
             ).takeIf { it.amountCents > 0 }
         }
     }
@@ -170,11 +171,14 @@ internal fun QuickRecordSheet(
      */
     val submitCents = FormatUtils.resolveQuickRecordCents(effectiveCents, parsedNote?.amountCents)
 
-    // 解析出收入（如「+5000 工资」）时把类型切过去，保证界面与提交一致；
-    // 依赖 useParsedNote 而不是 selectedType，避免用户手动改回支出后被反复纠正。
-    LaunchedEffect(useParsedNote, parsedNote?.type) {
-        if (useParsedNote && parsedNote?.type == "income" && selectedType != "income") {
-            selectedType = "income"
+    // 解析出明确正负号（如「+5000 工资」「-50 餐饮」）时同步切换界面收支标签，保证界面与提交一致；
+    // 无正负号则沿用当前选中的 selectedType。
+    LaunchedEffect(useParsedNote, parsedNote?.type, noteText) {
+        if (!useParsedNote) return@LaunchedEffect
+        val trimmedNote = noteText.trim()
+        val explicitSign = trimmedNote.startsWith("+") || trimmedNote.startsWith("-")
+        if (explicitSign && parsedNote != null && selectedType != parsedNote.type) {
+            selectedType = parsedNote.type
         }
     }
 

@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.looseleaf.feature.ledger.data.CachedTransactionEntity
 import com.looseleaf.feature.ledger.data.LedgerDatabase
 import com.looseleaf.feature.ledger.data.monthRangeOf
+import com.looseleaf.feature.ledger.data.toCacheEntity
 import com.looseleaf.feature.ledger.data.toDomainModel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -128,5 +129,29 @@ class LedgerMonthQueryTest {
         // 支出：tx2(1000) + tx3(2000) + tx4(3000) + tx8分期仅计手续费(500) = 6500
         assertEquals(6500L, totalExpense)
         assertEquals(9000L, totalIncome)
+    }
+
+    @Test
+    fun `远端UTC跨日时间串经toCacheEntity归一化为北京时间后正确归入次月查询`() = runBlocking {
+        // UTC 2026-10-31T17:00:00Z 对应北京时间 2026-11-01T01:00:00+08:00，必须归入 11 月而非 10 月
+        val remoteUtcTx = com.looseleaf.app.model.Transaction(
+            id = 99L,
+            amount = 8800L,
+            type = "income",
+            category = "工资收入",
+            title = "凌晨入账",
+            occurredAt = "2026-10-31T17:00:00Z"
+        )
+        db.transactionDao().insert(remoteUtcTx.toCacheEntity())
+
+        val octRows = db.transactionDao()
+            .getTransactionsInRangeFlow(monthRangeOf(YearMonth.of(2026, 10)).startIso, monthRangeOf(YearMonth.of(2026, 10)).endIso)
+            .first()
+        val novRows = db.transactionDao()
+            .getTransactionsInRangeFlow(monthRangeOf(YearMonth.of(2026, 11)).startIso, monthRangeOf(YearMonth.of(2026, 11)).endIso)
+            .first()
+
+        assertEquals(emptyList<Long>(), octRows.map { it.serverId })
+        assertEquals(listOf(99L), novRows.map { it.serverId })
     }
 }

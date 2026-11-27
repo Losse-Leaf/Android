@@ -52,6 +52,7 @@ internal object AutoLedgerDeduplicator {
     internal const val SAME_CHANNEL_MULTI_ALERT_WINDOW_MS = 30 * 1000L
     internal const val PAIRED_WALLET_REPLAY_WINDOW_MS = 15 * 1000L
     internal const val CROSS_PLATFORM_WINDOW_MS = 120 * 1000L
+    internal const val OPPOSITE_DIRECTION_CORRELATION_WINDOW_MS = 30 * 1000L
 
     private val json = Json { ignoreUnknownKeys = true }
     private val lock = Any()
@@ -189,6 +190,7 @@ internal object AutoLedgerDeduplicator {
                 recentSlots[idx] = old.copy(
                     pkg = pkg,
                     channelGroup = bill.channelGroup.name,
+                    type = bill.request.type,
                     merchant = bill.merchant ?: old.merchant,
                     qualityScore = maxOf(old.qualityScore, bill.qualityScore),
                     channelHint = bill.channelHint ?: old.channelHint,
@@ -216,9 +218,12 @@ internal object AutoLedgerDeduplicator {
             // 若是 bank/wallet 跨端关联被丢弃，在最近槽位标上 alreadyPaired=true（SmartLedger 双边已配对保护），
             // 防止随后紧接着的一笔同金额消费再次被吸进第一笔里。
             val idx = recentSlots.indexOfLast { slot ->
-                slot.type == bill.request.type &&
+                val elapsed = nowMs - slot.recordedAtMs
+                val typeMatchesOrOppositeRecent = slot.type == bill.request.type ||
+                    elapsed in 0L..OPPOSITE_DIRECTION_CORRELATION_WINDOW_MS
+                typeMatchesOrOppositeRecent &&
                     slot.amountCents == bill.request.amount &&
-                    nowMs - slot.recordedAtMs in 0L..CROSS_PLATFORM_WINDOW_MS &&
+                    elapsed in 0L..CROSS_PLATFORM_WINDOW_MS &&
                     slot.notifyOrigin != null &&
                     bill.notifyOrigin != null &&
                     slot.notifyOrigin != bill.notifyOrigin &&
@@ -289,6 +294,26 @@ internal object AutoLedgerDeduplicator {
             }
             if (!withinWindow) continue
 
+            if (!merchantsCompatible(slot.merchant, merchant)) continue
+
+            return slot
+        }
+
+        // 第 2 轮（跨端反方向幽灵保护）：高可信钱包已记为「收入/支出」后，30s 内银行短信/App 同金额反方向到达时
+        // 视作同一笔交易被银行端无符号文案误判：高质端已先记则丢弃银行端；银行端先记则由高质端原地纠偏为正确方向。
+        for (i in recentSlots.lastIndex downTo 0) {
+            val slot = recentSlots[i]
+            if (slot.type == type || slot.amountCents != amount) continue
+
+            val elapsed = nowMs - slot.recordedAtMs
+            if (elapsed < 0L || elapsed > OPPOSITE_DIRECTION_CORRELATION_WINDOW_MS) continue
+            if (slot.alreadyPaired) continue
+            if (slot.notifyOrigin == null || bill.notifyOrigin == null || slot.notifyOrigin == bill.notifyOrigin) continue
+            if (hintsConflict(slot, bill)) continue
+
+            val slotGroup = runCatching { NotificationChannelGroup.valueOf(slot.channelGroup) }
+                .getOrNull() ?: continue
+            if (!slotGroup.correlatesWith(channelGroup)) continue
             if (!merchantsCompatible(slot.merchant, merchant)) continue
 
             return slot

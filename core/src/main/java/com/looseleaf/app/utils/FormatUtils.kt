@@ -381,8 +381,10 @@ object FormatUtils {
     fun parseNaturalTransactionInput(
         input: String,
         knownCategories: List<String> = emptyList(),
-        incomeCategories: List<String> = emptyList()
+        incomeCategories: List<String> = emptyList(),
+        defaultType: String = "expense"
     ): ParsedQuickTransaction {
+        val normalizedDefaultType = if (defaultType == "income") "income" else "expense"
         val trimmed = input.trim()
         val match = NaturalInputRegex.find(trimmed)
 
@@ -390,8 +392,12 @@ object FormatUtils {
             val numStr = match.groupValues[1].replace(" ", "")
             val rest = match.groupValues[2].trim()
 
-            val isIncome = numStr.startsWith("+")
-            val txType = if (isIncome) "income" else "expense"
+            val txType = when {
+                numStr.startsWith("+") -> "income"
+                numStr.startsWith("-") -> "expense"
+                else -> normalizedDefaultType
+            }
+            val isIncome = txType == "income"
             val cents = kotlin.math.abs(yuanStringToCents(numStr))
 
             val scopedCategories = if (isIncome) incomeCategories else knownCategories
@@ -406,10 +412,12 @@ object FormatUtils {
             )
         }
 
+        val fallbackCategories = if (normalizedDefaultType == "income") incomeCategories else knownCategories
         return ParsedQuickTransaction(
             amountCents = 0L,
-            category = inferCategoryFromText(trimmed, knownCategories, type = "expense"),
-            title = trimmed
+            category = inferCategoryFromText(trimmed, fallbackCategories, type = normalizedDefaultType),
+            title = trimmed,
+            type = normalizedDefaultType
         )
     }
 

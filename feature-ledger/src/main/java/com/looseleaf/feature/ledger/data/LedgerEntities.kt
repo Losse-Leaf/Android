@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.looseleaf.app.model.Transaction
+import com.looseleaf.app.utils.FormatUtils
 
 /**
  * 账本独立本地缓存表 (CachedTransaction)
@@ -88,7 +89,7 @@ fun Transaction.toCacheEntity(localId: Long = 0): CachedTransactionEntity = Cach
     title = title,
     note = note,
     paymentMethod = paymentMethod,
-    occurredAt = occurredAt,
+    occurredAt = FormatUtils.normalizeBeijingIsoOrRaw(occurredAt),
     cityCode = null,
     wishId = wishId,
     isInstallment = isInstallment ?: false,
