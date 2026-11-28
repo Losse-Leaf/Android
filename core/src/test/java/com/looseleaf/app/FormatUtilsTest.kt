@@ -40,12 +40,12 @@ class FormatUtilsTest {
         val incomeParsed = FormatUtils.parseNaturalTransactionInput("+5000 工资发放")
         assertEquals(500000L, incomeParsed.amountCents)
         assertEquals("income", incomeParsed.type)
-        assertEquals("工资收入", incomeParsed.category)
+        assertEquals("工资", incomeParsed.category)
 
         val customIncomeParsed = FormatUtils.parseNaturalTransactionInput(
             input = "+5000 工资发放",
             knownCategories = listOf("吃喝", "杂项"),
-            incomeCategories = listOf("月薪", "其他入账")
+            incomeCategories = listOf("月薪", "其他")
         )
         assertEquals("income", customIncomeParsed.type)
         assertEquals("月薪", customIncomeParsed.category)
@@ -54,18 +54,18 @@ class FormatUtilsTest {
         val selectedIncomeParsed = FormatUtils.parseNaturalTransactionInput(
             input = "500 兼职工资",
             knownCategories = listOf("餐饮", "其他"),
-            incomeCategories = listOf("工资收入", "其他收入"),
+            incomeCategories = listOf("工资", "其他"),
             defaultType = "income"
         )
         assertEquals(50000L, selectedIncomeParsed.amountCents)
         assertEquals("income", selectedIncomeParsed.type)
-        assertEquals("工资收入", selectedIncomeParsed.category)
+        assertEquals("工资", selectedIncomeParsed.category)
 
         // 若备注显式写负号，即使 defaultType 为 income 也按支出解析
         val explicitMinusParsed = FormatUtils.parseNaturalTransactionInput(
             input = "-50 餐饮",
             knownCategories = listOf("餐饮", "其他"),
-            incomeCategories = listOf("工资收入", "其他收入"),
+            incomeCategories = listOf("工资", "其他"),
             defaultType = "income"
         )
         assertEquals(5000L, explicitMinusParsed.amountCents)
@@ -75,7 +75,7 @@ class FormatUtilsTest {
 
     @Test
     fun testInferCategoryRespectsTypeAndKnownDictionary() {
-        // 支出文案包含「红包」或「利息」绝不能误判成收入分类「薪资」
+        // 支出文案包含「红包」或未知商户时均安全兜底「其他」，绝不误判为收入分类
         assertEquals(
             "其他",
             FormatUtils.inferCategoryFromText(
@@ -85,10 +85,10 @@ class FormatUtilsTest {
             )
         )
         assertEquals(
-            "利息手续费",
+            "其他",
             FormatUtils.inferCategoryFromText(
                 text = "信用卡分期利息扣款 18.00 元",
-                knownCategories = listOf("餐饮", "利息手续费", "其他"),
+                knownCategories = listOf("餐饮", "交通", "购物", "其他"),
                 type = "expense"
             )
         )
@@ -103,10 +103,10 @@ class FormatUtilsTest {
         )
         // 收入文案严格在收入字典中匹配
         assertEquals(
-            "礼金红包",
+            "退款",
             FormatUtils.inferCategoryFromText(
-                text = "微信收款 收到红包 88.00 元",
-                knownCategories = listOf("工资收入", "礼金红包", "其他收入"),
+                text = "支付宝到账 退款 88.00 元",
+                knownCategories = listOf("工资", "副业", "退款", "其他"),
                 type = "income"
             )
         )

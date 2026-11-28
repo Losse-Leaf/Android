@@ -14,20 +14,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.data.api.APIClient
+import com.looseleaf.app.model.CategoryOption
 import com.looseleaf.app.model.CreateCreditChannelRequest
 import com.looseleaf.app.model.CreateTransactionRequest
 import com.looseleaf.app.model.CreditChannel
 import com.looseleaf.app.model.InstallmentPlanDetailResponse
 import com.looseleaf.app.model.Transaction
+import com.looseleaf.app.model.UpsertCategoryRuleRequest
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.ui.components.*
 import com.looseleaf.app.utils.FormatUtils
 import com.looseleaf.feature.ledger.data.LedgerRepository
+import com.looseleaf.feature.ledger.service.AutoLedgerCategoryMemory
 import com.looseleaf.feature.ledger.theme.LedgerCategoryColors
 import com.looseleaf.feature.ledger.theme.LedgerTheme
 import kotlinx.coroutines.launch
@@ -47,8 +51,11 @@ internal fun EditTransactionSheet(
     onSaved: () -> Unit,
     onRequestDeleteRepayConfirm: (Transaction) -> Unit,
     onTransactionDeletedWithUndo: (ArchiveSnackbarData) -> Unit,
-    onOpenInstallmentPlanDetail: (InstallmentPlanDetailResponse) -> Unit
+    onOpenInstallmentPlanDetail: (InstallmentPlanDetailResponse) -> Unit,
+    expenseCategoryOptions: List<CategoryOption> = expenseCategories.map { CategoryOption(scope = "expense", name = it) },
+    incomeCategoryOptions: List<CategoryOption> = incomeCategories.map { CategoryOption(scope = "income", name = it) }
 ) {
+    val context = LocalContext.current
     val colors = LedgerTheme.colors
     val scope = rememberCoroutineScope()
     val isInstallmentRepay = tx.source == "installment_repay"
@@ -120,6 +127,30 @@ internal fun EditTransactionSheet(
                     )
                     val success = LedgerRepository.updateTransactionOptimistic(tx.id, req)
                     if (success) {
+                        if (!isInstallmentRepay && editCategory != tx.category) {
+                            val learned = AutoLedgerCategoryMemory.recordLocalLearn(
+                                context = context,
+                                type = editType,
+                                titleOrMerchant = req.title,
+                                category = editCategory
+                            )
+                            if (learned != null) {
+                                ArchiveToastManager.show("已保存 · 下次遇到「${learned.displayName}」将自动归类为「$editCategory」")
+                                scope.launch {
+                                    runCatching {
+                                        apiClient.upsertCategoryRule(
+                                            UpsertCategoryRuleRequest(
+                                                txType = learned.txType,
+                                                matchKey = learned.matchKey,
+                                                displayName = learned.displayName,
+                                                category = learned.category,
+                                                source = "learned"
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         onSaved()
                     } else {
                         ArchiveToastManager.show("保存失败，记录不存在", isError = true)
@@ -174,7 +205,7 @@ internal fun EditTransactionSheet(
                         onClick = {
                             editType = "income"
                             if (editCategory !in incomeCategories) {
-                                editCategory = incomeCategories.firstOrNull() ?: "工资收入"
+                                editCategory = incomeCategories.firstOrNull() ?: "工资"
                             }
                         }
                     )
@@ -227,10 +258,16 @@ internal fun EditTransactionSheet(
                 color = colors.textMuted,
                 modifier = Modifier.padding(start = 4.dp, top = 6.dp)
             )
-            val visibleCategories = if (editCategories.size > 7 && !isCategoriesExpanded) {
-                editCategories.take(7)
-            } else {
-                editCategories
+            val visibleCategories = remember(editCategories, editCategory, isCategoriesExpanded) {
+                if (editCategories.size > 12 && !isCategoriesExpanded) {
+                    val base = editCategories.take(12).toMutableList()
+                    if (editCategory in editCategories && editCategory !in base) {
+                        base[base.lastIndex] = editCategory
+                    }
+                    base.toList()
+                } else {
+                    editCategories
+                }
             }
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
@@ -247,9 +284,9 @@ internal fun EditTransactionSheet(
                         onClick = { editCategory = cat }
                     )
                 }
-                if (editCategories.size > 7) {
+                if (editCategories.size > 12) {
                     ArchiveTextButton(
-                        text = if (isCategoriesExpanded) "收起" else "更多",
+                        text = if (isCategoriesExpanded) "收起" else "全部 ${editCategories.size} 项",
                         onClick = { isCategoriesExpanded = !isCategoriesExpanded }
                     )
                 }

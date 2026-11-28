@@ -35,14 +35,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.looseleaf.app.data.api.APIClient
+import com.looseleaf.app.model.CategoryOption
 import com.looseleaf.app.model.CreateCreditChannelRequest
 import com.looseleaf.app.model.CreateTransactionRequest
 import com.looseleaf.app.model.CreditChannel
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.ui.components.*
+import com.looseleaf.app.utils.CategorizationConfidence
+import com.looseleaf.app.utils.CategorizationInput
 import com.looseleaf.app.utils.FormatUtils
+import com.looseleaf.app.utils.TransactionCategorizer
 import com.looseleaf.feature.ledger.data.LedgerRepository
+import com.looseleaf.feature.ledger.service.AutoLedgerCategoryMemory
 import com.looseleaf.feature.ledger.theme.LedgerCategoryColors
 import com.looseleaf.feature.ledger.theme.LedgerTheme
 import kotlinx.coroutines.launch
@@ -73,6 +78,8 @@ internal fun QuickRecordSheet(
     paymentMethods: List<String>,
     creditChannels: List<CreditChannel>,
     onTransactionCreated: () -> Unit,
+    expenseCategoryOptions: List<CategoryOption> = expenseCategories.map { CategoryOption(scope = "expense", name = it) },
+    incomeCategoryOptions: List<CategoryOption> = incomeCategories.map { CategoryOption(scope = "income", name = it) },
     ledgerRepository: LedgerRepository = LedgerRepository
 ) {
     val context = LocalContext.current
@@ -103,8 +110,9 @@ internal fun QuickRecordSheet(
     var selectedType by rememberSaveable { mutableStateOf("expense") }
     val activeCategories = if (selectedType == "income") incomeCategories else expenseCategories
     var selectedCategory by rememberSaveable(selectedType) {
-        mutableStateOf(activeCategories.firstOrNull() ?: if (selectedType == "income") "工资收入" else "餐饮")
+        mutableStateOf(activeCategories.firstOrNull() ?: if (selectedType == "income") "工资" else "餐饮")
     }
+    var hasManuallySelectedCategory by rememberSaveable(selectedType) { mutableStateOf(false) }
 
     var selectedPaymentMethod by rememberSaveable {
         mutableStateOf(lastPaymentMethod)
@@ -141,13 +149,24 @@ internal fun QuickRecordSheet(
 
     val effectiveCents = remember(inputAmountString) { calculateEffectiveCents() }
 
+    val activeKeywords = remember(selectedType, expenseCategoryOptions, incomeCategoryOptions) {
+        val opts = if (selectedType == "income") incomeCategoryOptions else expenseCategoryOptions
+        opts.mapNotNull { opt ->
+            val kws = TransactionCategorizer.parseKeywords(opt.keywords)
+            if (kws.isEmpty()) null else opt.name to kws
+        }.toMap()
+    }
+    val learnedRules = remember(selectedType, context) {
+        AutoLedgerCategoryMemory.lookupMap(context, selectedType)
+    }
+
     /**
      * 自然语义记账（RG-27）：备注里写「42.5 午餐手冲咖啡」时实时解析出金额 + 分类 + 标题。
      *
      * 只在用户**还没敲金额**时采纳 —— 一旦敲了数字键盘，说明他已经明确表达金额，
      * 此时解析结果让位，避免「我明明输了 30，却被备注里的 42.5 覆盖」。
      */
-    val parsedNote = remember(noteText, selectedType, expenseCategories, incomeCategories) {
+    val parsedNote = remember(noteText, selectedType, expenseCategories, incomeCategories, activeKeywords, learnedRules) {
         if (noteText.isBlank()) {
             null
         } else {
@@ -155,11 +174,40 @@ internal fun QuickRecordSheet(
                 input = noteText,
                 knownCategories = expenseCategories,
                 incomeCategories = incomeCategories,
-                defaultType = selectedType
+                defaultType = selectedType,
+                categoryKeywords = activeKeywords,
+                learnedMerchantRules = learnedRules
             ).takeIf { it.amountCents > 0 }
         }
     }
     val useParsedNote = parsedNote != null && effectiveCents == 0L
+
+    // 当用户输入备注但尚未手动切换分类时，自动高亮/推荐最匹配的分类
+    LaunchedEffect(noteText, selectedType, hasManuallySelectedCategory, activeCategories) {
+        if (hasManuallySelectedCategory || noteText.isBlank()) return@LaunchedEffect
+        val parsed = FormatUtils.parseNaturalTransactionInput(
+            input = noteText,
+            knownCategories = expenseCategories,
+            incomeCategories = incomeCategories,
+            defaultType = selectedType,
+            categoryKeywords = activeKeywords,
+            learnedMerchantRules = learnedRules
+        )
+        val probeText = parsed.title.ifBlank { noteText.trim() }
+        val result = TransactionCategorizer.categorize(
+            CategorizationInput(
+                type = selectedType,
+                merchant = probeText,
+                rawText = probeText,
+                knownCategories = activeCategories,
+                categoryKeywords = activeKeywords,
+                learnedMerchantRules = learnedRules
+            )
+        )
+        if (result.confidence != CategorizationConfidence.LOW && result.category in activeCategories) {
+            selectedCategory = result.category
+        }
+    }
 
     /**
      * 本次提交实际采用的金额（分）—— 速记弹层唯一的「金额事实源」。
@@ -353,7 +401,7 @@ internal fun QuickRecordSheet(
                                 selectedType = "income"
                                 payMethodChoice = "full"
                                 if (selectedCategory !in incomeCategories) {
-                                    selectedCategory = incomeCategories.firstOrNull() ?: "工资收入"
+                                    selectedCategory = incomeCategories.firstOrNull() ?: "工资"
                                 }
                             }
                         )
@@ -483,84 +531,45 @@ internal fun QuickRecordSheet(
 
                 Spacer(modifier = Modifier.height(18.dp))
 
-                // 分类：常用 6 个，「更多」展开全部；每格为分类首字方印 + 名称
+                // 分类：直接平铺 9 项（自定义超 9 项时提供展开）
                 Text(
                     text = "分类",
                     style = com.looseleaf.app.theme.ArchiveTextStyles.overline,
                     color = colors.textMuted
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-                val categoriesToShow = if (showAllCategories) activeCategories else activeCategories.take(6)
+                val everydayPool = remember(activeCategories) {
+                    val reserved = setOf("好物购置", "利息手续费")
+                    activeCategories.filterNot { it in reserved }.ifEmpty { activeCategories }
+                }
+                val top9Categories = remember(everydayPool, selectedCategory) {
+                    val base = everydayPool.take(9).toMutableList()
+                    if (selectedCategory in everydayPool && selectedCategory !in base) {
+                        if (base.size >= 9) base[base.lastIndex] = selectedCategory else base.add(selectedCategory)
+                    }
+                    base.toList()
+                }
+                val displayCategories = if (showAllCategories || everydayPool.size <= 9) {
+                    everydayPool
+                } else {
+                    top9Categories
+                }
                 Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    categoriesToShow.chunked(3).forEach { rowCats ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            for (cat in rowCats) {
-                                val isSelected = cat == selectedCategory
-                                val catColor = LedgerCategoryColors.colorForCategory(cat, colors.isDark)
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        // 最小 46dp，极端字号下允许长高而不是截断
-                                        .heightIn(min = 46.dp)
-                                        .clip(com.looseleaf.app.theme.ArchiveShapes.md)
-                                        .background(
-                                            if (isSelected) catColor.copy(alpha = if (colors.isDark) 0.20f else 0.12f)
-                                            else colors.surface
-                                        )
-                                        .border(
-                                            if (isSelected) 1.5.dp else ArchiveLines.hairline,
-                                            if (isSelected) catColor else colors.archive.borderCard,
-                                            com.looseleaf.app.theme.ArchiveShapes.md
-                                        )
-                                        .clickable(role = Role.RadioButton) { selectedCategory = cat }
-                                        .padding(horizontal = 6.dp, vertical = 6.dp)
-                                ) {
-                                    // 紧凑方印（20dp）+ 5dp 间距：360dp 屏三列下，四字分类名也有约 64dp 可用宽度
-                                    Box(
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .clip(com.looseleaf.app.theme.ArchiveShapes.xs)
-                                            .background(catColor.copy(alpha = if (isSelected) 1f else 0.14f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = cat.take(1),
-                                            fontFamily = com.looseleaf.app.theme.ArchiveFontFamilies.Display,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 11.sp,
-                                            color = if (isSelected) colors.onAccent else catColor
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Text(
-                                        text = cat,
-                                        style = com.looseleaf.app.theme.ArchiveTextStyles.label.copy(
-                                            fontSize = 13.sp,
-                                            lineHeight = 16.sp,
-                                            letterSpacing = 0.sp
-                                        ),
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                        color = if (isSelected) colors.textPrimary else colors.textSecondary,
-                                        // 绝不省略：放不下时换到第二行（单元格最小高度会随之长高）
-                                        maxLines = 2,
-                                        softWrap = true
-                                    )
-                                }
+                    displayCategories.chunked(3).forEach { rowCats ->
+                        CategoryGridRow(
+                            rowCats = rowCats,
+                            selectedCategory = selectedCategory,
+                            onSelect = { cat ->
+                                selectedCategory = cat
+                                hasManuallySelectedCategory = true
                             }
-                            for (i in 0 until (3 - rowCats.size)) {
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
-                        }
+                        )
                     }
 
-                    if (activeCategories.size > 6) {
+                    if (everydayPool.size > 9) {
                         Row(
                             modifier = Modifier
                                 .align(Alignment.CenterHorizontally)
@@ -570,7 +579,7 @@ internal fun QuickRecordSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = if (showAllCategories) "收起分类" else "全部 ${activeCategories.size} 个分类",
+                                text = if (showAllCategories) "收起分类" else "全部 ${everydayPool.size} 个分类",
                                 style = com.looseleaf.app.theme.ArchiveTextStyles.meta,
                                 color = colors.textSecondary
                             )
@@ -744,6 +753,74 @@ internal fun QuickRecordSheet(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CategoryGridRow(
+    rowCats: List<String>,
+    selectedCategory: String,
+    onSelect: (String) -> Unit
+) {
+    val colors = LedgerTheme.colors
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        for (cat in rowCats) {
+            val isSelected = cat == selectedCategory
+            val catColor = LedgerCategoryColors.colorForCategory(cat, colors.isDark)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 46.dp)
+                    .clip(com.looseleaf.app.theme.ArchiveShapes.md)
+                    .background(
+                        if (isSelected) catColor.copy(alpha = if (colors.isDark) 0.20f else 0.12f)
+                        else colors.surface
+                    )
+                    .border(
+                        if (isSelected) 1.5.dp else ArchiveLines.hairline,
+                        if (isSelected) catColor else colors.archive.borderCard,
+                        com.looseleaf.app.theme.ArchiveShapes.md
+                    )
+                    .clickable(role = Role.RadioButton) { onSelect(cat) }
+                    .padding(horizontal = 6.dp, vertical = 6.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(com.looseleaf.app.theme.ArchiveShapes.xs)
+                        .background(catColor.copy(alpha = if (isSelected) 1f else 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = cat.take(1),
+                        fontFamily = com.looseleaf.app.theme.ArchiveFontFamilies.Display,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 11.sp,
+                        color = if (isSelected) colors.onAccent else catColor
+                    )
+                }
+                Spacer(modifier = Modifier.width(5.dp))
+                Text(
+                    text = cat,
+                    style = com.looseleaf.app.theme.ArchiveTextStyles.label.copy(
+                        fontSize = 13.sp,
+                        lineHeight = 16.sp,
+                        letterSpacing = 0.sp
+                    ),
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (isSelected) colors.textPrimary else colors.textSecondary,
+                    maxLines = 2,
+                    softWrap = true
+                )
+            }
+        }
+        for (i in 0 until (3 - rowCats.size)) {
+            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }

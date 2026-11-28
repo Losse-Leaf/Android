@@ -555,6 +555,8 @@ fun LedgerScreen(
             incomeCategories = incomeCategories,
             paymentMethods = paymentMethods,
             creditChannels = creditChannels,
+            expenseCategoryOptions = ledgerSnapshot.expenseCategoryOptions,
+            incomeCategoryOptions = ledgerSnapshot.incomeCategoryOptions,
             onTransactionCreated = {
                 showQuickRecordSheet = false
                 refreshAllData()
@@ -570,6 +572,8 @@ fun LedgerScreen(
             incomeCategories = incomeCategories,
             paymentMethods = paymentMethods,
             creditChannels = creditChannels,
+            expenseCategoryOptions = ledgerSnapshot.expenseCategoryOptions,
+            incomeCategoryOptions = ledgerSnapshot.incomeCategoryOptions,
             onDismiss = { editingTransaction = null },
             onSaved = { refreshAllData() },
             onRequestDeleteRepayConfirm = { showDeleteTxRepayConfirm = it },

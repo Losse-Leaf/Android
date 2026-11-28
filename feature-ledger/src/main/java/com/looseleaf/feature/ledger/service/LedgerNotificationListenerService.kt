@@ -168,6 +168,10 @@ class LedgerNotificationListenerService : NotificationListenerService() {
             try {
                 LedgerRepository.ensureInitialized(appCtx)
                 val snapshot = LedgerRepository.snapshot.value
+                val expenseKeywords = snapshot.categoryKeywordsForType("expense")
+                val incomeKeywords = snapshot.categoryKeywordsForType("income")
+                val learnedExpense = AutoLedgerCategoryMemory.lookupMap(appCtx, "expense")
+                val learnedIncome = AutoLedgerCategoryMemory.lookupMap(appCtx, "income")
                 var matchedDecision: AutoLedgerDedupeDecision? = null
                 for (candidate in candidates) {
                     if (isVerificationCodeOrSpam(candidate)) continue
@@ -179,6 +183,10 @@ class LedgerNotificationListenerService : NotificationListenerService() {
                         content = candidate,
                         expenseCategories = snapshot.expenseCategories,
                         incomeCategories = snapshot.incomeCategories,
+                        expenseCategoryKeywords = expenseKeywords,
+                        incomeCategoryKeywords = incomeKeywords,
+                        learnedExpenseRules = learnedExpense,
+                        learnedIncomeRules = learnedIncome,
                         nowMs = nowMs,
                         onCreate = { req -> LedgerRepository.createTransactionOptimistic(req) },
                         onEnrich = { localId, req -> LedgerRepository.updateTransactionOptimistic(-localId, req) }
@@ -261,6 +269,10 @@ class LedgerNotificationListenerService : NotificationListenerService() {
             content: String,
             expenseCategories: List<String> = emptyList(),
             incomeCategories: List<String> = emptyList(),
+            expenseCategoryKeywords: Map<String, List<String>> = emptyMap(),
+            incomeCategoryKeywords: Map<String, List<String>> = emptyMap(),
+            learnedExpenseRules: Map<String, String> = emptyMap(),
+            learnedIncomeRules: Map<String, String> = emptyMap(),
             nowMs: Long = System.currentTimeMillis(),
             onCreate: suspend (CreateTransactionRequest) -> Long,
             onEnrich: suspend (Long, CreateTransactionRequest) -> Boolean
@@ -269,14 +281,20 @@ class LedgerNotificationListenerService : NotificationListenerService() {
                 content = content,
                 pkg = pkg,
                 expenseCategories = expenseCategories,
-                incomeCategories = incomeCategories
+                incomeCategories = incomeCategories,
+                expenseCategoryKeywords = expenseCategoryKeywords,
+                incomeCategoryKeywords = incomeCategoryKeywords,
+                learnedExpenseRules = learnedExpenseRules,
+                learnedIncomeRules = learnedIncomeRules
             ) ?: return null
+            val targetCategories = if (bill.request.type == "income") incomeCategories else expenseCategories
             return processParsedBill(
                 context = context,
                 pkg = pkg,
                 sbnKey = sbnKey,
                 notificationTimestampMs = notificationTimestampMs,
                 bill = bill,
+                availableCategoriesForNotification = targetCategories,
                 nowMs = nowMs,
                 onCreate = onCreate,
                 onEnrich = onEnrich
@@ -289,6 +307,7 @@ class LedgerNotificationListenerService : NotificationListenerService() {
             sbnKey: String,
             notificationTimestampMs: Long,
             bill: ParsedAutoLedgerBill,
+            availableCategoriesForNotification: List<String> = emptyList(),
             nowMs: Long = System.currentTimeMillis(),
             onCreate: suspend (CreateTransactionRequest) -> Long,
             onEnrich: suspend (Long, CreateTransactionRequest) -> Boolean
@@ -309,6 +328,7 @@ class LedgerNotificationListenerService : NotificationListenerService() {
             }
             val amountYuan = "%.2f".format(bill.request.amount / 100.0)
             val directionLabel = if (bill.request.type == "income") "收入" else "支出"
+            val reasonSuffix = bill.categoryReason.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
 
             when (decision) {
                 is AutoLedgerDedupeDecision.RecordNew -> {
@@ -325,10 +345,20 @@ class LedgerNotificationListenerService : NotificationListenerService() {
                     AutoLedgerDiagnostics.record(
                         source = sourceLabel,
                         outcome = "已自动记账",
-                        rawDetail = "${bill.request.title} · $directionLabel ¥$amountYuan [${bill.request.category}]",
+                        rawDetail = "${bill.request.title} · $directionLabel ¥$amountYuan [${bill.request.category}$reasonSuffix]",
                         isRecorded = true,
                         nowMs = nowMs
                     )
+                    if (context != null) {
+                        AutoLedgerFeedbackNotifier.notifyAutoRecorded(
+                            context = context,
+                            localId = localId,
+                            bill = bill,
+                            availableCategories = availableCategoriesForNotification.ifEmpty {
+                                LedgerRepository.currentCategoriesForType(bill.request.type)
+                            }
+                        )
+                    }
                     Log.i(
                         TAG,
                         "自动记账成功: ${bill.request.title} [${bill.request.type}/${bill.request.category}] - ${amountYuan}元"
@@ -350,10 +380,20 @@ class LedgerNotificationListenerService : NotificationListenerService() {
                         AutoLedgerDiagnostics.record(
                             source = sourceLabel,
                             outcome = "跨端合并补全",
-                            rawDetail = "${bill.request.title} · $directionLabel ¥$amountYuan",
+                            rawDetail = "${bill.request.title} · $directionLabel ¥$amountYuan [${bill.request.category}$reasonSuffix]",
                             isRecorded = true,
                             nowMs = nowMs
                         )
+                        if (context != null) {
+                            AutoLedgerFeedbackNotifier.notifyAutoRecorded(
+                                context = context,
+                                localId = decision.existingLocalId,
+                                bill = bill,
+                                availableCategories = availableCategoriesForNotification.ifEmpty {
+                                    LedgerRepository.currentCategoriesForType(bill.request.type)
+                                }
+                            )
+                        }
                         Log.i(
                             TAG,
                             "跨平台提醒合并补全 (${decision.reason}): localId=${decision.existingLocalId} -> ${bill.request.title} [${bill.request.category}]"
@@ -626,7 +666,7 @@ class LedgerNotificationListenerService : NotificationListenerService() {
                 request = CreateTransactionRequest(
                     amount = amountCents,
                     type = type,
-                    category = if (type == "income") "其他收入" else "其他",
+                    category = "其他",
                     title = "自动记账",
                     occurredAt = ""
                 ),

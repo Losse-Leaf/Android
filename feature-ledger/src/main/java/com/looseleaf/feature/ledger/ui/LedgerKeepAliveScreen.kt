@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.looseleaf.app.data.api.APIClient
 import com.looseleaf.app.theme.ArchiveFontFamilies
 import com.looseleaf.app.theme.ArchiveLines
 import com.looseleaf.app.theme.ArchiveShapes
@@ -62,10 +64,12 @@ import com.looseleaf.app.ui.components.ArchiveDivider
 import com.looseleaf.app.ui.components.ArchiveHeaderIconButton
 import com.looseleaf.app.ui.components.ArchivePageHeader
 import com.looseleaf.app.ui.components.FolioGlyphs
+import com.looseleaf.feature.ledger.service.AutoLedgerCategoryMemory
 import com.looseleaf.feature.ledger.service.AutoLedgerDiagnosticEvent
 import com.looseleaf.feature.ledger.service.AutoLedgerDiagnostics
 import com.looseleaf.feature.ledger.service.AutoLedgerListenerStatus
 import com.looseleaf.feature.ledger.service.AutoLedgerParser
+import com.looseleaf.feature.ledger.service.LearnedCategoryRule
 import com.looseleaf.feature.ledger.service.LedgerAccessibilityService
 import com.looseleaf.feature.ledger.service.LedgerKeepAliveService
 import com.looseleaf.feature.ledger.theme.LedgerTheme
@@ -106,10 +110,16 @@ fun LedgerKeepAliveScreen(
     val notificationsSeenCount by AutoLedgerListenerStatus.notificationsSeenCount.collectAsStateWithLifecycle()
     val needsRebindAfterUpdate by AutoLedgerListenerStatus.needsRebindAfterUpdate.collectAsStateWithLifecycle()
     val diagnosticEvents by AutoLedgerDiagnostics.events.collectAsStateWithLifecycle()
+    val learnedRules by AutoLedgerCategoryMemory.rulesFlow.collectAsStateWithLifecycle()
+    var feedbackNotifEnabled by remember {
+        mutableStateOf(AutoLedgerCategoryMemory.isFeedbackNotificationEnabled(context))
+    }
+    var showAllRules by remember { mutableStateOf(false) }
 
     LaunchedEffect(context) {
         withContext(Dispatchers.IO) {
             AutoLedgerDiagnostics.ensureLoaded(context)
+            AutoLedgerCategoryMemory.getAllRules(context)
         }
     }
 
@@ -298,6 +308,29 @@ fun LedgerKeepAliveScreen(
                 }
             )
 
+            FeedbackNotificationToggleCard(
+                enabled = feedbackNotifEnabled,
+                onToggle = { next ->
+                    feedbackNotifEnabled = next
+                    AutoLedgerCategoryMemory.setFeedbackNotificationEnabled(context, next)
+                }
+            )
+
+            LearnedRulesCard(
+                rules = learnedRules,
+                expanded = showAllRules,
+                onToggleExpand = { showAllRules = !showAllRules },
+                onDeleteRule = { rule ->
+                    val removed = AutoLedgerCategoryMemory.removeRule(context, rule.txType, rule.matchKey)
+                    val sid = removed?.serverId ?: rule.serverId
+                    if (sid != null && sid > 0) {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            runCatching { APIClient.getInstance(context).deleteCategoryRule(sid) }
+                        }
+                    }
+                }
+            )
+
             Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier
@@ -368,7 +401,23 @@ private fun runSelfDiagnostics(context: Context) {
         content = "【中国农业银行】您尾号4321账户完成转存交易人民币5000.00，余额15000.00。",
         pkg = "com.android.mms"
     )?.request?.amount == 500000L
-    val parserOk = alipayOk && wechatOk && abcOk
+    val catCoffee = AutoLedgerParser.parse(
+        content = "微信支付 微信支付凭证：你已向星巴克付款36.50元",
+        pkg = "com.tencent.mm"
+    )?.request?.category == "咖啡饮品"
+    val catDrug = AutoLedgerParser.parse(
+        content = "支付宝 你已向美团买药付款39.90元",
+        pkg = "com.eg.android.AlipayGphone"
+    )?.request?.category == "医疗"
+    val catTaxi = AutoLedgerParser.parse(
+        content = "微信支付 向美团打车付款24.50元",
+        pkg = "com.tencent.mm"
+    )?.request?.category == "交通"
+    val catTelecom = AutoLedgerParser.parse(
+        content = "微信支付 向中国移动话费充值100.00元",
+        pkg = "com.tencent.mm"
+    )?.request?.category == "通讯网费"
+    val parserOk = alipayOk && wechatOk && abcOk && catCoffee && catDrug && catTaxi && catTelecom
 
     val statusSummary = buildString {
         append("通知权=").append(if (notifEnabled) "开" else "关")
@@ -705,6 +754,125 @@ private fun OemGuideCard() {
             }
             if (i < guides.lastIndex) {
                 ArchiveDivider(modifier = Modifier.padding(start = 16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeedbackNotificationToggleCard(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit
+) {
+    val colors = LedgerTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(ArchiveShapes.leaf)
+            .background(colors.surface)
+            .border(ArchiveLines.hairline, colors.archive.borderCard, ArchiveShapes.leaf)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "自动记账分类提醒通知",
+                style = ArchiveTextStyles.rowTitle,
+                color = colors.textPrimary
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "每次自动入账后发一条无声通知，可直接在通知栏点选一键改分类并记住该商户。",
+                style = ArchiveTextStyles.meta.copy(lineHeight = 18.sp),
+                color = colors.textSecondary
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Switch(
+            checked = enabled,
+            onCheckedChange = onToggle
+        )
+    }
+}
+
+@Composable
+private fun LearnedRulesCard(
+    rules: List<LearnedCategoryRule>,
+    expanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onDeleteRule: (LearnedCategoryRule) -> Unit
+) {
+    val colors = LedgerTheme.colors
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(ArchiveShapes.leaf)
+            .background(colors.surface)
+            .border(ArchiveLines.hairline, colors.archive.borderCard, ArchiveShapes.leaf)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button, onClick = onToggleExpand)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "已学习商户归类规则（${rules.size} 条）",
+                    style = ArchiveTextStyles.rowTitle,
+                    color = colors.textPrimary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = if (rules.isEmpty()) "修改任一商户分类后，系统会自动记住并同步跨端" else "点击展开查看或删除已记住的商户分类映射",
+                    style = ArchiveTextStyles.meta,
+                    color = colors.textSecondary
+                )
+            }
+            Icon(
+                imageVector = if (expanded) FolioGlyphs.ChevronUp else FolioGlyphs.ChevronDown,
+                contentDescription = null,
+                tint = colors.textSecondary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        if (expanded && rules.isNotEmpty()) {
+            ArchiveDivider()
+            val visibleRules = rules.take(30)
+            visibleRules.forEachIndexed { idx, rule ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = rule.displayName,
+                            style = ArchiveTextStyles.label,
+                            color = colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${if (rule.txType == "income") "收入" else "支出"} · 归类为「${rule.category}」· 命中 ${rule.hitCount} 次",
+                            style = ArchiveTextStyles.meta,
+                            color = colors.textSecondary
+                        )
+                    }
+                    Text(
+                        text = "移除",
+                        style = ArchiveTextStyles.meta,
+                        color = colors.alertRed,
+                        modifier = Modifier
+                            .clickable(role = Role.Button) { onDeleteRule(rule) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+                if (idx < visibleRules.lastIndex) {
+                    ArchiveDivider(modifier = Modifier.padding(start = 16.dp))
+                }
             }
         }
     }

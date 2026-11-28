@@ -77,15 +77,21 @@ class LedgerAccessibilityService : AccessibilityService() {
                     rawTexts = collectedTexts,
                     expenseCategories = snapshot.expenseCategories,
                     incomeCategories = snapshot.incomeCategories,
+                    expenseCategoryKeywords = snapshot.categoryKeywordsForType("expense"),
+                    incomeCategoryKeywords = snapshot.categoryKeywordsForType("income"),
+                    learnedExpenseRules = AutoLedgerCategoryMemory.lookupMap(appCtx, "expense"),
+                    learnedIncomeRules = AutoLedgerCategoryMemory.lookupMap(appCtx, "income"),
                     nowMs = nowMs
                 ) ?: return@launch
 
+                val targetCats = if (parsed.bill.request.type == "income") snapshot.incomeCategories else snapshot.expenseCategories
                 LedgerNotificationListenerService.processParsedBill(
                     context = appCtx,
                     pkg = pkg,
                     sbnKey = parsed.screenEventKey,
                     notificationTimestampMs = parsed.eventTimestampMs,
                     bill = parsed.bill,
+                    availableCategoriesForNotification = targetCats,
                     nowMs = nowMs,
                     onCreate = { req -> LedgerRepository.createTransactionOptimistic(req) },
                     onEnrich = { localId, req -> LedgerRepository.updateTransactionOptimistic(-localId, req) }

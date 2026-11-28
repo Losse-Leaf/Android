@@ -382,7 +382,9 @@ object FormatUtils {
         input: String,
         knownCategories: List<String> = emptyList(),
         incomeCategories: List<String> = emptyList(),
-        defaultType: String = "expense"
+        defaultType: String = "expense",
+        categoryKeywords: Map<String, List<String>> = emptyMap(),
+        learnedMerchantRules: Map<String, String> = emptyMap()
     ): ParsedQuickTransaction {
         val normalizedDefaultType = if (defaultType == "income") "income" else "expense"
         val trimmed = input.trim()
@@ -401,7 +403,13 @@ object FormatUtils {
             val cents = kotlin.math.abs(yuanStringToCents(numStr))
 
             val scopedCategories = if (isIncome) incomeCategories else knownCategories
-            val category = inferCategoryFromText(rest, scopedCategories, type = txType)
+            val category = inferCategoryFromText(
+                text = rest,
+                knownCategories = scopedCategories,
+                type = txType,
+                categoryKeywords = categoryKeywords,
+                learnedMerchantRules = learnedMerchantRules
+            )
             val title = if (rest.isNotBlank()) rest else category
 
             return ParsedQuickTransaction(
@@ -415,92 +423,38 @@ object FormatUtils {
         val fallbackCategories = if (normalizedDefaultType == "income") incomeCategories else knownCategories
         return ParsedQuickTransaction(
             amountCents = 0L,
-            category = inferCategoryFromText(trimmed, fallbackCategories, type = normalizedDefaultType),
+            category = inferCategoryFromText(
+                text = trimmed,
+                knownCategories = fallbackCategories,
+                type = normalizedDefaultType,
+                categoryKeywords = categoryKeywords,
+                learnedMerchantRules = learnedMerchantRules
+            ),
             title = trimmed,
             type = normalizedDefaultType
         )
     }
 
     /**
-     * 根据描述文本与交易类型推断分类。
-     *
-     * 关键约束：
-     * 1. 严格按 [type] ("expense" | "income") 隔离关键词规则，杜绝支出账单被误判成收入分类（例如含「红包」「利息」的支出通知）；
-     * 2. 当调用方传入非空 [knownCategories] 时，返回值保证一定落在 [knownCategories] 内，避免后端校验 400（分类不存在于分类字典）。
+     * 根据描述文本与交易类型推断分类（内部委托给 [TransactionCategorizer]）。
      */
     fun inferCategoryFromText(
         text: String,
         knownCategories: List<String> = emptyList(),
-        type: String = "expense"
+        type: String = "expense",
+        merchant: String? = null,
+        categoryKeywords: Map<String, List<String>> = emptyMap(),
+        learnedMerchantRules: Map<String, String> = emptyMap()
     ): String {
-        val normalizedType = if (type == "income") "income" else "expense"
-        val validKnown = knownCategories.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-        val lower = text.lowercase(Locale.ROOT)
-
-        // 1. 动态分类字典优先：用户自定义/改名的具体分类直接命中（优先长名称，避免「其他」抢匹配）
-        if (validKnown.isNotEmpty()) {
-            val directHit = validKnown
-                .filterNot { it == "其他" || it == "其他收入" }
-                .sortedByDescending { it.length }
-                .firstOrNull { text.contains(it, ignoreCase = true) }
-            if (directHit != null) return directHit
-        }
-
-        // 2. 按收支类型严格隔离关键词，并与后端 DefaultCategoriesMap 对齐
-        val candidates: List<String> = if (normalizedType == "income") {
-            when {
-                listOf("工资", "薪资", "发薪", "薪水", "奖金", "年终奖", "绩效", "津贴", "补贴").any { lower.contains(it) } ->
-                    listOf("工资收入", "薪资", "奖金")
-                listOf("二手", "闲鱼", "转转", "回血", "出售").any { lower.contains(it) } ->
-                    listOf("二手回血")
-                listOf("稿费", "稿酬", "设计", "创作", "约稿", "版权").any { lower.contains(it) } ->
-                    listOf("稿酬设计", "稿费与创作")
-                listOf("理财", "基金", "股票", "股息", "分红", "利息", "收益", "余额宝").any { lower.contains(it) } ->
-                    listOf("投资理财", "投资收益")
-                listOf("红包", "礼金", "压岁钱", "份子钱").any { lower.contains(it) } ->
-                    listOf("礼金红包")
-                listOf("退款", "报销", "返现", "退税", "赔付", "退回").any { lower.contains(it) } ->
-                    listOf("退款报销")
-                else -> listOf("其他收入", "其他")
-            }
-        } else {
-            when {
-                listOf("饭", "餐", "吃", "外卖", "美团", "饿了么", "麦当劳", "肯德基", "星巴克", "瑞幸", "喜茶", "奈雪", "霸王茶姬", "咖啡", "茶", "饮", "早点", "早餐", "午餐", "晚餐", "夜宵", "买菜", "便利店", "罗森", "全家", "盒马", "叮咚").any { lower.contains(it) } ->
-                    listOf("餐饮")
-                listOf("地铁", "打车", "滴滴", "高德", "公交", "火车", "高铁", "12306", "机票", "航空", "加油", "充电", "停车", "过路费", "高速", "骑行", "哈啰", "青桔").any { lower.contains(it) } ->
-                    listOf("交通")
-                listOf("酒店", "民宿", "景点", "旅游", "度假", "携程", "飞猪", "去哪儿").any { lower.contains(it) } ->
-                    listOf("旅行度假", "交通", "娱乐")
-                listOf("数码", "手机", "相机", "镜头", "电脑", "耳机", "键盘", "apple", "苹果", "华为", "小米").any { lower.contains(it) } ->
-                    listOf("数码器材", "购物")
-                listOf("手续费", "利息", "滞纳金", "年费", "分期费").any { lower.contains(it) } ->
-                    listOf("利息手续费", "其他")
-                listOf("买", "淘宝", "天猫", "京东", "拼多多", "抖音商城", "超市", "沃尔玛", "山姆", "商户", "衣服", "鞋", "护肤", "化妆品", "快递").any { lower.contains(it) } ->
-                    listOf("购物")
-                listOf("电影", "游戏", "steam", "网易", "腾讯", "聚会", "玩", "剧本杀", "门票", "展览", "演出", "音乐", "bilibili", "b站").any { lower.contains(it) } ->
-                    listOf("娱乐")
-                listOf("房租", "水电", "电费", "水费", "物业", "燃气", "宽带", "话费", "流量", "充值", "家居", "宜家").any { lower.contains(it) } ->
-                    listOf("住房")
-                listOf("书", "课", "学费", "培训", "考试", "订阅", "会员", "知识").any { lower.contains(it) } ->
-                    listOf("学习")
-                listOf("药", "药房", "医院", "门诊", "挂号", "体检", "牙", "检查", "诊所").any { lower.contains(it) } ->
-                    listOf("医疗")
-                else -> listOf("其他")
-            }
-        }
-
-        // 3. 若有动态分类字典，确保最终分类 100% 落在有效字典中
-        if (validKnown.isNotEmpty()) {
-            candidates.firstOrNull { it in validKnown }?.let { return it }
-            val fallbackOrder = if (normalizedType == "income") {
-                listOf("其他收入", "其他")
-            } else {
-                listOf("其他")
-            }
-            fallbackOrder.firstOrNull { it in validKnown }?.let { return it }
-            return validKnown.first()
-        }
-
-        return candidates.first()
+        return TransactionCategorizer.categorize(
+            CategorizationInput(
+                type = type,
+                merchant = merchant,
+                rawText = text,
+                knownCategories = knownCategories,
+                categoryKeywords = categoryKeywords,
+                learnedMerchantRules = learnedMerchantRules
+            )
+        ).category
     }
 }

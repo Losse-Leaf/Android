@@ -1,7 +1,9 @@
 package com.looseleaf.feature.ledger.service
 
 import com.looseleaf.app.model.CreateTransactionRequest
+import com.looseleaf.app.utils.CategorizationInput
 import com.looseleaf.app.utils.FormatUtils
+import com.looseleaf.app.utils.TransactionCategorizer
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -87,6 +89,10 @@ internal object AutoLedgerScreenParser {
         rawTexts: List<String>,
         expenseCategories: List<String> = emptyList(),
         incomeCategories: List<String> = emptyList(),
+        expenseCategoryKeywords: Map<String, List<String>> = emptyMap(),
+        incomeCategoryKeywords: Map<String, List<String>> = emptyMap(),
+        learnedExpenseRules: Map<String, String> = emptyMap(),
+        learnedIncomeRules: Map<String, String> = emptyMap(),
         nowMs: Long = System.currentTimeMillis()
     ): ParsedScreenBill? {
         val channelGroup = when (pkg) {
@@ -108,11 +114,17 @@ internal object AutoLedgerScreenParser {
                 texts = texts,
                 expenseCategories = expenseCategories,
                 incomeCategories = incomeCategories,
+                expenseCategoryKeywords = expenseCategoryKeywords,
+                incomeCategoryKeywords = incomeCategoryKeywords,
+                learnedExpenseRules = learnedExpenseRules,
+                learnedIncomeRules = learnedIncomeRules,
                 nowMs = nowMs
             )
             NotificationChannelGroup.ALIPAY_SCREEN -> parseAlipayScreen(
                 texts = texts,
                 expenseCategories = expenseCategories,
+                categoryKeywords = expenseCategoryKeywords,
+                learnedMerchantRules = learnedExpenseRules,
                 nowMs = nowMs
             )
             else -> null
@@ -123,6 +135,10 @@ internal object AutoLedgerScreenParser {
         texts: List<String>,
         expenseCategories: List<String>,
         incomeCategories: List<String>,
+        expenseCategoryKeywords: Map<String, List<String>>,
+        incomeCategoryKeywords: Map<String, List<String>>,
+        learnedExpenseRules: Map<String, String>,
+        learnedIncomeRules: Map<String, String>,
         nowMs: Long
     ): ParsedScreenBill? {
         // 场景 A：微信好友转账收款完成页（「已收钱」+「已存入零钱」/「收款时间」）
@@ -142,11 +158,20 @@ internal object AutoLedgerScreenParser {
 
             val amountHit = extractPrimaryAmount(texts) ?: return null
             val sender = extractWeChatCounterparty(texts, amountIndex = amountHit.first, isIncome = true)
-            val category = FormatUtils.inferCategoryFromText(
-                text = listOfNotNull(sender, "微信转账收款").joinToString(" "),
-                knownCategories = incomeCategories,
-                type = "income"
+            val categorization = TransactionCategorizer.categorize(
+                CategorizationInput(
+                    type = "income",
+                    merchant = sender,
+                    rawText = listOfNotNull(sender, "微信转账收款").joinToString(" "),
+                    amountCents = amountHit.second,
+                    isTransfer = true,
+                    paymentMethod = "微信支付",
+                    knownCategories = incomeCategories,
+                    categoryKeywords = incomeCategoryKeywords,
+                    learnedMerchantRules = learnedIncomeRules
+                )
             )
+            val category = categorization.category
             val title = if (sender != null) "收到转账 · $sender" else "微信转账收款"
             val note = "自动记账 (微信支付 - $category): 微信转账已收钱（收款时间 ${receiptTime.first}）"
             val req = CreateTransactionRequest(
@@ -168,7 +193,9 @@ internal object AutoLedgerScreenParser {
                 normalizedContent = "wechat_screen:income:${amountHit.second}:${receiptTime.first}",
                 qualityScore = qualityScore,
                 channelHint = "微信",
-                notifyOrigin = AutoLedgerParser.ORIGIN_WALLET
+                notifyOrigin = AutoLedgerParser.ORIGIN_WALLET,
+                categoryConfidence = categorization.confidence,
+                categoryReason = categorization.matchedReason
             )
             return ParsedScreenBill(
                 bill = bill,
@@ -204,11 +231,20 @@ internal object AutoLedgerScreenParser {
             it.contains("转账") || it.contains("收款")
         }
         val hintText = listOfNotNull(payee, if (isTransfer) "微信转账" else "微信支付").joinToString(" ")
-        val category = FormatUtils.inferCategoryFromText(
-            text = hintText,
-            knownCategories = expenseCategories,
-            type = "expense"
+        val categorization = TransactionCategorizer.categorize(
+            CategorizationInput(
+                type = "expense",
+                merchant = payee,
+                rawText = hintText,
+                amountCents = amountHit.second,
+                isTransfer = isTransfer,
+                paymentMethod = "微信支付",
+                knownCategories = expenseCategories,
+                categoryKeywords = expenseCategoryKeywords,
+                learnedMerchantRules = learnedExpenseRules
+            )
         )
+        val category = categorization.category
         val title = when {
             isTransfer && payee != null -> "转账 · $payee"
             payee != null -> payee
@@ -240,7 +276,9 @@ internal object AutoLedgerScreenParser {
             normalizedContent = "wechat_screen:expense:${amountHit.second}:${payee.orEmpty()}:$keySuffix",
             qualityScore = qualityScore,
             channelHint = "微信",
-            notifyOrigin = AutoLedgerParser.ORIGIN_WALLET
+            notifyOrigin = AutoLedgerParser.ORIGIN_WALLET,
+            categoryConfidence = categorization.confidence,
+            categoryReason = categorization.matchedReason
         )
         return ParsedScreenBill(
             bill = bill,
@@ -252,6 +290,8 @@ internal object AutoLedgerScreenParser {
     private fun parseAlipayScreen(
         texts: List<String>,
         expenseCategories: List<String>,
+        categoryKeywords: Map<String, List<String>>,
+        learnedMerchantRules: Map<String, String>,
         nowMs: Long
     ): ParsedScreenBill? {
         if (containsAnyHint(texts, SCREEN_INCOME_GUARD_KEYWORDS)) return null
@@ -266,11 +306,20 @@ internal object AutoLedgerScreenParser {
         val amountHit = extractPrimaryAmount(texts) ?: return null
         val payee = extractWeChatCounterparty(texts, amountIndex = amountHit.first, isIncome = false)
         val isTransfer = texts.any { it.contains("转账") }
-        val category = FormatUtils.inferCategoryFromText(
-            text = listOfNotNull(payee, if (isTransfer) "支付宝转账" else "支付宝付款").joinToString(" "),
-            knownCategories = expenseCategories,
-            type = "expense"
+        val categorization = TransactionCategorizer.categorize(
+            CategorizationInput(
+                type = "expense",
+                merchant = payee,
+                rawText = listOfNotNull(payee, if (isTransfer) "支付宝转账" else "支付宝付款").joinToString(" "),
+                amountCents = amountHit.second,
+                isTransfer = isTransfer,
+                paymentMethod = "支付宝",
+                knownCategories = expenseCategories,
+                categoryKeywords = categoryKeywords,
+                learnedMerchantRules = learnedMerchantRules
+            )
         )
+        val category = categorization.category
         val title = when {
             isTransfer && payee != null -> "转账 · $payee"
             payee != null -> payee
@@ -297,7 +346,9 @@ internal object AutoLedgerScreenParser {
             normalizedContent = "alipay_screen:expense:${amountHit.second}:${payee.orEmpty()}:$keySuffix",
             qualityScore = qualityScore,
             channelHint = "支付宝",
-            notifyOrigin = AutoLedgerParser.ORIGIN_WALLET
+            notifyOrigin = AutoLedgerParser.ORIGIN_WALLET,
+            categoryConfidence = categorization.confidence,
+            categoryReason = categorization.matchedReason
         )
         return ParsedScreenBill(
             bill = bill,

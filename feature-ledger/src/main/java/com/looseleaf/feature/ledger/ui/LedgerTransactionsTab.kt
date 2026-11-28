@@ -159,6 +159,19 @@ internal fun TransactionsLedgerTab(
     val monthBalance = summary.balance
     val categoryTotals = summary.categoryTotals
 
+    var selectedCategoryFilter by rememberSaveable(selectedYearMonth.toString()) { mutableStateOf<String?>(null) }
+    val visibleTransactions = remember(transactions, selectedCategoryFilter) {
+        val filter = selectedCategoryFilter
+        if (filter.isNullOrBlank()) {
+            transactions
+        } else {
+            transactions.filter { tx ->
+                val cat = if (tx.source == "installment_repay") "利息手续费" else tx.category
+                cat == filter
+            }
+        }
+    }
+
     // 预留待确认条数计算
     val pendingCount = remember(transactions) {
         transactions.count { it.syncStatus == "PENDING_CREATE" }
@@ -333,44 +346,81 @@ internal fun TransactionsLedgerTab(
 
                             Spacer(modifier = Modifier.height(12.dp))
 
-                            val top3 = categoryTotals.take(3)
-                            val otherSum = categoryTotals.drop(3).sumOf { it.second }
-                            val legendItems = top3 + if (otherSum > 0) listOf("其他" to otherSum) else emptyList()
+                            val top4 = categoryTotals.take(4)
+                            val otherSum = categoryTotals.drop(4).sumOf { it.second }
+                            val legendItems = top4 + if (otherSum > 0) listOf("其他汇总" to otherSum) else emptyList()
 
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 legendItems.forEach { (cat, amt) ->
+                                    val isAggregateOther = cat == "其他汇总"
+                                    val displayLabel = if (isAggregateOther) "其余" else cat
+                                    val isSelected = !isAggregateOther && selectedCategoryFilter == cat
                                     val pct = (amt * 100.0 / totalExpense).roundToLong()
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier
+                                            .clip(ArchiveShapes.full)
+                                            .then(
+                                                if (isSelected) {
+                                                    Modifier
+                                                        .background(colors.accentSoft)
+                                                        .border(ArchiveLines.hairline, colors.accent, ArchiveShapes.full)
+                                                } else if (!isAggregateOther) {
+                                                    Modifier.clickable(role = Role.Button) {
+                                                        selectedCategoryFilter = if (selectedCategoryFilter == cat) null else cat
+                                                    }
+                                                } else {
+                                                    Modifier
+                                                }
+                                            )
+                                            .let { mod ->
+                                                if (isSelected) {
+                                                    mod.clickable(role = Role.Button) { selectedCategoryFilter = null }
+                                                } else {
+                                                    mod
+                                                }
+                                            }
+                                            .padding(horizontal = if (isSelected) 8.dp else 4.dp, vertical = 3.dp)
                                     ) {
                                         Box(
                                             modifier = Modifier
                                                 .size(7.dp)
                                                 .clip(CircleShape)
                                                 .background(
-                                                    if (cat == "其他") colors.textMuted
+                                                    if (isAggregateOther) colors.textMuted
                                                     else LedgerCategoryColors.colorForCategory(cat, colors.isDark)
                                                 )
                                         )
                                         Text(
-                                            text = cat,
+                                            text = displayLabel,
                                             style = ArchiveTextStyles.meta,
-                                            color = colors.textSecondary
+                                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                            color = if (isSelected) colors.archive.accentSmallText else colors.textSecondary
                                         )
                                         Text(
                                             text = "$pct%",
                                             style = ArchiveTextStyles.meta,
                                             fontWeight = FontWeight.Medium,
-                                            color = colors.textPrimary
+                                            color = if (isSelected) colors.archive.accentSmallText else colors.textPrimary
                                         )
                                     }
+                                }
+                                if (!selectedCategoryFilter.isNullOrBlank()) {
+                                    Text(
+                                        text = "清除筛选",
+                                        style = ArchiveTextStyles.meta,
+                                        color = colors.accent,
+                                        modifier = Modifier
+                                            .clickable(role = Role.Button) { selectedCategoryFilter = null }
+                                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                                    )
                                 }
                             }
                         }
@@ -442,18 +492,24 @@ internal fun TransactionsLedgerTab(
             }
 
             // 3. 账目列表
-            if (transactions.isEmpty()) {
+            if (visibleTransactions.isEmpty()) {
                 item(key = "empty_transactions_state") {
                     ArchiveEmptyState(
-                        title = "这个月还没有账目",
-                        subtitle = "左右滑动总览卡片可以翻看其他月份",
-                        actionText = "记一笔",
-                        onActionClick = onNavigateToKeypad,
+                        title = if (selectedCategoryFilter != null) "「$selectedCategoryFilter」本月暂无记录" else "这个月还没有账目",
+                        subtitle = if (selectedCategoryFilter != null) "点击下方按钮查看本月全部流水" else "左右滑动总览卡片可以翻看其他月份",
+                        actionText = if (selectedCategoryFilter != null) "显示全部" else "记一笔",
+                        onActionClick = {
+                            if (selectedCategoryFilter != null) {
+                                selectedCategoryFilter = null
+                            } else {
+                                onNavigateToKeypad()
+                            }
+                        },
                         modifier = monthSwipeModifier
                     )
                 }
             } else {
-                val groupedTransactions = transactions
+                val groupedTransactions = visibleTransactions
                     .groupBy { tx ->
                         FormatUtils.parseOccurredInstantOrNull(tx.occurredAt)
                             ?.atZone(FormatUtils.BeijingZone)

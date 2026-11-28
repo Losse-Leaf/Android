@@ -75,8 +75,32 @@ data class CategoryOption(
     val id: Long = 0,
     val scope: String,
     val name: String,
+    @SerialName("group_name") val groupName: String = "",
+    val keywords: String = "",
     @SerialName("sort_order") val sortOrder: Int = 0,
-    @SerialName("is_builtin") val isBuiltin: Boolean = false
+    @SerialName("is_builtin") val isBuiltin: Boolean = false,
+    @SerialName("usage_count") val usageCount: Long = 0L
+)
+
+@Serializable
+data class CategoryRule(
+    val id: Long = 0,
+    @SerialName("tx_type") val txType: String,
+    @SerialName("match_key") val matchKey: String,
+    @SerialName("display_name") val displayName: String,
+    val category: String,
+    @SerialName("hit_count") val hitCount: Int = 1,
+    val source: String = "learned",
+    @SerialName("updated_at") val updatedAt: String? = null
+)
+
+@Serializable
+data class UpsertCategoryRuleRequest(
+    @SerialName("tx_type") val txType: String,
+    @SerialName("match_key") val matchKey: String? = null,
+    @SerialName("display_name") val displayName: String,
+    val category: String,
+    val source: String = "learned"
 )
 
 @Serializable

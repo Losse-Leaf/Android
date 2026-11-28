@@ -1,6 +1,7 @@
 package com.looseleaf.feature.ledger.service
 
 import com.looseleaf.app.model.CreateTransactionRequest
+import com.looseleaf.app.utils.CategorizationConfidence
 
 /**
  * 自动记账通知渠道分组与信息丰富度优先级。
@@ -50,7 +51,9 @@ internal data class ParsedAutoLedgerBill(
     val normalizedContent: String,
     val qualityScore: Int,
     val channelHint: String? = null,
-    val notifyOrigin: String? = null
+    val notifyOrigin: String? = null,
+    val categoryConfidence: CategorizationConfidence = CategorizationConfidence.MEDIUM,
+    val categoryReason: String = ""
 )
 
 internal sealed class AutoLedgerDedupeDecision {

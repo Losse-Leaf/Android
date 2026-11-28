@@ -70,6 +70,15 @@
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- 自动记账通知栏快捷改类广播接收器 -->
+        <receiver
+            android:name="com.looseleaf.feature.ledger.service.AutoLedgerQuickActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.looseleaf.feature.ledger.ACTION_RECLASSIFY" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

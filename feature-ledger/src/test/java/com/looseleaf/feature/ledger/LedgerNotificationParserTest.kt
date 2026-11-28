@@ -639,4 +639,77 @@ class LedgerNotificationParserTest {
             assertNull("非明确消费/入账的中性或提现交易不得误记: $sample", parsed)
         }
     }
+
+    @Test
+    fun `智能分类引擎支持跨平台复合词消除历史误判并支持商户记忆与自定义关键词`() {
+        val fullExpenseDict = listOf(
+            "餐饮", "交通", "购物", "居家", "订阅", "娱乐", "医疗", "学习", "其他"
+        )
+
+        val drug = AutoLedgerParser.parse(
+            content = "支付宝 你已向美团买药付款39.90元",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = fullExpenseDict
+        )!!
+        assertEquals("医疗", drug.request.category)
+
+        val taxi = AutoLedgerParser.parse(
+            content = "微信支付 向美团打车付款24.50元",
+            pkg = "com.tencent.mm",
+            expenseCategories = fullExpenseDict
+        )!!
+        assertEquals("交通", taxi.request.category)
+
+        val hotel = AutoLedgerParser.parse(
+            content = "支付宝 你已向美团酒店付款380.00元",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = fullExpenseDict
+        )!!
+        assertEquals("娱乐", hotel.request.category)
+
+        val grid = AutoLedgerParser.parse(
+            content = "支付宝 你已向国家电网付款120.00元",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = fullExpenseDict
+        )!!
+        assertEquals("居家", grid.request.category)
+
+        val mobile = AutoLedgerParser.parse(
+            content = "微信支付 向中国移动付款100.00元",
+            pkg = "com.tencent.mm",
+            expenseCategories = fullExpenseDict
+        )!!
+        assertEquals("居家", mobile.request.category)
+
+        val icloud = AutoLedgerParser.parse(
+            content = "支付宝 自动扣款：Apple iCloud 6.00元",
+            pkg = "com.eg.android.AlipayGphone",
+            expenseCategories = fullExpenseDict
+        )!!
+        assertEquals("订阅", icloud.request.category)
+
+        val transferOut = AutoLedgerParser.parse(
+            content = "微信支付 向张三转账200.00元",
+            pkg = "com.tencent.mm",
+            expenseCategories = fullExpenseDict
+        )!!
+        assertEquals("其他", transferOut.request.category)
+
+        // 商户历史记忆与自定义关键词覆盖默认规则
+        val memoryOverride = AutoLedgerParser.parse(
+            content = "微信支付 你已向楼下便利店付款18.00元",
+            pkg = "com.tencent.mm",
+            expenseCategories = fullExpenseDict,
+            learnedExpenseRules = mapOf("楼下便利店" to "餐饮")
+        )!!
+        assertEquals("餐饮", memoryOverride.request.category)
+
+        val customKwOverride = AutoLedgerParser.parse(
+            content = "微信支付 你已向蓝鲸手作付款68.00元",
+            pkg = "com.tencent.mm",
+            expenseCategories = fullExpenseDict,
+            expenseCategoryKeywords = mapOf("娱乐" to listOf("蓝鲸手作"))
+        )!!
+        assertEquals("娱乐", customKwOverride.request.category)
+    }
 }

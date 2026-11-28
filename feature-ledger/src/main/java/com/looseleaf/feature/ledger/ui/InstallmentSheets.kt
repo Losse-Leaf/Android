@@ -72,7 +72,7 @@ fun CreateInstallmentSheet(
         mutableStateOf(defaultFirstDueYearMonth(selectedChannel?.repaymentDay ?: 10))
     }
 
-    var selectedCategory by remember { mutableStateOf(expenseCategories.firstOrNull { it == "购物" || it == "数码器材" } ?: expenseCategories.firstOrNull() ?: "购物") }
+    var selectedCategory by remember { mutableStateOf(expenseCategories.firstOrNull { it == "购物" } ?: expenseCategories.firstOrNull() ?: "购物") }
     var note by remember { mutableStateOf("") }
 
     val principalCents = FormatUtils.yuanToCents(principalYuan)

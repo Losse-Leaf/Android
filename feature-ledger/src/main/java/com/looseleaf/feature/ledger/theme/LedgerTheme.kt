@@ -55,30 +55,38 @@ val LightLedgerColors = LedgerColors(LightArchiveColors)
 val DarkLedgerColors = LedgerColors(DarkArchiveColors)
 
 /**
- * 账本分类色板：八种低饱和的矿物色，彼此色相间隔均匀，深浅两套各自校准明度。
+ * 账本分类色板：十二种低饱和的矿物色，彼此色相间隔均匀，深浅两套各自校准明度。
  */
 object LedgerCategoryColors {
     fun palette(isDark: Boolean): List<Color> = if (isDark) {
         listOf(
-            Color(0xFFE2B66C), // 雌黄
-            Color(0xFF7CC2C4), // 石青
-            Color(0xFFE09A7C), // 赭石
-            Color(0xFFB9A2DE), // 青莲
-            Color(0xFF8DCB9B), // 石绿
-            Color(0xFF9DB3CF), // 花青
-            Color(0xFFE59AAB), // 胭脂
-            Color(0xFFBEB6A6)  // 墨灰
+            Color(0xFFE2B66C), // 0 雌黄 (餐饮)
+            Color(0xFFC99B6B), // 1 琥珀 (咖啡饮品)
+            Color(0xFF9CCB8A), // 2 嫩柳 (买菜生鲜)
+            Color(0xFFE8A482), // 3 杏仁 (零食水果)
+            Color(0xFF7CC2C4), // 4 石青 (交通)
+            Color(0xFF83AED1), // 5 天青 (旅行度假)
+            Color(0xFFE09A7C), // 6 赭石 (购物/日用)
+            Color(0xFFD98FAA), // 7 藕荷 (服饰美妆)
+            Color(0xFF8DCB9B), // 8 石绿 (住房/水电)
+            Color(0xFF9DB3CF), // 9 花青 (数码/学习/通讯)
+            Color(0xFFB9A2DE), // 10 青莲 (娱乐/订阅/宠物)
+            Color(0xFFE59AAB)  // 11 胭脂 (医疗/运动)
         )
     } else {
         listOf(
-            Color(0xFFA9741A), // 雌黄
-            Color(0xFF2C7779), // 石青
-            Color(0xFFA9573A), // 赭石
-            Color(0xFF6F5296), // 青莲
-            Color(0xFF3E7A4E), // 石绿
-            Color(0xFF4E6B8A), // 花青
-            Color(0xFFA0445A), // 胭脂
-            Color(0xFF77705F)  // 墨灰
+            Color(0xFFA9741A), // 0 雌黄
+            Color(0xFF8E5D2D), // 1 琥珀
+            Color(0xFF4F8242), // 2 嫩柳
+            Color(0xFFB8673D), // 3 杏仁
+            Color(0xFF2C7779), // 4 石青
+            Color(0xFF3E688E), // 5 天青
+            Color(0xFFA9573A), // 6 赭石
+            Color(0xFF9A4D6B), // 7 藕荷
+            Color(0xFF3E7A4E), // 8 石绿
+            Color(0xFF4E6B8A), // 9 花青
+            Color(0xFF6F5296), // 10 青莲
+            Color(0xFFA0445A)  // 11 胭脂
         )
     }
 
@@ -86,12 +94,19 @@ object LedgerCategoryColors {
         val p = palette(isDark)
         return when (category) {
             "餐饮" -> p[0]
-            "交通" -> p[1]
-            "购物" -> p[2]
-            "娱乐" -> p[3]
-            "住房", "居家" -> p[4]
-            "学习", "办公", "数码器材" -> p[5]
-            "医疗", "健康" -> p[6]
+            "交通" -> p[4]
+            "购物", "日用百货", "好物购置", "服饰美妆", "数码器材" -> p[6]
+            "居家", "住房", "水电燃气", "通讯网费" -> p[8]
+            "订阅", "订阅会员" -> p[9]
+            "娱乐", "旅行度假", "运动健康", "宠物" -> p[10]
+            "医疗", "健康", "利息手续费" -> p[11]
+            "学习", "办公" -> p[5]
+            "工资", "工资收入", "奖金补贴" -> p[8]
+            "副业", "兼职副业", "稿酬设计" -> p[9]
+            "理财", "投资理财" -> p[4]
+            "退款", "退款报销", "二手回血" -> p[2]
+            "其他", "其他收入", "人情社交", "礼金红包", "亲友转账" ->
+                if (isDark) Color(0xFFBEB6A6) else Color(0xFF77705F)
             else -> p[kotlin.math.abs(category.hashCode()) % p.size]
         }
     }

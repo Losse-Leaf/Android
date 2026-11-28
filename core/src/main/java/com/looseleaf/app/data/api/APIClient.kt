@@ -385,6 +385,18 @@ class APIClient private constructor(private val context: Context) {
         return resp.items
     }
 
+    suspend fun fetchCategoryRules(): List<CategoryRule> {
+        return executeEnvelopeRequest("/api/v1/category-rules", "GET")
+    }
+
+    suspend fun upsertCategoryRule(req: UpsertCategoryRuleRequest): CategoryRule {
+        return executeEnvelopeRequest("/api/v1/category-rules", "PUT", body = req.toJsonBody())
+    }
+
+    suspend fun deleteCategoryRule(id: Long) {
+        executeEnvelopeRequest<DeleteResponse>("/api/v1/category-rules/$id", "DELETE")
+    }
+
     suspend fun searchGlobalArchive(query: String, limit: Int = 20): GlobalSearchResponse {
         val params = mapOf("q" to query.trim(), "limit" to limit.toString())
         return executeEnvelopeRequest("/api/v1/search", "GET", queryParams = params)

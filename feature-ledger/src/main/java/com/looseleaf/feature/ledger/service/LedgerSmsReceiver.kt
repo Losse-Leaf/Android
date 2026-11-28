@@ -57,6 +57,10 @@ class LedgerSmsReceiver : BroadcastReceiver() {
             try {
                 LedgerRepository.ensureInitialized(appCtx)
                 val snapshot = LedgerRepository.snapshot.value
+                val expenseKeywords = snapshot.categoryKeywordsForType("expense")
+                val incomeKeywords = snapshot.categoryKeywordsForType("income")
+                val learnedExpense = AutoLedgerCategoryMemory.lookupMap(appCtx, "expense")
+                val learnedIncome = AutoLedgerCategoryMemory.lookupMap(appCtx, "income")
                 for ((sender, sb) in groupedBodies) {
                     val fullBody = sb.toString().trim()
                     if (fullBody.isBlank()) continue
@@ -84,6 +88,10 @@ class LedgerSmsReceiver : BroadcastReceiver() {
                         content = contentForParser,
                         expenseCategories = snapshot.expenseCategories,
                         incomeCategories = snapshot.incomeCategories,
+                        expenseCategoryKeywords = expenseKeywords,
+                        incomeCategoryKeywords = incomeKeywords,
+                        learnedExpenseRules = learnedExpense,
+                        learnedIncomeRules = learnedIncome,
                         nowMs = nowMs,
                         onCreate = { req -> LedgerRepository.createTransactionOptimistic(req) },
                         onEnrich = { localId, req -> LedgerRepository.updateTransactionOptimistic(-localId, req) }

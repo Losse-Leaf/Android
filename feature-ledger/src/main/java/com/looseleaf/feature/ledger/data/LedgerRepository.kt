@@ -8,6 +8,8 @@ import com.looseleaf.app.data.api.ResponseMeta
 import com.looseleaf.app.data.security.CredentialStore
 import com.looseleaf.app.model.*
 import com.looseleaf.app.utils.FormatUtils
+import com.looseleaf.app.utils.TransactionCategorizer
+import com.looseleaf.feature.ledger.service.AutoLedgerCategoryMemory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,24 +28,55 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
-// 与后端 backend/internal/db/db.go DefaultCategoriesMap 严格对齐
-internal val DefaultExpenseCategories = listOf(
-    "餐饮", "交通", "购物", "数码器材", "娱乐", "学习", "住房", "医疗", "旅行度假", "好物购置", "利息手续费", "其他"
+// 与后端 backend/internal/db/db.go DefaultCategorySeeds 严格对齐（全 2 字扁平大类，隐藏好物购置/利息手续费）
+internal val HiddenSystemExpenseCategories = setOf("好物购置", "利息手续费")
+
+internal val DefaultExpenseCategoryOptions = listOf(
+    CategoryOption(scope = "expense", name = "餐饮", sortOrder = 10, isBuiltin = true),
+    CategoryOption(scope = "expense", name = "交通", sortOrder = 20, isBuiltin = true),
+    CategoryOption(scope = "expense", name = "购物", sortOrder = 30, isBuiltin = true),
+    CategoryOption(scope = "expense", name = "居家", sortOrder = 40, isBuiltin = true),
+    CategoryOption(scope = "expense", name = "订阅", sortOrder = 50, isBuiltin = true),
+    CategoryOption(scope = "expense", name = "娱乐", sortOrder = 60, isBuiltin = true),
+    CategoryOption(scope = "expense", name = "医疗", sortOrder = 70, isBuiltin = true),
+    CategoryOption(scope = "expense", name = "学习", sortOrder = 80, isBuiltin = true),
+    CategoryOption(scope = "expense", name = "其他", sortOrder = 90, isBuiltin = true)
 )
-internal val DefaultIncomeCategories = listOf(
-    "工资收入", "二手回血", "稿酬设计", "投资理财", "礼金红包", "退款报销", "其他收入"
+internal val DefaultIncomeCategoryOptions = listOf(
+    CategoryOption(scope = "income", name = "工资", sortOrder = 10, isBuiltin = true),
+    CategoryOption(scope = "income", name = "副业", sortOrder = 20, isBuiltin = true),
+    CategoryOption(scope = "income", name = "理财", sortOrder = 30, isBuiltin = true),
+    CategoryOption(scope = "income", name = "退款", sortOrder = 40, isBuiltin = true),
+    CategoryOption(scope = "income", name = "其他", sortOrder = 50, isBuiltin = true)
 )
-internal val DefaultPaymentMethods = listOf("微信支付", "支付宝", "银行卡", "现金", "其他")
+internal val DefaultExpenseCategories = DefaultExpenseCategoryOptions.map { it.name }
+internal val DefaultIncomeCategories = DefaultIncomeCategoryOptions.map { it.name }
+internal val DefaultPaymentMethods = listOf("微信支付", "支付宝", "银行卡", "信用卡", "现金", "其他")
 
 internal data class LedgerSnapshot(
     val expenseCategories: List<String> = DefaultExpenseCategories,
     val incomeCategories: List<String> = DefaultIncomeCategories,
     val paymentMethods: List<String> = DefaultPaymentMethods,
+    val expenseCategoryOptions: List<CategoryOption> = DefaultExpenseCategoryOptions,
+    val incomeCategoryOptions: List<CategoryOption> = DefaultIncomeCategoryOptions,
     val creditChannels: List<CreditChannel> = emptyList(),
     val installmentPlans: List<InstallmentPlanItemSummary> = emptyList(),
     val installmentSummary: InstallmentSummary? = null,
     val upcomingInstallmentItems: List<UpcomingInstallmentItem> = emptyList()
-)
+) {
+    fun categoryKeywordsForType(type: String): Map<String, List<String>> {
+        val opts = if (type == "income") incomeCategoryOptions else expenseCategoryOptions
+        return opts.mapNotNull { opt ->
+            val kws = TransactionCategorizer.parseKeywords(opt.keywords)
+            if (kws.isEmpty()) null else opt.name to kws
+        }.toMap()
+    }
+
+    fun categoryGroupMap(type: String): Map<String, String> {
+        val opts = if (type == "income") incomeCategoryOptions else expenseCategoryOptions
+        return opts.associate { it.name to it.groupName }
+    }
+}
 
 internal data class LedgerDeleteUndoTicket(
     val entity: CachedTransactionEntity,
@@ -146,21 +179,39 @@ internal object LedgerRepository {
     private fun restoreCachedCategoriesFromPrefs() {
         val prefs = getSyncPrefs() ?: return
         val hash = getBaseUrlHash()
+        val rawOptions = prefs.getString("cached_cat_options_v3_$hash", null)
+        if (!rawOptions.isNullOrBlank()) {
+            val restored = runCatching { json.decodeFromString<List<CategoryOption>>(rawOptions) }.getOrNull()
+            if (!restored.isNullOrEmpty()) {
+                applyFetchedCategories(restored, persist = false)
+                return
+            }
+        }
         val expense = decodeStringList(prefs.getString("cached_cat_expense_$hash", null))
+            .filterNot { it in HiddenSystemExpenseCategories }
         val income = decodeStringList(prefs.getString("cached_cat_income_$hash", null))
         val payments = decodeStringList(prefs.getString("cached_cat_payment_$hash", null))
         if (expense.isNotEmpty() || income.isNotEmpty() || payments.isNotEmpty()) {
+            val defaultExpByName = DefaultExpenseCategoryOptions.associateBy { it.name }
+            val defaultIncByName = DefaultIncomeCategoryOptions.associateBy { it.name }
             _snapshot.update {
                 it.copy(
                     expenseCategories = expense.ifEmpty { it.expenseCategories },
                     incomeCategories = income.ifEmpty { it.incomeCategories },
-                    paymentMethods = payments.ifEmpty { it.paymentMethods }
+                    paymentMethods = payments.ifEmpty { it.paymentMethods },
+                    expenseCategoryOptions = if (expense.isNotEmpty()) {
+                        expense.map { name -> defaultExpByName[name] ?: CategoryOption(scope = "expense", name = name) }
+                    } else it.expenseCategoryOptions,
+                    incomeCategoryOptions = if (income.isNotEmpty()) {
+                        income.map { name -> defaultIncByName[name] ?: CategoryOption(scope = "income", name = name) }
+                    } else it.incomeCategoryOptions
                 )
             }
         }
     }
 
     private fun saveCachedCategoriesToPrefs(
+        allCats: List<CategoryOption>,
         expense: List<String>,
         income: List<String>,
         payments: List<String>
@@ -168,6 +219,7 @@ internal object LedgerRepository {
         val prefs = getSyncPrefs() ?: return
         val hash = getBaseUrlHash()
         prefs.edit().apply {
+            if (allCats.isNotEmpty()) putString("cached_cat_options_v3_$hash", json.encodeToString(allCats))
             if (expense.isNotEmpty()) putString("cached_cat_expense_$hash", json.encodeToString(expense))
             if (income.isNotEmpty()) putString("cached_cat_income_$hash", json.encodeToString(income))
             if (payments.isNotEmpty()) putString("cached_cat_payment_$hash", json.encodeToString(payments))
@@ -183,18 +235,30 @@ internal object LedgerRepository {
             .distinct()
     }
 
-    private fun applyFetchedCategories(allCats: List<CategoryOption>) {
-        val expense = allCats.filter { it.scope == "expense" }.map { it.name.trim() }.filter { it.isNotEmpty() }.distinct()
-        val income = allCats.filter { it.scope == "income" }.map { it.name.trim() }.filter { it.isNotEmpty() }.distinct()
+    private fun applyFetchedCategories(allCats: List<CategoryOption>, persist: Boolean = true) {
+        val expenseOpts = allCats
+            .filter { it.scope == "expense" && it.name.isNotBlank() && it.name.trim() !in HiddenSystemExpenseCategories }
+            .distinctBy { it.name.trim() }
+            .map { opt -> opt.copy(name = opt.name.trim(), groupName = "") }
+        val incomeOpts = allCats
+            .filter { it.scope == "income" && it.name.isNotBlank() }
+            .distinctBy { it.name.trim() }
+            .map { opt -> opt.copy(name = opt.name.trim(), groupName = "") }
+        val expense = expenseOpts.map { it.name }
+        val income = incomeOpts.map { it.name }
         val payments = allCats.filter { it.scope == "payment" }.map { it.name.trim() }.filter { it.isNotEmpty() }.distinct()
         _snapshot.update {
             it.copy(
                 expenseCategories = expense.ifEmpty { DefaultExpenseCategories },
                 incomeCategories = income.ifEmpty { DefaultIncomeCategories },
-                paymentMethods = payments.ifEmpty { DefaultPaymentMethods }
+                paymentMethods = payments.ifEmpty { DefaultPaymentMethods },
+                expenseCategoryOptions = expenseOpts.ifEmpty { DefaultExpenseCategoryOptions },
+                incomeCategoryOptions = incomeOpts.ifEmpty { DefaultIncomeCategoryOptions }
             )
         }
-        saveCachedCategoriesToPrefs(expense, income, payments)
+        if (persist) {
+            saveCachedCategoriesToPrefs(expenseOpts + incomeOpts + allCats.filter { it.scope == "payment" }, expense, income, payments)
+        }
     }
 
     internal fun currentCategoriesForType(type: String): List<String> {
@@ -209,6 +273,7 @@ internal object LedgerRepository {
         validCategories: List<String>? = null
     ): String {
         val normalizedType = if (type == "income") "income" else "expense"
+        val snap = _snapshot.value
         val dictionary = (validCategories ?: currentCategoriesForType(normalizedType))
             .map { it.trim() }
             .filter { it.isNotEmpty() }
@@ -220,7 +285,9 @@ internal object LedgerRepository {
         return FormatUtils.inferCategoryFromText(
             text = text,
             knownCategories = dictionary,
-            type = normalizedType
+            type = normalizedType,
+            categoryKeywords = snap.categoryKeywordsForType(normalizedType),
+            learnedMerchantRules = AutoLedgerCategoryMemory.lookupMap(appContext, normalizedType)
         )
     }
 
@@ -839,6 +906,14 @@ internal object LedgerRepository {
                 val sevenDaysAgo = Instant.now().minus(java.time.Duration.ofDays(7)).toString()
                 db.outboxDao().cleanExpiredFailedEvents(sevenDaysAgo)
 
+                // 5. 冷启动首次记忆预热（仅从非自动记账历史流水中提取高频手动规则）
+                appContext?.let { ctx ->
+                    AutoLedgerCategoryMemory.warmupFromManualHistoryIfEmpty(
+                        context = ctx,
+                        transactions = db.transactionDao().getAllTransactions()
+                    )
+                }
+
                 !flushOutcome.hasTransientFailure
             }.also { res ->
                 val ex = res.exceptionOrNull()
@@ -1453,6 +1528,7 @@ internal object LedgerRepository {
         fetchInstallments = { apiClient.fetchInstallmentPlans() },
         fetchSummary = { apiClient.fetchInstallmentSummary() },
         fetchUpcoming = { apiClient.fetchUpcomingInstallmentItems() },
+        fetchCategoryRules = { apiClient.fetchCategoryRules() },
         force = force
     )
 
@@ -1462,6 +1538,7 @@ internal object LedgerRepository {
         fetchInstallments: (suspend () -> List<InstallmentPlanItemSummary>)? = null,
         fetchSummary: (suspend () -> InstallmentSummary)? = null,
         fetchUpcoming: (suspend () -> List<UpcomingInstallmentItem>)? = null,
+        fetchCategoryRules: (suspend () -> List<CategoryRule>)? = null,
         force: Boolean = false
     ) = withContext(Dispatchers.IO) {
         if (initialized && !force) {
@@ -1474,6 +1551,7 @@ internal object LedgerRepository {
             val installmentsDeferred = async { if (fetchInstallments != null) runCatching { fetchInstallments() } else null }
             val summaryDeferred = async { if (fetchSummary != null) runCatching { fetchSummary() } else null }
             val upcomingDeferred = async { if (fetchUpcoming != null) runCatching { fetchUpcoming() } else null }
+            val rulesDeferred = async { if (fetchCategoryRules != null) runCatching { fetchCategoryRules() } else null }
 
             val categoriesResult = categoriesDeferred.await()
             categoriesResult.getOrNull()?.let { allCats ->
@@ -1495,6 +1573,10 @@ internal object LedgerRepository {
                     installmentSummary = summary,
                     upcomingInstallmentItems = upcoming
                 )
+            }
+
+            rulesDeferred.await()?.getOrNull()?.let { rules ->
+                AutoLedgerCategoryMemory.mergeRemoteRules(appContext, rules)
             }
 
             if (categoriesResult.isSuccess) initialized = true

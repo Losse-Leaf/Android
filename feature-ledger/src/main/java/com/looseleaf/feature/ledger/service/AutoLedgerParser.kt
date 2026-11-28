@@ -1,7 +1,9 @@
 package com.looseleaf.feature.ledger.service
 
 import com.looseleaf.app.model.CreateTransactionRequest
+import com.looseleaf.app.utils.CategorizationInput
 import com.looseleaf.app.utils.FormatUtils
+import com.looseleaf.app.utils.TransactionCategorizer
 import java.time.LocalDateTime
 import java.util.Locale
 import java.util.regex.Matcher
@@ -290,6 +292,11 @@ internal object AutoLedgerParser {
         """(?:已从|从)\s*[^，。！？；：\n]{1,36}?\s*(?:扣款|扣费|扣除|支取|付款|支付)$SAFE_GAP$STRICT_AMOUNT"""
     )
 
+    // 支付宝/微信「自动扣款：Apple iCloud 6.00元」「免密支付：腾讯视频 25.00元」
+    private val EXPENSE_AUTO_DEDUCT_PATTERN = Pattern.compile(
+        """(?:自动扣款|免密支付|定期扣款|连续包月扣款)\s*[:：]\s*([^，。！？；：\n¥￥]{1,28}?)(?:\s+|(?=[¥￥]))(?:(?:扣款|扣费|支付|付款|交易)?金额[\s:：]*)?$STRICT_AMOUNT"""
+    )
+
     private val EXPENSE_REVERSE_PATTERN = Pattern.compile(
         """(?:你有一笔|您有一笔|一笔|成功)\s*$STRICT_AMOUNT\s*的?(?:支出|消费|付款|扣款|扣费|转账|转出|汇款)"""
     )
@@ -461,6 +468,7 @@ internal object AutoLedgerParser {
             EXPENSE_PAYEE_VERB_AFTER_PATTERN,
             EXPENSE_PAYEE_VERB_BEFORE_PATTERN,
             EXPENSE_FROM_ACCOUNT_PATTERN,
+            EXPENSE_AUTO_DEDUCT_PATTERN,
             EXPENSE_REVERSE_PATTERN,
             INCOME_REVERSE_PATTERN,
             RECEIPT_CUE_WITH_AMOUNT_PATTERN
@@ -519,7 +527,11 @@ internal object AutoLedgerParser {
         content: String,
         pkg: String = "",
         expenseCategories: List<String> = emptyList(),
-        incomeCategories: List<String> = emptyList()
+        incomeCategories: List<String> = emptyList(),
+        expenseCategoryKeywords: Map<String, List<String>> = emptyMap(),
+        incomeCategoryKeywords: Map<String, List<String>> = emptyMap(),
+        learnedExpenseRules: Map<String, String> = emptyMap(),
+        learnedIncomeRules: Map<String, String> = emptyMap()
     ): ParsedAutoLedgerBill? {
         if (isVerificationCodeOrSpam(content)) return null
 
@@ -596,12 +608,22 @@ internal object AutoLedgerParser {
         }
 
         val scopedCategories = if (type == "income") incomeCategories else expenseCategories
-        val categoryHintText = if (merchant != null) "$merchant $sanitized" else sanitized
-        val category = FormatUtils.inferCategoryFromText(
-            text = categoryHintText,
-            knownCategories = scopedCategories,
-            type = type
+        val scopedKeywords = if (type == "income") incomeCategoryKeywords else expenseCategoryKeywords
+        val scopedLearned = if (type == "income") learnedIncomeRules else learnedExpenseRules
+        val categorization = TransactionCategorizer.categorize(
+            CategorizationInput(
+                type = type,
+                merchant = merchant,
+                rawText = sanitized,
+                amountCents = amountCents,
+                isTransfer = isTransfer,
+                paymentMethod = paymentMethod,
+                knownCategories = scopedCategories,
+                categoryKeywords = scopedKeywords,
+                learnedMerchantRules = scopedLearned
+            )
         )
+        val category = categorization.category
 
         val title = when {
             type == "income" && isTransfer && merchant != null -> "收到转账 · $merchant"
@@ -662,7 +684,9 @@ internal object AutoLedgerParser {
             normalizedContent = normalizeContentForDedupe(content),
             qualityScore = qualityScore,
             channelHint = channelHint,
-            notifyOrigin = notifyOrigin
+            notifyOrigin = notifyOrigin,
+            categoryConfidence = categorization.confidence,
+            categoryReason = categorization.matchedReason
         )
     }
 
@@ -800,10 +824,18 @@ internal object AutoLedgerParser {
             }
         }
 
-        // 4. 明确支出反序模板（「你有一笔 36.50 元的支出/转账」）
+        // 4. 明确支出反序模板（「你有一笔 36.50 元的支出/转账」）与自动扣款/免密模板
         EXPENSE_REVERSE_PATTERN.matcher(sanitized).let { m ->
             if (m.find()) {
                 extractFirstAmount(m)?.let { return Triple("expense", it, null) }
+            }
+        }
+        EXPENSE_AUTO_DEDUCT_PATTERN.matcher(sanitized).let { m ->
+            if (m.find()) {
+                val payee = m.group(1)?.trim()
+                if (!isPromoEntity(payee)) {
+                    extractFirstAmount(m, startGroup = 2)?.let { return Triple("expense", it, payee) }
+                }
             }
         }
 
